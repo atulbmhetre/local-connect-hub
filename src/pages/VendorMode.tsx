@@ -15,7 +15,7 @@ const VendorMode = () => {
   // form
   const [name, setName] = useState("");
   const [shopName, setShopName] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0].label);
+  const [category, setCategory] = useState<string>(CATEGORIES[0].label);
   const [upi, setUpi] = useState("");
 
   useEffect(() => {
