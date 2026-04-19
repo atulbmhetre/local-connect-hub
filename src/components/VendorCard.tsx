@@ -1,8 +1,10 @@
-import { Phone, Store, BadgeCheck } from "lucide-react";
+import { Phone, Store, BadgeCheck, MapPin } from "lucide-react";
 import type { Vendor } from "@/lib/supabase";
 import { toast } from "sonner";
 
-export const VendorCard = ({ vendor }: { vendor: Vendor }) => {
+type Props = { vendor: Vendor; distanceKm?: number | null };
+
+export const VendorCard = ({ vendor, distanceKm }: Props) => {
   const handleCall = () => {
     toast("AI-Bridge Call", {
       description: `Connecting you to ${vendor.name} (${vendor.shop_name}). Live bridging coming soon.`,
@@ -19,8 +21,18 @@ export const VendorCard = ({ vendor }: { vendor: Vendor }) => {
             <h3 className="font-display font-bold truncate">{vendor.shop_name}</h3>
             <BadgeCheck className="h-4 w-4 text-secondary shrink-0" />
           </div>
-          <p className="text-sm text-muted-foreground truncate">{vendor.name} · {vendor.category}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">UPI: {vendor.upi_id}</p>
+          <p className="text-sm text-muted-foreground truncate">
+            {vendor.name} · {vendor.category}
+          </p>
+          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+            <span>UPI: {vendor.upi_id}</span>
+            {typeof distanceKm === "number" && (
+              <span className="inline-flex items-center gap-1">
+                <MapPin className="h-3 w-3" />
+                {distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`}
+              </span>
+            )}
+          </div>
         </div>
         <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full bg-secondary/15 text-secondary">
           Live
