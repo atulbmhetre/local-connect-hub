@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { supabase, type Vendor, CATEGORIES } from "@/lib/supabase";
 import { toast } from "sonner";
-import { CheckCircle2, Loader2, Power, AlertCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Power, AlertCircle, MapPin } from "lucide-react";
 
 const STORAGE_KEY = "aaspaas:vendor_id";
 
@@ -17,6 +17,9 @@ const VendorMode = () => {
   const [shopName, setShopName] = useState("");
   const [category, setCategory] = useState<string>(CATEGORIES[0].label);
   const [upi, setUpi] = useState("");
+  const [phone, setPhone] = useState("");
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("aaspaas:role", "vendor");
@@ -56,6 +59,26 @@ const VendorMode = () => {
     };
   }, [vendorId]);
 
+  const detectLocation = () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("Geolocation not supported on this device.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setCoords({ lat: p.coords.latitude, lng: p.coords.longitude });
+        setLocating(false);
+        toast.success("Shop location captured");
+      },
+      (err) => {
+        setLocating(false);
+        toast.error("Couldn't get location", { description: err.message });
+      },
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  };
+
   const register = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -67,7 +90,10 @@ const VendorMode = () => {
         shop_name: shopName.trim(),
         category: category.trim(),
         upi_id: upi.trim(),
+        phone: phone.trim(),
         is_active: false,
+        latitude: coords?.lat ?? null,
+        longitude: coords?.lng ?? null,
       })
       .select()
       .single();
@@ -135,7 +161,21 @@ const VendorMode = () => {
               <option value="Other">✨  Other</option>
             </select>
           </div>
+          <Field label="Phone" value={phone} onChange={setPhone} placeholder="+91 98xxxxxxxx" required />
           <Field label="UPI ID" value={upi} onChange={setUpi} placeholder="name@okbank" required />
+
+          <button
+            type="button"
+            onClick={detectLocation}
+            className={`w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold transition-colors ${
+              coords ? "border-secondary text-secondary bg-secondary/5" : "border-border text-foreground"
+            }`}
+          >
+            {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+            {coords
+              ? `Location set (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`
+              : "Use my current location"}
+          </button>
 
           <button
             disabled={loading}
@@ -178,10 +218,16 @@ const VendorMode = () => {
             </p>
           </div>
 
-          <div className="rounded-2xl bg-muted/60 p-4 text-sm">
+          <div className="rounded-2xl bg-muted/60 p-4 text-sm space-y-1">
             <p className="font-semibold">{vendor.shop_name}</p>
             <p className="text-muted-foreground">{vendor.name} · {vendor.category}</p>
-            <p className="text-muted-foreground text-xs mt-1">UPI: {vendor.upi_id}</p>
+            <p className="text-muted-foreground text-xs">📞 {vendor.phone}</p>
+            <p className="text-muted-foreground text-xs">UPI: {vendor.upi_id}</p>
+            {vendor.latitude != null && vendor.longitude != null && (
+              <p className="text-muted-foreground text-xs">
+                📍 {vendor.latitude.toFixed(4)}, {vendor.longitude.toFixed(4)}
+              </p>
+            )}
           </div>
 
           <button onClick={signOut} className="w-full text-sm text-muted-foreground underline">

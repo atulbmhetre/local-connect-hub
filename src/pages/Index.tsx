@@ -4,25 +4,32 @@ import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { Radar } from "@/components/Radar";
 import { VendorCard } from "@/components/VendorCard";
-import { supabase, type Vendor } from "@/lib/supabase";
+import { supabase, type Vendor, distanceKm } from "@/lib/supabase";
 import { Mic, Search, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
-// Web Speech API typing
-type SR = typeof window extends { SpeechRecognition: infer T } ? T : any;
+type Ranked = { vendor: Vendor; dist: number | null };
 
 const Index = () => {
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState<Vendor[] | null>(null);
+  const [results, setResults] = useState<Ranked[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const recRef = useRef<any>(null);
 
   useEffect(() => {
     if (!localStorage.getItem("aaspaas:role")) {
       localStorage.setItem("aaspaas:role", "user");
+    }
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => {},
+        { enableHighAccuracy: false, timeout: 4000, maximumAge: 60_000 },
+      );
     }
   }, []);
 
@@ -31,17 +38,30 @@ const Index = () => {
     setError(null);
     setResults(null);
     try {
-      // small delay so the radar feels alive
-      await new Promise((r) => setTimeout(r, 700));
+      await new Promise((r) => setTimeout(r, 700)); // let radar breathe
       const { data, error } = await supabase
         .from("vendors")
         .select("*")
         .eq("is_active", true)
         .or(`category.ilike.%${term}%,shop_name.ilike.%${term}%,name.ilike.%${term}%`)
         .order("created_at", { ascending: false })
-        .limit(20);
+        .limit(30);
       if (error) throw error;
-      setResults((data ?? []) as Vendor[]);
+      const list = (data ?? []) as Vendor[];
+      const ranked: Ranked[] = list.map((v) => ({
+        vendor: v,
+        dist:
+          coords && v.latitude != null && v.longitude != null
+            ? distanceKm(coords, { lat: v.latitude, lng: v.longitude })
+            : null,
+      }));
+      ranked.sort((a, b) => {
+        if (a.dist == null && b.dist == null) return 0;
+        if (a.dist == null) return 1;
+        if (b.dist == null) return -1;
+        return a.dist - b.dist;
+      });
+      setResults(ranked);
     } catch (e: any) {
       setError(e.message ?? "Connection Error");
     } finally {
@@ -133,9 +153,11 @@ const Index = () => {
 
       {!searching && results && results.length > 0 && (
         <section className="space-y-3 pb-4">
-          <h2 className="font-display text-xl font-bold">Available now</h2>
-          {results.map((v) => (
-            <VendorCard key={v.id} vendor={v} />
+          <h2 className="font-display text-xl font-bold">
+            {coords ? "Nearest, available now" : "Available now"}
+          </h2>
+          {results.map(({ vendor, dist }) => (
+            <VendorCard key={vendor.id} vendor={vendor} distanceKm={dist} />
           ))}
         </section>
       )}
