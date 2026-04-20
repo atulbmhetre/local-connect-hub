@@ -175,9 +175,42 @@ const VendorMode = () => {
     if (!vendor) return;
     const next = !vendor.is_active;
     setVendor({ ...vendor, is_active: next });
+
+    // Mobile services (mechanic, key maker) refresh GPS each time they go live,
+    // so customers always see their current position on the radar.
+    let liveCoords: { lat: number; lng: number } | null = null;
+    if (next && isMobileCategory(vendor.category)) {
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          if (!("geolocation" in navigator)) {
+            reject(new Error("Geolocation not supported"));
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 8000,
+            maximumAge: 0,
+          });
+        });
+        liveCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      } catch (e: any) {
+        setVendor({ ...vendor, is_active: !next });
+        toast.error("Location required to go live", {
+          description: "Mobile services need a fresh GPS fix when going online.",
+        });
+        return;
+      }
+    }
+
+    const patch: Record<string, unknown> = { is_active: next };
+    if (liveCoords) {
+      patch.latitude = liveCoords.lat;
+      patch.longitude = liveCoords.lng;
+    }
+
     const { error } = await supabase
       .from("vendors")
-      .update({ is_active: next })
+      .update(patch)
       .eq("id", vendor.id);
     if (error) {
       setVendor({ ...vendor, is_active: !next });
@@ -185,7 +218,9 @@ const VendorMode = () => {
     } else {
       toast(next ? "You're live ✨" : "You're offline", {
         description: next
-          ? "Customers nearby can now find you."
+          ? liveCoords
+            ? "Live position updated. Customers nearby can now find you."
+            : "Customers nearby can now find you."
           : "You won't receive new requests.",
       });
     }
