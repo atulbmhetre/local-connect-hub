@@ -138,8 +138,40 @@ const Index = () => {
     rec.start();
   };
 
+  const switchRole = (next: "user" | "vendor") => {
+    setRole(next);
+    localStorage.setItem("aaspaas:role", next);
+    if (next === "vendor") navigate("/vendor");
+  };
+
   return (
     <AppShell>
+      {/* Prominent role switch — top of Home */}
+      <div className="mb-5 grid grid-cols-2 gap-2 p-1 rounded-2xl bg-muted/70 border border-border">
+        <button
+          onClick={() => switchRole("user")}
+          aria-pressed={role === "user"}
+          className={`rounded-xl py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all ${
+            role === "user"
+              ? "bg-primary text-primary-foreground shadow-card"
+              : "text-muted-foreground"
+          }`}
+        >
+          <User className="h-4 w-4" /> I need help
+        </button>
+        <button
+          onClick={() => switchRole("vendor")}
+          aria-pressed={role === "vendor"}
+          className={`rounded-xl py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all ${
+            role === "vendor"
+              ? "bg-gradient-vendor text-secondary-foreground shadow-card"
+              : "text-muted-foreground"
+          }`}
+        >
+          <Store className="h-4 w-4" /> I'm a vendor
+        </button>
+      </div>
+
       <header className="text-center mb-6 animate-fade-up">
         <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Aaspaas Pro</p>
         <h1 className="font-display text-3xl font-bold mt-1">Help, around you. Now.</h1>
