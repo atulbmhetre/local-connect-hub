@@ -1,18 +1,41 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { supabase, type Vendor, CATEGORIES } from "@/lib/supabase";
+import {
+  supabase,
+  type Vendor,
+  type VerificationStatus,
+  CATEGORIES,
+  SHOP_PHOTOS_BUCKET,
+  GPS_MATCH_TOLERANCE_M,
+  isValidPhone,
+  isValidUpi,
+  distanceMeters,
+} from "@/lib/supabase";
 import { toast } from "sonner";
-import { CheckCircle2, Loader2, Power, AlertCircle, MapPin } from "lucide-react";
+import {
+  CheckCircle2,
+  Loader2,
+  Power,
+  AlertCircle,
+  MapPin,
+  Camera,
+  ShieldCheck,
+  AlertTriangle,
+} from "lucide-react";
+import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
+import { VerificationBadge } from "@/components/VerificationBadge";
 
 const STORAGE_KEY = "aaspaas:vendor_id";
 
 const VendorMode = () => {
-  const [vendorId, setVendorId] = useState<string | null>(localStorage.getItem(STORAGE_KEY));
+  const [vendorId, setVendorId] = useState<string | null>(
+    localStorage.getItem(STORAGE_KEY),
+  );
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // form
+  // ---- registration form ----
   const [name, setName] = useState("");
   const [shopName, setShopName] = useState("");
   const [category, setCategory] = useState<string>(CATEGORIES[0].label);
@@ -20,6 +43,11 @@ const VendorMode = () => {
   const [phone, setPhone] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
+
+  // ---- profile actions ----
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [verifyingUpi, setVerifyingUpi] = useState(false);
+  const [updatingLocation, setUpdatingLocation] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("aaspaas:role", "vendor");
@@ -59,30 +87,56 @@ const VendorMode = () => {
     };
   }, [vendorId]);
 
-  const detectLocation = () => {
-    if (!("geolocation" in navigator)) {
-      toast.error("Geolocation not supported on this device.");
-      return;
-    }
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        setCoords({ lat: p.coords.latitude, lng: p.coords.longitude });
-        setLocating(false);
-        toast.success("Shop location captured");
-      },
-      (err) => {
-        setLocating(false);
-        toast.error("Couldn't get location", { description: err.message });
-      },
-      { enableHighAccuracy: true, timeout: 8000 },
-    );
+  const detectLocation = (): Promise<{ lat: number; lng: number } | null> => {
+    return new Promise((resolve) => {
+      if (!("geolocation" in navigator)) {
+        toast.error("Geolocation not supported on this device.");
+        resolve(null);
+        return;
+      }
+      setLocating(true);
+      navigator.geolocation.getCurrentPosition(
+        (p) => {
+          const c = { lat: p.coords.latitude, lng: p.coords.longitude };
+          setCoords(c);
+          setLocating(false);
+          toast.success("Shop location captured");
+          resolve(c);
+        },
+        (err) => {
+          setLocating(false);
+          toast.error("Couldn't get location", { description: err.message });
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+      );
+    });
   };
+
+  // ---- registration ----
+  const phoneOk = isValidPhone(phone);
+  const upiFmtOk = isValidUpi(upi);
+  const canRegister =
+    name.trim().length > 1 &&
+    shopName.trim().length > 1 &&
+    phoneOk &&
+    upiFmtOk &&
+    !loading;
 
   const register = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canRegister) {
+      toast.error("Please complete required fields", {
+        description: "A valid phone number is mandatory to register.",
+      });
+      return;
+    }
     setLoading(true);
     setError(null);
+
+    // Phone + UPI on file ⇒ identity_linked
+    const initialStatus: VerificationStatus = "identity_linked";
+
     const { data, error } = await supabase
       .from("vendors")
       .insert({
@@ -94,6 +148,10 @@ const VendorMode = () => {
         is_active: false,
         latitude: coords?.lat ?? null,
         longitude: coords?.lng ?? null,
+        verification_status: initialStatus,
+        upi_verified: false,
+        is_manual_verified: false,
+        shop_photo_url: null,
       })
       .select()
       .single();
@@ -105,22 +163,151 @@ const VendorMode = () => {
     localStorage.setItem(STORAGE_KEY, data.id);
     setVendorId(data.id);
     setVendor(data as Vendor);
-    toast.success("Welcome aboard!", { description: "Flip the toggle to start receiving requests." });
+    toast.success("Welcome aboard!", {
+      description: "Identity linked. Capture a live shop photo to upgrade to Verified.",
+    });
   };
 
+  // ---- runtime actions ----
   const toggleActive = async () => {
     if (!vendor) return;
     const next = !vendor.is_active;
-    setVendor({ ...vendor, is_active: next }); // optimistic
-    const { error } = await supabase.from("vendors").update({ is_active: next }).eq("id", vendor.id);
+    setVendor({ ...vendor, is_active: next });
+    const { error } = await supabase
+      .from("vendors")
+      .update({ is_active: next })
+      .eq("id", vendor.id);
     if (error) {
       setVendor({ ...vendor, is_active: !next });
       toast.error("Couldn't update status", { description: error.message });
     } else {
       toast(next ? "You're live ✨" : "You're offline", {
-        description: next ? "Customers nearby can now find you." : "You won't receive new requests.",
+        description: next
+          ? "Customers nearby can now find you."
+          : "You won't receive new requests.",
       });
     }
+  };
+
+  const verifyUpi = async () => {
+    if (!vendor) return;
+    if (!isValidUpi(vendor.upi_id)) {
+      toast.error("Invalid UPI format", { description: "Expected handle@bank" });
+      return;
+    }
+    setVerifyingUpi(true);
+    // Simulated bank-name lookup. Replace with a real PSP call later.
+    await new Promise((r) => setTimeout(r, 900));
+    const bank = vendor.upi_id.split("@")[1] ?? "bank";
+    const { error } = await supabase
+      .from("vendors")
+      .update({ upi_verified: true })
+      .eq("id", vendor.id);
+    setVerifyingUpi(false);
+    if (error) {
+      toast.error("Couldn't verify UPI", { description: error.message });
+      return;
+    }
+    toast.success(`UPI verified · ${bank.toUpperCase()}`, {
+      description: "Bank handle looks valid.",
+    });
+  };
+
+  const handleShopPhoto = async (shot: CapturedShot) => {
+    if (!vendor) return;
+    setCameraOpen(false);
+
+    // 1. GPS match check vs the recorded shop coords.
+    if (vendor.latitude == null || vendor.longitude == null) {
+      toast.error("Set your shop location first", {
+        description: "Tap 'Update Shop Location' before capturing the photo.",
+      });
+      return;
+    }
+    const meters = distanceMeters(
+      { lat: vendor.latitude, lng: vendor.longitude },
+      shot.coords,
+    );
+    if (meters > GPS_MATCH_TOLERANCE_M) {
+      toast.error("Location mismatch", {
+        description: `Photo was taken ${Math.round(meters)} m from your shop. Must be within ${GPS_MATCH_TOLERANCE_M} m.`,
+      });
+      return;
+    }
+
+    // 2. Upload to Storage.
+    const path = `${vendor.id}/${Date.now()}.jpg`;
+    const { error: upErr } = await supabase.storage
+      .from(SHOP_PHOTOS_BUCKET)
+      .upload(path, shot.blob, {
+        contentType: "image/jpeg",
+        upsert: true,
+      });
+    if (upErr) {
+      toast.error("Upload failed", { description: upErr.message });
+      return;
+    }
+    const { data: pub } = supabase.storage.from(SHOP_PHOTOS_BUCKET).getPublicUrl(path);
+
+    // 3. Promote to business_verified (admin still gates the green glow).
+    const { error: updErr } = await supabase
+      .from("vendors")
+      .update({
+        shop_photo_url: pub.publicUrl,
+        verification_status: "business_verified" as VerificationStatus,
+      })
+      .eq("id", vendor.id);
+    if (updErr) {
+      toast.error("Couldn't save verification", { description: updErr.message });
+      return;
+    }
+    toast.success("Shop photo verified", {
+      description: vendor.is_manual_verified
+        ? "Green badge live."
+        : "Awaiting final admin approval for the Green badge.",
+    });
+  };
+
+  const updateShopLocation = async () => {
+    if (!vendor) return;
+    if (vendor.verification_status === "business_verified") {
+      const ok = window.confirm(
+        "Changing your location will require re-verification of your shop. Continue?",
+      );
+      if (!ok) return;
+    }
+    const c = await detectLocation();
+    if (!c) return;
+    setUpdatingLocation(true);
+
+    // If they were business_verified, drop them back to identity_linked and
+    // clear the manual flag — admin must re-approve after a fresh photo.
+    const downgraded = vendor.verification_status === "business_verified";
+    const patch: Partial<Vendor> = {
+      latitude: c.lat,
+      longitude: c.lng,
+      ...(downgraded
+        ? {
+            verification_status: "identity_linked" as VerificationStatus,
+            shop_photo_url: null,
+            is_manual_verified: false,
+          }
+        : {}),
+    };
+    const { error } = await supabase
+      .from("vendors")
+      .update(patch)
+      .eq("id", vendor.id);
+    setUpdatingLocation(false);
+    if (error) {
+      toast.error("Couldn't update location", { description: error.message });
+      return;
+    }
+    toast(downgraded ? "Re-verification required" : "Location updated", {
+      description: downgraded
+        ? "Capture a new live shop photo to regain Verified status."
+        : "Your shop coordinates have been saved.",
+    });
   };
 
   const signOut = () => {
@@ -161,8 +348,22 @@ const VendorMode = () => {
               <option value="Other">✨  Other</option>
             </select>
           </div>
-          <Field label="Phone" value={phone} onChange={setPhone} placeholder="+91 98xxxxxxxx" required />
-          <Field label="UPI ID" value={upi} onChange={setUpi} placeholder="name@okbank" required />
+          <Field
+            label="Phone (required)"
+            value={phone}
+            onChange={setPhone}
+            placeholder="+91 98xxxxxxxx"
+            required
+            error={phone.length > 0 && !phoneOk ? "Enter a valid 10-digit Indian mobile number." : undefined}
+          />
+          <Field
+            label="UPI ID"
+            value={upi}
+            onChange={setUpi}
+            placeholder="name@okbank"
+            required
+            error={upi.length > 0 && !upiFmtOk ? "UPI must look like handle@bank." : undefined}
+          />
 
           <button
             type="button"
@@ -178,12 +379,17 @@ const VendorMode = () => {
           </button>
 
           <button
-            disabled={loading}
-            className="w-full mt-2 rounded-2xl bg-gradient-vendor text-secondary-foreground py-4 font-semibold shadow-card active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+            disabled={!canRegister}
+            className="w-full mt-2 rounded-2xl bg-gradient-vendor text-secondary-foreground py-4 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
             Register me
           </button>
+          {!phoneOk && (
+            <p className="text-xs text-muted-foreground text-center">
+              Registration unlocks once a valid phone number is entered.
+            </p>
+          )}
         </form>
       )}
 
@@ -195,6 +401,7 @@ const VendorMode = () => {
 
       {vendor && (
         <div className="space-y-5 animate-fade-up">
+          {/* Status card */}
           <div className="rounded-3xl bg-card border border-border shadow-card p-6 text-center">
             <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Status</p>
             <p className={`mt-1 font-display text-2xl font-bold ${vendor.is_active ? "text-secondary" : "text-muted-foreground"}`}>
@@ -216,16 +423,104 @@ const VendorMode = () => {
             <p className="mt-5 text-sm text-muted-foreground">
               Tap to {vendor.is_active ? "go offline" : "go live"} instantly.
             </p>
+
+            <div className="mt-4 flex justify-center">
+              <VerificationBadge vendor={vendor} showLabel />
+            </div>
           </div>
 
-          <div className="rounded-2xl bg-muted/60 p-4 text-sm space-y-1">
-            <p className="font-semibold">{vendor.shop_name}</p>
-            <p className="text-muted-foreground">{vendor.name} · {vendor.category}</p>
-            <p className="text-muted-foreground text-xs">📞 {vendor.phone}</p>
-            <p className="text-muted-foreground text-xs">UPI: {vendor.upi_id}</p>
-            {vendor.latitude != null && vendor.longitude != null && (
-              <p className="text-muted-foreground text-xs">
-                📍 {vendor.latitude.toFixed(4)}, {vendor.longitude.toFixed(4)}
+          {/* Verification card */}
+          <div className="rounded-2xl bg-card border border-border shadow-card p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-secondary" />
+              <h2 className="font-display font-bold">Verification</h2>
+            </div>
+
+            <Step
+              done={isValidPhone(vendor.phone ?? "")}
+              title="Phone on file"
+              sub={vendor.phone || "Not provided"}
+            />
+
+            <div className="flex items-start justify-between gap-3">
+              <Step
+                done={vendor.upi_verified}
+                title="UPI bank-match"
+                sub={vendor.upi_id}
+              />
+              {!vendor.upi_verified && (
+                <button
+                  onClick={verifyUpi}
+                  disabled={verifyingUpi}
+                  className="text-xs font-semibold rounded-lg bg-primary text-primary-foreground px-3 py-2 disabled:opacity-60 shrink-0"
+                >
+                  {verifyingUpi ? "Checking…" : "Verify UPI"}
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-start justify-between gap-3">
+              <Step
+                done={!!vendor.shop_photo_url}
+                title="Live shop photo + GPS match"
+                sub={
+                  vendor.shop_photo_url
+                    ? "Captured & GPS verified"
+                    : "Live camera only · within 100 m of shop"
+                }
+              />
+              <button
+                onClick={() => setCameraOpen(true)}
+                className="text-xs font-semibold rounded-lg bg-foreground text-background px-3 py-2 shrink-0 inline-flex items-center gap-1"
+              >
+                <Camera className="h-3.5 w-3.5" />
+                {vendor.shop_photo_url ? "Re-shoot" : "Capture"}
+              </button>
+            </div>
+
+            {vendor.shop_photo_url && (
+              <img
+                src={vendor.shop_photo_url}
+                alt="Captured shop"
+                className="w-full rounded-xl border border-border"
+              />
+            )}
+
+            <div className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">
+              The Green “Business Verified” badge glows only after admin
+              approval ({vendor.is_manual_verified ? "✅ approved" : "pending"}).
+            </div>
+          </div>
+
+          {/* Shop info */}
+          <div className="rounded-2xl bg-muted/60 p-4 text-sm space-y-2">
+            <div>
+              <p className="font-semibold">{vendor.shop_name}</p>
+              <p className="text-muted-foreground">{vendor.name} · {vendor.category}</p>
+              <p className="text-muted-foreground text-xs">📞 {vendor.phone}</p>
+              <p className="text-muted-foreground text-xs">UPI: {vendor.upi_id}</p>
+              {vendor.latitude != null && vendor.longitude != null && (
+                <p className="text-muted-foreground text-xs">
+                  📍 {vendor.latitude.toFixed(4)}, {vendor.longitude.toFixed(4)}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={updateShopLocation}
+              disabled={updatingLocation}
+              className="w-full rounded-xl border-2 border-border py-2.5 text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {updatingLocation ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <MapPin className="h-4 w-4" />
+              )}
+              Update Shop Location
+            </button>
+            {vendor.verification_status === "business_verified" && (
+              <p className="text-[11px] text-muted-foreground inline-flex items-start gap-1">
+                <AlertTriangle className="h-3 w-3 text-accent mt-0.5 shrink-0" />
+                Moving location will reset your Verified status.
               </p>
             )}
           </div>
@@ -235,13 +530,26 @@ const VendorMode = () => {
           </button>
         </div>
       )}
+
+      <LiveCamera
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={handleShopPhoto}
+      />
     </AppShell>
   );
 };
 
 const Field = ({
-  label, value, onChange, placeholder, required,
-}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; required?: boolean }) => (
+  label, value, onChange, placeholder, required, error,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  error?: string;
+}) => (
   <div>
     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
     <input
@@ -249,8 +557,27 @@ const Field = ({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       required={required}
-      className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 focus:ring-primary"
+      className={`mt-1 w-full bg-card border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 ${
+        error ? "border-destructive focus:ring-destructive" : "border-border focus:ring-primary"
+      }`}
     />
+    {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+  </div>
+);
+
+const Step = ({ done, title, sub }: { done: boolean; title: string; sub: string }) => (
+  <div className="flex-1 flex items-start gap-3">
+    <span
+      className={`mt-0.5 h-5 w-5 rounded-full grid place-items-center shrink-0 ${
+        done ? "bg-secondary text-secondary-foreground" : "bg-muted text-muted-foreground"
+      }`}
+    >
+      {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+    </span>
+    <div className="min-w-0">
+      <p className="text-sm font-semibold">{title}</p>
+      <p className="text-xs text-muted-foreground truncate">{sub}</p>
+    </div>
   </div>
 );
 
