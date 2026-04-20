@@ -39,7 +39,18 @@ export const CATEGORIES = [
 ] as const;
 
 export const SHOP_PHOTOS_BUCKET = "shop-photos";
-export const GPS_MATCH_TOLERANCE_M = 100;
+export const GPS_MATCH_TOLERANCE_M = 75;
+
+// Categories whose vendors physically move to the customer.
+// Their GPS is refreshed every time they go "Ready to Help".
+export const MOBILE_CATEGORIES = new Set<string>([
+  "Tyre / Mechanic",
+  "Key Maker",
+]);
+
+export function isMobileCategory(category: string) {
+  return MOBILE_CATEGORIES.has(category);
+}
 
 export function distanceKm(
   a: { lat: number; lng: number },
