@@ -9,6 +9,7 @@ import {
   GPS_MATCH_TOLERANCE_M,
   isValidPhone,
   isValidUpi,
+  isMobileCategory,
   distanceMeters,
 } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ import {
   Camera,
   ShieldCheck,
   AlertTriangle,
+  Truck,
 } from "lucide-react";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { VerificationBadge } from "@/components/VerificationBadge";
