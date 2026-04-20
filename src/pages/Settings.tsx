@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { User, Store, Database, Trash2 } from "lucide-react";
+import { User, Store, Database, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 const Settings = () => {
   const [role, setRole] = useState<string>("user");
+  const [titleTaps, setTitleTaps] = useState(0);
+  const [devOpen, setDevOpen] = useState(false);
 
   useEffect(() => {
     setRole(localStorage.getItem("aaspaas:role") ?? "user");
@@ -16,7 +18,19 @@ const Settings = () => {
     toast.success(`Role set to ${r}`);
   };
 
+  // Hidden gesture: tap the page title 7× to unlock the developer menu.
+  const tapTitle = () => {
+    const next = titleTaps + 1;
+    setTitleTaps(next);
+    if (next >= 7) {
+      setDevOpen(true);
+      setTitleTaps(0);
+      toast("Developer menu unlocked");
+    }
+  };
+
   const reset = () => {
+    if (!window.confirm("Clear all locally stored Aaspaas data on this device?")) return;
     localStorage.removeItem("aaspaas:role");
     localStorage.removeItem("aaspaas:vendor_id");
     setRole("user");
@@ -27,7 +41,12 @@ const Settings = () => {
     <AppShell>
       <header className="mb-6">
         <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Settings</p>
-        <h1 className="font-display text-3xl font-bold mt-1">Make it yours.</h1>
+        <h1
+          onClick={tapTitle}
+          className="font-display text-3xl font-bold mt-1 select-none cursor-default"
+        >
+          Make it yours.
+        </h1>
       </header>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
@@ -49,12 +68,26 @@ const Settings = () => {
         </div>
       </section>
 
-      <button
-        onClick={reset}
-        className="w-full rounded-2xl bg-destructive/10 text-destructive py-4 font-semibold flex items-center justify-center gap-2"
-      >
-        <Trash2 className="h-4 w-4" /> Reset local data
-      </button>
+      {devOpen && (
+        <section className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 animate-fade-up">
+          <div className="flex items-center gap-2 mb-3">
+            <Wrench className="h-4 w-4 text-destructive" />
+            <p className="text-xs uppercase tracking-wider text-destructive font-semibold">Developer menu</p>
+          </div>
+          <button
+            onClick={reset}
+            className="w-full rounded-2xl bg-destructive/10 text-destructive py-4 font-semibold flex items-center justify-center gap-2"
+          >
+            <Trash2 className="h-4 w-4" /> Reset local data
+          </button>
+          <button
+            onClick={() => setDevOpen(false)}
+            className="w-full mt-2 text-xs text-muted-foreground underline"
+          >
+            Hide developer menu
+          </button>
+        </section>
+      )}
     </AppShell>
   );
 };

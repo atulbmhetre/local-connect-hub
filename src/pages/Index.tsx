@@ -1,12 +1,31 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { Radar } from "@/components/Radar";
 import { VendorCard } from "@/components/VendorCard";
-import { supabase, type Vendor, distanceKm } from "@/lib/supabase";
-import { Mic, Search, AlertCircle } from "lucide-react";
+import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
+import { Mic, Search, AlertCircle, User, Store } from "lucide-react";
 import { toast } from "sonner";
+
+// Strict category resolver: matches typed/voice input to a known category id.
+// Returns the canonical label (the value stored in vendors.category) or null.
+const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
+  { label: "Tyre / Mechanic", aliases: ["tyre", "tire", "mechanic", "puncture", "garage"] },
+  { label: "Key Maker", aliases: ["key", "keymaker", "locksmith", "duplicate key"] },
+  { label: "Medical", aliases: ["medical", "medicine", "pharmacy", "chemist", "doctor"] },
+  { label: "Electrician", aliases: ["electrician", "electric", "wiring", "current", "fuse"] },
+];
+
+function resolveCategory(term: string): string | null {
+  const t = term.toLowerCase().trim();
+  for (const c of KNOWN_CATEGORIES) {
+    if (c.label.toLowerCase() === t) return c.label;
+    if (c.aliases.some((a) => t.includes(a))) return c.label;
+  }
+  return null;
+}
 
 type Ranked = { vendor: Vendor; dist: number | null };
 
@@ -18,7 +37,11 @@ const Index = () => {
   const [error, setError] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [role, setRole] = useState<"user" | "vendor">(
+    (localStorage.getItem("aaspaas:role") as "user" | "vendor") || "user",
+  );
   const recRef = useRef<any>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!localStorage.getItem("aaspaas:role")) {
@@ -39,11 +62,15 @@ const Index = () => {
     setResults(null);
     try {
       await new Promise((r) => setTimeout(r, 700)); // let radar breathe
-      const { data, error } = await supabase
-        .from("vendors")
-        .select("*")
-        .eq("is_active", true)
-        .or(`category.ilike.%${term}%,shop_name.ilike.%${term}%,name.ilike.%${term}%`)
+      // Strict category-first filtering: a search for "Tyre" must NOT return
+      // a Key Maker. We resolve the term to a known category and require
+      // category equality. Free-text terms (e.g. "Gajar Halwa") fall back
+      // to a category ilike so the wrong vertical never leaks in.
+      const resolved = resolveCategory(term);
+      let q = supabase.from("vendors").select("*").eq("is_active", true);
+      if (resolved) q = q.eq("category", resolved);
+      else q = q.ilike("category", `%${term}%`);
+      const { data, error } = await q
         .order("created_at", { ascending: false })
         .limit(30);
       if (error) throw error;
@@ -111,8 +138,40 @@ const Index = () => {
     rec.start();
   };
 
+  const switchRole = (next: "user" | "vendor") => {
+    setRole(next);
+    localStorage.setItem("aaspaas:role", next);
+    if (next === "vendor") navigate("/vendor");
+  };
+
   return (
     <AppShell>
+      {/* Prominent role switch — top of Home */}
+      <div className="mb-5 grid grid-cols-2 gap-2 p-1 rounded-2xl bg-muted/70 border border-border">
+        <button
+          onClick={() => switchRole("user")}
+          aria-pressed={role === "user"}
+          className={`rounded-xl py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all ${
+            role === "user"
+              ? "bg-primary text-primary-foreground shadow-card"
+              : "text-muted-foreground"
+          }`}
+        >
+          <User className="h-4 w-4" /> I need help
+        </button>
+        <button
+          onClick={() => switchRole("vendor")}
+          aria-pressed={role === "vendor"}
+          className={`rounded-xl py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all ${
+            role === "vendor"
+              ? "bg-gradient-vendor text-secondary-foreground shadow-card"
+              : "text-muted-foreground"
+          }`}
+        >
+          <Store className="h-4 w-4" /> I'm a vendor
+        </button>
+      </div>
+
       <header className="text-center mb-6 animate-fade-up">
         <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Aaspaas Pro</p>
         <h1 className="font-display text-3xl font-bold mt-1">Help, around you. Now.</h1>

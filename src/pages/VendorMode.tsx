@@ -9,6 +9,7 @@ import {
   GPS_MATCH_TOLERANCE_M,
   isValidPhone,
   isValidUpi,
+  isMobileCategory,
   distanceMeters,
 } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ import {
   Camera,
   ShieldCheck,
   AlertTriangle,
+  Truck,
 } from "lucide-react";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { VerificationBadge } from "@/components/VerificationBadge";
@@ -173,9 +175,42 @@ const VendorMode = () => {
     if (!vendor) return;
     const next = !vendor.is_active;
     setVendor({ ...vendor, is_active: next });
+
+    // Mobile services (mechanic, key maker) refresh GPS each time they go live,
+    // so customers always see their current position on the radar.
+    let liveCoords: { lat: number; lng: number } | null = null;
+    if (next && isMobileCategory(vendor.category)) {
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          if (!("geolocation" in navigator)) {
+            reject(new Error("Geolocation not supported"));
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 8000,
+            maximumAge: 0,
+          });
+        });
+        liveCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      } catch (e: any) {
+        setVendor({ ...vendor, is_active: !next });
+        toast.error("Location required to go live", {
+          description: "Mobile services need a fresh GPS fix when going online.",
+        });
+        return;
+      }
+    }
+
+    const patch: Record<string, unknown> = { is_active: next };
+    if (liveCoords) {
+      patch.latitude = liveCoords.lat;
+      patch.longitude = liveCoords.lng;
+    }
+
     const { error } = await supabase
       .from("vendors")
-      .update({ is_active: next })
+      .update(patch)
       .eq("id", vendor.id);
     if (error) {
       setVendor({ ...vendor, is_active: !next });
@@ -183,7 +218,9 @@ const VendorMode = () => {
     } else {
       toast(next ? "You're live ✨" : "You're offline", {
         description: next
-          ? "Customers nearby can now find you."
+          ? liveCoords
+            ? "Live position updated. Customers nearby can now find you."
+            : "Customers nearby can now find you."
           : "You won't receive new requests.",
       });
     }
@@ -423,6 +460,12 @@ const VendorMode = () => {
             <p className="mt-5 text-sm text-muted-foreground">
               Tap to {vendor.is_active ? "go offline" : "go live"} instantly.
             </p>
+            {isMobileCategory(vendor.category) && (
+              <p className="mt-2 text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1">
+                <Truck className="h-3 w-3 text-secondary" />
+                Mobile service · GPS refreshes each time you go live.
+              </p>
+            )}
 
             <div className="mt-4 flex justify-center">
               <VerificationBadge vendor={vendor} showLabel />
@@ -466,7 +509,7 @@ const VendorMode = () => {
                 sub={
                   vendor.shop_photo_url
                     ? "Captured & GPS verified"
-                    : "Live camera only · within 100 m of shop"
+                    : "Live camera only · within 75 m of shop"
                 }
               />
               <button
