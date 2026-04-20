@@ -460,6 +460,12 @@ const VendorMode = () => {
             <p className="mt-5 text-sm text-muted-foreground">
               Tap to {vendor.is_active ? "go offline" : "go live"} instantly.
             </p>
+            {isMobileCategory(vendor.category) && (
+              <p className="mt-2 text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1">
+                <Truck className="h-3 w-3 text-secondary" />
+                Mobile service · GPS refreshes each time you go live.
+              </p>
+            )}
 
             <div className="mt-4 flex justify-center">
               <VerificationBadge vendor={vendor} showLabel />
