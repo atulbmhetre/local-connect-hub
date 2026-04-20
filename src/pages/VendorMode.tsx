@@ -509,7 +509,7 @@ const VendorMode = () => {
                 sub={
                   vendor.shop_photo_url
                     ? "Captured & GPS verified"
-                    : "Live camera only · within 100 m of shop"
+                    : "Live camera only · within 75 m of shop"
                 }
               />
               <button
