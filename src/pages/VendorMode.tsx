@@ -432,13 +432,11 @@ const VendorMode = () => {
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 focus:ring-primary"
+              className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 focus:ring-primary vendor-select"
             >
               {CATEGORIES.map((c) => (
                 <option key={c.id} value={c.label}>{c.emoji}  {c.label}</option>
               ))}
-              <option value="Food & Sweets">🍮  Food & Sweets</option>
-              <option value="Other">✨  Other</option>
             </select>
             {isOther && (
               <div className="mt-3 animate-fade-up">

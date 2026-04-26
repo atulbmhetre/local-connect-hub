@@ -10,12 +10,16 @@ type Ranked = { vendor: Vendor; dist: number | null };
 
 // Strict resolver mirrors Home: maps free-text/voice to canonical category labels.
 const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
-  { label: "Tyre / Mechanic", aliases: ["tyre", "tire", "mechanic", "puncture", "garage"] },
-  { label: "Key Maker", aliases: ["key", "keymaker", "locksmith", "duplicate key"] },
-  { label: "Medical", aliases: ["medical", "medicine", "pharmacy", "chemist", "doctor"] },
-  { label: "Electrician", aliases: ["electrician", "electric", "wiring", "current", "fuse"] },
-  { label: "Ambulance", aliases: ["ambulance", "emergency", "hospital"] },
-  { label: "Plumber", aliases: ["plumber", "plumbing", "leak", "pipe", "tap"] },
+  { label: "Mechanic", aliases: ["mechanic", "garage", "repair", "engine", "car repair", "bike repair"] },
+  { label: "Towing", aliases: ["towing", "tow", "tow truck", "breakdown", "crane"] },
+  { label: "Tyre Service", aliases: ["tyre", "tire", "puncture", "flat tyre", "wheel"] },
+  { label: "Key Maker", aliases: ["key", "keymaker", "locksmith", "duplicate key", "lock"] },
+  { label: "Ambulance", aliases: ["ambulance", "emergency", "hospital", "108"] },
+  { label: "Pharmacy", aliases: ["pharmacy", "medical", "medicine", "chemist", "drug store", "tablet"] },
+  { label: "Nursing", aliases: ["nursing", "nurse", "home care", "caretaker", "patient care"] },
+  { label: "Plumber", aliases: ["plumber", "plumbing", "leak", "pipe", "tap", "water"] },
+  { label: "Electrician", aliases: ["electrician", "electric", "wiring", "current", "fuse", "power"] },
+  { label: "Security", aliases: ["security", "guard", "watchman", "bouncer"] },
 ];
 function resolveCategory(term: string): string | null {
   const t = term.toLowerCase().trim();
