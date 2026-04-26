@@ -8,12 +8,12 @@ import { toast } from "sonner";
 
 // 6 essential emergency tiles shown when the search bar is empty.
 const QUICK_ASSIST: { label: string; emoji: string }[] = [
-  { label: "Tyre / Mechanic", emoji: "🛞" },
+  { label: "Mechanic", emoji: "🔧" },
   { label: "Ambulance", emoji: "🚑" },
   { label: "Key Maker", emoji: "🔑" },
-  { label: "Medical", emoji: "🩺" },
+  { label: "Pharmacy", emoji: "💊" },
   { label: "Electrician", emoji: "💡" },
-  { label: "Plumber", emoji: "🔧" },
+  { label: "Towing", emoji: "🚛" },
 ];
 
 const Index = () => {
@@ -90,6 +90,12 @@ const Index = () => {
       </header>
 
       <form onSubmit={handleSubmit} className="relative mb-8">
+        <div className="absolute -top-2.5 left-4 z-10 px-2 bg-background">
+          <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-primary inline-flex items-center gap-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+            AI Search
+          </span>
+        </div>
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
         <input
           value={query}

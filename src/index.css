@@ -174,3 +174,17 @@
   border-color: hsl(var(--primary) / 0.6) !important;
   background-color: hsl(0 0% 100% / 0.06) !important;
 }
+
+/* Native <option> elements inherit the OS popup style and become unreadable on
+   the dark vendor surface. Force a solid charcoal background and pure white
+   text so every choice in the dropdown stays 100% legible. */
+.dark select.vendor-select,
+.dark select.vendor-select option,
+.dark select.vendor-select optgroup {
+  background-color: #1A1A1A !important;
+  color: #FFFFFF !important;
+}
+select.vendor-select option {
+  background-color: #1A1A1A;
+  color: #FFFFFF;
+}

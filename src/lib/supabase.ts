@@ -32,10 +32,17 @@ export type Vendor = {
 };
 
 export const CATEGORIES = [
-  { id: "tyre", label: "Tyre / Mechanic", emoji: "🛞" },
+  { id: "mechanic", label: "Mechanic", emoji: "🔧" },
+  { id: "towing", label: "Towing", emoji: "🚛" },
+  { id: "tyre", label: "Tyre Service", emoji: "🛞" },
   { id: "key", label: "Key Maker", emoji: "🔑" },
-  { id: "medical", label: "Medical", emoji: "🩺" },
+  { id: "ambulance", label: "Ambulance", emoji: "🚑" },
+  { id: "pharmacy", label: "Pharmacy", emoji: "💊" },
+  { id: "nursing", label: "Nursing", emoji: "🩺" },
+  { id: "plumber", label: "Plumber", emoji: "🚰" },
   { id: "electrician", label: "Electrician", emoji: "💡" },
+  { id: "security", label: "Security", emoji: "🛡️" },
+  { id: "other", label: "Other", emoji: "✨" },
 ] as const;
 
 export const SHOP_PHOTOS_BUCKET = "shop-photos";
@@ -44,8 +51,12 @@ export const GPS_MATCH_TOLERANCE_M = 75;
 // Categories whose vendors physically move to the customer.
 // Their GPS is refreshed every time they go "Ready to Help".
 export const MOBILE_CATEGORIES = new Set<string>([
-  "Tyre / Mechanic",
+  "Mechanic",
+  "Towing",
+  "Tyre Service",
   "Key Maker",
+  "Ambulance",
+  "Nursing",
 ]);
 
 export function isMobileCategory(category: string) {
