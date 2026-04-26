@@ -7,6 +7,7 @@ import Index from "./pages/Index.tsx";
 import VendorMode from "./pages/VendorMode.tsx";
 import SettingsPage from "./pages/Settings.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import RadarSearch from "./pages/RadarSearch.tsx";
 
 const queryClient = new QueryClient();
 
@@ -18,6 +19,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/radar" element={<RadarSearch />} />
           <Route path="/vendor" element={<VendorMode />} />
           <Route path="/settings" element={<SettingsPage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
