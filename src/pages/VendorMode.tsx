@@ -354,7 +354,7 @@ const VendorMode = () => {
   };
 
   return (
-    <AppShell>
+    <AppShell theme="dark">
       <header className="mb-6">
         <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Vendor Mode</p>
         <h1 className="font-display text-3xl font-bold mt-1">Earn from your skills.</h1>

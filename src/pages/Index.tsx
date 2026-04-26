@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { Radar } from "@/components/Radar";
 import { VendorCard } from "@/components/VendorCard";
 import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
-import { Mic, Search, AlertCircle, User, Store } from "lucide-react";
+import { Mic, Search, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 // Strict category resolver: matches typed/voice input to a known category id.
@@ -37,11 +36,7 @@ const Index = () => {
   const [error, setError] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [role, setRole] = useState<"user" | "vendor">(
-    (localStorage.getItem("aaspaas:role") as "user" | "vendor") || "user",
-  );
   const recRef = useRef<any>(null);
-  const navigate = useNavigate();
 
   useEffect(() => {
     if (!localStorage.getItem("aaspaas:role")) {
@@ -138,40 +133,8 @@ const Index = () => {
     rec.start();
   };
 
-  const switchRole = (next: "user" | "vendor") => {
-    setRole(next);
-    localStorage.setItem("aaspaas:role", next);
-    if (next === "vendor") navigate("/vendor");
-  };
-
   return (
-    <AppShell>
-      {/* Prominent role switch — top of Home */}
-      <div className="mb-5 grid grid-cols-2 gap-2 p-1 rounded-2xl bg-muted/70 border border-border">
-        <button
-          onClick={() => switchRole("user")}
-          aria-pressed={role === "user"}
-          className={`rounded-xl py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all ${
-            role === "user"
-              ? "bg-primary text-primary-foreground shadow-card"
-              : "text-muted-foreground"
-          }`}
-        >
-          <User className="h-4 w-4" /> I need help
-        </button>
-        <button
-          onClick={() => switchRole("vendor")}
-          aria-pressed={role === "vendor"}
-          className={`rounded-xl py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all ${
-            role === "vendor"
-              ? "bg-gradient-vendor text-secondary-foreground shadow-card"
-              : "text-muted-foreground"
-          }`}
-        >
-          <Store className="h-4 w-4" /> I'm a vendor
-        </button>
-      </div>
-
+    <AppShell theme="light">
       <header className="text-center mb-6 animate-fade-up">
         <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Aaspaas Pro</p>
         <h1 className="font-display text-3xl font-bold mt-1">Help, around you. Now.</h1>
