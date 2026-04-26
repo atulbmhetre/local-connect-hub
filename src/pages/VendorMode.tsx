@@ -29,6 +29,18 @@ import { VerificationBadge } from "@/components/VerificationBadge";
 
 const STORAGE_KEY = "aaspaas:vendor_id";
 
+// Heuristic gibberish detector: rejects keyboard mashing like "asdfasdf"
+// or strings without any vowels. Tuned to be permissive for real names.
+function looksLikeGibberish(s: string) {
+  const t = s.trim().toLowerCase();
+  if (t.length < 2) return true;
+  if (!/[aeiouy]/.test(t)) return true;                  // no vowels
+  if (/(.)\1{3,}/.test(t)) return true;                  // 4+ repeats: "aaaa"
+  if (/^[asdfghjkl;]+$/.test(t) && t.length > 4) return true; // home-row mash
+  if (/^[qwertyuiop]+$/.test(t) && t.length > 4) return true;
+  return false;
+}
+
 const VendorMode = () => {
   const [vendorId, setVendorId] = useState<string | null>(
     localStorage.getItem(STORAGE_KEY),
@@ -41,6 +53,7 @@ const VendorMode = () => {
   const [name, setName] = useState("");
   const [shopName, setShopName] = useState("");
   const [category, setCategory] = useState<string>(CATEGORIES[0].label);
+  const [customCategory, setCustomCategory] = useState("");
   const [upi, setUpi] = useState("");
   const [phone, setPhone] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -54,6 +67,17 @@ const VendorMode = () => {
   useEffect(() => {
     localStorage.setItem("aaspaas:role", "vendor");
   }, []);
+
+  // Broadcast vendor "live" state so the BottomNav can pulse the Vendor tab.
+  useEffect(() => {
+    const live = !!vendor?.is_active;
+    if (live) localStorage.setItem("aaspaas:vendor_live", "1");
+    else localStorage.removeItem("aaspaas:vendor_live");
+    window.dispatchEvent(new CustomEvent("aaspaas:vendor_live", { detail: live }));
+    return () => {
+      // On unmount we don't clear — the flag should reflect DB state, not route.
+    };
+  }, [vendor?.is_active]);
 
   useEffect(() => {
     if (!vendorId) return;
@@ -118,18 +142,50 @@ const VendorMode = () => {
   // ---- registration ----
   const phoneOk = isValidPhone(phone);
   const upiFmtOk = isValidUpi(upi);
+  const isOther = category === "Other";
+  const effectiveCategory = isOther ? customCategory.trim() : category.trim();
+  const categoryOk =
+    effectiveCategory.length > 1 && !looksLikeGibberish(effectiveCategory);
+  const nameOk = name.trim().length > 1 && !looksLikeGibberish(name);
+  const shopOk = shopName.trim().length > 1 && !looksLikeGibberish(shopName);
   const canRegister =
-    name.trim().length > 1 &&
-    shopName.trim().length > 1 &&
+    nameOk &&
+    shopOk &&
+    categoryOk &&
     phoneOk &&
     upiFmtOk &&
     !loading;
 
   const register = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canRegister) {
-      toast.error("Please complete required fields", {
-        description: "A valid phone number is mandatory to register.",
+    // Surface the most useful error first.
+    if (!nameOk) {
+      toast.error("That name doesn't look right", {
+        description: "Please enter your real name (letters only, no random keys).",
+      });
+      return;
+    }
+    if (!shopOk) {
+      toast.error("Shop name looks invalid", {
+        description: "Please enter a real shop name we can show to customers.",
+      });
+      return;
+    }
+    if (!categoryOk) {
+      toast.error("Specify your service", {
+        description: "When choosing 'Other', describe your service in plain words.",
+      });
+      return;
+    }
+    if (!phoneOk) {
+      toast.error("Invalid phone number", {
+        description: "Enter a valid 10-digit Indian mobile number.",
+      });
+      return;
+    }
+    if (!upiFmtOk) {
+      toast.error("Invalid UPI ID", {
+        description: "UPI must look like handle@bank (e.g. ramesh@okicici).",
       });
       return;
     }
@@ -144,7 +200,7 @@ const VendorMode = () => {
       .insert({
         name: name.trim(),
         shop_name: shopName.trim(),
-        category: category.trim(),
+        category: effectiveCategory,
         upi_id: upi.trim(),
         phone: phone.trim(),
         is_active: false,
@@ -384,6 +440,22 @@ const VendorMode = () => {
               <option value="Food & Sweets">🍮  Food & Sweets</option>
               <option value="Other">✨  Other</option>
             </select>
+            {isOther && (
+              <div className="mt-3 animate-fade-up">
+                <Field
+                  label="Specify Your Service"
+                  value={customCategory}
+                  onChange={setCustomCategory}
+                  placeholder="e.g. Carpenter, Tailor, Tiffin Service"
+                  required
+                  error={
+                    customCategory.length > 0 && !categoryOk
+                      ? "Please describe your service in plain words."
+                      : undefined
+                  }
+                />
+              </div>
+            )}
           </div>
           <Field
             label="Phone (required)"
