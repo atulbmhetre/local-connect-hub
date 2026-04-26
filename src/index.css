@@ -61,26 +61,32 @@
   }
 
   .dark {
-    --background: 20 14% 8%;
-    --foreground: 30 20% 95%;
-    --card: 20 14% 11%;
-    --card-foreground: 30 20% 95%;
-    --popover: 20 14% 11%;
-    --popover-foreground: 30 20% 95%;
-    --primary: 4 86% 60%;
-    --primary-foreground: 0 0% 100%;
-    --primary-glow: 12 100% 68%;
-    --secondary: 152 65% 45%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 20 10% 16%;
-    --muted-foreground: 25 10% 65%;
-    --accent: 38 95% 58%;
-    --accent-foreground: 20 14% 10%;
+    /* Vendor Mode — deep charcoal #121212 with Emergency Green #22C55E */
+    --background: 0 0% 7%;          /* #121212 */
+    --foreground: 0 0% 98%;
+    --card: 0 0% 10%;               /* #1A1A1A glass surface */
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 142 71% 45%;         /* Emergency Green #22C55E */
+    --primary-foreground: 0 0% 7%;
+    --primary-glow: 142 76% 56%;
+    --secondary: 142 71% 45%;       /* Same green for vendor "ready" */
+    --secondary-foreground: 0 0% 7%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 65%;
+    --accent: 142 71% 45%;
+    --accent-foreground: 0 0% 7%;
     --destructive: 0 75% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 20 10% 18%;
-    --input: 20 10% 18%;
-    --ring: 4 86% 60%;
+    --border: 0 0% 100% / 0.08;     /* glassmorphism border */
+    --input: 0 0% 100% / 0.06;
+    --ring: 142 71% 45%;
+
+    --gradient-bg: linear-gradient(180deg, hsl(0 0% 7%) 0%, hsl(0 0% 5%) 100%);
+    --gradient-vendor: linear-gradient(135deg, hsl(142 71% 45%), hsl(152 76% 50%));
+    --shadow-glow: 0 0 40px hsl(142 71% 45% / 0.45);
+    --shadow-card: 0 4px 24px -8px hsl(0 0% 0% / 0.6);
   }
 }
 
@@ -142,3 +148,29 @@
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up { animation: fade-up 0.35s ease-out both; }
+
+/* Live "ON" pulse for the Vendor tab in the bottom nav. */
+@keyframes live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--secondary) / 0.6); }
+  50%      { box-shadow: 0 0 0 8px hsl(var(--secondary) / 0); }
+}
+.live-dot {
+  @apply absolute -top-0.5 -right-1 h-2 w-2 rounded-full;
+  background: hsl(var(--secondary));
+  animation: live-pulse 1.6s ease-out infinite;
+}
+
+/* Subtle glassmorphism for inputs in dark / vendor mode. */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: hsl(0 0% 100% / 0.04) !important;
+  border-color: hsl(0 0% 100% / 0.08) !important;
+  backdrop-filter: blur(8px);
+}
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  border-color: hsl(var(--primary) / 0.6) !important;
+  background-color: hsl(0 0% 100% / 0.06) !important;
+}

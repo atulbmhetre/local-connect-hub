@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { Database, Trash2, Wrench } from "lucide-react";
+import { ShieldCheck, Trash2, Wrench, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 const Settings = () => {
@@ -48,11 +48,17 @@ const Settings = () => {
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="flex items-center gap-3">
-          <Database className="h-5 w-5 text-secondary" />
-          <div>
-            <p className="font-semibold">Connected to Supabase</p>
-            <p className="text-xs text-muted-foreground break-all">rpxsyeqskvhjmbkxnpmd.supabase.co</p>
+        <div className="flex items-center gap-3 mb-3">
+          <ShieldCheck className="h-5 w-5 text-secondary" />
+          <p className="font-display font-bold">Trust & Security</p>
+        </div>
+        <div className="flex items-center gap-2 rounded-2xl bg-secondary/10 border border-secondary/30 px-4 py-3">
+          <CheckCircle2 className="h-5 w-5 text-secondary shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-secondary">Database: Connected & Secure</p>
+            <p className="text-xs text-muted-foreground">
+              All data is transmitted over TLS and protected with row-level security.
+            </p>
           </div>
         </div>
       </section>

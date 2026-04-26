@@ -4,7 +4,7 @@ import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { Radar } from "@/components/Radar";
 import { VendorCard } from "@/components/VendorCard";
-import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
+import { supabase, type Vendor, distanceKm } from "@/lib/supabase";
 import { Mic, Search, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,6 +15,8 @@ const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
   { label: "Key Maker", aliases: ["key", "keymaker", "locksmith", "duplicate key"] },
   { label: "Medical", aliases: ["medical", "medicine", "pharmacy", "chemist", "doctor"] },
   { label: "Electrician", aliases: ["electrician", "electric", "wiring", "current", "fuse"] },
+  { label: "Ambulance", aliases: ["ambulance", "emergency", "hospital"] },
+  { label: "Plumber", aliases: ["plumber", "plumbing", "leak", "pipe", "tap"] },
 ];
 
 function resolveCategory(term: string): string | null {
@@ -25,6 +27,16 @@ function resolveCategory(term: string): string | null {
   }
   return null;
 }
+
+// 6 essential emergency tiles shown when the search bar is empty.
+const QUICK_ASSIST: { label: string; emoji: string }[] = [
+  { label: "Tyre / Mechanic", emoji: "🛞" },
+  { label: "Ambulance", emoji: "🚑" },
+  { label: "Key Maker", emoji: "🔑" },
+  { label: "Medical", emoji: "🩺" },
+  { label: "Electrician", emoji: "💡" },
+  { label: "Plumber", emoji: "🔧" },
+];
 
 type Ranked = { vendor: Vendor; dist: number | null };
 
@@ -148,7 +160,7 @@ const Index = () => {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder='Try "Gajar Halwa" or "Tyre"'
+          placeholder="Search for help (e.g., Mechanic, Ambulance, Key Maker)"
           className="w-full bg-card border border-border rounded-2xl pl-12 pr-14 py-4 text-base shadow-card focus:outline-none focus:ring-2 focus:ring-primary"
         />
         <button
@@ -167,11 +179,32 @@ const Index = () => {
         <SOSButton onClick={handleSOS} />
       </div>
 
-      <p className="text-center text-xs text-muted-foreground -mt-4 mb-6">
-        Empty SOS opens quick categories. Type or speak to filter.
-      </p>
-
       {searching && <Radar />}
+
+      {!searching && !results && !error && (
+        <section className="mb-4 animate-fade-up">
+          <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground text-center mb-3">
+            Quick Assist
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            {QUICK_ASSIST.map((q) => (
+              <button
+                key={q.label}
+                onClick={() => {
+                  setQuery(q.label);
+                  runSearch(q.label);
+                }}
+                className="aspect-square rounded-2xl bg-card hover:bg-muted active:scale-95 transition-all flex flex-col items-center justify-center gap-1.5 border border-border shadow-card"
+              >
+                <span className="text-3xl">{q.emoji}</span>
+                <span className="font-semibold text-[11px] text-center px-1 leading-tight">
+                  {q.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {!searching && results && results.length > 0 && (
         <section className="space-y-3 pb-4">
