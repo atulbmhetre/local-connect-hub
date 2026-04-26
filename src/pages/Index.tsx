@@ -28,6 +28,16 @@ function resolveCategory(term: string): string | null {
   return null;
 }
 
+// 6 essential emergency tiles shown when the search bar is empty.
+const QUICK_ASSIST: { label: string; emoji: string }[] = [
+  { label: "Tyre / Mechanic", emoji: "🛞" },
+  { label: "Ambulance", emoji: "🚑" },
+  { label: "Key Maker", emoji: "🔑" },
+  { label: "Medical", emoji: "🩺" },
+  { label: "Electrician", emoji: "💡" },
+  { label: "Plumber", emoji: "🔧" },
+];
+
 type Ranked = { vendor: Vendor; dist: number | null };
 
 const Index = () => {
