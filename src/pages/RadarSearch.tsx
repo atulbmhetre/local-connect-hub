@@ -1,0 +1,325 @@
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { AppShell } from "@/components/AppShell";
+import { Radar as RadarIcon, ArrowLeft, MapPin, Phone, Store, AlertTriangle, ShieldCheck } from "lucide-react";
+import { supabase, type Vendor, distanceKm } from "@/lib/supabase";
+import { vendorTier, VerificationBadge } from "@/components/VerificationBadge";
+import { toast } from "sonner";
+
+type Ranked = { vendor: Vendor; dist: number | null };
+
+// Strict resolver mirrors Home: maps free-text/voice to canonical category labels.
+const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
+  { label: "Tyre / Mechanic", aliases: ["tyre", "tire", "mechanic", "puncture", "garage"] },
+  { label: "Key Maker", aliases: ["key", "keymaker", "locksmith", "duplicate key"] },
+  { label: "Medical", aliases: ["medical", "medicine", "pharmacy", "chemist", "doctor"] },
+  { label: "Electrician", aliases: ["electrician", "electric", "wiring", "current", "fuse"] },
+  { label: "Ambulance", aliases: ["ambulance", "emergency", "hospital"] },
+  { label: "Plumber", aliases: ["plumber", "plumbing", "leak", "pipe", "tap"] },
+];
+function resolveCategory(term: string): string | null {
+  const t = term.toLowerCase().trim();
+  for (const c of KNOWN_CATEGORIES) {
+    if (c.label.toLowerCase() === t) return c.label;
+    if (c.aliases.some((a) => t.includes(a))) return c.label;
+  }
+  return null;
+}
+
+const TIER_RANK: Record<"green" | "yellow" | "red", number> = { green: 0, yellow: 1, red: 2 };
+const NEAR_RADIUS_KM = 15;
+const WIDE_RADIUS_KM = 50;
+
+const RadarSearch = () => {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const term = (params.get("q") ?? "").trim();
+
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [coordsTried, setCoordsTried] = useState(false);
+  const [scanning, setScanning] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [results, setResults] = useState<Ranked[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch GPS once on mount; we need it for the geofence.
+  useEffect(() => {
+    if (!("geolocation" in navigator)) {
+      setCoordsTried(true);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setCoords({ lat: p.coords.latitude, lng: p.coords.longitude });
+        setCoordsTried(true);
+      },
+      () => setCoordsTried(true),
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
+    );
+  }, []);
+
+  // Run search once GPS resolved (or denied — we still scan, just without geofence).
+  useEffect(() => {
+    if (!coordsTried) return;
+    let cancelled = false;
+    const run = async () => {
+      setScanning(true);
+      setError(null);
+      setExpanded(false);
+      try {
+        // Let the radar breathe so the transition feels intentional.
+        await new Promise((r) => setTimeout(r, 900));
+
+        let q = supabase.from("vendors").select("*").eq("is_active", true);
+        if (term) {
+          const resolved = resolveCategory(term);
+          if (resolved) q = q.eq("category", resolved);
+          else q = q.ilike("category", `%${term}%`);
+        }
+        const { data, error } = await q.limit(80);
+        if (error) throw error;
+        if (cancelled) return;
+
+        const all: Ranked[] = (data ?? []).map((v) => ({
+          vendor: v as Vendor,
+          dist:
+            coords && v.latitude != null && v.longitude != null
+              ? distanceKm(coords, { lat: v.latitude, lng: v.longitude })
+              : null,
+        }));
+
+        const within = (radius: number) =>
+          all.filter((r) => (coords ? r.dist != null && r.dist <= radius : true));
+
+        let scoped = within(NEAR_RADIUS_KM);
+        let didExpand = false;
+        if (coords && scoped.length === 0) {
+          // Empty-state widening: announce, wait for the radar to spin again,
+          // then re-scan at 50km.
+          setExpanded(true);
+          didExpand = true;
+          await new Promise((r) => setTimeout(r, 1100));
+          scoped = within(WIDE_RADIUS_KM);
+        }
+
+        // Rank: Green → Yellow → Red, then by distance (nulls last).
+        scoped.sort((a, b) => {
+          const ta = TIER_RANK[vendorTier(a.vendor)];
+          const tb = TIER_RANK[vendorTier(b.vendor)];
+          if (ta !== tb) return ta - tb;
+          if (a.dist == null && b.dist == null) return 0;
+          if (a.dist == null) return 1;
+          if (b.dist == null) return -1;
+          return a.dist - b.dist;
+        });
+
+        if (cancelled) return;
+        setExpanded(didExpand);
+        setResults(scoped);
+      } catch (e: any) {
+        if (!cancelled) setError(e.message ?? "Connection Error");
+      } finally {
+        if (!cancelled) setScanning(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [coordsTried, coords, term]);
+
+  const headline = useMemo(() => {
+    if (term) return term;
+    return "All emergencies";
+  }, [term]);
+
+  return (
+    <AppShell theme="dark">
+      <header className="flex items-center justify-between mb-4 animate-fade-up">
+        <button
+          onClick={() => navigate("/")}
+          className="h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
+          aria-label="Back to home"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <div className="text-center">
+          <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
+            Live Radar
+          </p>
+          <h1 className="font-display text-lg font-bold capitalize">{headline}</h1>
+        </div>
+        <div className="h-10 w-10" />
+      </header>
+
+      {/* Radar centerpiece */}
+      <div className="relative h-64 w-64 mx-auto mb-2">
+        <div className="absolute inset-0 rounded-full border border-primary/20" />
+        <div className="absolute inset-6 rounded-full border border-primary/15" />
+        <div className="absolute inset-12 rounded-full border border-primary/10" />
+        {scanning && (
+          <>
+            <div className="radar-sweep" />
+            <div className="radar-ring" />
+            <div className="radar-ring" style={{ animationDelay: "0.7s" }} />
+            <div className="radar-ring" style={{ animationDelay: "1.4s" }} />
+          </>
+        )}
+        <div className="absolute inset-0 grid place-items-center">
+          <div className="h-16 w-16 rounded-full bg-gradient-vendor grid place-items-center shadow-glow">
+            <RadarIcon className="h-7 w-7 text-primary-foreground" />
+          </div>
+        </div>
+      </div>
+
+      <p className="text-center text-xs uppercase tracking-[0.25em] text-muted-foreground mb-2">
+        {scanning
+          ? expanded
+            ? "Scanning wider area… 50 km"
+            : coords
+              ? "Scanning 15 km around you"
+              : "Scanning your area"
+          : `${results.length} ${results.length === 1 ? "match" : "matches"} found`}
+      </p>
+      {!scanning && expanded && results.length > 0 && (
+        <p className="text-center text-[11px] text-muted-foreground mb-4">
+          No one within 15 km — showing nearest help up to 50 km away.
+        </p>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="rounded-2xl bg-destructive/10 border border-destructive/30 p-4 flex gap-3 mt-2">
+          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-destructive">Connection Error</p>
+            <p className="text-sm text-muted-foreground mt-0.5 break-words">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Results */}
+      {!scanning && !error && results.length > 0 && (
+        <section className="space-y-3 mt-4 pb-4">
+          {results.map(({ vendor, dist }, i) => (
+            <RadarVendorCard key={vendor.id} vendor={vendor} dist={dist} index={i} />
+          ))}
+        </section>
+      )}
+
+      {/* True empty state — even widened search returned nothing. */}
+      {!scanning && !error && results.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-border p-6 text-center mt-4">
+          <p className="font-display text-lg font-semibold">No active professionals</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {coords
+              ? "No one is Ready to Help within 50 km right now. Try another category."
+              : "We couldn't read your location. Enable GPS and try again."}
+          </p>
+          <button
+            onClick={() => navigate("/")}
+            className="mt-4 inline-flex items-center justify-center rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold"
+          >
+            Try another search
+          </button>
+        </div>
+      )}
+    </AppShell>
+  );
+};
+
+const RadarVendorCard = ({
+  vendor,
+  dist,
+  index,
+}: {
+  vendor: Vendor;
+  dist: number | null;
+  index: number;
+}) => {
+  const tier = vendorTier(vendor);
+  const accentRing =
+    tier === "green"
+      ? "ring-secondary/50 shadow-[0_0_24px_hsl(var(--secondary)/0.25)]"
+      : tier === "yellow"
+        ? "ring-accent/40"
+        : "ring-destructive/30";
+
+  const handleConnect = () => {
+    toast("AI-Bridge Call", {
+      description: `Connecting you to ${vendor.name} (${vendor.shop_name}). Live bridging coming soon.`,
+    });
+  };
+
+  return (
+    <div
+      className={`rounded-2xl bg-card/80 backdrop-blur-xl border border-border ring-1 ${accentRing} p-4 animate-fade-up`}
+      style={{ animationDelay: `${Math.min(index * 70, 420)}ms` }}
+    >
+      <div className="flex items-start gap-3">
+        <div className="h-12 w-12 rounded-xl bg-gradient-vendor grid place-items-center shrink-0 overflow-hidden">
+          {vendor.shop_photo_url ? (
+            <img
+              src={vendor.shop_photo_url}
+              alt={`${vendor.shop_name} shop`}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <Store className="h-6 w-6 text-primary-foreground" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <h3 className="font-display font-bold truncate">{vendor.shop_name}</h3>
+            <VerificationBadge vendor={vendor} />
+          </div>
+          <p className="text-sm text-muted-foreground truncate">
+            {vendor.name} · {vendor.category}
+          </p>
+          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+            {dist != null ? (
+              <span className="inline-flex items-center gap-1">
+                <MapPin className="h-3 w-3" />
+                {dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`}
+              </span>
+            ) : (
+              <span>Location unknown</span>
+            )}
+            <span className="inline-flex items-center gap-1 text-secondary">
+              <span className="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse" />
+              Live
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {tier === "red" && (
+        <div className="mt-3 rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-2 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-xs text-destructive font-semibold">
+            Warning: Identity Not Verified — connect at your own risk.
+          </p>
+        </div>
+      )}
+      {tier === "green" && (
+        <div className="mt-3 rounded-xl bg-secondary/10 border border-secondary/30 px-3 py-2 flex items-start gap-2">
+          <ShieldCheck className="h-4 w-4 text-secondary shrink-0 mt-0.5" />
+          <p className="text-xs text-secondary font-semibold">
+            Business Verified — top-tier trusted professional.
+          </p>
+        </div>
+      )}
+
+      <button
+        onClick={handleConnect}
+        className="mt-4 w-full rounded-xl bg-primary text-primary-foreground py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform shadow-glow"
+      >
+        <Phone className="h-4 w-4" />
+        Connect via AI-Bridge
+      </button>
+    </div>
+  );
+};
+
+export default RadarSearch;
