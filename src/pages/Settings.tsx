@@ -1,22 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { User, Store, Database, Trash2, Wrench } from "lucide-react";
+import { Database, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 const Settings = () => {
-  const [role, setRole] = useState<string>("user");
   const [titleTaps, setTitleTaps] = useState(0);
   const [devOpen, setDevOpen] = useState(false);
-
-  useEffect(() => {
-    setRole(localStorage.getItem("aaspaas:role") ?? "user");
-  }, []);
-
-  const choose = (r: "user" | "vendor") => {
-    localStorage.setItem("aaspaas:role", r);
-    setRole(r);
-    toast.success(`Role set to ${r}`);
-  };
 
   // Hidden gesture: tap the page title 7× to unlock the developer menu.
   const tapTitle = () => {
@@ -33,12 +22,11 @@ const Settings = () => {
     if (!window.confirm("Clear all locally stored Aaspaas data on this device?")) return;
     localStorage.removeItem("aaspaas:role");
     localStorage.removeItem("aaspaas:vendor_id");
-    setRole("user");
     toast("Local data cleared");
   };
 
   return (
-    <AppShell>
+    <AppShell theme="light">
       <header className="mb-6">
         <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Settings</p>
         <h1
@@ -50,12 +38,13 @@ const Settings = () => {
       </header>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Default role</p>
-        <div className="grid grid-cols-2 gap-3 mt-3">
-          <RoleBtn active={role === "user"} onClick={() => choose("user")} icon={<User className="h-5 w-5" />} label="Customer" />
-          <RoleBtn active={role === "vendor"} onClick={() => choose("vendor")} icon={<Store className="h-5 w-5" />} label="Vendor" />
-        </div>
-        <p className="text-xs text-muted-foreground mt-3">Saved on this device.</p>
+        <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+          Switch role
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Use the bottom navigation — <span className="font-semibold text-foreground">Home</span> for help,{" "}
+          <span className="font-semibold text-foreground">Vendor</span> to earn.
+        </p>
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
@@ -91,17 +80,5 @@ const Settings = () => {
     </AppShell>
   );
 };
-
-const RoleBtn = ({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) => (
-  <button
-    onClick={onClick}
-    className={`rounded-2xl border-2 py-4 flex flex-col items-center gap-1 transition-all ${
-      active ? "border-primary bg-primary/5 text-primary" : "border-border text-foreground"
-    }`}
-  >
-    {icon}
-    <span className="font-semibold text-sm">{label}</span>
-  </button>
-);
 
 export default Settings;
