@@ -322,7 +322,7 @@ const RadarVendorCard = ({
             )}
             <span className="inline-flex items-center gap-1 text-secondary">
               <span className="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse" />
-              Live
+              Ready to Help
             </span>
           </div>
         </div>
