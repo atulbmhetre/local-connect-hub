@@ -176,8 +176,8 @@ const RadarSearch = () => {
             <Loader2 className="w-4 h-4 animate-spin text-[#22C55E] shrink-0" />
             <span>
               {expanded
-                ? "Expanding to 50 km · filtering is_active vendors"
-                : "Filtering for is_active: true vendors within 15 km"}
+                ? "Searching wider — professionals currently online within 50 km"
+                : "Searching for professionals currently online within 15 km"}
             </span>
           </div>
         </div>
