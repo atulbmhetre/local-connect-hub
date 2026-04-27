@@ -374,6 +374,14 @@ const LiveTracking = () => {
           0% { transform: scale(0.6); opacity: 0.6; }
           80%, 100% { transform: scale(2.2); opacity: 0; }
         }
+        @keyframes aaspaasScreenFlash {
+          0%, 100% { background: rgba(255,255,255,0); }
+          50% { background: rgba(255,255,255,0.95); }
+        }
+        .aaspaas-flash-overlay {
+          position: fixed; inset: 0; pointer-events: none; z-index: 60;
+          animation: aaspaasScreenFlash 0.7s ease-in-out infinite;
+        }
         .leaflet-container { background: #121212; }
       `}</style>
 
@@ -396,12 +404,17 @@ const LiveTracking = () => {
         </div>
       </header>
 
-      {/* Privacy badge */}
-      <div className="mx-4 mb-3 rounded-xl bg-[#1A1A1A] border border-[#22C55E]/30 px-3 py-2 flex items-center gap-2">
-        <Lock className="h-3.5 w-3.5 text-[#22C55E]" />
-        <p className="text-[11px] text-gray-300">
-          Your location and number are <span className="text-[#22C55E] font-semibold">encrypted</span>.
-        </p>
+      {/* Permanent Secure Connection banner */}
+      <div className="mx-4 mb-3 rounded-xl bg-[#1A1A1A] border border-[#22C55E]/40 px-3 py-2.5 flex items-start gap-2 shadow-[0_0_18px_rgba(34,197,94,0.15)]">
+        <ShieldCheck className="h-4 w-4 text-[#22C55E] mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold text-[#22C55E] leading-tight">
+            Secure Connection Active
+          </p>
+          <p className="text-[10.5px] text-gray-400 leading-snug">
+            Phone numbers and exact house numbers are masked.
+          </p>
+        </div>
       </div>
 
       {/* Map */}
@@ -450,10 +463,16 @@ const LiveTracking = () => {
               stalled ? "bg-[#F97316]" : "bg-[#22C55E]",
             )}
           />
-          {movingLabel}
+          {stalled
+            ? movingLabel
+            : etaMin != null
+              ? etaMin === 0
+                ? "Arriving now"
+                : `Arriving in ${etaMin} min${etaMin === 1 ? "" : "s"}`
+              : movingLabel}
           {etaKm != null && !stalled && (
             <span className="text-gray-300 font-normal">
-              · {etaKm < 1 ? `${Math.round(etaKm * 1000)} m` : `${etaKm.toFixed(1)} km`} away
+              · {etaKm < 1 ? `${Math.round(etaKm * 1000)} m` : `${etaKm.toFixed(1)} km`}
             </span>
           )}
         </div>
@@ -465,17 +484,17 @@ const LiveTracking = () => {
           <ShieldAlert className="h-5 w-5 text-[#F97316] shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-[#F97316]">
-              Stalled? Call to verify
+              Stalled? Check Status via AI-Bridge
             </p>
             <p className="text-[11px] text-gray-400 mt-0.5">
-              No movement in the last {Math.max(2, minutesSinceMove)} min. Confirm they're still on the way.
+              No movement in the last {Math.max(2, minutesSinceMove)} min. Confirm they're still on the way — your number stays private.
             </p>
           </div>
           <button
             onClick={handleVerifyCall}
             className="rounded-lg bg-[#F97316] text-black px-3 py-1.5 text-xs font-bold active:scale-95"
           >
-            Verify
+            Check
           </button>
         </div>
       )}
@@ -504,6 +523,7 @@ const LiveTracking = () => {
             {vendor.shop_name} · {vendor.category}
           </p>
           <p className="text-[10px] uppercase tracking-[0.2em] text-[#22C55E] mt-0.5 font-bold">
+            Ready to Help ·{" "}
             {vendorTier(vendor) === "green"
               ? "Top-tier verified"
               : vendorTier(vendor) === "yellow"
@@ -514,7 +534,7 @@ const LiveTracking = () => {
       </section>
 
       {/* Secure Call CTA */}
-      <div className="mx-4 mt-3 mb-6">
+      <div className="mx-4 mt-3">
         <button
           onClick={handleSecureCall}
           className="w-full rounded-2xl bg-[#22C55E] text-black py-4 flex items-center justify-center gap-2 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_28px_rgba(34,197,94,0.45)]"
@@ -523,10 +543,105 @@ const LiveTracking = () => {
           Secure Call · AI-Bridge
         </button>
         <p className="text-[10px] text-center text-gray-500 mt-2 flex items-center justify-center gap-1">
-          <Navigation className="h-3 w-3" />
+          <Lock className="h-3 w-3" />
           Numbers are masked end-to-end via Aaspaas proxy.
         </p>
       </div>
+
+      {/* Emergency signal + share row */}
+      <div className="mx-4 mt-3 mb-6 grid grid-cols-2 gap-3">
+        <button
+          onClick={handleFlashSignal}
+          className={cn(
+            "rounded-2xl border py-3.5 flex flex-col items-center justify-center gap-1 transition-colors active:scale-[0.98]",
+            flashing
+              ? "bg-[#22C55E]/15 border-[#22C55E] text-[#22C55E] shadow-[0_0_20px_rgba(34,197,94,0.35)]"
+              : "bg-[#1A1A1A] border-white/10 text-white hover:border-[#22C55E]/40",
+          )}
+        >
+          <Flashlight className={cn("h-5 w-5", flashing && "animate-pulse")} />
+          <span className="text-xs font-semibold">
+            {flashing ? "Stop LED Signal" : "Flash LED Signal"}
+          </span>
+          <span className="text-[10px] text-gray-500">Be visible in the dark</span>
+        </button>
+        <button
+          onClick={handleShareStatus}
+          className="rounded-2xl bg-[#1A1A1A] border border-white/10 py-3.5 flex flex-col items-center justify-center gap-1 active:scale-[0.98] hover:border-[#22C55E]/40 transition-colors"
+        >
+          <Share2 className="h-5 w-5 text-[#22C55E]" />
+          <span className="text-xs font-semibold">Share Live Status</span>
+          <span className="text-[10px] text-gray-500">Send link to family</span>
+        </button>
+      </div>
+
+      {/* Screen-flash fallback overlay */}
+      {flashing && !torchTrackRef.current && <div className="aaspaas-flash-overlay" />}
+
+      {/* Secure Call modal */}
+      {callOpen && (
+        <div className="fixed inset-0 z-50 bg-[#0A0A0A]/95 backdrop-blur-sm flex flex-col items-center justify-between py-12 px-6">
+          <div className="flex flex-col items-center gap-3 mt-6">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.3em] text-[#22C55E] font-bold">
+              <Lock className="h-3 w-3" /> AI-Bridge · Secure
+            </div>
+            <div className="h-24 w-24 rounded-full overflow-hidden border-2 border-[#22C55E] shadow-[0_0_36px_rgba(34,197,94,0.45)] bg-[#1A1A1A] grid place-items-center">
+              {vendor.shop_photo_url ? (
+                <img src={vendor.shop_photo_url} alt={vendor.name} className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-3xl font-display font-bold text-[#22C55E]">
+                  {vendor.name?.[0]?.toUpperCase() ?? "?"}
+                </span>
+              )}
+            </div>
+            <p className="font-display text-xl font-bold text-white mt-1">{vendor.name}</p>
+            <p className="text-xs text-gray-400">{vendor.category} · Number masked</p>
+            <div className="mt-4 flex items-center gap-2 text-sm text-[#22C55E] font-mono">
+              <Clock className="h-4 w-4" />
+              {callDuration}
+            </div>
+          </div>
+
+          <div className="w-full max-w-xs">
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <button
+                onClick={() => setMuted((m) => !m)}
+                className={cn(
+                  "rounded-2xl py-4 flex flex-col items-center gap-1 border transition-colors",
+                  muted
+                    ? "bg-white text-black border-white"
+                    : "bg-[#1A1A1A] text-white border-white/10",
+                )}
+              >
+                {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                <span className="text-[11px] font-semibold">{muted ? "Unmute" : "Mute"}</span>
+              </button>
+              <button
+                onClick={() => setSpeaker((s) => !s)}
+                className={cn(
+                  "rounded-2xl py-4 flex flex-col items-center gap-1 border transition-colors",
+                  speaker
+                    ? "bg-white text-black border-white"
+                    : "bg-[#1A1A1A] text-white border-white/10",
+                )}
+              >
+                {speaker ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+                <span className="text-[11px] font-semibold">Speaker</span>
+              </button>
+            </div>
+            <button
+              onClick={handleEndCall}
+              className="w-full rounded-full bg-destructive text-destructive-foreground py-4 flex items-center justify-center gap-2 font-bold active:scale-[0.98] shadow-[0_0_24px_rgba(239,68,68,0.45)]"
+            >
+              <PhoneOff className="h-5 w-5" />
+              End Call
+            </button>
+            <p className="text-[10px] text-center text-gray-500 mt-3">
+              Both numbers stay hidden. Call routed via Aaspaas proxy.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
