@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { ArrowLeft, MapPin, Phone, Store, AlertTriangle, ShieldCheck, Shield, Loader2 } from "lucide-react";
-import { supabase, type Vendor, distanceKm } from "@/lib/supabase";
+import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
 import { vendorTier, VerificationBadge } from "@/components/VerificationBadge";
 import { toast } from "sonner";
 
@@ -176,8 +176,8 @@ const RadarSearch = () => {
             <Loader2 className="w-4 h-4 animate-spin text-[#22C55E] shrink-0" />
             <span>
               {expanded
-                ? "Expanding to 50 km · filtering is_active vendors"
-                : "Filtering for is_active: true vendors within 15 km"}
+                ? "Searching wider — professionals currently online within 50 km"
+                : "Searching for professionals currently online within 15 km"}
             </span>
           </div>
         </div>
@@ -243,19 +243,39 @@ const RadarSearch = () => {
 
       {/* True empty state — even widened search returned nothing. */}
       {!scanning && !error && results.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-border p-6 text-center mt-4">
-          <p className="font-display text-lg font-semibold">No active professionals</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            {coords
-              ? "No one is Ready to Help within 50 km right now. Try another category."
-              : "We couldn't read your location. Enable GPS and try again."}
-          </p>
-          <button
-            onClick={() => navigate("/")}
-            className="mt-4 inline-flex items-center justify-center rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold"
-          >
-            Try another search
-          </button>
+        <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4">
+          <div className="text-center">
+            <p className="font-display text-lg font-semibold text-white">
+              No professionals online nearby
+            </p>
+            <p className="text-sm text-gray-400 mt-1">
+              {coords
+                ? "Nobody is Ready to Help within 50 km right now. Try a different category below."
+                : "We couldn't read your location. Enable GPS, or pick a category below to keep searching."}
+            </p>
+          </div>
+
+          <div className="mt-5">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] text-center mb-3">
+              Quick Pivot
+            </p>
+            <div className="grid grid-cols-3 gap-2.5">
+              {CATEGORIES.filter((c) => c.id !== "other")
+                .slice(0, 6)
+                .map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => navigate(`/radar?q=${encodeURIComponent(c.label)}`)}
+                    className="rounded-xl bg-[#121212] border border-[#22C55E]/30 hover:border-[#22C55E] hover:bg-[#22C55E]/10 transition-colors p-3 flex flex-col items-center gap-1.5 active:scale-95"
+                  >
+                    <span className="text-2xl leading-none">{c.emoji}</span>
+                    <span className="text-[11px] font-semibold text-white text-center leading-tight">
+                      {c.label}
+                    </span>
+                  </button>
+                ))}
+            </div>
+          </div>
         </div>
       )}
     </AppShell>
@@ -320,9 +340,9 @@ const RadarVendorCard = ({
             ) : (
               <span>Location unknown</span>
             )}
-            <span className="inline-flex items-center gap-1 text-secondary">
-              <span className="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse" />
-              Live
+            <span className="inline-flex items-center gap-1 text-[#22C55E] font-semibold">
+              <span className="h-2 w-2 rounded-full bg-[#22C55E] animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
+              Ready to Help
             </span>
           </div>
         </div>
