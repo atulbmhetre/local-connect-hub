@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { ArrowLeft, MapPin, Phone, Store, AlertTriangle, ShieldCheck, Shield, Loader2 } from "lucide-react";
-import { supabase, type Vendor, distanceKm } from "@/lib/supabase";
+import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
 import { vendorTier, VerificationBadge } from "@/components/VerificationBadge";
 import { toast } from "sonner";
 
