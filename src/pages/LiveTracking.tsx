@@ -83,6 +83,17 @@ const LiveTracking = () => {
   const [stalled, setStalled] = useState(false);
   const [now, setNow] = useState(Date.now());
 
+  // AI-Bridge call modal state.
+  const [callOpen, setCallOpen] = useState(false);
+  const [callStart, setCallStart] = useState<number | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [speaker, setSpeaker] = useState(false);
+
+  // Flash LED signal (torch) state.
+  const [flashing, setFlashing] = useState(false);
+  const torchTrackRef = useRef<MediaStreamTrack | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
+
   // Fetch vendor + initial helper coords.
   useEffect(() => {
     if (!vendorId) return;
