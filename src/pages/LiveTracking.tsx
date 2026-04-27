@@ -190,6 +190,13 @@ const LiveTracking = () => {
     return distanceKm(user, helper);
   }, [user, helper]);
 
+  // Estimated minutes until arrival, rounded up, min 1 when in motion.
+  const etaMin = useMemo(() => {
+    if (etaKm == null) return null;
+    if (etaKm < 0.05) return 0; // arrived
+    return Math.max(1, Math.ceil((etaKm / AVG_SPEED_KMH) * 60));
+  }, [etaKm]);
+
   const points = useMemo<[number, number][]>(() => {
     const arr: [number, number][] = [];
     if (user) arr.push([user.lat, user.lng]);
@@ -205,16 +212,119 @@ const LiveTracking = () => {
 
   const handleSecureCall = () => {
     if (!vendor) return;
-    toast("AI-Bridge Secure Call", {
+    setMuted(false);
+    setSpeaker(false);
+    setCallStart(Date.now());
+    setCallOpen(true);
+    toast("AI-Bridge Secure Call connected", {
       description: `Routing through proxy — ${vendor.name}'s number stays private.`,
     });
   };
 
+  const handleEndCall = () => {
+    setCallOpen(false);
+    setCallStart(null);
+    toast("Call ended", { description: "Secure bridge closed." });
+  };
+
   const handleVerifyCall = () => {
     if (!vendor) return;
-    toast("Verifying responder", {
-      description: `Calling ${vendor.name} via secure bridge to confirm status.`,
+    handleSecureCall();
+    toast("Checking status via AI-Bridge", {
+      description: `Connecting securely with ${vendor.name} to confirm they're on the way.`,
     });
+  };
+
+  // Live call duration ticker.
+  const [callTick, setCallTick] = useState(0);
+  useEffect(() => {
+    if (!callOpen) return;
+    const t = setInterval(() => setCallTick((v) => v + 1), 1000);
+    return () => clearInterval(t);
+  }, [callOpen]);
+  const callSeconds = callStart ? Math.floor((Date.now() - callStart) / 1000) : 0;
+  const callDuration = `${String(Math.floor(callSeconds / 60)).padStart(2, "0")}:${String(callSeconds % 60).padStart(2, "0")}`;
+  void callTick; // dependency for re-render
+
+  // Flash LED Signal — try real torch via getUserMedia, fall back to white screen pulse.
+  const stopFlash = () => {
+    if (flashTimerRef.current) {
+      clearInterval(flashTimerRef.current);
+      flashTimerRef.current = null;
+    }
+    if (torchTrackRef.current) {
+      try {
+        // @ts-expect-error torch is non-standard
+        torchTrackRef.current.applyConstraints({ advanced: [{ torch: false }] });
+      } catch {}
+      torchTrackRef.current.stop();
+      torchTrackRef.current = null;
+    }
+    setFlashing(false);
+  };
+
+  const handleFlashSignal = async () => {
+    if (flashing) {
+      stopFlash();
+      return;
+    }
+    setFlashing(true);
+    // Try the real LED torch first.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+      });
+      const track = stream.getVideoTracks()[0];
+      // @ts-expect-error torch is non-standard
+      const caps = track.getCapabilities?.() ?? {};
+      if (caps.torch) {
+        torchTrackRef.current = track;
+        let on = false;
+        flashTimerRef.current = window.setInterval(async () => {
+          on = !on;
+          try {
+            // @ts-expect-error torch is non-standard
+            await track.applyConstraints({ advanced: [{ torch: on }] });
+          } catch {}
+        }, 500);
+        toast("Flash LED Signal active", {
+          description: "Your phone torch is pulsing — helper can spot you.",
+        });
+        return;
+      } else {
+        track.stop();
+      }
+    } catch {
+      // permission denied or unsupported — fall back below
+    }
+    // Fallback: pulse the screen white via CSS overlay (toggled by `flashing`).
+    toast("Screen flash signal active", {
+      description: "Hold your phone up — the screen will pulse bright.",
+    });
+    flashTimerRef.current = window.setInterval(() => {
+      // no-op timer just to keep symmetry; visual handled via CSS animation
+    }, 1000);
+  };
+  useEffect(() => () => stopFlash(), []);
+
+  // Share Live Status — Web Share API, with clipboard fallback.
+  const handleShareStatus = async () => {
+    const url = window.location.href;
+    const text = vendor
+      ? `I'm using Aaspaas. ${vendor.name} is on the way to help me. Track live:`
+      : "I'm using Aaspaas. Track my live emergency status:";
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Aaspaas live status", text, url });
+        return;
+      }
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      toast("Tracking link copied", {
+        description: "Share it with family so they can follow along.",
+      });
+    } catch {
+      toast("Couldn't share link", { description: "Try again in a moment." });
+    }
   };
 
   const movingLabel = stalled
