@@ -8,6 +8,15 @@ import {
   Loader2,
   Navigation,
   AlertTriangle,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  PhoneOff,
+  Flashlight,
+  Share2,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -19,6 +28,9 @@ import { cn } from "@/lib/utils";
 
 // Stalled threshold: if helper coords don't move for 2 minutes, alert.
 const STALL_MS = 2 * 60 * 1000;
+
+// Average urban responder speed used to derive an ETA from straight-line km.
+const AVG_SPEED_KMH = 28;
 
 // Build a DivIcon so we can style markers with Tailwind-ish raw CSS while
 // keeping bundle light (no marker image assets to import).
