@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
-import { ArrowLeft, MapPin, Phone, Store, AlertTriangle, ShieldCheck, Shield, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  MapPin,
+  Phone,
+  Store,
+  AlertTriangle,
+  ShieldCheck,
+  Shield,
+  Loader2,
+  PhoneCall,
+} from "lucide-react";
 import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
 import { vendorTier, VerificationBadge } from "@/components/VerificationBadge";
 import { toast } from "sonner";
@@ -33,6 +43,64 @@ function resolveCategory(term: string): string | null {
 const TIER_RANK: Record<"green" | "yellow" | "red", number> = { green: 0, yellow: 1, red: 2 };
 const NEAR_RADIUS_KM = 15;
 const WIDE_RADIUS_KM = 50;
+
+// Critical failsafe: when no private responder is online, route the user to
+// the most relevant official authority based on what they were searching for.
+type OfficialHelp = { authority: string; number: string; tagline: string };
+const DEFAULT_OFFICIAL: OfficialHelp = {
+  authority: "National Emergency Helpline",
+  number: "112",
+  tagline: "All-in-one police, fire & medical response.",
+};
+const OFFICIAL_HELP_MAP: Record<string, OfficialHelp> = {
+  Mechanic: {
+    authority: "Highway Authority Helpline",
+    number: "1033",
+    tagline: "National highway breakdown & road assistance.",
+  },
+  Towing: {
+    authority: "Highway Authority Helpline",
+    number: "1033",
+    tagline: "National highway breakdown & road assistance.",
+  },
+  "Tyre Service": {
+    authority: "Highway Authority Helpline",
+    number: "1033",
+    tagline: "National highway breakdown & road assistance.",
+  },
+  Ambulance: {
+    authority: "National Health Helpline",
+    number: "108",
+    tagline: "Free 24×7 emergency medical response.",
+  },
+  Pharmacy: {
+    authority: "National Health Helpline",
+    number: "104",
+    tagline: "Government health advice & medicine guidance.",
+  },
+  Nursing: {
+    authority: "National Health Helpline",
+    number: "104",
+    tagline: "Government health advice & medicine guidance.",
+  },
+  "Key Maker": {
+    authority: "Police Helpline",
+    number: "100",
+    tagline: "If locked out or suspect tampering, call police.",
+  },
+  Security: {
+    authority: "Police Helpline",
+    number: "100",
+    tagline: "Immediate police response in your area.",
+  },
+  Plumber: DEFAULT_OFFICIAL,
+  Electrician: DEFAULT_OFFICIAL,
+};
+function pickOfficialHelp(term: string): OfficialHelp {
+  const resolved = resolveCategory(term);
+  if (resolved && OFFICIAL_HELP_MAP[resolved]) return OFFICIAL_HELP_MAP[resolved];
+  return DEFAULT_OFFICIAL;
+}
 
 const RadarSearch = () => {
   const navigate = useNavigate();
@@ -243,42 +311,80 @@ const RadarSearch = () => {
 
       {/* True empty state — even widened search returned nothing. */}
       {!scanning && !error && results.length === 0 && (
-        <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4">
-          <div className="text-center">
-            <p className="font-display text-lg font-semibold text-white">
-              No professionals online nearby
-            </p>
-            <p className="text-sm text-gray-400 mt-1">
-              {coords
-                ? "Nobody is Ready to Help within 50 km right now. Try a different category below."
-                : "We couldn't read your location. Enable GPS, or pick a category below to keep searching."}
-            </p>
-          </div>
-
-          <div className="mt-5">
-            <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] text-center mb-3">
-              Quick Pivot
-            </p>
-            <div className="grid grid-cols-3 gap-2.5">
-              {CATEGORIES.filter((c) => c.id !== "other")
-                .slice(0, 6)
-                .map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => navigate(`/radar?q=${encodeURIComponent(c.label)}`)}
-                    className="rounded-xl bg-[#121212] border border-[#22C55E]/30 hover:border-[#22C55E] hover:bg-[#22C55E]/10 transition-colors p-3 flex flex-col items-center gap-1.5 active:scale-95"
-                  >
-                    <span className="text-2xl leading-none">{c.emoji}</span>
-                    <span className="text-[11px] font-semibold text-white text-center leading-tight">
-                      {c.label}
-                    </span>
-                  </button>
-                ))}
-            </div>
-          </div>
-        </div>
+        <EmptyStateFailsafe term={term} coords={coords} navigate={navigate} />
       )}
     </AppShell>
+  );
+};
+
+// Critical failsafe shown when neither 15 km nor 50 km returned a private
+// responder. We surface an official authority first, then offer a pivot grid.
+const EmptyStateFailsafe = ({
+  term,
+  coords,
+  navigate,
+}: {
+  term: string;
+  coords: { lat: number; lng: number } | null;
+  navigate: ReturnType<typeof useNavigate>;
+}) => {
+  const official = useMemo(() => pickOfficialHelp(term), [term]);
+  return (
+    <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-5">
+      <div className="text-center">
+        <p className="font-display text-lg font-semibold text-white">
+          No private responders currently online
+        </p>
+        <p className="text-sm text-gray-400 mt-1">
+          {coords
+            ? "Checking official emergency links…"
+            : "We couldn't read your location. Try official help below or pick a category."}
+        </p>
+      </div>
+
+      {/* High-visibility official help bridge */}
+      <div className="rounded-2xl bg-[#121212] border-2 border-destructive/60 p-4 shadow-[0_0_24px_hsl(var(--destructive)/0.35)]">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shadow-[0_0_8px_hsl(var(--destructive)/0.9)]" />
+          <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
+            Official Help
+          </p>
+        </div>
+        <p className="font-display text-base font-bold text-white">
+          {official.authority}
+        </p>
+        <p className="text-xs text-gray-400 mt-0.5">{official.tagline}</p>
+        <a
+          href={`tel:${official.number}`}
+          className="mt-3 w-full rounded-xl bg-destructive text-destructive-foreground py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_18px_hsl(var(--destructive)/0.55)]"
+        >
+          <PhoneCall className="h-4 w-4" />
+          Connect to Official Help · {official.number}
+        </a>
+      </div>
+
+      <div>
+        <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] text-center mb-3">
+          Or try another service
+        </p>
+        <div className="grid grid-cols-3 gap-2.5">
+          {CATEGORIES.filter((c) => c.id !== "other")
+            .slice(0, 6)
+            .map((c) => (
+              <button
+                key={c.id}
+                onClick={() => navigate(`/radar?q=${encodeURIComponent(c.label)}`)}
+                className="rounded-xl bg-[#121212] border border-[#22C55E]/30 hover:border-[#22C55E] hover:bg-[#22C55E]/10 transition-colors p-3 flex flex-col items-center gap-1.5 active:scale-95"
+              >
+                <span className="text-2xl leading-none">{c.emoji}</span>
+                <span className="text-[11px] font-semibold text-white text-center leading-tight">
+                  {c.label}
+                </span>
+              </button>
+            ))}
+        </div>
+      </div>
+    </div>
   );
 };
 
