@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
-import { Radar as RadarIcon, ArrowLeft, MapPin, Phone, Store, AlertTriangle, ShieldCheck } from "lucide-react";
+import { ArrowLeft, MapPin, Phone, Store, AlertTriangle, ShieldCheck, Shield, Loader2 } from "lucide-react";
 import { supabase, type Vendor, distanceKm } from "@/lib/supabase";
 import { vendorTier, VerificationBadge } from "@/components/VerificationBadge";
 import { toast } from "sonner";
@@ -139,56 +139,86 @@ const RadarSearch = () => {
 
   return (
     <AppShell theme="dark">
-      <header className="flex items-center justify-between mb-4 animate-fade-up">
-        <button
-          onClick={() => navigate("/")}
-          className="h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
-          aria-label="Back to home"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <div className="text-center">
-          <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
-            Live Radar
-          </p>
-          <h1 className="font-display text-lg font-bold capitalize">{headline}</h1>
-        </div>
-        <div className="h-10 w-10" />
-      </header>
+      {scanning ? (
+        <div className="min-h-[80vh] bg-[#121212] flex flex-col items-center justify-center p-6 text-white relative animate-fade-in">
+          {/* Back */}
+          <button
+            onClick={() => navigate("/")}
+            className="absolute top-4 left-0 h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
+            aria-label="Back to home"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
 
-      {/* Radar centerpiece */}
-      <div className="relative h-64 w-64 mx-auto mb-2">
-        <div className="absolute inset-0 rounded-full border border-primary/20" />
-        <div className="absolute inset-6 rounded-full border border-primary/15" />
-        <div className="absolute inset-12 rounded-full border border-primary/10" />
-        {scanning && (
-          <>
-            <div className="radar-sweep" />
-            <div className="radar-ring" />
-            <div className="radar-ring" style={{ animationDelay: "0.7s" }} />
-            <div className="radar-ring" style={{ animationDelay: "1.4s" }} />
-          </>
-        )}
-        <div className="absolute inset-0 grid place-items-center">
-          <div className="h-16 w-16 rounded-full bg-gradient-vendor grid place-items-center shadow-glow">
-            <RadarIcon className="h-7 w-7 text-primary-foreground" />
+          {/* Search Header */}
+          <div className="absolute top-12 text-center px-6">
+            <h2 className="text-[#22C55E] text-sm font-bold tracking-widest uppercase mb-2">
+              {expanded ? "Expanding Scan" : "Scanning Area"}
+            </h2>
+            <p className="text-2xl font-semibold italic capitalize">
+              Finding nearby {headline}
+              {headline.toLowerCase().endsWith("s") ? "" : "s"}…
+            </p>
+          </div>
+
+          {/* The Radar Core */}
+          <div className="relative flex items-center justify-center w-64 h-64">
+            <div className="absolute w-full h-full border-2 border-[#22C55E]/30 rounded-full animate-ping shadow-[0_0_20px_rgba(34,197,94,0.3)]" />
+            <div className="absolute w-3/4 h-3/4 border-2 border-[#22C55E]/20 rounded-full animate-[ping_1.5s_linear_infinite]" />
+            <div className="absolute w-1/2 h-1/2 border-2 border-[#22C55E]/10 rounded-full animate-[ping_2s_linear_infinite]" />
+            <div className="relative z-10 w-24 h-24 bg-[#121212] border-2 border-[#22C55E] rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(34,197,94,0.5)]">
+              <Shield className="w-10 h-10 text-[#22C55E] animate-pulse" />
+            </div>
+          </div>
+
+          {/* Trust Indicator */}
+          <div className="absolute bottom-24 flex items-center gap-2 text-gray-400 text-sm text-center px-6">
+            <Loader2 className="w-4 h-4 animate-spin text-[#22C55E] shrink-0" />
+            <span>
+              {expanded
+                ? "Expanding to 50 km · filtering is_active vendors"
+                : "Filtering for is_active: true vendors within 15 km"}
+            </span>
           </div>
         </div>
-      </div>
+      ) : (
+        <>
+          <header className="flex items-center justify-between mb-4 animate-fade-up">
+            <button
+              onClick={() => navigate("/")}
+              className="h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
+              aria-label="Back to home"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="text-center">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E]">
+                Live Radar
+              </p>
+              <h1 className="font-display text-lg font-bold capitalize">{headline}</h1>
+            </div>
+            <div className="h-10 w-10" />
+          </header>
 
-      <p className="text-center text-xs uppercase tracking-[0.25em] text-muted-foreground mb-2">
-        {scanning
-          ? expanded
-            ? "Scanning wider area… 50 km"
-            : coords
-              ? "Scanning 15 km around you"
-              : "Scanning your area"
-          : `${results.length} ${results.length === 1 ? "match" : "matches"} found`}
-      </p>
-      {!scanning && expanded && results.length > 0 && (
-        <p className="text-center text-[11px] text-muted-foreground mb-4">
-          No one within 15 km — showing nearest help up to 50 km away.
-        </p>
+          <div className="relative h-32 w-32 mx-auto mb-3">
+            <div className="absolute inset-0 rounded-full border-2 border-[#22C55E]/30" />
+            <div className="absolute inset-3 rounded-full border-2 border-[#22C55E]/20" />
+            <div className="absolute inset-0 grid place-items-center">
+              <div className="h-14 w-14 rounded-full bg-[#121212] border-2 border-[#22C55E] grid place-items-center shadow-[0_0_24px_rgba(34,197,94,0.4)]">
+                <Shield className="h-6 w-6 text-[#22C55E]" />
+              </div>
+            </div>
+          </div>
+
+          <p className="text-center text-xs uppercase tracking-[0.25em] text-[#22C55E] mb-2">
+            {results.length} {results.length === 1 ? "match" : "matches"} found
+          </p>
+          {expanded && results.length > 0 && (
+            <p className="text-center text-[11px] text-muted-foreground mb-4">
+              No one within 15 km — showing nearest help up to 50 km away.
+            </p>
+          )}
+        </>
       )}
 
       {/* Error */}
