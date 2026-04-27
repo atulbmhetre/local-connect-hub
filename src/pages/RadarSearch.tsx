@@ -397,6 +397,7 @@ const RadarVendorCard = ({
   dist: number | null;
   index: number;
 }) => {
+  const navigate = useNavigate();
   const tier = vendorTier(vendor);
   const accentRing =
     tier === "green"
@@ -409,6 +410,7 @@ const RadarVendorCard = ({
     toast("AI-Bridge Call", {
       description: `Connecting you to ${vendor.name} (${vendor.shop_name}). Live bridging coming soon.`,
     });
+    navigate(`/track/${vendor.id}`);
   };
 
   return (
