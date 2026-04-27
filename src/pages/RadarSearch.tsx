@@ -320,8 +320,8 @@ const RadarVendorCard = ({
             ) : (
               <span>Location unknown</span>
             )}
-            <span className="inline-flex items-center gap-1 text-secondary">
-              <span className="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse" />
+            <span className="inline-flex items-center gap-1 text-[#22C55E] font-semibold">
+              <span className="h-2 w-2 rounded-full bg-[#22C55E] animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
               Ready to Help
             </span>
           </div>
