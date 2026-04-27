@@ -275,8 +275,7 @@ const LiveTracking = () => {
         video: { facingMode: { ideal: "environment" } },
       });
       const track = stream.getVideoTracks()[0];
-      // @ts-expect-error torch is non-standard
-      const caps = track.getCapabilities?.() ?? {};
+      const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { torch?: boolean };
       if (caps.torch) {
         torchTrackRef.current = track;
         let on = false;
