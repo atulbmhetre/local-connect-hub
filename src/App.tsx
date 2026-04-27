@@ -22,6 +22,8 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/radar" element={<RadarSearch />} />
           <Route path="/track/:vendorId" element={<LiveTracking />} />
+          <Route path="/tracking" element={<LiveTracking />} />
+          <Route path="/tracking/:vendorId" element={<LiveTracking />} />
           <Route path="/vendor" element={<VendorMode />} />
           <Route path="/settings" element={<SettingsPage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
