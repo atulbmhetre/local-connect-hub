@@ -517,9 +517,9 @@ const RadarVendorCard = ({
   const tier = vendorTier(vendor);
   const accentRing =
     tier === "green"
-      ? "ring-secondary/50 shadow-[0_0_24px_hsl(var(--secondary)/0.25)]"
+      ? "ring-[#22C55E]/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
       : tier === "yellow"
-        ? "ring-accent/40"
+        ? "ring-[#FACC15]/40"
         : "ring-destructive/30";
 
   const handleConnect = () => {
