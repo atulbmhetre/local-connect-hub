@@ -9,8 +9,11 @@ import {
   AlertTriangle,
   ShieldCheck,
   Shield,
+  ShieldAlert,
   Loader2,
   PhoneCall,
+  Hospital,
+  Compass,
 } from "lucide-react";
 import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
 import { vendorTier, VerificationBadge } from "@/components/VerificationBadge";
@@ -44,61 +47,54 @@ const TIER_RANK: Record<"green" | "yellow" | "red", number> = { green: 0, yellow
 const NEAR_RADIUS_KM = 15;
 const WIDE_RADIUS_KM = 50;
 
-// Critical failsafe: when no private responder is online, route the user to
-// the most relevant official authority based on what they were searching for.
-type OfficialHelp = { authority: string; number: string; tagline: string };
+// Category-specific failsafe. "medical" / "roadside" / "emergency" route to
+// a relevant official authority; "non-emergency" gets a pivot UI instead.
+type HelpKind = "medical" | "roadside" | "emergency" | "non_emergency";
+type OfficialHelp = {
+  kind: HelpKind;
+  authority: string;
+  number: string;
+  tagline: string;
+  secondary?: { label: string; href: string };
+};
+const MEDICAL = new Set(["Ambulance", "Pharmacy", "Nursing"]);
+const ROADSIDE = new Set(["Mechanic", "Towing", "Tyre Service"]);
+const EMERGENCY_112 = new Set(["Security", "Electrician", "Plumber"]);
+const NON_EMERGENCY = new Set(["Key Maker", "Hotel"]);
 const DEFAULT_OFFICIAL: OfficialHelp = {
-  authority: "National Emergency Helpline",
+  kind: "emergency",
+  authority: "National Emergency (112)",
   number: "112",
   tagline: "All-in-one police, fire & medical response.",
 };
-const OFFICIAL_HELP_MAP: Record<string, OfficialHelp> = {
-  Mechanic: {
-    authority: "Highway Authority Helpline",
-    number: "1033",
-    tagline: "National highway breakdown & road assistance.",
-  },
-  Towing: {
-    authority: "Highway Authority Helpline",
-    number: "1033",
-    tagline: "National highway breakdown & road assistance.",
-  },
-  "Tyre Service": {
-    authority: "Highway Authority Helpline",
-    number: "1033",
-    tagline: "National highway breakdown & road assistance.",
-  },
-  Ambulance: {
-    authority: "National Health Helpline",
-    number: "108",
-    tagline: "Free 24×7 emergency medical response.",
-  },
-  Pharmacy: {
-    authority: "National Health Helpline",
-    number: "104",
-    tagline: "Government health advice & medicine guidance.",
-  },
-  Nursing: {
-    authority: "National Health Helpline",
-    number: "104",
-    tagline: "Government health advice & medicine guidance.",
-  },
-  "Key Maker": {
-    authority: "Police Helpline",
-    number: "100",
-    tagline: "If locked out or suspect tampering, call police.",
-  },
-  Security: {
-    authority: "Police Helpline",
-    number: "100",
-    tagline: "Immediate police response in your area.",
-  },
-  Plumber: DEFAULT_OFFICIAL,
-  Electrician: DEFAULT_OFFICIAL,
-};
 function pickOfficialHelp(term: string): OfficialHelp {
   const resolved = resolveCategory(term);
-  if (resolved && OFFICIAL_HELP_MAP[resolved]) return OFFICIAL_HELP_MAP[resolved];
+  const raw = term.toLowerCase().trim();
+  const key = resolved ?? (raw === "hotel" ? "Hotel" : "");
+  if (MEDICAL.has(key)) {
+    return {
+      kind: "medical",
+      authority: "National Health Helpline (108)",
+      number: "108",
+      tagline: "Free 24×7 emergency medical response.",
+      secondary: {
+        label: "Find Nearest Govt Hospital",
+        href: "https://www.google.com/maps/search/government+hospital+near+me",
+      },
+    };
+  }
+  if (ROADSIDE.has(key)) {
+    return {
+      kind: "roadside",
+      authority: "Highway Emergency (1033)",
+      number: "1033",
+      tagline: "National highway breakdown & road assistance.",
+    };
+  }
+  if (EMERGENCY_112.has(key)) return DEFAULT_OFFICIAL;
+  if (NON_EMERGENCY.has(key)) {
+    return { ...DEFAULT_OFFICIAL, kind: "non_emergency" };
+  }
   return DEFAULT_OFFICIAL;
 }
 
