@@ -325,6 +325,50 @@ const EmptyStateFailsafe = ({
   navigate: ReturnType<typeof useNavigate>;
 }) => {
   const official = useMemo(() => pickOfficialHelp(term), [term]);
+  const [wider, setWider] = useState(false);
+  const [widerResults, setWiderResults] = useState<
+    { label: string; emoji: string; count: number }[]
+  >([]);
+  const [widerLoading, setWiderLoading] = useState(false);
+
+  useEffect(() => {
+    if (official.kind !== "non_emergency" || !wider) return;
+    let cancelled = false;
+    (async () => {
+      setWiderLoading(true);
+      try {
+        const { data } = await supabase
+          .from("vendors")
+          .select("category, latitude, longitude")
+          .eq("is_active", true)
+          .limit(300);
+        const counts = new Map<string, number>();
+        (data ?? []).forEach((v: any) => {
+          if (!coords || v.latitude == null || v.longitude == null) return;
+          const d = distanceKm(coords, { lat: v.latitude, lng: v.longitude });
+          if (d <= 100) counts.set(v.category, (counts.get(v.category) ?? 0) + 1);
+        });
+        const top = [...counts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([label, count]) => {
+            const cat = CATEGORIES.find(
+              (c) => c.label.toLowerCase() === label.toLowerCase(),
+            );
+            return { label, emoji: cat?.emoji ?? "✨", count };
+          });
+        if (!cancelled) setWiderResults(top);
+      } finally {
+        if (!cancelled) setWiderLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [official.kind, wider, coords]);
+
+  const isNonEmergency = official.kind === "non_emergency";
+
   return (
     <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-5">
       <div className="text-center">
@@ -332,32 +376,108 @@ const EmptyStateFailsafe = ({
           No private responders currently online
         </p>
         <p className="text-sm text-gray-400 mt-1">
-          {coords
-            ? "Checking official emergency links…"
-            : "We couldn't read your location. Try official help below or pick a category."}
+          {isNonEmergency
+            ? "Try expanding your search or picking a similar category."
+            : coords
+              ? "Checking official emergency links…"
+              : "We couldn't read your location. Try official help below or pick a category."}
         </p>
       </div>
 
-      {/* High-visibility official help bridge */}
-      <div className="rounded-2xl bg-[#121212] border-2 border-destructive/60 p-4 shadow-[0_0_24px_hsl(var(--destructive)/0.35)]">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shadow-[0_0_8px_hsl(var(--destructive)/0.9)]" />
-          <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
-            Official Help
+      {isNonEmergency ? (
+        <div className="rounded-2xl bg-[#121212] border border-[#22C55E]/40 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Compass className="h-4 w-4 text-[#22C55E]" />
+            <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] font-bold">
+              Search Wider
+            </p>
+          </div>
+          <p className="text-sm text-white">
+            Expand the radar beyond 50 km to find more active professionals.
           </p>
+          <button
+            onClick={() => setWider((w) => !w)}
+            role="switch"
+            aria-checked={wider}
+            className={`mt-3 w-full rounded-xl py-3 flex items-center justify-center gap-2 font-semibold transition-colors ${
+              wider
+                ? "bg-[#22C55E] text-[#0b1f14]"
+                : "bg-[#1A1A1A] border border-[#22C55E]/40 text-white"
+            }`}
+          >
+            {wider ? "Wider search: ON (100 km)" : "Enable wider search (100 km)"}
+          </button>
+
+          {wider && (
+            <div className="mt-4">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-gray-400 mb-2">
+                3 closest active categories
+              </p>
+              {widerLoading ? (
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <Loader2 className="h-4 w-4 animate-spin text-[#22C55E]" />
+                  Scanning 100 km radius…
+                </div>
+              ) : widerResults.length === 0 ? (
+                <p className="text-sm text-gray-400">
+                  No active categories found nearby yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {widerResults.map((r) => (
+                    <button
+                      key={r.label}
+                      onClick={() =>
+                        navigate(`/radar?q=${encodeURIComponent(r.label)}`)
+                      }
+                      className="w-full rounded-xl bg-[#1A1A1A] border border-[#22C55E]/30 hover:border-[#22C55E] p-3 flex items-center gap-3 active:scale-[0.98] transition"
+                    >
+                      <span className="text-xl">{r.emoji}</span>
+                      <span className="flex-1 text-left text-white font-semibold">
+                        {r.label}
+                      </span>
+                      <span className="text-xs text-[#22C55E]">
+                        {r.count} online
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-        <p className="font-display text-base font-bold text-white">
-          {official.authority}
-        </p>
-        <p className="text-xs text-gray-400 mt-0.5">{official.tagline}</p>
-        <a
-          href={`tel:${official.number}`}
-          className="mt-3 w-full rounded-xl bg-destructive text-destructive-foreground py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_18px_hsl(var(--destructive)/0.55)]"
-        >
-          <PhoneCall className="h-4 w-4" />
-          Connect to Official Help · {official.number}
-        </a>
-      </div>
+      ) : (
+        <div className="rounded-2xl bg-[#121212] border-2 border-destructive/60 p-4 shadow-[0_0_24px_hsl(var(--destructive)/0.35)]">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shadow-[0_0_8px_hsl(var(--destructive)/0.9)]" />
+            <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
+              Official Help
+            </p>
+          </div>
+          <p className="font-display text-base font-bold text-white">
+            {official.authority}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">{official.tagline}</p>
+          <a
+            href={`tel:${official.number}`}
+            className="mt-3 w-full rounded-xl bg-destructive text-destructive-foreground py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_18px_hsl(var(--destructive)/0.55)]"
+          >
+            <PhoneCall className="h-4 w-4" />
+            Connect to Official Help · {official.number}
+          </a>
+          {official.secondary && (
+            <a
+              href={official.secondary.href}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 w-full rounded-xl bg-[#1A1A1A] border border-[#22C55E]/40 text-[#22C55E] py-3 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
+            >
+              <Hospital className="h-4 w-4" />
+              {official.secondary.label}
+            </a>
+          )}
+        </div>
+      )}
 
       <div>
         <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] text-center mb-3">
