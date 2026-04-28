@@ -572,19 +572,30 @@ const RadarVendorCard = ({
         </div>
       </div>
 
+      {tier === "green" && (
+        <div className="mt-3 rounded-xl bg-[#22C55E]/10 border border-[#22C55E]/40 px-3 py-2 flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-[#22C55E] shrink-0" />
+          <p className="text-xs text-[#22C55E] font-semibold">Safety Verified</p>
+        </div>
+      )}
+      {tier === "yellow" && (
+        <div className="mt-3 rounded-xl bg-[#FACC15]/10 border border-[#FACC15]/40 px-3 py-2 flex items-start gap-2">
+          <ShieldAlert className="h-4 w-4 text-[#FACC15] shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-xs text-[#FACC15] font-semibold">
+              Documented — Verification in Progress
+            </p>
+            <p className="text-[11px] text-[#FACC15]/80 mt-0.5">
+              Proceed with standard caution.
+            </p>
+          </div>
+        </div>
+      )}
       {tier === "red" && (
         <div className="mt-3 rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-2 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
           <p className="text-xs text-destructive font-semibold">
             Warning: Identity Not Verified — connect at your own risk.
-          </p>
-        </div>
-      )}
-      {tier === "green" && (
-        <div className="mt-3 rounded-xl bg-secondary/10 border border-secondary/30 px-3 py-2 flex items-start gap-2">
-          <ShieldCheck className="h-4 w-4 text-secondary shrink-0 mt-0.5" />
-          <p className="text-xs text-secondary font-semibold">
-            Business Verified — top-tier trusted professional.
           </p>
         </div>
       )}
