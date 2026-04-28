@@ -9,8 +9,11 @@ import {
   AlertTriangle,
   ShieldCheck,
   Shield,
+  ShieldAlert,
   Loader2,
   PhoneCall,
+  Hospital,
+  Compass,
 } from "lucide-react";
 import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
 import { vendorTier, VerificationBadge } from "@/components/VerificationBadge";
@@ -44,61 +47,54 @@ const TIER_RANK: Record<"green" | "yellow" | "red", number> = { green: 0, yellow
 const NEAR_RADIUS_KM = 15;
 const WIDE_RADIUS_KM = 50;
 
-// Critical failsafe: when no private responder is online, route the user to
-// the most relevant official authority based on what they were searching for.
-type OfficialHelp = { authority: string; number: string; tagline: string };
+// Category-specific failsafe. "medical" / "roadside" / "emergency" route to
+// a relevant official authority; "non-emergency" gets a pivot UI instead.
+type HelpKind = "medical" | "roadside" | "emergency" | "non_emergency";
+type OfficialHelp = {
+  kind: HelpKind;
+  authority: string;
+  number: string;
+  tagline: string;
+  secondary?: { label: string; href: string };
+};
+const MEDICAL = new Set(["Ambulance", "Pharmacy", "Nursing"]);
+const ROADSIDE = new Set(["Mechanic", "Towing", "Tyre Service"]);
+const EMERGENCY_112 = new Set(["Security", "Electrician", "Plumber"]);
+const NON_EMERGENCY = new Set(["Key Maker", "Hotel"]);
 const DEFAULT_OFFICIAL: OfficialHelp = {
-  authority: "National Emergency Helpline",
+  kind: "emergency",
+  authority: "National Emergency (112)",
   number: "112",
   tagline: "All-in-one police, fire & medical response.",
 };
-const OFFICIAL_HELP_MAP: Record<string, OfficialHelp> = {
-  Mechanic: {
-    authority: "Highway Authority Helpline",
-    number: "1033",
-    tagline: "National highway breakdown & road assistance.",
-  },
-  Towing: {
-    authority: "Highway Authority Helpline",
-    number: "1033",
-    tagline: "National highway breakdown & road assistance.",
-  },
-  "Tyre Service": {
-    authority: "Highway Authority Helpline",
-    number: "1033",
-    tagline: "National highway breakdown & road assistance.",
-  },
-  Ambulance: {
-    authority: "National Health Helpline",
-    number: "108",
-    tagline: "Free 24×7 emergency medical response.",
-  },
-  Pharmacy: {
-    authority: "National Health Helpline",
-    number: "104",
-    tagline: "Government health advice & medicine guidance.",
-  },
-  Nursing: {
-    authority: "National Health Helpline",
-    number: "104",
-    tagline: "Government health advice & medicine guidance.",
-  },
-  "Key Maker": {
-    authority: "Police Helpline",
-    number: "100",
-    tagline: "If locked out or suspect tampering, call police.",
-  },
-  Security: {
-    authority: "Police Helpline",
-    number: "100",
-    tagline: "Immediate police response in your area.",
-  },
-  Plumber: DEFAULT_OFFICIAL,
-  Electrician: DEFAULT_OFFICIAL,
-};
 function pickOfficialHelp(term: string): OfficialHelp {
   const resolved = resolveCategory(term);
-  if (resolved && OFFICIAL_HELP_MAP[resolved]) return OFFICIAL_HELP_MAP[resolved];
+  const raw = term.toLowerCase().trim();
+  const key = resolved ?? (raw === "hotel" ? "Hotel" : "");
+  if (MEDICAL.has(key)) {
+    return {
+      kind: "medical",
+      authority: "National Health Helpline (108)",
+      number: "108",
+      tagline: "Free 24×7 emergency medical response.",
+      secondary: {
+        label: "Find Nearest Govt Hospital",
+        href: "https://www.google.com/maps/search/government+hospital+near+me",
+      },
+    };
+  }
+  if (ROADSIDE.has(key)) {
+    return {
+      kind: "roadside",
+      authority: "Highway Emergency (1033)",
+      number: "1033",
+      tagline: "National highway breakdown & road assistance.",
+    };
+  }
+  if (EMERGENCY_112.has(key)) return DEFAULT_OFFICIAL;
+  if (NON_EMERGENCY.has(key)) {
+    return { ...DEFAULT_OFFICIAL, kind: "non_emergency" };
+  }
   return DEFAULT_OFFICIAL;
 }
 
@@ -329,6 +325,50 @@ const EmptyStateFailsafe = ({
   navigate: ReturnType<typeof useNavigate>;
 }) => {
   const official = useMemo(() => pickOfficialHelp(term), [term]);
+  const [wider, setWider] = useState(false);
+  const [widerResults, setWiderResults] = useState<
+    { label: string; emoji: string; count: number }[]
+  >([]);
+  const [widerLoading, setWiderLoading] = useState(false);
+
+  useEffect(() => {
+    if (official.kind !== "non_emergency" || !wider) return;
+    let cancelled = false;
+    (async () => {
+      setWiderLoading(true);
+      try {
+        const { data } = await supabase
+          .from("vendors")
+          .select("category, latitude, longitude")
+          .eq("is_active", true)
+          .limit(300);
+        const counts = new Map<string, number>();
+        (data ?? []).forEach((v: any) => {
+          if (!coords || v.latitude == null || v.longitude == null) return;
+          const d = distanceKm(coords, { lat: v.latitude, lng: v.longitude });
+          if (d <= 100) counts.set(v.category, (counts.get(v.category) ?? 0) + 1);
+        });
+        const top = [...counts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([label, count]) => {
+            const cat = CATEGORIES.find(
+              (c) => c.label.toLowerCase() === label.toLowerCase(),
+            );
+            return { label, emoji: cat?.emoji ?? "✨", count };
+          });
+        if (!cancelled) setWiderResults(top);
+      } finally {
+        if (!cancelled) setWiderLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [official.kind, wider, coords]);
+
+  const isNonEmergency = official.kind === "non_emergency";
+
   return (
     <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-5">
       <div className="text-center">
@@ -336,32 +376,108 @@ const EmptyStateFailsafe = ({
           No private responders currently online
         </p>
         <p className="text-sm text-gray-400 mt-1">
-          {coords
-            ? "Checking official emergency links…"
-            : "We couldn't read your location. Try official help below or pick a category."}
+          {isNonEmergency
+            ? "Try expanding your search or picking a similar category."
+            : coords
+              ? "Checking official emergency links…"
+              : "We couldn't read your location. Try official help below or pick a category."}
         </p>
       </div>
 
-      {/* High-visibility official help bridge */}
-      <div className="rounded-2xl bg-[#121212] border-2 border-destructive/60 p-4 shadow-[0_0_24px_hsl(var(--destructive)/0.35)]">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shadow-[0_0_8px_hsl(var(--destructive)/0.9)]" />
-          <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
-            Official Help
+      {isNonEmergency ? (
+        <div className="rounded-2xl bg-[#121212] border border-[#22C55E]/40 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Compass className="h-4 w-4 text-[#22C55E]" />
+            <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] font-bold">
+              Search Wider
+            </p>
+          </div>
+          <p className="text-sm text-white">
+            Expand the radar beyond 50 km to find more active professionals.
           </p>
+          <button
+            onClick={() => setWider((w) => !w)}
+            role="switch"
+            aria-checked={wider}
+            className={`mt-3 w-full rounded-xl py-3 flex items-center justify-center gap-2 font-semibold transition-colors ${
+              wider
+                ? "bg-[#22C55E] text-[#0b1f14]"
+                : "bg-[#1A1A1A] border border-[#22C55E]/40 text-white"
+            }`}
+          >
+            {wider ? "Wider search: ON (100 km)" : "Enable wider search (100 km)"}
+          </button>
+
+          {wider && (
+            <div className="mt-4">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-gray-400 mb-2">
+                3 closest active categories
+              </p>
+              {widerLoading ? (
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <Loader2 className="h-4 w-4 animate-spin text-[#22C55E]" />
+                  Scanning 100 km radius…
+                </div>
+              ) : widerResults.length === 0 ? (
+                <p className="text-sm text-gray-400">
+                  No active categories found nearby yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {widerResults.map((r) => (
+                    <button
+                      key={r.label}
+                      onClick={() =>
+                        navigate(`/radar?q=${encodeURIComponent(r.label)}`)
+                      }
+                      className="w-full rounded-xl bg-[#1A1A1A] border border-[#22C55E]/30 hover:border-[#22C55E] p-3 flex items-center gap-3 active:scale-[0.98] transition"
+                    >
+                      <span className="text-xl">{r.emoji}</span>
+                      <span className="flex-1 text-left text-white font-semibold">
+                        {r.label}
+                      </span>
+                      <span className="text-xs text-[#22C55E]">
+                        {r.count} online
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-        <p className="font-display text-base font-bold text-white">
-          {official.authority}
-        </p>
-        <p className="text-xs text-gray-400 mt-0.5">{official.tagline}</p>
-        <a
-          href={`tel:${official.number}`}
-          className="mt-3 w-full rounded-xl bg-destructive text-destructive-foreground py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_18px_hsl(var(--destructive)/0.55)]"
-        >
-          <PhoneCall className="h-4 w-4" />
-          Connect to Official Help · {official.number}
-        </a>
-      </div>
+      ) : (
+        <div className="rounded-2xl bg-[#121212] border-2 border-destructive/60 p-4 shadow-[0_0_24px_hsl(var(--destructive)/0.35)]">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shadow-[0_0_8px_hsl(var(--destructive)/0.9)]" />
+            <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
+              Official Help
+            </p>
+          </div>
+          <p className="font-display text-base font-bold text-white">
+            {official.authority}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">{official.tagline}</p>
+          <a
+            href={`tel:${official.number}`}
+            className="mt-3 w-full rounded-xl bg-destructive text-destructive-foreground py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_18px_hsl(var(--destructive)/0.55)]"
+          >
+            <PhoneCall className="h-4 w-4" />
+            Connect to Official Help · {official.number}
+          </a>
+          {official.secondary && (
+            <a
+              href={official.secondary.href}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 w-full rounded-xl bg-[#1A1A1A] border border-[#22C55E]/40 text-[#22C55E] py-3 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
+            >
+              <Hospital className="h-4 w-4" />
+              {official.secondary.label}
+            </a>
+          )}
+        </div>
+      )}
 
       <div>
         <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] text-center mb-3">
@@ -401,9 +517,9 @@ const RadarVendorCard = ({
   const tier = vendorTier(vendor);
   const accentRing =
     tier === "green"
-      ? "ring-secondary/50 shadow-[0_0_24px_hsl(var(--secondary)/0.25)]"
+      ? "ring-[#22C55E]/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
       : tier === "yellow"
-        ? "ring-accent/40"
+        ? "ring-[#FACC15]/40"
         : "ring-destructive/30";
 
   const handleConnect = () => {
@@ -456,19 +572,30 @@ const RadarVendorCard = ({
         </div>
       </div>
 
+      {tier === "green" && (
+        <div className="mt-3 rounded-xl bg-[#22C55E]/10 border border-[#22C55E]/40 px-3 py-2 flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-[#22C55E] shrink-0" />
+          <p className="text-xs text-[#22C55E] font-semibold">Safety Verified</p>
+        </div>
+      )}
+      {tier === "yellow" && (
+        <div className="mt-3 rounded-xl bg-[#FACC15]/10 border border-[#FACC15]/40 px-3 py-2 flex items-start gap-2">
+          <ShieldAlert className="h-4 w-4 text-[#FACC15] shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-xs text-[#FACC15] font-semibold">
+              Documented — Verification in Progress
+            </p>
+            <p className="text-[11px] text-[#FACC15]/80 mt-0.5">
+              Proceed with standard caution.
+            </p>
+          </div>
+        </div>
+      )}
       {tier === "red" && (
         <div className="mt-3 rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-2 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
           <p className="text-xs text-destructive font-semibold">
             Warning: Identity Not Verified — connect at your own risk.
-          </p>
-        </div>
-      )}
-      {tier === "green" && (
-        <div className="mt-3 rounded-xl bg-secondary/10 border border-secondary/30 px-3 py-2 flex items-start gap-2">
-          <ShieldCheck className="h-4 w-4 text-secondary shrink-0 mt-0.5" />
-          <p className="text-xs text-secondary font-semibold">
-            Business Verified — top-tier trusted professional.
           </p>
         </div>
       )}
