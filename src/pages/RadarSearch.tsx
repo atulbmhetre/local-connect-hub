@@ -62,9 +62,7 @@ function resolveCategory(term: string): string | null {
   return null;
 }
 
-const TIER_RANK: Record<"green" | "yellow" | "red", number> = { green: 0, yellow: 1, red: 2 };
 const NEAR_RADIUS_KM = 15;
-const WIDE_RADIUS_KM = 50;
 
 // Category-specific failsafe. "medical" / "roadside" / "emergency" route to
 // a relevant official authority; "non-emergency" gets a pivot UI instead.
