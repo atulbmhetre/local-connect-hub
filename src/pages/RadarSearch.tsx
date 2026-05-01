@@ -16,9 +16,16 @@ import {
   Compass,
   Clock,
   Siren,
+  ChevronDown,
+  Zap,
 } from "lucide-react";
 import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
 import { toast } from "sonner";
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible";
 
 type Ranked = { vendor: Vendor; dist: number | null };
 
@@ -55,9 +62,7 @@ function resolveCategory(term: string): string | null {
   return null;
 }
 
-const TIER_RANK: Record<"green" | "yellow" | "red", number> = { green: 0, yellow: 1, red: 2 };
 const NEAR_RADIUS_KM = 15;
-const WIDE_RADIUS_KM = 50;
 
 // Category-specific failsafe. "medical" / "roadside" / "emergency" route to
 // a relevant official authority; "non-emergency" gets a pivot UI instead.
@@ -176,22 +181,17 @@ const RadarSearch = () => {
         const within = (radius: number) =>
           all.filter((r) => (coords ? r.dist != null && r.dist <= radius : true));
 
-        let scoped = within(NEAR_RADIUS_KM);
-        let didExpand = false;
-        if (coords && scoped.length === 0) {
-          // Empty-state widening: announce, wait for the radar to spin again,
-          // then re-scan at 50km.
-          setExpanded(true);
-          didExpand = true;
-          await new Promise((r) => setTimeout(r, 1100));
-          scoped = within(WIDE_RADIUS_KM);
-        }
+        // Strict 15 km radius — no automatic widening. If the near scan
+        // returns nothing, the EmptyStateFailsafe handles the pivot.
+        const scoped = within(NEAR_RADIUS_KM);
+        const didExpand = false;
 
-        // Rank: Green → Yellow → Red, then by distance (nulls last).
+        // Rank: Green status first (always on top), then by proximity.
+        // Yellow/Red helpers fall back to pure distance ordering.
         scoped.sort((a, b) => {
-          const ta = TIER_RANK[readVerificationStatus(a.vendor)];
-          const tb = TIER_RANK[readVerificationStatus(b.vendor)];
-          if (ta !== tb) return ta - tb;
+          const ag = readVerificationStatus(a.vendor) === "green" ? 0 : 1;
+          const bg = readVerificationStatus(b.vendor) === "green" ? 0 : 1;
+          if (ag !== bg) return ag - bg;
           if (a.dist == null && b.dist == null) return 0;
           if (a.dist == null) return 1;
           if (b.dist == null) return -1;
@@ -507,27 +507,6 @@ const EmptyStateFailsafe = ({
         </div>
       )}
 
-      <div>
-        <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] text-center mb-3">
-          Or try another service
-        </p>
-        <div className="grid grid-cols-3 gap-2.5">
-          {CATEGORIES.filter((c) => c.id !== "other")
-            .slice(0, 6)
-            .map((c) => (
-              <button
-                key={c.id}
-                onClick={() => navigate(`/radar?q=${encodeURIComponent(c.label)}`)}
-                className="rounded-xl bg-[#121212] border border-[#22C55E]/30 hover:border-[#22C55E] hover:bg-[#22C55E]/10 transition-colors p-3 flex flex-col items-center gap-1.5 active:scale-95"
-              >
-                <span className="text-2xl leading-none">{c.emoji}</span>
-                <span className="text-[11px] font-semibold text-white text-center leading-tight">
-                  {c.label}
-                </span>
-              </button>
-            ))}
-        </div>
-      </div>
     </div>
   );
 };
@@ -606,10 +585,7 @@ const RadarVendorCard = ({
             ) : (
               <span>Location unknown</span>
             )}
-            <span className="inline-flex items-center gap-1 text-[#22C55E] font-semibold">
-              <span className="h-2 w-2 rounded-full bg-[#22C55E] animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
-              Ready to Help
-            </span>
+            <SignalFreshness lastUpdated={vendor.last_updated ?? null} />
           </div>
           {dist != null && (
             <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-[#22C55E]/10 ring-1 ring-[#22C55E]/30 px-2 py-0.5 text-[11px] font-semibold text-[#22C55E]">
@@ -647,7 +623,48 @@ const RadarVendorCard = ({
         <Phone className="h-4 w-4" />
         Connect via AI-Bridge
       </button>
+      <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] font-semibold text-[#22C55E]/90">
+        <Zap className="h-3 w-3" />
+        Typical Response &lt; 60s
+      </p>
     </div>
+  );
+};
+
+// Trust indicator that proves a vendor is actively at their post.
+// Reads the live `last_updated` timestamp from Supabase and labels the gap.
+const SignalFreshness = ({ lastUpdated }: { lastUpdated: string | null }) => {
+  if (!lastUpdated) {
+    return (
+      <span className="inline-flex items-center gap-1 text-gray-400 font-semibold">
+        <span className="h-2 w-2 rounded-full bg-gray-500" />
+        Signal: Unknown
+      </span>
+    );
+  }
+  const ageMin = Math.max(
+    0,
+    Math.round((Date.now() - new Date(lastUpdated).getTime()) / 60000),
+  );
+  if (ageMin < 30) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[#22C55E] font-semibold">
+        <span className="h-2 w-2 rounded-full bg-[#22C55E] animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
+        Signal: Strong
+      </span>
+    );
+  }
+  const label =
+    ageMin < 60
+      ? `${ageMin} mins ago`
+      : ageMin < 60 * 24
+        ? `${Math.round(ageMin / 60)}h ago`
+        : `${Math.round(ageMin / (60 * 24))}d ago`;
+  return (
+    <span className="inline-flex items-center gap-1 text-gray-400 font-semibold">
+      <Clock className="h-3 w-3" />
+      Last Active: {label}
+    </span>
   );
 };
 
@@ -686,78 +703,98 @@ const CategoryFilterBar = ({
   );
 };
 
-// Always-visible government & emergency services panel rendered below the
-// vendor results. Numbers shift based on the searched category.
+// Collapsible government & emergency services panel rendered below the
+// vendor results. Primary number shifts based on the searched category:
+// Medical → 108, Roadside → 1033, Security/Default → 112.
 const GovEmergencyServices = ({ term }: { term: string }) => {
-  const official = pickOfficialHelp(term);
   const resolved = resolveCategory(term);
-  const showHealth = resolved ? MEDICAL.has(resolved) : false;
-  const showRoadside = resolved ? ROADSIDE.has(resolved) : false;
+  const isMedical = resolved ? MEDICAL.has(resolved) : false;
+  const isRoadside = resolved ? ROADSIDE.has(resolved) : false;
 
   type Line = { label: string; number: string; tagline: string; href: string };
   const lines: Line[] = [];
-  if (showHealth) {
+  if (isMedical) {
     lines.push({
-      label: "Govt. Health Helpline",
+      label: "108 Ambulance",
       number: "108",
-      tagline: "Free 24×7 ambulance & medical response",
+      tagline: "Free 24×7 medical & ambulance response",
       href: "tel:108",
     });
-  }
-  if (showRoadside) {
+  } else if (isRoadside) {
     lines.push({
-      label: "Highway Patrol",
+      label: "1033 National Highway",
       number: "1033",
-      tagline: "National highway breakdown & police patrol",
+      tagline: "Highway breakdown & road assistance",
       href: "tel:1033",
     });
+  } else {
+    lines.push({
+      label: "112 National Emergency",
+      number: "112",
+      tagline: "Police, fire & medical — single line",
+      href: "tel:112",
+    });
   }
-  // Always include 112 + local police (100).
-  lines.push({
-    label: "National Emergency",
-    number: "112",
-    tagline: "Police, fire & medical — single line",
-    href: "tel:112",
-  });
-  lines.push({
-    label: "Local Police",
-    number: "100",
-    tagline: "Nearest police station dispatch",
-    href: "tel:100",
-  });
 
-  void official;
+  const primary = lines[0];
 
   return (
     <section className="mt-6 pb-4">
-      <div className="rounded-2xl border border-destructive/40 bg-[#1A1A1A] p-4 shadow-[0_0_18px_hsl(var(--destructive)/0.25)]">
-        <div className="flex items-center gap-2 mb-3">
-          <Siren className="h-4 w-4 text-destructive" />
-          <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
-            Govt. Help & Emergency Services
-          </p>
-        </div>
-        <div className="space-y-2">
-          {lines.map((l) => (
+      <Collapsible>
+        <div className="rounded-2xl border border-destructive/40 bg-[#1A1A1A] overflow-hidden">
+          <CollapsibleTrigger className="w-full flex items-center justify-between gap-3 p-4 group">
+            <div className="flex items-center gap-2 min-w-0">
+              <Siren className="h-4 w-4 text-destructive shrink-0" />
+              <div className="text-left min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
+                  Govt. Help
+                </p>
+                <p className="text-xs text-gray-400 truncate">
+                  Tap to open · Primary line: {primary.number}
+                </p>
+              </div>
+            </div>
+            <ChevronDown className="h-4 w-4 text-destructive transition-transform group-data-[state=open]:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="px-4 pb-4 space-y-2">
+            {lines.map((l) => (
+              <a
+                key={l.number}
+                href={l.href}
+                className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+              >
+                <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
+                  <PhoneCall className="h-4 w-4 text-destructive" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">
+                    {l.label}
+                  </p>
+                  <p className="text-[11px] text-gray-400 truncate">{l.tagline}</p>
+                </div>
+                <span className="text-sm font-bold text-destructive">{l.number}</span>
+              </a>
+            ))}
             <a
-              key={l.number}
-              href={l.href}
-              className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+              href="tel:100"
+              className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/20 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
             >
               <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
                 <PhoneCall className="h-4 w-4 text-destructive" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">
-                  {l.label}
+                  Local Police
                 </p>
-                <p className="text-[11px] text-gray-400 truncate">{l.tagline}</p>
+                <p className="text-[11px] text-gray-400 truncate">
+                  Nearest police station dispatch
+                </p>
               </div>
-              <span className="text-sm font-bold text-destructive">{l.number}</span>
+              <span className="text-sm font-bold text-destructive">100</span>
             </a>
-          ))}
+          </CollapsibleContent>
         </div>
-      </div>
+      </Collapsible>
     </section>
   );
 };
