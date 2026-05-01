@@ -651,4 +651,115 @@ const RadarVendorCard = ({
   );
 };
 
+// Horizontal scrollable category bar. Tapping a chip refreshes the radar
+// for is_active vendors of that category within the 15 km near-radius.
+const CategoryFilterBar = ({
+  active,
+  onPick,
+}: {
+  active: string;
+  onPick: (label: string) => void;
+}) => {
+  const items = CATEGORIES.filter((c) => c.id !== "other");
+  return (
+    <div className="-mx-4 px-4 mb-4 overflow-x-auto no-scrollbar">
+      <div className="flex gap-2 w-max">
+        {items.map((c) => {
+          const isActive = c.label.toLowerCase() === (active ?? "").toLowerCase();
+          return (
+            <button
+              key={c.id}
+              onClick={() => onPick(c.label)}
+              className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
+                isActive
+                  ? "bg-[#22C55E] text-[#0b1f14] border-[#22C55E] shadow-[0_0_14px_rgba(34,197,94,0.45)]"
+                  : "bg-[#1A1A1A] text-white border-[#22C55E]/30 hover:border-[#22C55E]"
+              }`}
+            >
+              <span className="text-base leading-none">{c.emoji}</span>
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// Always-visible government & emergency services panel rendered below the
+// vendor results. Numbers shift based on the searched category.
+const GovEmergencyServices = ({ term }: { term: string }) => {
+  const official = pickOfficialHelp(term);
+  const resolved = resolveCategory(term);
+  const showHealth = resolved ? MEDICAL.has(resolved) : false;
+  const showRoadside = resolved ? ROADSIDE.has(resolved) : false;
+
+  type Line = { label: string; number: string; tagline: string; href: string };
+  const lines: Line[] = [];
+  if (showHealth) {
+    lines.push({
+      label: "Govt. Health Helpline",
+      number: "108",
+      tagline: "Free 24×7 ambulance & medical response",
+      href: "tel:108",
+    });
+  }
+  if (showRoadside) {
+    lines.push({
+      label: "Highway Patrol",
+      number: "1033",
+      tagline: "National highway breakdown & police patrol",
+      href: "tel:1033",
+    });
+  }
+  // Always include 112 + local police (100).
+  lines.push({
+    label: "National Emergency",
+    number: "112",
+    tagline: "Police, fire & medical — single line",
+    href: "tel:112",
+  });
+  lines.push({
+    label: "Local Police",
+    number: "100",
+    tagline: "Nearest police station dispatch",
+    href: "tel:100",
+  });
+
+  void official;
+
+  return (
+    <section className="mt-6 pb-4">
+      <div className="rounded-2xl border border-destructive/40 bg-[#1A1A1A] p-4 shadow-[0_0_18px_hsl(var(--destructive)/0.25)]">
+        <div className="flex items-center gap-2 mb-3">
+          <Siren className="h-4 w-4 text-destructive" />
+          <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
+            Govt. Help & Emergency Services
+          </p>
+        </div>
+        <div className="space-y-2">
+          {lines.map((l) => (
+            <a
+              key={l.number}
+              href={l.href}
+              className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+            >
+              <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
+                <PhoneCall className="h-4 w-4 text-destructive" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">
+                  {l.label}
+                </p>
+                <p className="text-[11px] text-gray-400 truncate">{l.tagline}</p>
+              </div>
+              <span className="text-sm font-bold text-destructive">{l.number}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
 export default RadarSearch;
