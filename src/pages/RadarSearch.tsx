@@ -183,22 +183,17 @@ const RadarSearch = () => {
         const within = (radius: number) =>
           all.filter((r) => (coords ? r.dist != null && r.dist <= radius : true));
 
-        let scoped = within(NEAR_RADIUS_KM);
-        let didExpand = false;
-        if (coords && scoped.length === 0) {
-          // Empty-state widening: announce, wait for the radar to spin again,
-          // then re-scan at 50km.
-          setExpanded(true);
-          didExpand = true;
-          await new Promise((r) => setTimeout(r, 1100));
-          scoped = within(WIDE_RADIUS_KM);
-        }
+        // Strict 15 km radius — no automatic widening. If the near scan
+        // returns nothing, the EmptyStateFailsafe handles the pivot.
+        const scoped = within(NEAR_RADIUS_KM);
+        const didExpand = false;
 
-        // Rank: Green → Yellow → Red, then by distance (nulls last).
+        // Rank: Green status first (always on top), then by proximity.
+        // Yellow/Red helpers fall back to pure distance ordering.
         scoped.sort((a, b) => {
-          const ta = TIER_RANK[readVerificationStatus(a.vendor)];
-          const tb = TIER_RANK[readVerificationStatus(b.vendor)];
-          if (ta !== tb) return ta - tb;
+          const ag = readVerificationStatus(a.vendor) === "green" ? 0 : 1;
+          const bg = readVerificationStatus(b.vendor) === "green" ? 0 : 1;
+          if (ag !== bg) return ag - bg;
           if (a.dist == null && b.dist == null) return 0;
           if (a.dist == null) return 1;
           if (b.dist == null) return -1;
