@@ -299,6 +299,12 @@ const RadarSearch = () => {
               No one within 15 km — showing nearest help up to 50 km away.
             </p>
           )}
+
+          {/* Horizontal category filter — taps re-run a 15 km active scan. */}
+          <CategoryFilterBar
+            active={resolveCategory(term) ?? term}
+            onPick={(label) => navigate(`/radar?q=${encodeURIComponent(label)}`)}
+          />
         </>
       )}
 
@@ -325,6 +331,11 @@ const RadarSearch = () => {
       {/* True empty state — even widened search returned nothing. */}
       {!scanning && !error && results.length === 0 && (
         <EmptyStateFailsafe term={term} coords={coords} navigate={navigate} />
+      )}
+
+      {/* Always-on Government & Emergency Services footer. */}
+      {!scanning && !error && results.length > 0 && (
+        <GovEmergencyServices term={term} />
       )}
     </AppShell>
   );
