@@ -16,7 +16,6 @@ import {
   Compass,
 } from "lucide-react";
 import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
-import { vendorTier, VerificationBadge } from "@/components/VerificationBadge";
 import { toast } from "sonner";
 
 type Ranked = { vendor: Vendor; dist: number | null };
