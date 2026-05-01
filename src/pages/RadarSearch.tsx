@@ -705,78 +705,98 @@ const CategoryFilterBar = ({
   );
 };
 
-// Always-visible government & emergency services panel rendered below the
-// vendor results. Numbers shift based on the searched category.
+// Collapsible government & emergency services panel rendered below the
+// vendor results. Primary number shifts based on the searched category:
+// Medical → 108, Roadside → 1033, Security/Default → 112.
 const GovEmergencyServices = ({ term }: { term: string }) => {
-  const official = pickOfficialHelp(term);
   const resolved = resolveCategory(term);
-  const showHealth = resolved ? MEDICAL.has(resolved) : false;
-  const showRoadside = resolved ? ROADSIDE.has(resolved) : false;
+  const isMedical = resolved ? MEDICAL.has(resolved) : false;
+  const isRoadside = resolved ? ROADSIDE.has(resolved) : false;
 
   type Line = { label: string; number: string; tagline: string; href: string };
   const lines: Line[] = [];
-  if (showHealth) {
+  if (isMedical) {
     lines.push({
-      label: "Govt. Health Helpline",
+      label: "108 Ambulance",
       number: "108",
-      tagline: "Free 24×7 ambulance & medical response",
+      tagline: "Free 24×7 medical & ambulance response",
       href: "tel:108",
     });
-  }
-  if (showRoadside) {
+  } else if (isRoadside) {
     lines.push({
-      label: "Highway Patrol",
+      label: "1033 National Highway",
       number: "1033",
-      tagline: "National highway breakdown & police patrol",
+      tagline: "Highway breakdown & road assistance",
       href: "tel:1033",
     });
+  } else {
+    lines.push({
+      label: "112 National Emergency",
+      number: "112",
+      tagline: "Police, fire & medical — single line",
+      href: "tel:112",
+    });
   }
-  // Always include 112 + local police (100).
-  lines.push({
-    label: "National Emergency",
-    number: "112",
-    tagline: "Police, fire & medical — single line",
-    href: "tel:112",
-  });
-  lines.push({
-    label: "Local Police",
-    number: "100",
-    tagline: "Nearest police station dispatch",
-    href: "tel:100",
-  });
 
-  void official;
+  const primary = lines[0];
 
   return (
     <section className="mt-6 pb-4">
-      <div className="rounded-2xl border border-destructive/40 bg-[#1A1A1A] p-4 shadow-[0_0_18px_hsl(var(--destructive)/0.25)]">
-        <div className="flex items-center gap-2 mb-3">
-          <Siren className="h-4 w-4 text-destructive" />
-          <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
-            Govt. Help & Emergency Services
-          </p>
-        </div>
-        <div className="space-y-2">
-          {lines.map((l) => (
+      <Collapsible>
+        <div className="rounded-2xl border border-destructive/40 bg-[#1A1A1A] overflow-hidden">
+          <CollapsibleTrigger className="w-full flex items-center justify-between gap-3 p-4 group">
+            <div className="flex items-center gap-2 min-w-0">
+              <Siren className="h-4 w-4 text-destructive shrink-0" />
+              <div className="text-left min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
+                  Govt. Help
+                </p>
+                <p className="text-xs text-gray-400 truncate">
+                  Tap to open · Primary line: {primary.number}
+                </p>
+              </div>
+            </div>
+            <ChevronDown className="h-4 w-4 text-destructive transition-transform group-data-[state=open]:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="px-4 pb-4 space-y-2">
+            {lines.map((l) => (
+              <a
+                key={l.number}
+                href={l.href}
+                className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+              >
+                <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
+                  <PhoneCall className="h-4 w-4 text-destructive" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">
+                    {l.label}
+                  </p>
+                  <p className="text-[11px] text-gray-400 truncate">{l.tagline}</p>
+                </div>
+                <span className="text-sm font-bold text-destructive">{l.number}</span>
+              </a>
+            ))}
             <a
-              key={l.number}
-              href={l.href}
-              className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+              href="tel:100"
+              className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/20 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
             >
               <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
                 <PhoneCall className="h-4 w-4 text-destructive" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">
-                  {l.label}
+                  Local Police
                 </p>
-                <p className="text-[11px] text-gray-400 truncate">{l.tagline}</p>
+                <p className="text-[11px] text-gray-400 truncate">
+                  Nearest police station dispatch
+                </p>
               </div>
-              <span className="text-sm font-bold text-destructive">{l.number}</span>
+              <span className="text-sm font-bold text-destructive">100</span>
             </a>
-          ))}
+          </CollapsibleContent>
         </div>
-      </div>
+      </Collapsible>
     </section>
   );
 };
