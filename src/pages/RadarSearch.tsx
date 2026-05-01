@@ -509,27 +509,6 @@ const EmptyStateFailsafe = ({
         </div>
       )}
 
-      <div>
-        <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] text-center mb-3">
-          Or try another service
-        </p>
-        <div className="grid grid-cols-3 gap-2.5">
-          {CATEGORIES.filter((c) => c.id !== "other")
-            .slice(0, 6)
-            .map((c) => (
-              <button
-                key={c.id}
-                onClick={() => navigate(`/radar?q=${encodeURIComponent(c.label)}`)}
-                className="rounded-xl bg-[#121212] border border-[#22C55E]/30 hover:border-[#22C55E] hover:bg-[#22C55E]/10 transition-colors p-3 flex flex-col items-center gap-1.5 active:scale-95"
-              >
-                <span className="text-2xl leading-none">{c.emoji}</span>
-                <span className="text-[11px] font-semibold text-white text-center leading-tight">
-                  {c.label}
-                </span>
-              </button>
-            ))}
-        </div>
-      </div>
     </div>
   );
 };
