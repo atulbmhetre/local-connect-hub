@@ -16,9 +16,16 @@ import {
   Compass,
   Clock,
   Siren,
+  ChevronDown,
+  Zap,
 } from "lucide-react";
 import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
 import { toast } from "sonner";
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible";
 
 type Ranked = { vendor: Vendor; dist: number | null };
 
