@@ -16,10 +16,20 @@ import {
   Compass,
 } from "lucide-react";
 import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
-import { vendorTier, VerificationBadge } from "@/components/VerificationBadge";
 import { toast } from "sonner";
 
 type Ranked = { vendor: Vendor; dist: number | null };
+
+// Read the raw `verification_status` column from Supabase and normalize it
+// to one of "green" | "yellow" | "red". Anything unknown or null falls back
+// to "red" so we never silently downgrade a warning.
+type StatusTier = "green" | "yellow" | "red";
+function readVerificationStatus(v: Vendor): StatusTier {
+  const raw = (v.verification_status ?? "").toString().trim().toLowerCase();
+  if (raw === "green" || raw === "business_verified") return "green";
+  if (raw === "yellow" || raw === "identity_linked") return "yellow";
+  return "red";
+}
 
 // Strict resolver mirrors Home: maps free-text/voice to canonical category labels.
 const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
@@ -138,7 +148,12 @@ const RadarSearch = () => {
         // Let the radar breathe so the transition feels intentional.
         await new Promise((r) => setTimeout(r, 900));
 
-        let q = supabase.from("vendors").select("*").eq("is_active", true);
+        // Explicitly select verification_status (along with the rest) so the
+        // RadarCard can render straight from the DB without any frontend overrides.
+        let q = supabase
+          .from("vendors")
+          .select("*, verification_status")
+          .eq("is_active", true);
         if (term) {
           const resolved = resolveCategory(term);
           if (resolved) q = q.eq("category", resolved);
@@ -172,8 +187,8 @@ const RadarSearch = () => {
 
         // Rank: Green → Yellow → Red, then by distance (nulls last).
         scoped.sort((a, b) => {
-          const ta = TIER_RANK[vendorTier(a.vendor)];
-          const tb = TIER_RANK[vendorTier(b.vendor)];
+          const ta = TIER_RANK[readVerificationStatus(a.vendor)];
+          const tb = TIER_RANK[readVerificationStatus(b.vendor)];
           if (ta !== tb) return ta - tb;
           if (a.dist == null && b.dist == null) return 0;
           if (a.dist == null) return 1;
@@ -514,7 +529,9 @@ const RadarVendorCard = ({
   index: number;
 }) => {
   const navigate = useNavigate();
-  const tier = vendorTier(vendor);
+  // Drive every visual from the live `verification_status` column — no
+  // hardcoded overrides, no fallback to legacy heuristics.
+  const tier = readVerificationStatus(vendor);
   const accentRing =
     tier === "green"
       ? "ring-[#22C55E]/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
@@ -550,11 +567,23 @@ const RadarVendorCard = ({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <h3 className="font-display font-bold truncate">{vendor.shop_name}</h3>
-            <VerificationBadge vendor={vendor} />
+            {tier === "green" && (
+              <ShieldCheck
+                className="h-4 w-4 text-[#22C55E] shrink-0"
+                strokeWidth={2.5}
+                aria-label="Verified"
+              />
+            )}
           </div>
           <p className="text-sm text-muted-foreground truncate">
             {vendor.name} · {vendor.category}
           </p>
+          {tier === "green" && (
+            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#22C55E]/15 text-[#22C55E] ring-1 ring-[#22C55E]/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
+              <ShieldCheck className="h-3 w-3" strokeWidth={2.5} />
+              Verified Professional
+            </span>
+          )}
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
             {dist != null ? (
               <span className="inline-flex items-center gap-1">
@@ -573,22 +602,14 @@ const RadarVendorCard = ({
       </div>
 
       {tier === "green" && (
-        <div className="mt-3 rounded-xl bg-[#22C55E]/10 border border-[#22C55E]/40 px-3 py-2 flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-[#22C55E] shrink-0" />
-          <p className="text-xs text-[#22C55E] font-semibold">Safety Verified</p>
-        </div>
+        null
       )}
       {tier === "yellow" && (
-        <div className="mt-3 rounded-xl bg-[#FACC15]/10 border border-[#FACC15]/40 px-3 py-2 flex items-start gap-2">
+        <div className="mt-3 rounded-xl bg-[#FACC15]/10 border border-[#FACC15]/60 px-3 py-2 flex items-start gap-2">
           <ShieldAlert className="h-4 w-4 text-[#FACC15] shrink-0 mt-0.5" />
-          <div className="min-w-0">
-            <p className="text-xs text-[#FACC15] font-semibold">
-              Documented — Verification in Progress
-            </p>
-            <p className="text-[11px] text-[#FACC15]/80 mt-0.5">
-              Proceed with standard caution.
-            </p>
-          </div>
+          <p className="text-xs text-[#FACC15] font-semibold">
+            Verification in Progress — Proceed with caution.
+          </p>
         </div>
       )}
       {tier === "red" && (
