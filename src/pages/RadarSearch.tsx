@@ -600,6 +600,12 @@ const RadarVendorCard = ({
               Ready to Help
             </span>
           </div>
+          {dist != null && (
+            <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-[#22C55E]/10 ring-1 ring-[#22C55E]/30 px-2 py-0.5 text-[11px] font-semibold text-[#22C55E]">
+              <Clock className="h-3 w-3" />
+              Est. arrival ~{Math.max(1, Math.round(dist * 2))} min
+            </div>
+          )}
         </div>
       </div>
 
