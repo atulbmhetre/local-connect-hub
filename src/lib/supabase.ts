@@ -29,6 +29,7 @@ export type Vendor = {
   upi_verified: boolean;
   is_manual_verified: boolean;
   created_at: string;
+  last_updated?: string | null;
 };
 
 export const CATEGORIES = [
