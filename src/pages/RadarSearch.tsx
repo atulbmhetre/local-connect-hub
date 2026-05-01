@@ -21,6 +21,17 @@ import { toast } from "sonner";
 
 type Ranked = { vendor: Vendor; dist: number | null };
 
+// Read the raw `verification_status` column from Supabase and normalize it
+// to one of "green" | "yellow" | "red". Anything unknown or null falls back
+// to "red" so we never silently downgrade a warning.
+type StatusTier = "green" | "yellow" | "red";
+function readVerificationStatus(v: Vendor): StatusTier {
+  const raw = (v.verification_status ?? "").toString().trim().toLowerCase();
+  if (raw === "green" || raw === "business_verified") return "green";
+  if (raw === "yellow" || raw === "identity_linked") return "yellow";
+  return "red";
+}
+
 // Strict resolver mirrors Home: maps free-text/voice to canonical category labels.
 const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
   { label: "Mechanic", aliases: ["mechanic", "garage", "repair", "engine", "car repair", "bike repair"] },
@@ -138,7 +149,12 @@ const RadarSearch = () => {
         // Let the radar breathe so the transition feels intentional.
         await new Promise((r) => setTimeout(r, 900));
 
-        let q = supabase.from("vendors").select("*").eq("is_active", true);
+        // Explicitly select verification_status (along with the rest) so the
+        // RadarCard can render straight from the DB without any frontend overrides.
+        let q = supabase
+          .from("vendors")
+          .select("*, verification_status")
+          .eq("is_active", true);
         if (term) {
           const resolved = resolveCategory(term);
           if (resolved) q = q.eq("category", resolved);
@@ -172,8 +188,8 @@ const RadarSearch = () => {
 
         // Rank: Green → Yellow → Red, then by distance (nulls last).
         scoped.sort((a, b) => {
-          const ta = TIER_RANK[vendorTier(a.vendor)];
-          const tb = TIER_RANK[vendorTier(b.vendor)];
+          const ta = TIER_RANK[readVerificationStatus(a.vendor)];
+          const tb = TIER_RANK[readVerificationStatus(b.vendor)];
           if (ta !== tb) return ta - tb;
           if (a.dist == null && b.dist == null) return 0;
           if (a.dist == null) return 1;
