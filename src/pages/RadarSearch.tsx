@@ -608,10 +608,7 @@ const RadarVendorCard = ({
             ) : (
               <span>Location unknown</span>
             )}
-            <span className="inline-flex items-center gap-1 text-[#22C55E] font-semibold">
-              <span className="h-2 w-2 rounded-full bg-[#22C55E] animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
-              Ready to Help
-            </span>
+            <SignalFreshness lastUpdated={vendor.last_updated ?? null} />
           </div>
           {dist != null && (
             <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-[#22C55E]/10 ring-1 ring-[#22C55E]/30 px-2 py-0.5 text-[11px] font-semibold text-[#22C55E]">
@@ -649,7 +646,48 @@ const RadarVendorCard = ({
         <Phone className="h-4 w-4" />
         Connect via AI-Bridge
       </button>
+      <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] font-semibold text-[#22C55E]/90">
+        <Zap className="h-3 w-3" />
+        Typical Response &lt; 60s
+      </p>
     </div>
+  );
+};
+
+// Trust indicator that proves a vendor is actively at their post.
+// Reads the live `last_updated` timestamp from Supabase and labels the gap.
+const SignalFreshness = ({ lastUpdated }: { lastUpdated: string | null }) => {
+  if (!lastUpdated) {
+    return (
+      <span className="inline-flex items-center gap-1 text-gray-400 font-semibold">
+        <span className="h-2 w-2 rounded-full bg-gray-500" />
+        Signal: Unknown
+      </span>
+    );
+  }
+  const ageMin = Math.max(
+    0,
+    Math.round((Date.now() - new Date(lastUpdated).getTime()) / 60000),
+  );
+  if (ageMin < 30) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[#22C55E] font-semibold">
+        <span className="h-2 w-2 rounded-full bg-[#22C55E] animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
+        Signal: Strong
+      </span>
+    );
+  }
+  const label =
+    ageMin < 60
+      ? `${ageMin} mins ago`
+      : ageMin < 60 * 24
+        ? `${Math.round(ageMin / 60)}h ago`
+        : `${Math.round(ageMin / (60 * 24))}d ago`;
+  return (
+    <span className="inline-flex items-center gap-1 text-gray-400 font-semibold">
+      <Clock className="h-3 w-3" />
+      Last Active: {label}
+    </span>
   );
 };
 
