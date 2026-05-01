@@ -14,6 +14,8 @@ import {
   PhoneCall,
   Hospital,
   Compass,
+  Clock,
+  Siren,
 } from "lucide-react";
 import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
 import { toast } from "sonner";
