@@ -4,6 +4,7 @@ import {
   supabase,
   type Vendor,
   type VerificationStatus,
+  type CategoryClassification,
   CATEGORIES,
   SHOP_PHOTOS_BUCKET,
   GPS_MATCH_TOLERANCE_M,
@@ -11,6 +12,7 @@ import {
   isValidUpi,
   isMobileCategory,
   distanceMeters,
+  classifyCategory,
 } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
@@ -54,6 +56,10 @@ const VendorMode = () => {
   const [shopName, setShopName] = useState("");
   const [category, setCategory] = useState<string>(CATEGORIES[0].label);
   const [customCategory, setCustomCategory] = useState("");
+  const [categorySuggestion, setCategorySuggestion] =
+    useState<CategoryClassification | null>(null);
+  const [classifyingCategory, setClassifyingCategory] = useState(false);
+  const [confirmedCategory, setConfirmedCategory] = useState<string | null>(null);
   const [upi, setUpi] = useState("");
   const [phone, setPhone] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -143,7 +149,8 @@ const VendorMode = () => {
   const phoneOk = isValidPhone(phone);
   const upiFmtOk = isValidUpi(upi);
   const isOther = category === "Other";
-  const effectiveCategory = isOther ? customCategory.trim() : category.trim();
+  const effectiveCategory =
+    isOther && confirmedCategory ? confirmedCategory : isOther ? customCategory.trim() : category.trim();
   const categoryOk =
     effectiveCategory.length > 1 && !looksLikeGibberish(effectiveCategory);
   const nameOk = name.trim().length > 1 && !looksLikeGibberish(name);
@@ -155,6 +162,43 @@ const VendorMode = () => {
     phoneOk &&
     upiFmtOk &&
     !loading;
+
+  useEffect(() => {
+    if (!isOther) {
+      setCategorySuggestion(null);
+      setClassifyingCategory(false);
+      setConfirmedCategory(null);
+      return;
+    }
+
+    const raw = customCategory.trim();
+    setConfirmedCategory(null);
+    if (raw.length < 2 || looksLikeGibberish(raw)) {
+      setCategorySuggestion(null);
+      setClassifyingCategory(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setClassifyingCategory(true);
+      try {
+        const result = await classifyCategory(raw);
+        if (cancelled) return;
+        setCategorySuggestion(result);
+      } catch {
+        if (cancelled) return;
+        setCategorySuggestion(null);
+      } finally {
+        if (!cancelled) setClassifyingCategory(false);
+      }
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isOther, customCategory]);
 
   const register = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -452,6 +496,32 @@ const VendorMode = () => {
                       : undefined
                   }
                 />
+                {classifyingCategory && (
+                  <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Understanding your service...
+                  </p>
+                )}
+                {categorySuggestion && !confirmedCategory && (
+                  <div className="mt-2 rounded-xl border border-[#22C55E]/40 bg-[#22C55E]/10 p-3">
+                    <p className="text-sm text-[#22C55E] font-medium">
+                      We think you mean: {categorySuggestion.canonical} {categorySuggestion.emoji} (
+                      {categorySuggestion.mode === "help" ? "Help service" : "Delivery service"})
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmedCategory(categorySuggestion.canonical)}
+                      className="mt-2 rounded-lg bg-[#22C55E] text-[#0b1f14] px-3 py-1.5 text-xs font-semibold"
+                    >
+                      Confirm
+                    </button>
+                  </div>
+                )}
+                {confirmedCategory && (
+                  <p className="mt-2 text-xs text-[#22C55E] font-semibold">
+                    Confirmed category: {confirmedCategory}
+                  </p>
+                )}
               </div>
             )}
           </div>

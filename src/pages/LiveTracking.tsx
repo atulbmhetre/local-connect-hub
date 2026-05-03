@@ -526,9 +526,11 @@ const LiveTracking = () => {
             Ready to Help ·{" "}
             {vendorTier(vendor) === "green"
               ? "Top-tier verified"
-              : vendorTier(vendor) === "yellow"
-                ? "Identity linked"
-                : "Unverified — call with care"}
+              : vendorTier(vendor) === "pending"
+                ? "Verification pending admin"
+                : vendorTier(vendor) === "yellow"
+                  ? "Identity linked"
+                  : "Unverified — call with care"}
           </p>
         </div>
       </section>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -13,13 +13,12 @@ import {
   Loader2,
   PhoneCall,
   Hospital,
-  Compass,
   Clock,
   Siren,
   ChevronDown,
   Zap,
 } from "lucide-react";
-import { supabase, type Vendor, distanceKm, CATEGORIES } from "@/lib/supabase";
+import { supabase, type Vendor, distanceKm } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
   Collapsible,
@@ -32,6 +31,8 @@ type Ranked = { vendor: Vendor; dist: number | null };
 // Read the raw `verification_status` column from Supabase and normalize it
 // to one of "green" | "yellow" | "red". Anything unknown or null falls back
 // to "red" so we never silently downgrade a warning.
+// Supabase may store title case (e.g. "Green"); `.toLowerCase()` makes those
+// match the same branches as lowercase literals.
 type StatusTier = "green" | "yellow" | "red";
 function readVerificationStatus(v: Vendor): StatusTier {
   const raw = (v.verification_status ?? "").toString().trim().toLowerCase();
@@ -62,7 +63,9 @@ function resolveCategory(term: string): string | null {
   return null;
 }
 
+/** Default geofence; user can widen to 25 km or 50 km before the failsafe UI. */
 const NEAR_RADIUS_KM = 15;
+const MAX_RADIUS_KM = 50;
 
 // Category-specific failsafe. "medical" / "roadside" / "emergency" route to
 // a relevant official authority; "non-emergency" gets a pivot UI instead.
@@ -78,6 +81,28 @@ const MEDICAL = new Set(["Ambulance", "Pharmacy", "Nursing"]);
 const ROADSIDE = new Set(["Mechanic", "Towing", "Tyre Service"]);
 const EMERGENCY_112 = new Set(["Security", "Electrician", "Plumber"]);
 const NON_EMERGENCY = new Set(["Key Maker", "Hotel"]);
+
+/** Only these searches show official emergency helplines in EmptyStateFailsafe. */
+const OFFICIAL_EMERGENCY_CATEGORIES = new Set([
+  "Ambulance",
+  "Nursing",
+  "Pharmacy",
+  "Mechanic",
+  "Towing",
+  "Tyre Service",
+]);
+
+function isOfficialEmergencyCategory(term: string): boolean {
+  const resolved = resolveCategory(term);
+  if (resolved && OFFICIAL_EMERGENCY_CATEGORIES.has(resolved)) return true;
+  const t = term.trim().toLowerCase();
+  if (!t) return false;
+  for (const label of OFFICIAL_EMERGENCY_CATEGORIES) {
+    if (label.toLowerCase() === t) return true;
+  }
+  return false;
+}
+
 const DEFAULT_OFFICIAL: OfficialHelp = {
   kind: "emergency",
   authority: "National Emergency (112)",
@@ -123,9 +148,16 @@ const RadarSearch = () => {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [coordsTried, setCoordsTried] = useState(false);
   const [scanning, setScanning] = useState(true);
-  const [expanded, setExpanded] = useState(false);
+  /** Active search radius in km (15 → optional 25 / 50). */
+  const [searchRadiusKm, setSearchRadiusKm] = useState(NEAR_RADIUS_KM);
   const [results, setResults] = useState<Ranked[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const expanded = searchRadiusKm > NEAR_RADIUS_KM;
+
+  useLayoutEffect(() => {
+    setSearchRadiusKm(NEAR_RADIUS_KM);
+  }, [term]);
 
   // Fetch GPS once on mount; we need it for the geofence.
   useEffect(() => {
@@ -150,7 +182,6 @@ const RadarSearch = () => {
     const run = async () => {
       setScanning(true);
       setError(null);
-      setExpanded(false);
       try {
         // Let the radar breathe so the transition feels intentional.
         await new Promise((r) => setTimeout(r, 900));
@@ -181,10 +212,7 @@ const RadarSearch = () => {
         const within = (radius: number) =>
           all.filter((r) => (coords ? r.dist != null && r.dist <= radius : true));
 
-        // Strict 15 km radius — no automatic widening. If the near scan
-        // returns nothing, the EmptyStateFailsafe handles the pivot.
-        const scoped = within(NEAR_RADIUS_KM);
-        const didExpand = false;
+        const scoped = within(searchRadiusKm);
 
         // Rank: Green status first (always on top), then by proximity.
         // Yellow/Red helpers fall back to pure distance ordering.
@@ -199,7 +227,6 @@ const RadarSearch = () => {
         });
 
         if (cancelled) return;
-        setExpanded(didExpand);
         setResults(scoped);
       } catch (e: any) {
         if (!cancelled) setError(e.message ?? "Connection Error");
@@ -211,7 +238,7 @@ const RadarSearch = () => {
     return () => {
       cancelled = true;
     };
-  }, [coordsTried, coords, term]);
+  }, [coordsTried, coords, term, searchRadiusKm]);
 
   const headline = useMemo(() => {
     if (term) return term;
@@ -255,11 +282,7 @@ const RadarSearch = () => {
           {/* Trust Indicator */}
           <div className="absolute bottom-24 flex items-center gap-2 text-gray-400 text-sm text-center px-6">
             <Loader2 className="w-4 h-4 animate-spin text-[#22C55E] shrink-0" />
-            <span>
-              {expanded
-                ? "Searching wider — professionals currently online within 50 km"
-                : "Searching for professionals currently online within 15 km"}
-            </span>
+            <span>Searching within {searchRadiusKm} km</span>
           </div>
         </div>
       ) : (
@@ -296,15 +319,9 @@ const RadarSearch = () => {
           </p>
           {expanded && results.length > 0 && (
             <p className="text-center text-[11px] text-muted-foreground mb-4">
-              No one within 15 km — showing nearest help up to 50 km away.
+              Showing nearest help within {searchRadiusKm} km.
             </p>
           )}
-
-          {/* Horizontal category filter — taps re-run a 15 km active scan. */}
-          <CategoryFilterBar
-            active={resolveCategory(term) ?? term}
-            onPick={(label) => navigate(`/radar?q=${encodeURIComponent(label)}`)}
-          />
         </>
       )}
 
@@ -325,77 +342,87 @@ const RadarSearch = () => {
           {results.map(({ vendor, dist }, i) => (
             <RadarVendorCard key={vendor.id} vendor={vendor} dist={dist} index={i} />
           ))}
+          <GovEmergencyServices term={term} />
         </section>
       )}
 
-      {/* True empty state — even widened search returned nothing. */}
-      {!scanning && !error && results.length === 0 && (
-        <EmptyStateFailsafe term={term} coords={coords} navigate={navigate} />
+      {/* 0 results before 50 km: widen only; failsafe comes after 50 km if still empty. */}
+      {!scanning && !error && results.length === 0 && searchRadiusKm < MAX_RADIUS_KM && (
+        <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4">
+          <p className="text-center font-display text-lg font-semibold text-white mb-4">
+            {searchRadiusKm === NEAR_RADIUS_KM
+              ? "No helpers found within 15km"
+              : `No helpers found within ${searchRadiusKm}km`}
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            {searchRadiusKm < 25 && (
+              <button
+                type="button"
+                onClick={() => setSearchRadiusKm(25)}
+                className="flex-1 rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
+              >
+                Expand to 25km
+              </button>
+            )}
+            {searchRadiusKm < 50 && (
+              <button
+                type="button"
+                onClick={() => setSearchRadiusKm(50)}
+                className="flex-1 rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
+              >
+                Expand to 50km
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
-      {/* Always-on Government & Emergency Services footer. */}
-      {!scanning && !error && results.length > 0 && (
-        <GovEmergencyServices term={term} />
+      {/* True empty state — no private responders even at 50 km. */}
+      {!scanning && !error && results.length === 0 && searchRadiusKm >= MAX_RADIUS_KM && (
+        <EmptyStateFailsafe term={term} navigate={navigate} />
       )}
     </AppShell>
   );
 };
 
-// Critical failsafe shown when neither 15 km nor 50 km returned a private
-// responder. We surface an official authority first, then offer a pivot grid.
+// Critical failsafe when widening to 50 km still returns no private responders.
+// Official helplines only for core emergency-style categories; others get a growth message.
 const EmptyStateFailsafe = ({
   term,
-  coords,
   navigate,
 }: {
   term: string;
-  coords: { lat: number; lng: number } | null;
   navigate: ReturnType<typeof useNavigate>;
 }) => {
+  const showEmergencyNumbers = isOfficialEmergencyCategory(term);
   const official = useMemo(() => pickOfficialHelp(term), [term]);
-  const [wider, setWider] = useState(false);
-  const [widerResults, setWiderResults] = useState<
-    { label: string; emoji: string; count: number }[]
-  >([]);
-  const [widerLoading, setWiderLoading] = useState(false);
 
-  useEffect(() => {
-    if (official.kind !== "non_emergency" || !wider) return;
-    let cancelled = false;
-    (async () => {
-      setWiderLoading(true);
-      try {
-        const { data } = await supabase
-          .from("vendors")
-          .select("category, latitude, longitude")
-          .eq("is_active", true)
-          .limit(300);
-        const counts = new Map<string, number>();
-        (data ?? []).forEach((v: any) => {
-          if (!coords || v.latitude == null || v.longitude == null) return;
-          const d = distanceKm(coords, { lat: v.latitude, lng: v.longitude });
-          if (d <= 100) counts.set(v.category, (counts.get(v.category) ?? 0) + 1);
-        });
-        const top = [...counts.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 3)
-          .map(([label, count]) => {
-            const cat = CATEGORIES.find(
-              (c) => c.label.toLowerCase() === label.toLowerCase(),
-            );
-            return { label, emoji: cat?.emoji ?? "✨", count };
-          });
-        if (!cancelled) setWiderResults(top);
-      } finally {
-        if (!cancelled) setWiderLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [official.kind, wider, coords]);
-
-  const isNonEmergency = official.kind === "non_emergency";
+  if (!showEmergencyNumbers) {
+    return (
+      <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-5">
+        <p className="text-center text-sm text-gray-300 leading-relaxed px-1">
+          No helpers found in your area yet. Aaspaas Pro is growing — check back soon or try a
+          different category.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="flex-1 rounded-xl border-2 border-[#22C55E]/50 text-[#22C55E] py-3.5 font-semibold active:scale-[0.98] transition-transform bg-[#121212]"
+          >
+            Go Back
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="flex-1 rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
+          >
+            Search Different Category
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-5">
@@ -404,109 +431,38 @@ const EmptyStateFailsafe = ({
           No private responders currently online
         </p>
         <p className="text-sm text-gray-400 mt-1">
-          {isNonEmergency
-            ? "Try expanding your search or picking a similar category."
-            : coords
-              ? "Checking official emergency links…"
-              : "We couldn't read your location. Try official help below or pick a category."}
+          You can still reach official emergency services below.
         </p>
       </div>
 
-      {isNonEmergency ? (
-        <div className="rounded-2xl bg-[#121212] border border-[#22C55E]/40 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Compass className="h-4 w-4 text-[#22C55E]" />
-            <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] font-bold">
-              Search Wider
-            </p>
-          </div>
-          <p className="text-sm text-white">
-            Expand the radar beyond 50 km to find more active professionals.
+      <div className="rounded-2xl bg-[#121212] border-2 border-destructive/60 p-4 shadow-[0_0_24px_hsl(var(--destructive)/0.35)]">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shadow-[0_0_8px_hsl(var(--destructive)/0.9)]" />
+          <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
+            Official Help
           </p>
-          <button
-            onClick={() => setWider((w) => !w)}
-            role="switch"
-            aria-checked={wider}
-            className={`mt-3 w-full rounded-xl py-3 flex items-center justify-center gap-2 font-semibold transition-colors ${
-              wider
-                ? "bg-[#22C55E] text-[#0b1f14]"
-                : "bg-[#1A1A1A] border border-[#22C55E]/40 text-white"
-            }`}
-          >
-            {wider ? "Wider search: ON (100 km)" : "Enable wider search (100 km)"}
-          </button>
-
-          {wider && (
-            <div className="mt-4">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-gray-400 mb-2">
-                3 closest active categories
-              </p>
-              {widerLoading ? (
-                <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <Loader2 className="h-4 w-4 animate-spin text-[#22C55E]" />
-                  Scanning 100 km radius…
-                </div>
-              ) : widerResults.length === 0 ? (
-                <p className="text-sm text-gray-400">
-                  No active categories found nearby yet.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {widerResults.map((r) => (
-                    <button
-                      key={r.label}
-                      onClick={() =>
-                        navigate(`/radar?q=${encodeURIComponent(r.label)}`)
-                      }
-                      className="w-full rounded-xl bg-[#1A1A1A] border border-[#22C55E]/30 hover:border-[#22C55E] p-3 flex items-center gap-3 active:scale-[0.98] transition"
-                    >
-                      <span className="text-xl">{r.emoji}</span>
-                      <span className="flex-1 text-left text-white font-semibold">
-                        {r.label}
-                      </span>
-                      <span className="text-xs text-[#22C55E]">
-                        {r.count} online
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
-      ) : (
-        <div className="rounded-2xl bg-[#121212] border-2 border-destructive/60 p-4 shadow-[0_0_24px_hsl(var(--destructive)/0.35)]">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shadow-[0_0_8px_hsl(var(--destructive)/0.9)]" />
-            <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
-              Official Help
-            </p>
-          </div>
-          <p className="font-display text-base font-bold text-white">
-            {official.authority}
-          </p>
-          <p className="text-xs text-gray-400 mt-0.5">{official.tagline}</p>
+        <p className="font-display text-base font-bold text-white">{official.authority}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{official.tagline}</p>
+        <a
+          href={`tel:${official.number}`}
+          className="mt-3 w-full rounded-xl bg-destructive text-destructive-foreground py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_18px_hsl(var(--destructive)/0.55)]"
+        >
+          <PhoneCall className="h-4 w-4" />
+          Connect to Official Help · {official.number}
+        </a>
+        {official.secondary && (
           <a
-            href={`tel:${official.number}`}
-            className="mt-3 w-full rounded-xl bg-destructive text-destructive-foreground py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_18px_hsl(var(--destructive)/0.55)]"
+            href={official.secondary.href}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 w-full rounded-xl bg-[#1A1A1A] border border-[#22C55E]/40 text-[#22C55E] py-3 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
           >
-            <PhoneCall className="h-4 w-4" />
-            Connect to Official Help · {official.number}
+            <Hospital className="h-4 w-4" />
+            {official.secondary.label}
           </a>
-          {official.secondary && (
-            <a
-              href={official.secondary.href}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 w-full rounded-xl bg-[#1A1A1A] border border-[#22C55E]/40 text-[#22C55E] py-3 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
-            >
-              <Hospital className="h-4 w-4" />
-              {official.secondary.label}
-            </a>
-          )}
-        </div>
-      )}
-
+        )}
+      </div>
     </div>
   );
 };
@@ -668,41 +624,6 @@ const SignalFreshness = ({ lastUpdated }: { lastUpdated: string | null }) => {
   );
 };
 
-// Horizontal scrollable category bar. Tapping a chip refreshes the radar
-// for is_active vendors of that category within the 15 km near-radius.
-const CategoryFilterBar = ({
-  active,
-  onPick,
-}: {
-  active: string;
-  onPick: (label: string) => void;
-}) => {
-  const items = CATEGORIES.filter((c) => c.id !== "other");
-  return (
-    <div className="-mx-4 px-4 mb-4 overflow-x-auto no-scrollbar">
-      <div className="flex gap-2 w-max">
-        {items.map((c) => {
-          const isActive = c.label.toLowerCase() === (active ?? "").toLowerCase();
-          return (
-            <button
-              key={c.id}
-              onClick={() => onPick(c.label)}
-              className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
-                isActive
-                  ? "bg-[#22C55E] text-[#0b1f14] border-[#22C55E] shadow-[0_0_14px_rgba(34,197,94,0.45)]"
-                  : "bg-[#1A1A1A] text-white border-[#22C55E]/30 hover:border-[#22C55E]"
-              }`}
-            >
-              <span className="text-base leading-none">{c.emoji}</span>
-              {c.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
 // Collapsible government & emergency services panel rendered below the
 // vendor results. Primary number shifts based on the searched category:
 // Medical → 108, Roadside → 1033, Security/Default → 112.
@@ -739,63 +660,57 @@ const GovEmergencyServices = ({ term }: { term: string }) => {
   const primary = lines[0];
 
   return (
-    <section className="mt-6 pb-4">
-      <Collapsible>
-        <div className="rounded-2xl border border-destructive/40 bg-[#1A1A1A] overflow-hidden">
-          <CollapsibleTrigger className="w-full flex items-center justify-between gap-3 p-4 group">
-            <div className="flex items-center gap-2 min-w-0">
-              <Siren className="h-4 w-4 text-destructive shrink-0" />
-              <div className="text-left min-w-0">
-                <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
-                  Govt. Help
-                </p>
-                <p className="text-xs text-gray-400 truncate">
-                  Tap to open · Primary line: {primary.number}
-                </p>
-              </div>
+    <Collapsible>
+      <div className="rounded-2xl border border-destructive/40 bg-[#1A1A1A] overflow-hidden">
+        <CollapsibleTrigger className="w-full flex items-center justify-between gap-3 p-4 group">
+          <div className="flex items-center gap-2 min-w-0">
+            <Siren className="h-4 w-4 text-destructive shrink-0" />
+            <div className="text-left min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
+                Govt. Help
+              </p>
+              <p className="text-xs text-gray-400 truncate">
+                Tap to open · Primary line: {primary.number}
+              </p>
             </div>
-            <ChevronDown className="h-4 w-4 text-destructive transition-transform group-data-[state=open]:rotate-180" />
-          </CollapsibleTrigger>
-          <CollapsibleContent className="px-4 pb-4 space-y-2">
-            {lines.map((l) => (
-              <a
-                key={l.number}
-                href={l.href}
-                className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
-              >
-                <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
-                  <PhoneCall className="h-4 w-4 text-destructive" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white truncate">
-                    {l.label}
-                  </p>
-                  <p className="text-[11px] text-gray-400 truncate">{l.tagline}</p>
-                </div>
-                <span className="text-sm font-bold text-destructive">{l.number}</span>
-              </a>
-            ))}
+          </div>
+          <ChevronDown className="h-4 w-4 text-destructive transition-transform group-data-[state=open]:rotate-180" />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-4 pb-4 space-y-2">
+          {lines.map((l) => (
             <a
-              href="tel:100"
-              className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/20 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+              key={l.number}
+              href={l.href}
+              className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
             >
               <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
                 <PhoneCall className="h-4 w-4 text-destructive" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">
-                  Local Police
-                </p>
-                <p className="text-[11px] text-gray-400 truncate">
-                  Nearest police station dispatch
-                </p>
+                <p className="text-sm font-semibold text-white truncate">{l.label}</p>
+                <p className="text-[11px] text-gray-400 truncate">{l.tagline}</p>
               </div>
-              <span className="text-sm font-bold text-destructive">100</span>
+              <span className="text-sm font-bold text-destructive">{l.number}</span>
             </a>
-          </CollapsibleContent>
-        </div>
-      </Collapsible>
-    </section>
+          ))}
+          <a
+            href="tel:100"
+            className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/20 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+          >
+            <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
+              <PhoneCall className="h-4 w-4 text-destructive" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white truncate">Local Police</p>
+              <p className="text-[11px] text-gray-400 truncate">
+                Nearest police station dispatch
+              </p>
+            </div>
+            <span className="text-sm font-bold text-destructive">100</span>
+          </a>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   );
 };
 

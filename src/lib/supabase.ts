@@ -12,7 +12,10 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 export type VerificationStatus =
   | "unverified"
   | "identity_linked"
-  | "business_verified";
+  | "business_verified"
+  | "Green"
+  | "Yellow"
+  | "Red";
 
 export type Vendor = {
   id: string;
@@ -48,6 +51,130 @@ export const CATEGORIES = [
 
 export const SHOP_PHOTOS_BUCKET = "shop-photos";
 export const GPS_MATCH_TOLERANCE_M = 75;
+
+type CategoryMode = "help" | "delivery";
+export type CategoryClassification = {
+  canonical: string;
+  mode: CategoryMode;
+  emoji: string;
+  hindi: string;
+};
+
+// Local category aliases for fuzzy matching user-entered "Other" services.
+const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
+  {
+    label: "Beautician",
+    aliases: ["butisian", "beautician", "parlour", "parlor", "beauty", "salon"],
+  },
+  {
+    label: "Kirana Store",
+    aliases: ["kirana", "grocery", "general store", "dukan", "dukkan"],
+  },
+  {
+    label: "Mechanic",
+    aliases: ["mikanik", "mechanic", "garage", "repair", "engine", "car repair", "bike repair"],
+  },
+  { label: "Towing", aliases: ["towing", "tow", "tow truck", "breakdown", "crane"] },
+  { label: "Tyre Service", aliases: ["tyre", "tire", "puncture", "flat tyre", "wheel"] },
+  { label: "Key Maker", aliases: ["key", "keymaker", "locksmith", "duplicate key", "lock"] },
+  { label: "Ambulance", aliases: ["ambulance", "emergency", "hospital", "108"] },
+  {
+    label: "Pharmacy",
+    aliases: ["dawai", "dawa", "medicine", "pharmacy", "chemist", "medical", "drug store", "tablet"],
+  },
+  { label: "Nursing", aliases: ["nurse", "nursing", "caretaker", "home care", "patient care"] },
+  { label: "Plumber", aliases: ["plumber", "pipe", "nal wala", "water", "plumbing", "leak", "tap"] },
+  { label: "Electrician", aliases: ["bijli", "electrician", "light wala", "current wala", "electric", "wiring", "fuse", "power"] },
+  { label: "Security", aliases: ["security", "guard", "watchman", "bouncer"] },
+];
+
+const HINDI_BY_CANONICAL: Record<string, string> = {
+  Beautician: "ब्यूटीशियन",
+  "Kirana Store": "किराना स्टोर",
+  Mechanic: "मैकेनिक",
+  Towing: "टोइंग",
+  "Tyre Service": "टायर सर्विस",
+  "Key Maker": "चाबी बनाने वाला",
+  Ambulance: "एंबुलेंस",
+  Pharmacy: "फार्मेसी",
+  Nursing: "नर्सिंग",
+  Plumber: "प्लम्बर",
+  Electrician: "इलेक्ट्रीशियन",
+  Security: "सिक्योरिटी",
+  Other: "अन्य",
+};
+
+const MODE_BY_CANONICAL: Record<string, CategoryMode> = {
+  Beautician: "help",
+  "Kirana Store": "delivery",
+  Pharmacy: "delivery",
+};
+
+function resolveKnownCategory(rawInput: string): string | null {
+  const t = rawInput.toLowerCase().trim();
+  for (const c of KNOWN_CATEGORIES) {
+    if (c.label.toLowerCase() === t) return c.label;
+    if (c.aliases.some((a) => t.includes(a))) return c.label;
+  }
+  return null;
+}
+
+function emojiForCanonical(canonical: string) {
+  const cat = CATEGORIES.find((c) => c.label.toLowerCase() === canonical.toLowerCase());
+  return cat?.emoji ?? "✨";
+}
+
+function defaultClassification(rawInput: string): CategoryClassification {
+  const tryCanon = (canonical: string, mode: CategoryMode): CategoryClassification => ({
+    canonical,
+    mode,
+    emoji: emojiForCanonical(canonical),
+    hindi: HINDI_BY_CANONICAL[canonical] ?? "अन्य",
+  });
+
+  const resolved = resolveKnownCategory(rawInput);
+  if (resolved) return tryCanon(resolved, MODE_BY_CANONICAL[resolved] ?? "help");
+
+  return tryCanon("Other", "help");
+}
+
+export async function classifyCategory(rawInput: string): Promise<CategoryClassification> {
+  const input = rawInput.trim();
+  if (!input) return defaultClassification(rawInput);
+
+  try {
+    const resp = await fetch(
+      "https://rpxsyeqskvhjmbkxnpmd.supabase.co/functions/v1/ai-gateway",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          action: "classify_category",
+          input,
+        }),
+      },
+    );
+
+    if (!resp.ok) return defaultClassification(rawInput);
+    const data: any = await resp.json();
+    const result = data?.result;
+    if (!result || typeof result.canonical !== "string" || !result.canonical.trim()) {
+      return defaultClassification(rawInput);
+    }
+
+    return {
+      canonical: result.canonical.trim(),
+      mode: result.mode === "delivery" ? "delivery" : "help",
+      emoji: typeof result.emoji === "string" && result.emoji.trim() ? result.emoji.trim() : "✨",
+      hindi: typeof result.hindi === "string" && result.hindi.trim() ? result.hindi.trim() : "अन्य",
+    };
+  } catch {
+    return defaultClassification(rawInput);
+  }
+}
 
 // Categories whose vendors physically move to the customer.
 // Their GPS is refreshed every time they go "Ready to Help".
