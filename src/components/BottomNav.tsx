@@ -1,6 +1,10 @@
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Home, Store, Settings } from "lucide-react";
+import {
+  readHasVendorId,
+  VENDOR_ID_CHANGED_EVENT,
+} from "@/lib/vendorSessionSync";
 
 const tabs = [
   { to: "/", label: "Home", Icon: Home },
@@ -9,20 +13,25 @@ const tabs = [
 ];
 
 export const BottomNav = () => {
+  const [hasVendorId, setHasVendorId] = useState(readHasVendorId);
   // Listen for the vendor "Ready to Help" flag so the Vendor tab can pulse.
   const [vendorLive, setVendorLive] = useState(
     () => localStorage.getItem("aaspaas:vendor_live") === "1",
   );
   useEffect(() => {
+    const syncFromStorage = () => {
+      setHasVendorId(readHasVendorId());
+      setVendorLive(localStorage.getItem("aaspaas:vendor_live") === "1");
+    };
     const onLive = (e: Event) =>
       setVendorLive(!!(e as CustomEvent<boolean>).detail);
-    const onStorage = () =>
-      setVendorLive(localStorage.getItem("aaspaas:vendor_live") === "1");
     window.addEventListener("aaspaas:vendor_live", onLive as EventListener);
-    window.addEventListener("storage", onStorage);
+    window.addEventListener("storage", syncFromStorage);
+    window.addEventListener(VENDOR_ID_CHANGED_EVENT, syncFromStorage);
     return () => {
       window.removeEventListener("aaspaas:vendor_live", onLive as EventListener);
-      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("storage", syncFromStorage);
+      window.removeEventListener(VENDOR_ID_CHANGED_EVENT, syncFromStorage);
     };
   }, []);
 
@@ -41,7 +50,14 @@ export const BottomNav = () => {
             }
           >
             {({ isActive }) => {
-              const showLive = to === "/vendor" && vendorLive;
+              const showLive =
+                to === "/vendor" && hasVendorId && vendorLive;
+              const vendorLabel =
+                to === "/vendor" && hasVendorId
+                  ? vendorLive
+                    ? "ME · Online"
+                    : "ME - Offline"
+                  : label;
               return (
                 <>
                   <span className="relative">
@@ -53,7 +69,7 @@ export const BottomNav = () => {
                     {showLive && <span className="live-dot" aria-hidden />}
                   </span>
                   <span className={showLive ? "text-secondary" : ""}>
-                    {showLive ? "ON · Live" : label}
+                    {vendorLabel}
                   </span>
                 </>
               );

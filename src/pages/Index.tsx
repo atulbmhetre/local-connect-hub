@@ -1,27 +1,207 @@
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
-import { Mic, Search } from "lucide-react";
+import { ParchiSheet } from "@/components/ParchiSheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Loader2, Mic, Phone, PhoneCall, Search } from "lucide-react";
 import { toast } from "sonner";
+import {
+  classifySearchTermForRadar,
+  fetchCategories,
+  groupCategoriesByMode,
+  fetchAiBridgeBrief,
+  supabase,
+  type Category,
+  type CategoryGroup,
+  type Vendor,
+  emojiForVendorCategory,
+} from "@/lib/supabase";
+import { getDeviceId } from "@/lib/deviceId";
+import { getUserPhone } from "@/lib/userIdentity";
+import { buildRequestsActiveWindowOrFilter } from "@/lib/orders";
 
-// 6 essential emergency tiles shown when the search bar is empty.
-const QUICK_ASSIST: { label: string; emoji: string }[] = [
-  { label: "Mechanic", emoji: "🔧" },
-  { label: "Ambulance", emoji: "🚑" },
-  { label: "Key Maker", emoji: "🔑" },
-  { label: "Pharmacy", emoji: "💊" },
-  { label: "Electrician", emoji: "💡" },
-  { label: "Towing", emoji: "🚛" },
-];
+type SavedNeighbourTile = {
+  savedId: string;
+  vendor: Vendor;
+  nickname: string;
+  category: string;
+};
+
+function telHref(phone: string) {
+  return `tel:${phone.replace(/[\s-]/g, "").trim()}`;
+}
 
 const Index = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [listening, setListening] = useState(false);
+  const [classifying, setClassifying] = useState(false);
+  const [savedNeighbours, setSavedNeighbours] = useState<SavedNeighbourTile[]>([]);
+  const [parchiVendor, setParchiVendor] = useState<Vendor | null>(null);
+  const [parchiOpen, setParchiOpen] = useState(false);
+  const [neighbourSheetVendor, setNeighbourSheetVendor] = useState<Vendor | null>(null);
+  const [neighbourSheetOpen, setNeighbourSheetOpen] = useState(false);
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
+  const [aiSheetLoading, setAiSheetLoading] = useState(false);
+  const [aiBriefText, setAiBriefText] = useState<string | null>(null);
+  const [aiBriefFailed, setAiBriefFailed] = useState(false);
+  const [aiBridgeVendor, setAiBridgeVendor] = useState<Vendor | null>(null);
+  const [activeOrderCount, setActiveOrderCount] = useState(0);
+  const [neighbourDeliveryActiveOrder, setNeighbourDeliveryActiveOrder] = useState(false);
+  const [appointmentActiveFromDb, setAppointmentActiveFromDb] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const recRef = useRef<any>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const loadSavedNeighbours = useCallback(async () => {
+    const device_id = getDeviceId();
+    const userPhone = getUserPhone();
+    let savedQuery = supabase
+      .from("saved_vendors")
+      .select("id, vendor_id, nickname, category, saved_at")
+      .order("saved_at", { ascending: false });
+    savedQuery =
+      userPhone != null ? savedQuery.eq("user_phone", userPhone) : savedQuery.eq("device_id", device_id);
+    const { data: saved, error } = await savedQuery;
+    if (error || !saved?.length) {
+      setSavedNeighbours([]);
+      return;
+    }
+    const vendorIds = [...new Set(saved.map((s) => s.vendor_id))];
+    if (vendorIds.length === 0) {
+      setSavedNeighbours([]);
+      return;
+    }
+    const { data: vendors, error: vErr } = await supabase
+      .from("vendors")
+      .select("id, shop_name, shop_photo_url, is_active, category, service_mode, phone")
+      .in("id", vendorIds);
+    if (vErr || !vendors?.length) {
+      setSavedNeighbours([]);
+      return;
+    }
+    const byId = new Map(vendors.map((v) => [v.id, v as Vendor]));
+    const tiles: SavedNeighbourTile[] = [];
+    for (const r of saved) {
+      const v = byId.get(r.vendor_id);
+      if (v) tiles.push({ savedId: r.id, vendor: v, nickname: r.nickname, category: r.category });
+    }
+    setSavedNeighbours(tiles);
+  }, []);
+
+  useEffect(() => {
+    if (location.pathname !== "/") return;
+    void loadSavedNeighbours();
+  }, [location.pathname, location.key, loadSavedNeighbours]);
+
+  useEffect(() => {
+    const run = async () => {
+      setCategoriesLoading(true);
+      const cats = await fetchCategories();
+      setCategories(cats);
+      setCategoryGroups(groupCategoriesByMode(cats));
+      setCategoriesLoading(false);
+    };
+    void run();
+  }, []);
+
+  const loadActiveOrderCount = useCallback(async () => {
+    const device_id = getDeviceId();
+    const userPhone = getUserPhone();
+    const windowOr = buildRequestsActiveWindowOrFilter("user");
+    let countQuery = supabase
+      .from("requests")
+      .select("id", { count: "exact", head: true })
+      .or(windowOr);
+    countQuery =
+      userPhone != null ? countQuery.eq("user_phone", userPhone) : countQuery.eq("device_id", device_id);
+    const { count, error } = await countQuery;
+    if (error) {
+      setActiveOrderCount(0);
+      return;
+    }
+    setActiveOrderCount(count ?? 0);
+  }, []);
+
+  useEffect(() => {
+    if (location.pathname !== "/") return;
+    void loadActiveOrderCount();
+  }, [location.pathname, location.key, loadActiveOrderCount]);
+
+  useEffect(() => {
+    if (!neighbourSheetOpen || !neighbourSheetVendor) {
+      setNeighbourDeliveryActiveOrder(false);
+      return;
+    }
+    const mode = String(neighbourSheetVendor.service_mode ?? "").trim().toLowerCase();
+    if (mode !== "delivery") {
+      setNeighbourDeliveryActiveOrder(false);
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      const device_id = getDeviceId();
+      const { data } = await supabase
+        .from("requests")
+        .select("id")
+        .eq("device_id", device_id)
+        .eq("vendor_id", neighbourSheetVendor.id)
+        .in("status", ["sent", "seen"])
+        .limit(1);
+      if (!cancelled) setNeighbourDeliveryActiveOrder(!!data?.length);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [neighbourSheetOpen, neighbourSheetVendor, parchiOpen]);
+
+  useEffect(() => {
+    if (!neighbourSheetOpen || !neighbourSheetVendor) {
+      setAppointmentActiveFromDb(false);
+      return;
+    }
+    const mode = String(neighbourSheetVendor.service_mode ?? "").trim().toLowerCase();
+    if (mode !== "appointment") {
+      setAppointmentActiveFromDb(false);
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      const device_id = getDeviceId();
+      const { data } = await supabase
+        .from("requests")
+        .select("id")
+        .eq("device_id", device_id)
+        .eq("vendor_id", neighbourSheetVendor.id)
+        .in("status", ["sent", "seen"])
+        .limit(1);
+      if (!cancelled) setAppointmentActiveFromDb(!!data?.length);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [neighbourSheetOpen, neighbourSheetVendor, parchiOpen]);
+
+  useEffect(() => {
+    const st = location.state as { focusSearch?: boolean } | null;
+    if (st?.focusSearch) {
+      searchInputRef.current?.focus();
+    }
+  }, [location.state]);
 
   useEffect(() => {
     if (!localStorage.getItem("aaspaas:role")) {
@@ -36,21 +216,77 @@ const Index = () => {
     navigate(t ? `/radar?q=${encodeURIComponent(t)}` : "/radar");
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  /** AI classifier for typed / voice free text only (not Quick Assist / picker). */
+  const runFreeTextSearch = async (raw: string) => {
+    const term = raw.trim();
+    if (!term) return;
+    setClassifying(true);
+    try {
+      const r = await classifySearchTermForRadar(term);
+      if (r.outcome === "hint") {
+        toast.info(r.message);
+        return;
+      }
+      goToRadar(r.query);
+    } finally {
+      setClassifying(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const term = query.trim();
     if (!term) {
       setPickerOpen(true);
       return;
     }
-    goToRadar(term);
+    await runFreeTextSearch(term);
   };
 
-  const handleSOS = () => {
+  const handleSOS = async () => {
     const term = query.trim();
-    if (term) goToRadar(term);
-    else goToRadar("");
+    if (!term) {
+      goToRadar("");
+      return;
+    }
+    await runFreeTextSearch(term);
   };
+
+  const closeAiSheet = useCallback((open: boolean) => {
+    setAiSheetOpen(open);
+    if (!open) {
+      setAiSheetLoading(false);
+      setAiBriefText(null);
+      setAiBriefFailed(false);
+      setAiBridgeVendor(null);
+    }
+  }, []);
+
+  const openAiBridgeFromNeighbour = useCallback(async (vendor: Vendor) => {
+    const need = vendor.category || "help";
+    setAiBridgeVendor(vendor);
+    setAiSheetOpen(true);
+    setAiSheetLoading(true);
+    setAiBriefFailed(false);
+    setAiBriefText(null);
+
+    const result = await fetchAiBridgeBrief({
+      vendor_name: vendor.name?.trim() ? vendor.name : vendor.shop_name,
+      shop_name: vendor.shop_name,
+      category: vendor.category,
+      distance_km: null,
+      user_need: need,
+    });
+
+    setAiSheetLoading(false);
+    if (result.ok) {
+      setAiBriefText(result.brief);
+      setAiBriefFailed(false);
+    } else {
+      setAiBriefText(null);
+      setAiBriefFailed(true);
+    }
+  }, []);
 
   const startVoice = () => {
     const SpeechRecognition =
@@ -73,7 +309,7 @@ const Index = () => {
       const transcript = ev.results[0][0].transcript;
       setQuery(transcript);
       setPickerOpen(false);
-      goToRadar(transcript);
+      void runFreeTextSearch(transcript);
     };
     recRef.current = rec;
     rec.start();
@@ -89,55 +325,458 @@ const Index = () => {
         </p>
       </header>
 
-      <form onSubmit={handleSubmit} className="relative mb-8">
-        <div className="absolute -top-2.5 left-4 z-10 px-2 bg-background">
-          <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-primary inline-flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-            AI Search
-          </span>
-        </div>
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search for help (e.g., Mechanic, Ambulance, Key Maker)"
-          className="w-full bg-card border border-border rounded-2xl pl-12 pr-14 py-4 text-base shadow-card focus:outline-none focus:ring-2 focus:ring-primary"
-        />
-        <button
-          type="button"
-          onClick={startVoice}
-          aria-label="Voice search"
-          className={`absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl grid place-items-center transition-colors ${
-            listening ? "bg-primary text-primary-foreground animate-pulse" : "bg-muted text-foreground"
-          }`}
-        >
-          <Mic className="h-5 w-5" />
-        </button>
-      </form>
+      <div className="mb-8">
+        <form onSubmit={handleSubmit} className="relative">
+          <div className="absolute -top-2.5 left-4 z-10 px-2 bg-background">
+            <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-primary inline-flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+              AI Search
+            </span>
+          </div>
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+          <input
+            ref={searchInputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            disabled={classifying}
+            placeholder="Search for help (e.g., Mechanic, Ambulance, Key Maker)"
+            className="w-full bg-card border border-border rounded-2xl pl-12 pr-14 py-4 text-base shadow-card focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
+          />
+          <button
+            type="button"
+            onClick={startVoice}
+            disabled={classifying}
+            aria-label="Voice search"
+            className={`absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl grid place-items-center transition-colors disabled:opacity-50 ${
+              listening ? "bg-primary text-primary-foreground animate-pulse" : "bg-muted text-foreground"
+            }`}
+          >
+            <Mic className="h-5 w-5" />
+          </button>
+        </form>
+        {classifying && (
+          <p className="mt-2 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden />
+            Finding best match...
+          </p>
+        )}
+      </div>
 
       <div className="flex justify-center mb-8">
         <SOSButton onClick={handleSOS} />
       </div>
 
-      <section className="mb-4 animate-fade-up">
-          <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground text-center mb-3">
-            Quick Assist
+      {savedNeighbours.length > 0 && (
+        <section className="mb-8 animate-fade-up">
+          <p className="text-xs uppercase tracking-[0.25em] text-[#15803d] dark:text-[#22C55E] text-center mb-3 font-semibold">
+            MY NEIGHBOURHOOD
           </p>
-          <div className="grid grid-cols-3 gap-3">
-            {QUICK_ASSIST.map((q) => (
+          <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+            {savedNeighbours.map(({ savedId, vendor, nickname, category }) => (
               <button
-                key={q.label}
-                onClick={() => goToRadar(q.label)}
-                className="aspect-square rounded-2xl bg-card hover:bg-muted active:scale-95 transition-all flex flex-col items-center justify-center gap-1.5 border border-border shadow-card"
+                key={savedId}
+                type="button"
+                onClick={() => {
+                  setNeighbourSheetVendor(vendor);
+                  setNeighbourSheetOpen(true);
+                }}
+                className="flex-shrink-0 w-40 rounded-2xl bg-card border border-border shadow-card text-left p-3 flex gap-3 active:scale-[0.98] transition-transform hover:bg-muted/50"
               >
-                <span className="text-3xl">{q.emoji}</span>
-                <span className="font-semibold text-[11px] text-center px-1 leading-tight">
-                  {q.label}
-                </span>
+                <div className="relative h-14 w-14 rounded-xl overflow-hidden bg-muted shrink-0 grid place-items-center">
+                  {vendor.shop_photo_url ? (
+                    <img
+                      src={vendor.shop_photo_url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="text-2xl leading-none" aria-hidden>
+                      {emojiForVendorCategory(category, categories)}
+                    </span>
+                  )}
+                  {vendor.is_active && (
+                    <span
+                      className="absolute bottom-1 right-1 h-2 w-2 rounded-full bg-[#22C55E] ring-2 ring-card"
+                      aria-label="Online"
+                    />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1 py-0.5">
+                  <p className="font-semibold text-sm truncate">{nickname}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{category}</p>
+                </div>
               </button>
             ))}
           </div>
         </section>
+      )}
+
+      {activeOrderCount > 0 && (
+        <div className="mb-6 text-center animate-fade-up">
+          <button
+            type="button"
+            onClick={() => navigate("/my-orders")}
+            className="text-sm text-[#15803d] hover:text-[#166534] underline underline-offset-2 font-medium"
+          >
+            📋 You have {activeOrderCount} active order{activeOrderCount === 1 ? "" : "s"} → View
+          </button>
+        </div>
+      )}
+
+      <Sheet
+        open={neighbourSheetOpen}
+        onOpenChange={(open) => {
+          setNeighbourSheetOpen(open);
+          if (!open) setNeighbourSheetVendor(null);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="bg-card border-t border-border rounded-t-2xl max-h-[85vh] overflow-y-auto"
+        >
+          {neighbourSheetVendor && (
+            <>
+              <SheetHeader className="text-left space-y-3 pr-8">
+                <div className="flex items-start gap-3">
+                  <div className="relative shrink-0">
+                    <span
+                      className={`absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-card ${
+                        neighbourSheetVendor.is_active ? "bg-[#22C55E]" : "bg-muted-foreground/50"
+                      }`}
+                      aria-hidden
+                    />
+                    <div className="h-12 w-12 rounded-xl overflow-hidden bg-muted grid place-items-center">
+                      {neighbourSheetVendor.shop_photo_url ? (
+                        <img
+                          src={neighbourSheetVendor.shop_photo_url}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-2xl" aria-hidden>
+                          {emojiForVendorCategory(neighbourSheetVendor.category, categories)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <SheetTitle className="text-left font-display text-lg">
+                      {neighbourSheetVendor.shop_name}
+                    </SheetTitle>
+                    <p className="text-sm text-muted-foreground">{neighbourSheetVendor.category}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {neighbourSheetVendor.is_active ? (
+                        <span className="text-[#22C55E] font-medium">Online</span>
+                      ) : (
+                        <span>Offline</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <SheetDescription className="sr-only">
+                  Choose how to contact this saved vendor
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="mt-6 flex flex-col gap-2">
+                {String(neighbourSheetVendor.service_mode ?? "")
+                  .trim()
+                  .toLowerCase() === "delivery" ? (
+                  neighbourDeliveryActiveOrder ? (
+                    <>
+                      <button
+                        type="button"
+                        className="w-full text-left text-sm text-muted-foreground underline underline-offset-2 py-1"
+                        onClick={() => {
+                          setNeighbourSheetOpen(false);
+                          navigate("/my-orders");
+                        }}
+                      >
+                        📋 Your active orders →
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+                        onClick={() => {
+                          const v = neighbourSheetVendor;
+                          setNeighbourSheetOpen(false);
+                          setParchiVendor(v);
+                          setParchiOpen(true);
+                        }}
+                      >
+                        📋 Send New Order
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+                      onClick={() => {
+                        const v = neighbourSheetVendor;
+                        setNeighbourSheetOpen(false);
+                        setParchiVendor(v);
+                        setParchiOpen(true);
+                      }}
+                    >
+                      📋 Send Order
+                    </button>
+                  )
+                ) : String(neighbourSheetVendor.service_mode ?? "")
+                    .trim()
+                    .toLowerCase() === "appointment" ? (
+                  <>
+                    {appointmentActiveFromDb ? (
+                      <>
+                        <button
+                          type="button"
+                          className="w-full text-left text-sm text-muted-foreground underline underline-offset-2 py-1"
+                          onClick={() => {
+                            setNeighbourSheetOpen(false);
+                            navigate("/my-orders");
+                          }}
+                        >
+                          📅 Your active bookings →
+                        </button>
+                        <button
+                          type="button"
+                          className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+                          onClick={() => {
+                            const v = neighbourSheetVendor;
+                            setNeighbourSheetOpen(false);
+                            setParchiVendor(v);
+                            setParchiOpen(true);
+                          }}
+                        >
+                          📅 Book Again
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+                        onClick={() => {
+                          const v = neighbourSheetVendor;
+                          setNeighbourSheetOpen(false);
+                          setParchiVendor(v);
+                          setParchiOpen(true);
+                        }}
+                      >
+                        📅 Book a Service
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
+                      onClick={() => setNeighbourSheetOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full py-2 text-xs font-medium text-destructive hover:underline"
+                      onClick={async () => {
+                        const v = neighbourSheetVendor;
+                        if (!v) return;
+                        const device_id = getDeviceId();
+                        const userPhone = getUserPhone();
+                        let del = supabase.from("saved_vendors").delete().eq("vendor_id", v.id);
+                        del =
+                          userPhone != null
+                            ? del.eq("user_phone", userPhone)
+                            : del.eq("device_id", device_id);
+                        const { error } = await del;
+                        if (error) {
+                          toast.error("Could not remove", { description: error.message });
+                          return;
+                        }
+                        try {
+                          sessionStorage.removeItem(`aaspaas:saved:${v.id}`);
+                        } catch {
+                          /* ignore */
+                        }
+                        setNeighbourSheetOpen(false);
+                        setNeighbourSheetVendor(null);
+                        void loadSavedNeighbours();
+                        toast.success("Removed from My Neighbourhood");
+                      }}
+                    >
+                      🗑 Remove from My Neighbourhood
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98]"
+                    onClick={() => {
+                      const v = neighbourSheetVendor;
+                      setNeighbourSheetOpen(false);
+                      void openAiBridgeFromNeighbour(v);
+                    }}
+                  >
+                    <Phone className="h-4 w-4" />
+                    Connect via AI-Bridge
+                  </button>
+                )}
+                {String(neighbourSheetVendor.service_mode ?? "")
+                  .trim()
+                  .toLowerCase() !== "appointment" && (
+                <>
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
+                  onClick={() => setNeighbourSheetOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="w-full py-2 text-xs font-medium text-destructive hover:underline"
+                  onClick={async () => {
+                    const v = neighbourSheetVendor;
+                    if (!v) return;
+                    const device_id = getDeviceId();
+                    const userPhone = getUserPhone();
+                    let del = supabase.from("saved_vendors").delete().eq("vendor_id", v.id);
+                    del =
+                      userPhone != null ? del.eq("user_phone", userPhone) : del.eq("device_id", device_id);
+                    const { error } = await del;
+                    if (error) {
+                      toast.error("Could not remove", { description: error.message });
+                      return;
+                    }
+                    try {
+                      sessionStorage.removeItem(`aaspaas:saved:${v.id}`);
+                    } catch {
+                      /* ignore */
+                    }
+                    setNeighbourSheetOpen(false);
+                    setNeighbourSheetVendor(null);
+                    void loadSavedNeighbours();
+                    toast.success("Removed from My Neighbourhood");
+                  }}
+                >
+                  🗑 Remove from My Neighbourhood
+                </button>
+                </>
+                )}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={aiSheetOpen} onOpenChange={closeAiSheet}>
+        <SheetContent
+          side="bottom"
+          className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
+        >
+          <SheetHeader className="text-left space-y-1 pr-8">
+            <SheetTitle className="text-white font-display">AI-Bridge</SheetTitle>
+            <SheetDescription className="text-gray-400">
+              {aiSheetLoading
+                ? "Briefing vendor via AI…"
+                : aiBriefFailed
+                  ? "AI brief unavailable — call directly"
+                  : "Your call brief"}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-4 space-y-4">
+            {aiSheetLoading && (
+              <div className="flex items-center gap-3 py-6 text-gray-300">
+                <Loader2 className="h-6 w-6 animate-spin text-[#22C55E] shrink-0" />
+                <p className="text-sm">Briefing vendor via AI…</p>
+              </div>
+            )}
+
+            {!aiSheetLoading && aiBriefFailed && (
+              <p className="text-sm text-amber-200/90 leading-relaxed">
+                AI brief unavailable — call directly
+              </p>
+            )}
+
+            {!aiSheetLoading && !aiBriefFailed && aiBriefText && (
+              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{aiBriefText}</p>
+            )}
+
+            {!aiSheetLoading && aiBridgeVendor?.vendor_note && (
+              <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px] text-[#22C55E]">
+                📌 {aiBridgeVendor.vendor_note}
+              </div>
+            )}
+
+            {!aiSheetLoading && aiBridgeVendor && (
+              <div className="flex flex-col gap-2 pt-2">
+                <button
+                  type="button"
+                  className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+                  onClick={() => {
+                    try {
+                      sessionStorage.setItem(`aaspaas:called:${aiBridgeVendor.id}`, "1");
+                    } catch {
+                      /* ignore */
+                    }
+                    window.open(telHref(aiBridgeVendor.phone), "_self");
+                  }}
+                >
+                  <PhoneCall className="h-4 w-4" />
+                  Call Now
+                </button>
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-[#333] bg-transparent text-gray-300 py-3 font-semibold active:scale-[0.99] transition-transform"
+                  onClick={() => closeAiSheet(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <ParchiSheet
+        vendor={parchiVendor}
+        isOpen={parchiOpen}
+        onClose={() => {
+          setParchiOpen(false);
+          void loadActiveOrderCount();
+          void loadSavedNeighbours();
+        }}
+      />
+
+      <section className="mb-4 animate-fade-up">
+        {categoriesLoading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {categoryGroups.map((group) => (
+              <div key={group.service_mode}>
+                <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground mb-2 font-semibold">
+                  {group.label}
+                </p>
+                <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+                  {group.categories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() => goToRadar(cat.label)}
+                      className="flex-shrink-0 w-20 rounded-2xl bg-card hover:bg-muted active:scale-95 transition-all flex flex-col items-center justify-center gap-1.5 border border-border shadow-card py-3 px-2"
+                    >
+                      <span className="text-3xl">{cat.emoji}</span>
+                      <span className="font-semibold text-[10px] text-center leading-tight">
+                        {cat.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <CategoryPicker
         open={pickerOpen}
@@ -147,6 +786,7 @@ const Index = () => {
           goToRadar(cat);
         }}
         onMic={startVoice}
+        categories={categories}
       />
     </AppShell>
   );

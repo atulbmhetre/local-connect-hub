@@ -525,12 +525,10 @@ const LiveTracking = () => {
           <p className="text-[10px] uppercase tracking-[0.2em] text-[#22C55E] mt-0.5 font-bold">
             Ready to Help ·{" "}
             {vendorTier(vendor) === "green"
-              ? "Top-tier verified"
-              : vendorTier(vendor) === "pending"
-                ? "Verification pending admin"
-                : vendorTier(vendor) === "yellow"
-                  ? "Identity linked"
-                  : "Unverified — call with care"}
+              ? "Verified Professional"
+              : vendorTier(vendor) === "yellow"
+                ? "Identity submitted — pending admin"
+                : "Unverified — call with care"}
           </p>
         </div>
       </section>

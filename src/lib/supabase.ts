@@ -9,6 +9,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   realtime: { params: { eventsPerSecond: 5 } },
 });
 
+const AI_GATEWAY_URL = `${SUPABASE_URL}/functions/v1/ai-gateway`;
+
 export type VerificationStatus =
   | "unverified"
   | "identity_linked"
@@ -33,6 +35,42 @@ export type Vendor = {
   is_manual_verified: boolean;
   created_at: string;
   last_updated?: string | null;
+  /** Hyperlocal service vs delivery; drives reputation copy on cards. */
+  service_mode?: "help" | "delivery" | "appointment";
+  vendor_note?: string | null;
+  total_helped?: number;
+  total_delivered?: number;
+  /** 0–100, delivery on-time rate */
+  on_time_rate?: number;
+};
+
+export type RequestRow = {
+  id: string;
+  device_id: string;
+  vendor_id: string;
+  message: string;
+  status: string;
+  created_at: string;
+  user_phone: string | null;
+  device_id_log: string | null;
+  delivery_address: string | null;
+  appointment_time: string | null;
+  appointment_status: string | null;
+};
+
+export type Category = {
+  id: string;
+  label: string;
+  emoji: string;
+  service_mode: "help" | "delivery" | "appointment";
+  is_active: boolean;
+  sort_order: number;
+};
+
+export type CategoryGroup = {
+  service_mode: "help" | "delivery" | "appointment";
+  label: string;
+  categories: Category[];
 };
 
 export const CATEGORIES = [
@@ -46,28 +84,62 @@ export const CATEGORIES = [
   { id: "plumber", label: "Plumber", emoji: "🚰" },
   { id: "electrician", label: "Electrician", emoji: "💡" },
   { id: "security", label: "Security", emoji: "🛡️" },
+  { id: "fire-brigade", label: "Fire Brigade", emoji: "🔥" },
+  { id: "tailor", label: "Tailor", emoji: "🧵" },
+  { id: "beautician", label: "Beautician", emoji: "💄" },
+  { id: "cook", label: "Cook", emoji: "👨‍🍳" },
+  { id: "barber", label: "Barber", emoji: "💈" },
+  { id: "therapist", label: "Therapist", emoji: "🧘" },
   { id: "other", label: "Other", emoji: "✨" },
 ] as const;
+
+export const DISPLAY_NAME: Record<string, string> = {
+  "Tyre Service": "Tyre / Puncture",
+};
+
+export function displayName(canonical: string): string {
+  return DISPLAY_NAME[canonical] ?? canonical;
+}
 
 export const SHOP_PHOTOS_BUCKET = "shop-photos";
 export const GPS_MATCH_TOLERANCE_M = 75;
 
 type CategoryMode = "help" | "delivery";
 export type CategoryClassification = {
-  canonical: string;
+  /** Null when the classifier returns a hint instead of a vendor category (e.g. hospital). */
+  canonical: string | null;
   mode: CategoryMode;
   emoji: string;
   hindi: string;
+  message?: string;
+  is_government?: boolean;
 };
 
 // Local category aliases for fuzzy matching user-entered "Other" services.
 const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
   {
     label: "Beautician",
-    aliases: ["butisian", "beautician", "parlour", "parlor", "beauty", "salon"],
+    aliases: [
+      "butisian",
+      "beautician",
+      "parlour",
+      "parlor",
+      "beauty",
+      "salon",
+      "therapist",
+      "therapy",
+      "massage",
+      "spa",
+      "beauty parlour",
+      "mehendi",
+      "makeup artist",
+      "nail art",
+      "facial",
+      "waxing",
+    ],
   },
   {
-    label: "Kirana Store",
+    label: "Grocery Store",
     aliases: ["kirana", "grocery", "general store", "dukan", "dukkan"],
   },
   {
@@ -77,7 +149,7 @@ const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
   { label: "Towing", aliases: ["towing", "tow", "tow truck", "breakdown", "crane"] },
   { label: "Tyre Service", aliases: ["tyre", "tire", "puncture", "flat tyre", "wheel"] },
   { label: "Key Maker", aliases: ["key", "keymaker", "locksmith", "duplicate key", "lock"] },
-  { label: "Ambulance", aliases: ["ambulance", "emergency", "hospital", "108"] },
+  { label: "Ambulance", aliases: ["ambulance", "emergency", "108"] },
   {
     label: "Pharmacy",
     aliases: ["dawai", "dawa", "medicine", "pharmacy", "chemist", "medical", "drug store", "tablet"],
@@ -86,11 +158,15 @@ const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
   { label: "Plumber", aliases: ["plumber", "pipe", "nal wala", "water", "plumbing", "leak", "tap"] },
   { label: "Electrician", aliases: ["bijli", "electrician", "light wala", "current wala", "electric", "wiring", "fuse", "power"] },
   { label: "Security", aliases: ["security", "guard", "watchman", "bouncer"] },
+  {
+    label: "Fire Brigade",
+    aliases: ["fire station", "fire brigade", "agni shaman", "agnishaman", "fire emergency"],
+  },
 ];
 
 const HINDI_BY_CANONICAL: Record<string, string> = {
   Beautician: "ब्यूटीशियन",
-  "Kirana Store": "किराना स्टोर",
+  "Grocery Store": "किराना स्टोर",
   Mechanic: "मैकेनिक",
   Towing: "टोइंग",
   "Tyre Service": "टायर सर्विस",
@@ -101,12 +177,13 @@ const HINDI_BY_CANONICAL: Record<string, string> = {
   Plumber: "प्लम्बर",
   Electrician: "इलेक्ट्रीशियन",
   Security: "सिक्योरिटी",
+  "Fire Brigade": "फायर ब्रिगेड",
   Other: "अन्य",
 };
 
 const MODE_BY_CANONICAL: Record<string, CategoryMode> = {
   Beautician: "help",
-  "Kirana Store": "delivery",
+  "Grocery Store": "delivery",
   Pharmacy: "delivery",
 };
 
@@ -124,44 +201,60 @@ function emojiForCanonical(canonical: string) {
   return cat?.emoji ?? "✨";
 }
 
-function defaultClassification(rawInput: string): CategoryClassification {
-  const tryCanon = (canonical: string, mode: CategoryMode): CategoryClassification => ({
+/** Resolved canonical label → full classification (vendor picker + edge fallback). */
+function classificationFromCanonical(canonical: string): CategoryClassification {
+  return {
     canonical,
-    mode,
+    mode: MODE_BY_CANONICAL[canonical] ?? "help",
     emoji: emojiForCanonical(canonical),
     hindi: HINDI_BY_CANONICAL[canonical] ?? "अन्य",
-  });
+  };
+}
 
+function defaultClassification(rawInput: string): CategoryClassification {
   const resolved = resolveKnownCategory(rawInput);
-  if (resolved) return tryCanon(resolved, MODE_BY_CANONICAL[resolved] ?? "help");
+  if (resolved) return classificationFromCanonical(resolved);
 
-  return tryCanon("Other", "help");
+  return classificationFromCanonical("Other");
 }
 
 export async function classifyCategory(rawInput: string): Promise<CategoryClassification> {
   const input = rawInput.trim();
   if (!input) return defaultClassification(rawInput);
 
+  const localMatch = resolveKnownCategory(rawInput);
+  if (localMatch) return classificationFromCanonical(localMatch);
+
   try {
-    const resp = await fetch(
-      "https://rpxsyeqskvhjmbkxnpmd.supabase.co/functions/v1/ai-gateway",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          action: "classify_category",
-          input,
-        }),
+    const resp = await fetch(AI_GATEWAY_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
-    );
+      body: JSON.stringify({
+        action: "classify_category",
+        term: input,
+        input,
+      }),
+    });
 
     if (!resp.ok) return defaultClassification(rawInput);
     const data: any = await resp.json();
     const result = data?.result;
-    if (!result || typeof result.canonical !== "string" || !result.canonical.trim()) {
+    if (!result) return defaultClassification(rawInput);
+
+    if (result.canonical === null && typeof result.message === "string" && result.message.trim()) {
+      return {
+        canonical: null,
+        mode: "help",
+        emoji: "ℹ️",
+        hindi: "",
+        message: result.message.trim(),
+      };
+    }
+
+    if (typeof result.canonical !== "string" || !result.canonical.trim()) {
       return defaultClassification(rawInput);
     }
 
@@ -170,9 +263,125 @@ export async function classifyCategory(rawInput: string): Promise<CategoryClassi
       mode: result.mode === "delivery" ? "delivery" : "help",
       emoji: typeof result.emoji === "string" && result.emoji.trim() ? result.emoji.trim() : "✨",
       hindi: typeof result.hindi === "string" && result.hindi.trim() ? result.hindi.trim() : "अन्य",
+      is_government: result.is_government === true,
     };
   } catch {
     return defaultClassification(rawInput);
+  }
+}
+
+/** Home search bar: classify free text with 5s timeout; fallback = original term. */
+export type ClassifySearchForRadarResult =
+  | { outcome: "canonical"; query: string }
+  | { outcome: "hint"; message: string }
+  | { outcome: "fallback"; query: string };
+
+export async function classifySearchTermForRadar(
+  rawInput: string,
+): Promise<ClassifySearchForRadarResult> {
+  const term = rawInput.trim();
+  if (!term) return { outcome: "fallback", query: "" };
+
+  const localCanon = resolveKnownCategory(rawInput);
+  if (localCanon) return { outcome: "canonical", query: localCanon };
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5_000);
+    const resp = await fetch(AI_GATEWAY_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        action: "classify_category",
+        term,
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+
+    if (!resp.ok) return { outcome: "fallback", query: term };
+
+    const data: unknown = await resp.json();
+    const result =
+      data && typeof data === "object" && "result" in data
+        ? (data as { result: Record<string, unknown> }).result
+        : null;
+    if (!result) return { outcome: "fallback", query: term };
+
+    if (
+      result.canonical === null &&
+      typeof result.message === "string" &&
+      result.message.trim()
+    ) {
+      return { outcome: "hint", message: result.message.trim() };
+    }
+
+    if (typeof result.canonical === "string" && result.canonical.trim()) {
+      return { outcome: "canonical", query: result.canonical.trim() };
+    }
+
+    return { outcome: "fallback", query: term };
+  } catch {
+    return { outcome: "fallback", query: term };
+  }
+}
+
+export type AiBridgeBriefResult =
+  | { ok: true; brief: string }
+  | { ok: false; error: string };
+
+/** Calls deployed `ai-gateway` Edge Function (action `ai_bridge_brief`). */
+export async function fetchAiBridgeBrief(payload: {
+  vendor_name: string;
+  shop_name: string;
+  category: string;
+  distance_km: number | null;
+  user_need: string;
+}): Promise<AiBridgeBriefResult> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 14_000);
+    const resp = await fetch(AI_GATEWAY_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        action: "ai_bridge_brief",
+        vendor_name: payload.vendor_name,
+        shop_name: payload.shop_name,
+        category: payload.category,
+        distance_km: payload.distance_km,
+        user_need: payload.user_need,
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+
+    if (!resp.ok) {
+      const t = await resp.text();
+      return { ok: false, error: t || `HTTP ${resp.status}` };
+    }
+
+    const data: unknown = await resp.json();
+    const brief =
+      data &&
+      typeof data === "object" &&
+      "result" in data &&
+      data.result &&
+      typeof (data as { result: { brief?: unknown } }).result.brief === "string"
+        ? (data as { result: { brief: string } }).result.brief.trim()
+        : "";
+
+    if (!brief) return { ok: false, error: "Empty brief" };
+    return { ok: true, brief };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Network error";
+    return { ok: false, error: msg };
   }
 }
 
@@ -240,4 +449,52 @@ export function meetsGreenCriteria(v: Vendor) {
 
 export function isGreenLive(v: Vendor) {
   return meetsGreenCriteria(v) && v.is_manual_verified;
+}
+
+export async function fetchCategories(): Promise<Category[]> {
+  const [catResult, vendorResult] = await Promise.all([
+    supabase
+      .from("categories")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true }),
+    supabase.from("vendors").select("category").eq("is_active", true),
+  ]);
+
+  if (catResult.error || !catResult.data) return [];
+
+  const activeVendorCategories = new Set((vendorResult.data ?? []).map((v) => v.category));
+
+  return (catResult.data as Category[]).filter((c) => activeVendorCategories.has(c.label));
+}
+
+export function groupCategoriesByMode(categories: Category[]): CategoryGroup[] {
+  const MODE_LABELS: Record<string, string> = {
+    help: "🚨 Emergency & Help",
+    delivery: "🛒 Delivery",
+    appointment: "✂️ Book a Service",
+  };
+  const order = ["help", "delivery", "appointment"];
+  const grouped: Record<string, Category[]> = { help: [], delivery: [], appointment: [] };
+  for (const cat of categories) {
+    if (grouped[cat.service_mode]) grouped[cat.service_mode].push(cat);
+  }
+  return order
+    .filter((mode) => grouped[mode].length > 0)
+    .map((mode) => ({
+      service_mode: mode as "help" | "delivery" | "appointment",
+      label: MODE_LABELS[mode],
+      categories: grouped[mode],
+    }));
+}
+
+export function emojiForCategory(label: string, categories: Category[]): string {
+  return categories.find((c) => c.label.toLowerCase() === label.toLowerCase())?.emoji ?? "✨";
+}
+
+/** Emoji for vendor.category (Quick Assist / radar labels). */
+export function emojiForVendorCategory(category: string, categories?: Category[]): string {
+  if (categories?.length) return emojiForCategory(category, categories);
+  const c = CATEGORIES.find((x) => x.label.toLowerCase() === category.trim().toLowerCase());
+  return c?.emoji ?? "✨";
 }

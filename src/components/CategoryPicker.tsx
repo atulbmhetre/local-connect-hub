@@ -1,4 +1,4 @@
-import { CATEGORIES } from "@/lib/supabase";
+import { type Category } from "@/lib/supabase";
 import { Mic, X } from "lucide-react";
 
 type Props = {
@@ -6,9 +6,10 @@ type Props = {
   onClose: () => void;
   onPick: (category: string) => void;
   onMic: () => void;
+  categories: Category[];
 };
 
-export const CategoryPicker = ({ open, onClose, onPick, onMic }: Props) => {
+export const CategoryPicker = ({ open, onClose, onPick, onMic, categories }: Props) => {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-foreground/60 backdrop-blur-sm grid place-items-end sm:place-items-center animate-fade-in">
@@ -24,7 +25,7 @@ export const CategoryPicker = ({ open, onClose, onPick, onMic }: Props) => {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          {CATEGORIES.map((c) => (
+          {categories.map((c) => (
             <button
               key={c.id}
               onClick={() => onPick(c.label)}

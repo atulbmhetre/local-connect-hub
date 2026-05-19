@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, X, RefreshCw, MapPin } from "lucide-react";
+import { Camera, Loader2, RefreshCw, MapPin } from "lucide-react";
 import { toast } from "sonner";
 
 export type CapturedShot = {
@@ -118,29 +118,35 @@ export const LiveCamera = ({ open, onClose, onCapture }: Props) => {
 
   if (!open) return null;
 
+  const handleCancel = () => {
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/95 grid place-items-center p-4">
-      <div className="w-full max-w-md rounded-3xl bg-card border border-border shadow-card overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">
-              Live Shop Photo
-            </p>
-            <p className="text-sm font-semibold mt-0.5 inline-flex items-center gap-1.5">
-              <MapPin className="h-3.5 w-3.5 text-secondary" />
-              GPS will be captured at shutter
-            </p>
+    <div className="fixed inset-0 z-[100] bg-black/90 grid place-items-center p-4">
+      <div className="w-full max-w-md flex flex-col rounded-3xl bg-card border border-border shadow-card overflow-hidden max-h-[min(90vh,920px)]">
+        {/* Full-width top bar — never covered by viewfinder overlays so Cancel always receives clicks */}
+        <div className="flex shrink-0 items-center justify-between gap-3 bg-[#0a0a0a] px-4 py-3 border-b border-white/10">
+          <div className="min-w-0 flex items-start gap-2">
+            <MapPin className="h-4 w-4 text-[#22C55E] shrink-0 mt-0.5" aria-hidden />
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.25em] text-gray-400">
+                Live Shop Photo
+              </p>
+              <p className="text-sm font-medium text-white">GPS will be captured at shutter</p>
+            </div>
           </div>
           <button
-            onClick={onClose}
-            aria-label="Close camera"
-            className="h-9 w-9 rounded-full grid place-items-center bg-muted text-foreground"
+            type="button"
+            onClick={handleCancel}
+            aria-label="Cancel"
+            className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-white hover:bg-white/10 transition-colors"
           >
-            <X className="h-4 w-4" />
+            ✕ Cancel
           </button>
         </div>
 
-        <div className="relative aspect-[4/3] bg-foreground">
+        <div className="relative aspect-[4/3] bg-black shrink-0">
           <video
             ref={videoRef}
             playsInline
@@ -148,16 +154,17 @@ export const LiveCamera = ({ open, onClose, onCapture }: Props) => {
             className="h-full w-full object-cover"
           />
           {!ready && !error && (
-            <div className="absolute inset-0 grid place-items-center text-background">
+            <div className="absolute inset-0 z-[1] grid place-items-center bg-black/50 text-white pointer-events-none">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
           )}
           {error && (
-            <div className="absolute inset-0 grid place-items-center p-6 text-center text-background">
+            <div className="absolute inset-0 z-[2] grid place-items-center p-6 text-center bg-black/80 text-white">
               <div>
                 <p className="font-semibold">{error}</p>
                 <button
-                  onClick={onClose}
+                  type="button"
+                  onClick={handleCancel}
                   className="mt-3 inline-flex items-center gap-1 text-sm underline"
                 >
                   <RefreshCw className="h-3.5 w-3.5" /> Close & retry
@@ -167,7 +174,7 @@ export const LiveCamera = ({ open, onClose, onCapture }: Props) => {
           )}
         </div>
 
-        <div className="p-4 space-y-2">
+        <div className="p-4 space-y-2 shrink-0 bg-card">
           <button
             disabled={!ready || busy}
             onClick={shoot}
