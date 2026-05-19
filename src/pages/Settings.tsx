@@ -23,8 +23,11 @@ import { supabase } from "@/lib/supabase";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
+import { useLanguage } from "@/lib/language";
+import { LANGUAGE_LABELS, type Language } from "@/lib/strings";
 
 const Settings = () => {
+  const { lang, setLang, s } = useLanguage();
   const [titleTaps, setTitleTaps] = useState(0);
   const [devOpen, setDevOpen] = useState(false);
   const userPhone = getUserPhone();
@@ -279,8 +282,22 @@ const Settings = () => {
           <Globe className="h-5 w-5 text-secondary" />
           <p className="font-display font-bold">Language</p>
         </div>
-        <p className="text-sm font-semibold text-foreground">English</p>
-        <p className="text-xs text-muted-foreground mt-1">Hindi support coming soon.</p>
+        <div className="flex flex-col gap-2">
+          {(Object.entries(LANGUAGE_LABELS) as [Language, string][]).map(([code, label]) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => setLang(code)}
+              className={`w-full text-left px-4 py-3 rounded-2xl border font-semibold text-sm transition-colors ${
+                lang === code
+                  ? "bg-secondary/10 border-secondary text-secondary"
+                  : "bg-background border-border text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </section>
 
       {vendorId && (

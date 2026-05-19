@@ -27,6 +27,7 @@ import {
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { buildRequestsActiveWindowOrFilter } from "@/lib/orders";
+import { useLanguage } from "@/lib/language";
 
 type SavedNeighbourTile = {
   savedId: string;
@@ -40,6 +41,7 @@ function telHref(phone: string) {
 }
 
 const Index = () => {
+  const { s } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const [query, setQuery] = useState("");
@@ -292,7 +294,7 @@ const Index = () => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      toast.error("Voice not supported on this browser. Try Chrome on Android.");
+      toast.error(s.voiceNotSupported);
       return;
     }
     const rec = new SpeechRecognition();
@@ -302,7 +304,7 @@ const Index = () => {
     rec.onstart = () => setListening(true);
     rec.onerror = () => {
       setListening(false);
-      toast.error("Couldn't hear that. Try again.");
+      toast.error(s.voiceError);
     };
     rec.onend = () => setListening(false);
     rec.onresult = (ev: any) => {
@@ -318,10 +320,10 @@ const Index = () => {
   return (
     <AppShell theme="light">
       <header className="text-center mb-6 animate-fade-up">
-        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Aaspaas Pro</p>
-        <h1 className="font-display text-3xl font-bold mt-1">Help, around you. Now.</h1>
+        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">{s.appName}</p>
+        <h1 className="font-display text-3xl font-bold mt-1">{s.tagline}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          The smart switchboard for your neighbourhood.
+          {s.taglineSub}
         </p>
       </header>
 
@@ -330,7 +332,7 @@ const Index = () => {
           <div className="absolute -top-2.5 left-4 z-10 px-2 bg-background">
             <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-primary inline-flex items-center gap-1">
               <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-              AI Search
+              {s.aiSearch}
             </span>
           </div>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
@@ -339,7 +341,7 @@ const Index = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             disabled={classifying}
-            placeholder="Search for help (e.g., Mechanic, Ambulance, Key Maker)"
+            placeholder={s.searchPlaceholder}
             className="w-full bg-card border border-border rounded-2xl pl-12 pr-14 py-4 text-base shadow-card focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
           />
           <button
@@ -357,7 +359,7 @@ const Index = () => {
         {classifying && (
           <p className="mt-2 flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden />
-            Finding best match...
+            {s.findingMatch}
           </p>
         )}
       </div>
@@ -369,7 +371,7 @@ const Index = () => {
       {savedNeighbours.length > 0 && (
         <section className="mb-8 animate-fade-up">
           <p className="text-xs uppercase tracking-[0.25em] text-[#15803d] dark:text-[#22C55E] text-center mb-3 font-semibold">
-            MY NEIGHBOURHOOD
+            {s.myNeighbourhood}
           </p>
           <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
             {savedNeighbours.map(({ savedId, vendor, nickname, category }) => (
@@ -419,7 +421,7 @@ const Index = () => {
             onClick={() => navigate("/my-orders")}
             className="text-sm text-[#15803d] hover:text-[#166534] underline underline-offset-2 font-medium"
           >
-            📋 You have {activeOrderCount} active order{activeOrderCount === 1 ? "" : "s"} → View
+            {s.activeOrders(activeOrderCount)}
           </button>
         </div>
       )}
@@ -467,9 +469,9 @@ const Index = () => {
                     <p className="text-sm text-muted-foreground">{neighbourSheetVendor.category}</p>
                     <p className="text-xs text-muted-foreground">
                       {neighbourSheetVendor.is_active ? (
-                        <span className="text-[#22C55E] font-medium">Online</span>
+                        <span className="text-[#22C55E] font-medium">{s.online}</span>
                       ) : (
-                        <span>Offline</span>
+                        <span>{s.offline}</span>
                       )}
                     </p>
                   </div>
@@ -493,7 +495,7 @@ const Index = () => {
                           navigate("/my-orders");
                         }}
                       >
-                        📋 Your active orders →
+                        {s.yourActiveOrders}
                       </button>
                       <button
                         type="button"
@@ -505,7 +507,7 @@ const Index = () => {
                           setParchiOpen(true);
                         }}
                       >
-                        📋 Send New Order
+                        {s.sendNewOrder}
                       </button>
                     </>
                   ) : (
@@ -519,7 +521,7 @@ const Index = () => {
                         setParchiOpen(true);
                       }}
                     >
-                      📋 Send Order
+                      {s.sendOrder}
                     </button>
                   )
                 ) : String(neighbourSheetVendor.service_mode ?? "")
@@ -536,7 +538,7 @@ const Index = () => {
                             navigate("/my-orders");
                           }}
                         >
-                          📅 Your active bookings →
+                          {s.yourActiveBookings}
                         </button>
                         <button
                           type="button"
@@ -548,7 +550,7 @@ const Index = () => {
                             setParchiOpen(true);
                           }}
                         >
-                          📅 Book Again
+                          {s.bookAgain}
                         </button>
                       </>
                     ) : (
@@ -562,7 +564,7 @@ const Index = () => {
                           setParchiOpen(true);
                         }}
                       >
-                        📅 Book a Service
+                        {s.bookService}
                       </button>
                     )}
                     <button
@@ -570,7 +572,7 @@ const Index = () => {
                       className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
                       onClick={() => setNeighbourSheetOpen(false)}
                     >
-                      Cancel
+                      {s.cancel}
                     </button>
                     <button
                       type="button"
@@ -587,7 +589,7 @@ const Index = () => {
                             : del.eq("device_id", device_id);
                         const { error } = await del;
                         if (error) {
-                          toast.error("Could not remove", { description: error.message });
+                          toast.error(s.couldNotRemove, { description: error.message });
                           return;
                         }
                         try {
@@ -598,10 +600,10 @@ const Index = () => {
                         setNeighbourSheetOpen(false);
                         setNeighbourSheetVendor(null);
                         void loadSavedNeighbours();
-                        toast.success("Removed from My Neighbourhood");
+                        toast.success(s.removedFromNeighbourhood);
                       }}
                     >
-                      🗑 Remove from My Neighbourhood
+                      {s.removeFromNeighbourhood}
                     </button>
                   </>
                 ) : (
@@ -615,7 +617,7 @@ const Index = () => {
                     }}
                   >
                     <Phone className="h-4 w-4" />
-                    Connect via AI-Bridge
+                    {s.connectAiBridge}
                   </button>
                 )}
                 {String(neighbourSheetVendor.service_mode ?? "")
@@ -627,7 +629,7 @@ const Index = () => {
                   className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
                   onClick={() => setNeighbourSheetOpen(false)}
                 >
-                  Cancel
+                  {s.cancel}
                 </button>
                 <button
                   type="button"
@@ -642,7 +644,7 @@ const Index = () => {
                       userPhone != null ? del.eq("user_phone", userPhone) : del.eq("device_id", device_id);
                     const { error } = await del;
                     if (error) {
-                      toast.error("Could not remove", { description: error.message });
+                      toast.error(s.couldNotRemove, { description: error.message });
                       return;
                     }
                     try {
@@ -653,10 +655,10 @@ const Index = () => {
                     setNeighbourSheetOpen(false);
                     setNeighbourSheetVendor(null);
                     void loadSavedNeighbours();
-                    toast.success("Removed from My Neighbourhood");
+                    toast.success(s.removedFromNeighbourhood);
                   }}
                 >
-                  🗑 Remove from My Neighbourhood
+                  {s.removeFromNeighbourhood}
                 </button>
                 </>
                 )}
@@ -672,13 +674,13 @@ const Index = () => {
           className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
         >
           <SheetHeader className="text-left space-y-1 pr-8">
-            <SheetTitle className="text-white font-display">AI-Bridge</SheetTitle>
+            <SheetTitle className="text-white font-display">{s.aiBridge}</SheetTitle>
             <SheetDescription className="text-gray-400">
               {aiSheetLoading
-                ? "Briefing vendor via AI…"
+                ? s.briefingVendor
                 : aiBriefFailed
-                  ? "AI brief unavailable — call directly"
-                  : "Your call brief"}
+                  ? s.aiBriefUnavailable
+                  : s.yourCallBrief}
             </SheetDescription>
           </SheetHeader>
 
@@ -686,13 +688,13 @@ const Index = () => {
             {aiSheetLoading && (
               <div className="flex items-center gap-3 py-6 text-gray-300">
                 <Loader2 className="h-6 w-6 animate-spin text-[#22C55E] shrink-0" />
-                <p className="text-sm">Briefing vendor via AI…</p>
+                <p className="text-sm">{s.briefingVendor}</p>
               </div>
             )}
 
             {!aiSheetLoading && aiBriefFailed && (
               <p className="text-sm text-amber-200/90 leading-relaxed">
-                AI brief unavailable — call directly
+                {s.aiBriefUnavailable}
               </p>
             )}
 
@@ -721,14 +723,14 @@ const Index = () => {
                   }}
                 >
                   <PhoneCall className="h-4 w-4" />
-                  Call Now
+                  {s.callNow}
                 </button>
                 <button
                   type="button"
                   className="w-full rounded-xl border border-[#333] bg-transparent text-gray-300 py-3 font-semibold active:scale-[0.99] transition-transform"
                   onClick={() => closeAiSheet(false)}
                 >
-                  Cancel
+                  {s.cancel}
                 </button>
               </div>
             )}
