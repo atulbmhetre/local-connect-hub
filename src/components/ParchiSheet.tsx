@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
 import {
   Sheet,
@@ -7,21 +7,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { supabase, type Vendor } from "@/lib/supabase";
+import { supabase, invokeNotifyVendor, type Vendor } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, isPhoneKnown, migrateUserPhone } from "@/lib/userIdentity";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
+import { useLanguage } from "@/lib/language";
 
 const MAX_LEN = 200;
-
-const SLOT_LABELS: Record<string, string> = {
-  asap: "As soon as possible",
-  morning: "Morning (before 12pm)",
-  afternoon: "Afternoon (12–4pm)",
-  evening: "Evening (after 4pm)",
-  tomorrow: "Tomorrow",
-};
 
 type Props = {
   vendor: Vendor | null;
@@ -39,6 +32,14 @@ type SavedAddress = {
 };
 
 export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
+  const { s } = useLanguage();
+  const SLOT_LABELS: Record<string, string> = useMemo(() => ({
+    asap: s.parchi_slotAsap,
+    morning: s.parchi_slotMorning,
+    afternoon: s.parchi_slotAfternoon,
+    evening: s.parchi_slotEvening,
+    tomorrow: s.parchi_slotTomorrow,
+  }), [s]);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
@@ -121,7 +122,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
       if (!v) return;
       const text = message.trim();
       if (!text) {
-        toast.error("Please type your order.");
+        toast.error(s.parchi_errNoOrder);
         return;
       }
       const needsAddress =
@@ -134,12 +135,12 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         : null;
 
       if (needsAddress && !finalAddress) {
-        toast.error("Please add a delivery address.");
+        toast.error(s.parchi_errNoAddress);
         return;
       }
       if (effectiveVendor?.service_mode === "appointment") {
         if (!appointmentDate || !appointmentTime) {
-          toast.error("Please select appointment date and time.");
+          toast.error(s.parchi_errNoDateTime);
           return;
         }
       }
@@ -151,14 +152,14 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
       const locationNote =
         effectiveVendor?.service_mode === "appointment"
           ? appointmentLocation === "home"
-            ? " [Come to my place]"
+            ? s.parchi_locationComeToMe
             : appointmentLocation === "shop"
-              ? " [I'll visit your shop]"
-              : " [Location TBD]"
+              ? s.parchi_locationVisitShop
+              : s.parchi_locationTbd
           : "";
       const deliverySlotNote =
         effectiveVendor?.service_mode === "delivery"
-          ? ` [Deliver: ${SLOT_LABELS[deliverySlot] ?? "As soon as possible"}]`
+          ? ` ${s.parchi_deliverPrefix}${SLOT_LABELS[deliverySlot] ?? s.parchi_slotAsap}]`
           : "";
       const appointmentTimestamp =
         effectiveVendor?.service_mode === "appointment" && appointmentDate && appointmentTime
@@ -166,6 +167,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
           : null;
       setSending(true);
       const device_id = getDeviceId();
+      console.log('message:', text.slice(0, MAX_LEN) + locationNote + deliverySlotNote);
       const { error } = await supabase.from("requests").insert({
         device_id,
         vendor_id: v.id,
@@ -179,14 +181,26 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
       });
       if (error) {
         setSending(false);
-        toast.error("Could not send order", { description: error.message });
+        toast.error(s.parchi_errCouldNotSend, { description: error.message });
         return;
       }
+      const fullMessage = text.slice(0, MAX_LEN) + locationNote + deliverySlotNote;
+      const notifyBody = fullMessage
+        .replace(/\s*\[Come to my place\]/g, "")
+        .replace(/\s*\[I'll visit your shop\]/g, "")
+        .replace(/\s*\[Location TBD\]/g, "")
+        .replace(/\s*\[Deliver:[^\]]+\]/g, "")
+        .trim();
+      void invokeNotifyVendor({
+        vendor_id: v.id,
+        category: v.category,
+        message: notifyBody,
+      });
       if (saveAddress && newAddress.trim()) {
         await supabase.from("user_addresses").insert({
           device_id: getDeviceId(),
           user_phone: getUserPhone() ?? null,
-          label: "Home",
+          label: s.parchi_addressLabelHome,
           address_text: newAddress.trim(),
           is_default: addresses.length === 0,
         });
@@ -194,8 +208,8 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
       setSending(false);
       toast.success(
         v.service_mode === "appointment"
-          ? `📅 Booking requested with ${v.shop_name}!`
-          : `✅ Order sent to ${v.shop_name}! They will see it shortly.`,
+          ? s.parchi_toastBookingSuccess
+          : s.parchi_toastOrderSuccess,
       );
       try {
         sessionStorage.setItem(`aaspaas:parchi:${v.id}`, "1");
@@ -219,6 +233,8 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
       appointmentTime,
       appointmentLocation,
       deliverySlot,
+      SLOT_LABELS,
+      s,
     ],
   );
 
@@ -232,11 +248,11 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
     const hour = now.getHours();
 
     const all = [
-      { value: "asap", label: "🚀 As soon as possible", alwaysShow: true },
-      { value: "morning", label: "🌅 Morning (before 12pm)", cutoffHour: 11 },
-      { value: "afternoon", label: "🌞 Afternoon (12–4pm)", cutoffHour: 15 },
-      { value: "evening", label: "🌆 Evening (after 4pm)", cutoffHour: 19 },
-      { value: "tomorrow", label: "📅 Tomorrow", alwaysShow: true },
+      { value: "asap", label: s.parchi_slotAsapEmoji, alwaysShow: true },
+      { value: "morning", label: s.parchi_slotMorningEmoji, cutoffHour: 11 },
+      { value: "afternoon", label: s.parchi_slotAfternoonEmoji, cutoffHour: 15 },
+      { value: "evening", label: s.parchi_slotEveningEmoji, cutoffHour: 19 },
+      { value: "tomorrow", label: s.parchi_slotTomorrowEmoji, alwaysShow: true },
     ];
 
     return all.filter(
@@ -254,25 +270,25 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
           <SheetHeader className="text-left space-y-2 pr-8">
             <SheetTitle className="text-white font-display text-lg">
               {effectiveVendor?.service_mode === "appointment"
-                ? `Book with ${effectiveVendor.shop_name}`
-                : `Order to ${effectiveVendor.shop_name}`}
+                ? `${s.parchi_titleBook}${effectiveVendor.shop_name}`
+                : `${s.parchi_titleOrder}${effectiveVendor.shop_name}`}
             </SheetTitle>
             <SheetDescription className="text-sm text-gray-400 text-left">
               {effectiveVendor?.service_mode === "appointment" ? (
                 online ? (
-                  <>🟢 Online — will confirm your booking shortly</>
+                  <>{s.parchi_onlineBooking}</>
                 ) : (
-                  <>⚫ Offline — will confirm when they return</>
+                  <>{s.parchi_offlineBooking}</>
                 )
               ) : online ? (
-                <>🟢 Online — will see this shortly</>
+                <>{s.parchi_onlineOrder}</>
               ) : (
-                <>⚫ Offline — will see when they return</>
+                <>{s.parchi_offlineOrder}</>
               )}
             </SheetDescription>
             {effectiveVendor?.vendor_note && (
               <div className="mt-2 rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px] text-[#22C55E]">
-                📌 {effectiveVendor.vendor_note}
+                {s.parchi_vendorNotePrefix}{effectiveVendor.vendor_note}
               </div>
             )}
           </SheetHeader>
@@ -282,11 +298,11 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               (effectiveVendor?.service_mode === "appointment" && appointmentLocation === "home")) && (
               <div className="space-y-2">
                 <p className="text-xs text-gray-400 flex items-center gap-1">
-                  <MapPin className="h-3 w-3" /> Delivery Address
+                  <MapPin className="h-3 w-3" /> {s.parchi_deliveryAddress}
                 </p>
 
                 {addressLoading && (
-                  <p className="text-xs text-gray-500">Loading addresses...</p>
+                  <p className="text-xs text-gray-500">{s.parchi_loadingAddresses}</p>
                 )}
 
                 {!addressLoading && addresses.length > 0 && (
@@ -315,7 +331,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                           : "border-[#2a2a2a] bg-[#141414] text-gray-400"
                       }`}
                     >
-                      + Use a different address
+                      {s.parchi_useDifferentAddress}
                     </button>
                   </div>
                 )}
@@ -326,7 +342,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                       type="text"
                       value={newAddress}
                       onChange={(e) => setNewAddress(e.target.value)}
-                      placeholder="e.g. Flat 4B, Green Park, Near Water Tank"
+                      placeholder={s.parchi_addressPlaceholder}
                       className="w-full rounded-xl border border-[#2a2a2a] bg-[#141414] px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/50"
                     />
                     <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
@@ -336,7 +352,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                         onChange={(e) => setSaveAddress(e.target.checked)}
                         className="accent-[#22C55E]"
                       />
-                      Save this address for next time
+                      {s.parchi_saveAddress}
                     </label>
                   </div>
                 )}
@@ -346,7 +362,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
             {effectiveVendor?.service_mode === "appointment" && (
               <div className="space-y-3">
                 <div className="space-y-2">
-                  <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">📍 Where?</p>
+                  <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">{s.parchi_whereQuestion}</p>
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
@@ -357,7 +373,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                           : "border-[#2a2a2a] bg-[#141414] text-gray-400"
                       }`}
                     >
-                      🏠 Come to me
+                      {s.parchi_locationComeToMeBtn}
                     </button>
                     <button
                       type="button"
@@ -368,7 +384,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                           : "border-[#2a2a2a] bg-[#141414] text-gray-400"
                       }`}
                     >
-                      🏪 I'll visit
+                      {s.parchi_locationVisitBtn}
                     </button>
                     <button
                       type="button"
@@ -379,16 +395,16 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                           : "border-[#2a2a2a] bg-[#141414] text-gray-400"
                       }`}
                     >
-                      📞 Decide later
+                      {s.parchi_locationDecideLater}
                     </button>
                   </div>
                 </div>
                 <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
-                  📅 When do you need them?
+                  {s.parchi_whenAppt}
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="text-xs text-gray-500">Date</label>
+                    <label className="text-xs text-gray-500">{s.parchi_dateLabel}</label>
                     <input
                       type="date"
                       value={appointmentDate}
@@ -398,7 +414,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs text-gray-500">Time</label>
+                    <label className="text-xs text-gray-500">{s.parchi_timeLabel}</label>
                     <input
                       type="time"
                       value={appointmentTime}
@@ -413,7 +429,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
             {effectiveVendor?.service_mode === "delivery" && (
               <div className="space-y-2">
                 <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
-                  🕐 When do you need it?
+                  {s.parchi_whenDelivery}
                 </p>
                 <select
                   value={deliverySlot}
@@ -430,7 +446,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
             )}
 
             <label className="sr-only" htmlFor="parchi-message">
-              Your order
+              {s.parchi_orderLabel}
             </label>
             <textarea
               id="parchi-message"
@@ -439,22 +455,22 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               rows={5}
               placeholder={
                 effectiveVendor?.service_mode === "appointment"
-                  ? "Any special notes?\ne.g. Full facial, 2 people, ground floor"
-                  : "Type your order...\ne.g. 1kg atta, 2 soaps, Colgate toothpaste"
+                  ? s.parchi_placeholderAppt
+                  : s.parchi_placeholderOrder
               }
               className="w-full resize-none rounded-xl border border-[#2a2a2a] bg-[#141414] px-3 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/50"
             />
             <div className="flex justify-end text-xs text-gray-500 tabular-nums">
-              {len} / {MAX_LEN}
+              {len}{s.parchi_charSeparator}{MAX_LEN}
             </div>
 
             {effectiveVendor?.service_mode === "appointment" ? (
               <p className="text-[11px] text-muted-foreground text-center">
-                ℹ️ Free cancellation before your booking day. Same-day changes need a quick call first.
+                {s.parchi_cancellationAppt}
               </p>
             ) : (
               <p className="text-[11px] text-muted-foreground text-center">
-                ℹ️ You can cancel this order only if the vendor hasn't seen it yet.
+                {s.parchi_cancellationOrder}
               </p>
             )}
 
@@ -465,8 +481,8 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
             >
               {effectiveVendor?.service_mode === "appointment"
-                ? "📅 Confirm Booking"
-                : "📋 Send Order"}
+                ? s.parchi_btnConfirmBooking
+                : s.parchi_btnSendOrder}
             </button>
             <button
               type="button"
@@ -474,7 +490,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               onClick={() => handleOpenChange(false)}
               className="w-full py-2 text-sm text-gray-500 hover:text-gray-400 transition-colors"
             >
-              Cancel
+              {s.parchi_btnCancel}
             </button>
           </div>
         </SheetContent>

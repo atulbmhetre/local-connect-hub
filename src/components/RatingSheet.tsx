@@ -7,6 +7,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { supabase } from "@/lib/supabase";
+import { useLanguage } from "@/lib/language";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -19,6 +20,7 @@ type Props = {
 };
 
 export function RatingSheet({ isOpen, shopName, serviceMode, vendorId, onDismiss }: Props) {
+  const { s } = useLanguage();
   const [loading, setLoading] = useState<false | "rate" | "issue">(false);
 
   useEffect(() => {
@@ -35,20 +37,20 @@ export function RatingSheet({ isOpen, shopName, serviceMode, vendorId, onDismiss
     const { error } = await supabase.rpc(rpc, { p_vendor_id: vendorId });
     setLoading(false);
     if (error) {
-      toast.error("Could not save rating");
+      toast.error(s.rating_errCouldNotSave);
     }
     onDismiss();
-  }, [isDelivery, vendorId, onDismiss]);
+  }, [isDelivery, vendorId, onDismiss, s.rating_errCouldNotSave]);
 
   const handleIssue = useCallback(async () => {
     setLoading("issue");
     const { error } = await supabase.rpc("increment_vendor_issues", { p_vendor_id: vendorId });
     setLoading(false);
     if (error) {
-      toast.error("Could not save feedback");
+      toast.error(s.rating_errCouldNotSaveFeedback);
     }
     onDismiss();
-  }, [vendorId, onDismiss]);
+  }, [vendorId, onDismiss, s.rating_errCouldNotSaveFeedback]);
 
   return (
     <Sheet
@@ -62,7 +64,7 @@ export function RatingSheet({ isOpen, shopName, serviceMode, vendorId, onDismiss
         className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
       >
         <SheetHeader className="text-left space-y-1 pr-8">
-          <SheetTitle className="text-white font-display">How was your order?</SheetTitle>
+          <SheetTitle className="text-white font-display">{s.rating_heading}</SheetTitle>
           <SheetDescription className="text-gray-400">{shopName}</SheetDescription>
         </SheetHeader>
 
@@ -74,7 +76,7 @@ export function RatingSheet({ isOpen, shopName, serviceMode, vendorId, onDismiss
             className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
           >
             {loading === "rate" ? <Loader2 className="h-5 w-5 animate-spin shrink-0" /> : null}
-            {isDelivery ? "📦 Delivered on Time" : "✅ He Helped Me"}
+            {isDelivery ? s.rating_btnDelivered : s.rating_btnHelped}
           </button>
           <button
             type="button"
@@ -83,10 +85,10 @@ export function RatingSheet({ isOpen, shopName, serviceMode, vendorId, onDismiss
             className="w-full rounded-xl border border-destructive/50 text-destructive bg-transparent py-3 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
           >
             {loading === "issue" ? <Loader2 className="h-5 w-5 animate-spin shrink-0" /> : null}
-            ⚠️ Had an issue
+            {s.rating_btnIssue}
           </button>
           <p className="text-[11px] text-gray-500 text-center pt-1">
-            Please share your feedback to dismiss
+            {s.rating_helperText}
           </p>
         </div>
       </SheetContent>

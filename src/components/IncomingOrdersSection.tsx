@@ -3,6 +3,14 @@ import { supabase } from "@/lib/supabase";
 import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useLanguage } from "@/lib/language";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 
 type Props = {
   vendorId: string;
@@ -27,11 +35,20 @@ function stripDeliverySlot(message: string): string {
 }
 
 export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
+  const { s } = useLanguage();
   const [rows, setRows] = useState<OrderRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [calledUser, setCalledUser] = useState<Record<string, boolean>>({});
+  const [presetReasons, setPresetReasons] = useState<string[]>([]);
+  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [otherReasonText, setOtherReasonText] = useState("");
+  const [cancelling, setCancelling] = useState(false);
   const mounted = useRef(true);
+
+  const selectFields =
+    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, appointment_time, appointment_status, cancel_reason";
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -39,7 +56,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
       const windowOr = buildRequestsActiveWindowOrFilter("vendor");
       const { data, error } = await supabase
         .from("requests")
-        .select("id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, appointment_time, appointment_status")
+        .select(selectFields)
         .eq("vendor_id", vendorId)
         .or(windowOr)
         .order("created_at", { ascending: false })
@@ -66,7 +83,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
         if (upErr || !mounted.current) return;
         const { data: refreshed } = await supabase
           .from("requests")
-          .select("id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, appointment_time, appointment_status")
+          .select(selectFields)
           .eq("vendor_id", vendorId)
           .or(windowOr)
           .order("created_at", { ascending: false })
@@ -79,6 +96,24 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
     },
     [vendorId, onUnreadCount],
   );
+
+  useEffect(() => {
+    void (async () => {
+      const { data } = await supabase
+        .from("vendors")
+        .select("cancel_reason_1, cancel_reason_2, cancel_reason_3, cancel_reason_4")
+        .eq("id", vendorId)
+        .single();
+      if (!data) return;
+      const presets = [
+        data.cancel_reason_1,
+        data.cancel_reason_2,
+        data.cancel_reason_3,
+        data.cancel_reason_4,
+      ].filter((r): r is string => r != null && String(r).trim() !== "");
+      setPresetReasons(presets);
+    })();
+  }, [vendorId]);
 
   useEffect(() => {
     mounted.current = true;
@@ -133,7 +168,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
       .eq("vendor_id", vendorId);
     setMarkingId(null);
     if (error) {
-      toast.error("Could not update order", { description: error.message });
+      toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
       return;
     }
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
@@ -148,13 +183,45 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
       .eq("vendor_id", vendorId);
     setMarkingId(null);
     if (error) {
-      toast.error("Could not update appointment", { description: error.message });
+      toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
       return;
     }
     setRows((prev) =>
       prev.map((r) => (r.id === id ? ({ ...r, appointment_status: action } as any) : r)),
     );
-    toast.success(action === "confirmed" ? "✅ Appointment confirmed!" : "Appointment declined.");
+    toast.success(action === "confirmed" ? s.incoming_apptConfirmed : s.incoming_apptDeclined);
+  };
+
+  const closeCancelSheet = () => {
+    setCancelOrderId(null);
+    setSelectedReason(null);
+    setOtherReasonText("");
+  };
+
+  const confirmCancelOrder = async () => {
+    if (!cancelOrderId || !selectedReason) return;
+    const reasonText =
+      selectedReason === "Other" ? otherReasonText.trim() : selectedReason;
+    if (!reasonText) return;
+
+    setCancelling(true);
+    const { error } = await supabase
+      .from("requests")
+      .update({ status: "cancelled", cancel_reason: reasonText })
+      .eq("id", cancelOrderId)
+      .eq("vendor_id", vendorId);
+    setCancelling(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(s.orderCancelled);
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === cancelOrderId ? { ...r, status: "cancelled", cancel_reason: reasonText } : r,
+      ),
+    );
+    closeCancelSheet();
   };
 
   const cancelAppointment = async (id: string) => {
@@ -164,10 +231,10 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
       .eq("id", id)
       .eq("vendor_id", vendorId);
     if (error) {
-      toast.error("Could not cancel", { description: error.message });
+      toast.error(s.incoming_errCouldNotCancel, { description: error.message });
       return;
     }
-    toast.success("Booking cancelled.");
+    toast.success(s.incoming_bookingCancelled);
     setRows((prev) =>
       prev.map((r) => (r.id === id ? ({ ...r, appointment_status: "cancelled" } as any) : r)),
     );
@@ -179,24 +246,30 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
     if (status === "sent")
       return (
         <span className="rounded-full bg-[#22C55E]/20 text-[#22C55E] text-[10px] font-bold px-2 py-0.5 border border-[#22C55E]/40">
-          New
+          {s.incoming_statusNew}
         </span>
       );
     if (status === "seen")
       return (
         <span className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border">
-          Seen
+          {s.incoming_statusSeen}
         </span>
       );
     if (status === "fulfilled")
       return (
         <span className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-[#22C55E]/30 text-[#22C55E]">
-          Done ✅
+          {s.incoming_statusDone}
+        </span>
+      );
+    if (status === "cancelled")
+      return (
+        <span className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border">
+          {s.orderCancelled}
         </span>
       );
     return (
       <span className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-[#22C55E]/30 text-[#22C55E]">
-        Done ✅
+        {s.incoming_statusDone}
       </span>
     );
   };
@@ -205,10 +278,10 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
     <div className="rounded-2xl bg-card border border-border shadow-card p-5 space-y-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="font-display font-bold text-base flex items-center gap-2">
-          📋 Incoming Orders
+          {s.incoming_heading}
           {unread > 0 && (
             <span className="rounded-full bg-[#22C55E] text-[#0b1f14] text-[11px] font-bold min-w-[1.25rem] h-5 px-1.5 grid place-items-center tabular-nums">
-              {unread > 99 ? "99+" : unread}
+              {unread > 99 ? s.incoming_unreadCap : unread}
             </span>
           )}
         </h2>
@@ -219,7 +292,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
           <Loader2 className="h-6 w-6 animate-spin" aria-hidden />
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-4">No orders yet!</p>
+        <p className="text-sm text-muted-foreground text-center py-4">{s.incoming_empty}</p>
       ) : (
         <ul className="space-y-3">
           {rows.map((r) => (
@@ -236,9 +309,14 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
               <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
                 {stripDeliverySlot(stripLocationTag(r.message))}
               </p>
+              {r.status === "cancelled" && r.cancel_reason && (
+                <span className="inline-flex rounded-full bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 border border-border">
+                  {r.cancel_reason}
+                </span>
+              )}
               {(r as any).delivery_address && (
                 <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                  📍 <span className="text-foreground font-medium">{(r as any).delivery_address}</span>
+                  {s.incoming_addressPrefix}<span className="text-foreground font-medium">{(r as any).delivery_address}</span>
                 </div>
               )}
 
@@ -247,7 +325,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                 if (!slot) return null;
                 return (
                   <div className="rounded-lg border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px]">
-                    🕐 <span className="text-[#22C55E] font-semibold">{slot}</span>
+                    {s.incoming_slotPrefix}<span className="text-[#22C55E] font-semibold">{slot}</span>
                   </div>
                 );
               })()}
@@ -263,15 +341,15 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                       ? "border-purple-500/30 bg-purple-500/5 text-purple-400"
                       : "border-gray-500/30 bg-gray-500/5 text-gray-400";
                   const locationLabel = isHome
-                    ? "🏠 Coming to you"
+                    ? s.incoming_locationComeToYou
                     : isShop
-                      ? "🏪 Will visit your shop"
-                      : "📞 Location TBD";
+                      ? s.incoming_locationVisitShop
+                      : s.incoming_locationTbd;
                   return (
                     <div className={`rounded-lg border px-3 py-2 text-[11px] space-y-0.5 ${colorClass}`}>
                       <div className="font-semibold">{locationLabel}</div>
                       <div>
-                        📅 Around{" "}
+                        {s.incoming_apptAround}
                         <span className="font-semibold">
                           {new Date((r as any).appointment_time).toLocaleString("en-IN", {
                             weekday: "short",
@@ -296,7 +374,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                       onClick={() => void handleAppointmentAction(r.id, "confirmed")}
                       className="rounded-lg bg-[#22C55E] text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                     >
-                      ✅ Confirm
+                      {s.incoming_btnConfirm}
                     </button>
                     <button
                       type="button"
@@ -304,20 +382,20 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                       onClick={() => void handleAppointmentAction(r.id, "declined")}
                       className="rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                     >
-                      ❌ Decline
+                      {s.incoming_btnDecline}
                     </button>
                   </div>
               )}
 
               {(r as any).appointment_time && (r as any).appointment_status === "confirmed" && (
                 <div className="rounded-lg border border-[#22C55E]/40 bg-[#22C55E]/10 px-3 py-2 text-[11px] text-[#22C55E] font-semibold text-center">
-                  ✅ Appointment Confirmed
+                  {s.incoming_bannerConfirmed}
                 </div>
               )}
 
               {(r as any).appointment_time && (r as any).appointment_status === "declined" && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] text-destructive font-semibold text-center">
-                  ❌ Appointment Declined
+                  {s.incoming_bannerDeclined}
                 </div>
               )}
 
@@ -339,7 +417,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                         onClick={() => void cancelAppointment(r.id)}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                       >
-                        Cancel Appointment
+                        {s.incoming_cancelAppt}
                       </button>
                     );
                   }
@@ -348,7 +426,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                     return (
                       <div className="space-y-2">
                         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400 text-center">
-                          ⚠️ Same-day cancellation — call customer first
+                          {s.incoming_sameDayWarning}
                         </div>
                         <button
                           type="button"
@@ -358,7 +436,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                           }}
                           className="w-full rounded-lg border border-[#22C55E]/40 text-[#22C55E] text-xs font-semibold py-2"
                         >
-                          📞 Connect via AI-Bridge to Cancel
+                          {s.incoming_callThenCancel}
                         </button>
                       </div>
                     );
@@ -367,19 +445,32 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                   return (
                     <div className="space-y-2">
                       <p className="text-[11px] text-gray-400 text-center">
-                        ✅ Call done — you may now cancel
+                        {s.incoming_callDone}
                       </p>
                       <button
                         type="button"
                         onClick={() => void cancelAppointment(r.id)}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                       >
-                        Cancel Appointment
+                        {s.incoming_cancelAppt}
                       </button>
                     </div>
                   );
                 })()}
 
+              {(r.status === "sent" || r.status === "seen") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCancelOrderId(r.id);
+                    setSelectedReason(null);
+                    setOtherReasonText("");
+                  }}
+                  className="w-full rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
+                >
+                  {s.cancelOrder}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -389,22 +480,84 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                 }}
                 className="inline-flex w-full items-center justify-center rounded-lg border border-[#22C55E]/40 bg-transparent text-[#22C55E] text-[11px] font-semibold py-1.5 px-2 active:scale-[0.99] transition-transform hover:bg-[#22C55E]/5"
               >
-                📞 Connect via AI-Bridge
+                {s.incoming_callBridge}
               </button>
-              {r.status !== "done" && r.status !== "fulfilled" && (
+              {r.status !== "done" && r.status !== "fulfilled" && r.status !== "cancelled" && (
                 <button
                   type="button"
                   disabled={markingId === r.id}
                   onClick={() => void markDone(r.id)}
                   className="w-full rounded-lg border border-[#22C55E]/50 bg-[#22C55E]/10 text-[#22C55E] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                 >
-                  {markingId === r.id ? "Saving…" : "✅ Mark Done"}
+                  {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
                 </button>
               )}
             </li>
           ))}
         </ul>
       )}
+
+      <Sheet open={cancelOrderId != null} onOpenChange={(open) => !open && closeCancelSheet()}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader className="text-left">
+            <SheetTitle>{s.cancelReason}</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {presetReasons.map((reason) => (
+              <button
+                key={reason}
+                type="button"
+                onClick={() => {
+                  setSelectedReason(reason);
+                  setOtherReasonText("");
+                }}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                  selectedReason === reason
+                    ? "border-destructive bg-destructive/10 text-destructive"
+                    : "border-border bg-muted/40 text-foreground",
+                )}
+              >
+                {reason}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setSelectedReason("Other")}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                selectedReason === "Other"
+                  ? "border-destructive bg-destructive/10 text-destructive"
+                  : "border-border bg-muted/40 text-foreground",
+              )}
+            >
+              {s.other}
+            </button>
+          </div>
+          {selectedReason === "Other" && (
+            <input
+              type="text"
+              value={otherReasonText}
+              onChange={(e) => setOtherReasonText(e.target.value.slice(0, 80))}
+              maxLength={80}
+              placeholder={s.cancelReasonPlaceholder}
+              className="mt-3 w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          )}
+          <button
+            type="button"
+            disabled={
+              cancelling ||
+              !selectedReason ||
+              (selectedReason === "Other" && !otherReasonText.trim())
+            }
+            onClick={() => void confirmCancelOrder()}
+            className="mt-4 w-full rounded-xl bg-destructive text-destructive-foreground py-3 font-semibold disabled:opacity-50"
+          >
+            {cancelling ? s.incoming_saving : s.confirmCancel}
+          </button>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

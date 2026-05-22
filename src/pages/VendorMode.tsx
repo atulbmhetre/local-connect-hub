@@ -14,6 +14,8 @@ import {
   isMobileCategory,
   distanceMeters,
   classifyCategory,
+  useCategoryLabel,
+  useServiceModeLabel,
 } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
@@ -35,6 +37,8 @@ import { VerificationBadge } from "@/components/VerificationBadge";
 import { IncomingOrdersSection } from "@/components/IncomingOrdersSection";
 import { cn } from "@/lib/utils";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
+import { useLanguage } from '@/lib/language';
+import { registerPushToken } from "../lib/pushNotifications";
 import {
   Sheet,
   SheetContent,
@@ -67,18 +71,19 @@ function looksLikeGibberish(s: string) {
 }
 
 const VendorPostRegistrationGuidance = ({ vendor }: { vendor: Vendor }) => {
+  const { s } = useLanguage();
   const hasPhoto =
     vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== "";
 
   if (!!vendor.is_manual_verified) {
     return (
       <div className="rounded-2xl border border-[#22C55E]/45 bg-[#22C55E]/10 p-4 text-sm">
-        <p className="font-semibold text-[#22C55E]">🟢 You are Verified!</p>
+        <p className="font-semibold text-[#22C55E]">🟢 {s.vendor_verified_title}</p>
         <p className="mt-2 text-muted-foreground leading-relaxed">
-          Your Green badge is live. Customers trust you more.
+          {s.vendor_verified_body}
         </p>
         <p className="mt-2 text-muted-foreground leading-relaxed">
-          Tap the power button to go Online.
+          {s.vendor_verified_cta}
         </p>
       </div>
     );
@@ -87,12 +92,9 @@ const VendorPostRegistrationGuidance = ({ vendor }: { vendor: Vendor }) => {
   if (hasPhoto && !vendor.is_manual_verified) {
     return (
       <div className="rounded-2xl border border-amber-500/45 bg-amber-500/10 p-4 text-sm">
-        <p className="font-semibold text-amber-100">📋 Verification Submitted</p>
+        <p className="font-semibold text-amber-100">📋 {s.vendor_submitted_title}</p>
         <p className="mt-2 text-muted-foreground leading-relaxed">
-          Our team will review your details within 24 hours.
-        </p>
-        <p className="mt-2 text-muted-foreground leading-relaxed">
-          Meanwhile — tap the power button to go Online!
+          {s.vendor_submitted_body}
         </p>
       </div>
     );
@@ -103,6 +105,9 @@ const VendorPostRegistrationGuidance = ({ vendor }: { vendor: Vendor }) => {
 
 const VendorMode = () => {
   const navigate = useNavigate();
+  const { s } = useLanguage();
+  const getLabel = useCategoryLabel();
+  const getMode = useServiceModeLabel();
   const [vendorId, setVendorId] = useState<string | null>(
     localStorage.getItem(STORAGE_KEY),
   );
@@ -141,6 +146,7 @@ const VendorMode = () => {
   const [lookupError, setLookupError] = useState<string | null>(null);
 
   const ordersRef = useRef<HTMLDivElement>(null);
+  const pushRegisteredVendorRef = useRef<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -203,10 +209,17 @@ const VendorMode = () => {
     };
   }, [vendorId, vendor?.is_active]);
 
+  useEffect(() => {
+    if (!vendorId || vendor?.id !== vendorId) return;
+    if (pushRegisteredVendorRef.current === vendorId) return;
+    pushRegisteredVendorRef.current = vendorId;
+    void registerPushToken(vendorId);
+  }, [vendorId, vendor?.id]);
+
   const detectLocation = (): Promise<{ lat: number; lng: number } | null> => {
     return new Promise((resolve) => {
       if (!("geolocation" in navigator)) {
-        toast.error("Geolocation not supported on this device.");
+        toast.error(s.vendor_geo_not_supported);
         resolve(null);
         return;
       }
@@ -216,12 +229,12 @@ const VendorMode = () => {
           const c = { lat: p.coords.latitude, lng: p.coords.longitude };
           setCoords(c);
           setLocating(false);
-          toast.success("Shop location captured");
+          toast.success(s.vendor_location_captured);
           resolve(c);
         },
         (err) => {
           setLocating(false);
-          toast.error("Couldn't get location", { description: err.message });
+          toast.error(s.vendor_location_failed, { description: err.message });
           resolve(null);
         },
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
@@ -319,38 +332,38 @@ const VendorMode = () => {
     e.preventDefault();
     // Surface the most useful error first.
     if (!nameOk) {
-      toast.error("That name doesn't look right", {
-        description: "Please enter your real name (letters only, no random keys).",
+      toast.error(s.vendor_name_invalid, {
+        description: s.vendor_name_invalid_body,
       });
       return;
     }
     if (!shopOk) {
-      toast.error("Shop name looks invalid", {
-        description: "Please enter a real shop name we can show to customers.",
+      toast.error(s.vendor_shopname_invalid, {
+        description: s.vendor_shopname_invalid_body,
       });
       return;
     }
     if (!categoryOk) {
-      toast.error("Specify your service", {
-        description: "When choosing 'Other', describe your service in plain words.",
+      toast.error(s.vendor_specify_service, {
+        description: s.vendor_specify_service_body,
       });
       return;
     }
     if (!serviceMode) {
-      toast.error("Choose how you serve customers", {
-        description: "Pick either visit & help or deliver & supply.",
+      toast.error(s.vendor_choose_service, {
+        description: s.vendor_choose_service_body,
       });
       return;
     }
     if (!phoneOk) {
-      toast.error("Invalid phone number", {
-        description: "Enter a valid 10-digit Indian mobile number.",
+      toast.error(s.vendor_phone_invalid, {
+        description: s.vendor_phone_invalid_body,
       });
       return;
     }
     if (!upiFmtOk) {
-      toast.error("Invalid UPI ID", {
-        description: "UPI must look like handle@bank (e.g. ramesh@okicici).",
+      toast.error(s.vendor_upi_invalid, {
+        description: s.vendor_upi_invalid_body,
       });
       return;
     }
@@ -389,8 +402,8 @@ const VendorMode = () => {
     notifyVendorIdChanged();
     setVendorId(data.id);
     setVendor(data as Vendor);
-    toast.success("Welcome aboard!", {
-      description: "Identity linked. Capture a live shop photo to upgrade to Verified.",
+    toast.success(s.vendor_welcome_title, {
+      description: s.vendor_welcome_body,
     });
   };
 
@@ -404,7 +417,7 @@ const VendorMode = () => {
           ? cleaned.slice(1)
           : cleaned;
     if (digits.length !== 10 || !/^[6-9]/.test(digits)) {
-      setLookupError("Please enter a valid 10-digit Indian mobile number.");
+      setLookupError(s.vendor_phone_invalid_body);
       return;
     }
     setLookupError(null);
@@ -428,9 +441,9 @@ const VendorMode = () => {
         setLookupPhone("");
         setAlreadyRegistered(false);
         setLookupError(null);
-        toast.success("Welcome back!");
+        toast.success(s.vendor_welcome_back);
       } else {
-        setLookupError("No vendor found with this number. Please register first.");
+        setLookupError(s.vendor_not_found);
       }
     } finally {
       setLookupLoading(false);
@@ -462,8 +475,8 @@ const VendorMode = () => {
         liveCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       } catch (e: any) {
         setVendor({ ...vendor, is_active: !next });
-        toast.error("Location required to go live", {
-          description: "Mobile services need a fresh GPS fix when going online.",
+        toast.error(s.vendor_location_required, {
+          description: s.vendor_location_required_body,
         });
         return;
       }
@@ -484,14 +497,14 @@ const VendorMode = () => {
       .eq("id", vendor.id);
     if (error) {
       setVendor({ ...vendor, is_active: !next });
-      toast.error("Couldn't update status", { description: error.message });
+      toast.error(s.vendor_status_failed, { description: error.message });
     } else {
-      toast(next ? "You're live ✨" : "You're offline", {
+      toast(next ? s.vendor_you_are_live : s.vendor_you_are_offline, {
         description: next
           ? liveCoords
-            ? "Live position updated. Customers nearby can now find you."
-            : "Customers nearby can now find you."
-          : "You won't receive new requests.",
+            ? s.vendor_live_body
+            : s.vendor_live_body_short
+          : s.vendor_offline_body,
       });
     }
   };
@@ -499,7 +512,7 @@ const VendorMode = () => {
   const verifyUpi = async () => {
     if (!vendor) return;
     if (!isValidUpi(vendor.upi_id)) {
-      toast.error("Invalid UPI format", { description: "Expected handle@bank" });
+      toast.error(s.vendor_upi_format_invalid, { description: s.vendor_upi_format_body });
       return;
     }
     setVerifyingUpi(true);
@@ -512,11 +525,11 @@ const VendorMode = () => {
       .eq("id", vendor.id);
     setVerifyingUpi(false);
     if (error) {
-      toast.error("Couldn't verify UPI", { description: error.message });
+      toast.error(s.vendor_upi_check_failed, { description: error.message });
       return;
     }
-    toast.success(`UPI verified · ${bank.toUpperCase()}`, {
-      description: "Bank handle looks valid.",
+    toast.success(`${s.vendor_upi_verified}${bank.toUpperCase()}`, {
+      description: s.vendor_upi_bank_valid,
     });
   };
 
@@ -526,8 +539,8 @@ const VendorMode = () => {
 
     // 1. GPS match check vs the recorded shop coords.
     if (vendor.latitude == null || vendor.longitude == null) {
-      toast.error("Set your shop location first", {
-        description: "Tap 'Update Shop Location' before capturing the photo.",
+      toast.error(s.vendor_set_location_first, {
+        description: s.vendor_set_location_first_body,
       });
       return;
     }
@@ -536,7 +549,7 @@ const VendorMode = () => {
       shot.coords,
     );
     if (meters > GPS_MATCH_TOLERANCE_M) {
-      toast.error("Location mismatch", {
+      toast.error(s.vendor_mismatch_title, {
         description: `Photo was taken ${Math.round(meters)} m from your shop. Must be within ${GPS_MATCH_TOLERANCE_M} m.`,
       });
       return;
@@ -551,7 +564,7 @@ const VendorMode = () => {
         upsert: true,
       });
     if (upErr) {
-      toast.error("Upload failed", { description: upErr.message });
+      toast.error(s.vendor_upload_failed, { description: upErr.message });
       return;
     }
     const { data: pub } = supabase.storage.from(SHOP_PHOTOS_BUCKET).getPublicUrl(path);
@@ -565,13 +578,13 @@ const VendorMode = () => {
       })
       .eq("id", vendor.id);
     if (updErr) {
-      toast.error("Couldn't save verification", { description: updErr.message });
+      toast.error(s.vendor_save_verification_failed, { description: updErr.message });
       return;
     }
-    toast.success("Shop photo verified", {
+    toast.success(s.vendor_photo_verified, {
       description: vendor.is_manual_verified
-        ? "Green badge live."
-        : "Awaiting final admin approval for the Green badge.",
+        ? s.vendor_green_badge_live
+        : s.vendor_awaiting_admin,
     });
   };
 
@@ -579,7 +592,7 @@ const VendorMode = () => {
     if (!vendor) return;
     if (vendor.verification_status === "business_verified") {
       const ok = window.confirm(
-        "Changing your location will require re-verification of your shop. Continue?",
+        s.vendor_location_reset_confirm,
       );
       if (!ok) return;
     }
@@ -607,13 +620,13 @@ const VendorMode = () => {
       .eq("id", vendor.id);
     setUpdatingLocation(false);
     if (error) {
-      toast.error("Couldn't update location", { description: error.message });
+      toast.error(s.vendor_location_update_failed, { description: error.message });
       return;
     }
-    toast(downgraded ? "Re-verification required" : "Location updated", {
+    toast(downgraded ? s.vendor_reverification_required : s.vendor_location_updated, {
       description: downgraded
-        ? "Capture a new live shop photo to regain Verified status."
-        : "Your shop coordinates have been saved.",
+        ? s.vendor_reverification_body
+        : s.vendor_location_updated_body,
     });
   };
 
@@ -630,11 +643,11 @@ const VendorMode = () => {
       .eq("id", vendor.id);
     setSavingNote(false);
     if (error) {
-      toast.error("Could not save note", { description: error.message });
+      toast.error(s.vendor_note_save_failed, { description: error.message });
       return;
     }
     setVendor({ ...vendor, vendor_note: editNote.trim() || null });
-    toast.success("Note saved!");
+    toast.success(s.vendor_note_saved);
   };
 
   return (
@@ -645,13 +658,13 @@ const VendorMode = () => {
             type="button"
             onClick={() => navigate("/")}
             className="h-10 w-10 shrink-0 grid place-items-center rounded-xl bg-card border border-border"
-            aria-label="Back to home"
+            aria-label={s.vendor_back_home}
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="min-w-0 flex-1">
-            <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Vendor Mode</p>
-            <h1 className="font-display text-3xl font-bold mt-1">Earn from your skills.</h1>
+            <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">{s.vendor_mode_title}</p>
+            <h1 className="font-display text-3xl font-bold mt-1">{s.vendor_tagline}</h1>
           </div>
         </div>
         {vendor != null && (
@@ -660,7 +673,7 @@ const VendorMode = () => {
               type="button"
               onClick={() => ordersRef.current?.scrollIntoView({ behavior: "smooth" })}
               className="h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
-              aria-label="View incoming orders"
+              aria-label={s.vendor_view_orders}
             >
               <Bell className="h-5 w-5" />
             </button>
@@ -683,10 +696,10 @@ const VendorMode = () => {
       {!vendorId && !alreadyRegistered && (
         <>
           <form onSubmit={register} className="space-y-3 animate-fade-up">
-          <Field label="Your Name" value={name} onChange={setName} placeholder="Ramesh Kumar" required />
-          <Field label="Shop Name" value={shopName} onChange={setShopName} placeholder="Ramesh Tyre Works" required />
+          <Field label={s.vendor_your_name} value={name} onChange={setName} placeholder={s.vendor_name_placeholder} required />
+          <Field label={s.vendor_shop_name} value={shopName} onChange={setShopName} placeholder={s.vendor_shop_placeholder} required />
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Category</label>
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{s.vendor_category_label}</label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
@@ -699,49 +712,49 @@ const VendorMode = () => {
             {isOther && (
               <div className="mt-3 animate-fade-up">
                 <Field
-                  label="Specify Your Service"
+                  label={s.vendor_specify_category}
                   value={customCategory}
                   onChange={setCustomCategory}
-                  placeholder="e.g. Carpenter, Tailor, Tiffin Service"
+                  placeholder={s.vendor_specify_placeholder}
                   required
                   error={
                     customCategory.length > 0 && !categoryOk
-                      ? "Please describe your service in plain words."
+                      ? s.vendor_specify_hint
                       : undefined
                   }
                 />
                 {classifyingCategory && (
                   <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Understanding your service...
+                    {s.vendor_understanding}
                   </p>
                 )}
                 {categorySuggestion && !confirmedCategory && categorySuggestion.canonical === null && (
                   <div className="mt-2 rounded-xl border border-amber-500/50 bg-amber-500/10 p-3">
                     <p className="text-sm text-amber-200 font-medium">
-                      {categorySuggestion.message ?? "Please choose a more specific category."}
+                      {categorySuggestion.message ?? s.vendor_more_specific}
                     </p>
                   </div>
                 )}
                 {categorySuggestion && !confirmedCategory && categorySuggestion.canonical != null && (
                   <div className="mt-2 rounded-xl border border-[#22C55E]/40 bg-[#22C55E]/10 p-3">
                     <p className="text-sm text-[#22C55E] font-medium">
-                      We think you mean: {categorySuggestion.canonical} {categorySuggestion.emoji} (
-                      {categorySuggestion.mode === "help" ? "Help service" : "Delivery service"})
-                      {categorySuggestion.is_government ? " · Government service" : ""}
+                      {s.vendor_we_think} {categorySuggestion.canonical} {categorySuggestion.emoji} (
+                      {categorySuggestion.mode === "help" ? s.vendor_help_service : s.vendor_delivery_service})
+                      {categorySuggestion.is_government ? ` ${s.vendor_govt_service}` : ""}
                     </p>
                     <button
                       type="button"
                       onClick={() => setConfirmedCategory(categorySuggestion.canonical!)}
                       className="mt-2 rounded-lg bg-[#22C55E] text-[#0b1f14] px-3 py-1.5 text-xs font-semibold"
                     >
-                      Confirm
+                      {s.vendor_confirm}
                     </button>
                   </div>
                 )}
                 {confirmedCategory && (
                   <p className="mt-2 text-xs text-[#22C55E] font-semibold">
-                    Confirmed category: {confirmedCategory}
+                    {s.vendor_confirmed_category} {confirmedCategory}
                   </p>
                 )}
               </div>
@@ -751,7 +764,7 @@ const VendorMode = () => {
           {(category !== "Other" || confirmedCategory) && (
             <div className="space-y-3 pt-1">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                How do you serve your customers?
+                {s.vendor_how_serve}
               </label>
               <div className="grid grid-cols-3 gap-2">
                 <button
@@ -765,10 +778,10 @@ const VendorMode = () => {
                   )}
                 >
                   <p className="text-base font-display font-bold text-foreground leading-tight">
-                    🤝 I visit & help
+                    {s.vendor_mode_visit}
                   </p>
                   <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
-                    Mechanic, Plumber etc
+                    {s.vendor_mode_visit_eg}
                   </p>
                 </button>
                 <button
@@ -782,10 +795,10 @@ const VendorMode = () => {
                   )}
                 >
                   <p className="text-base font-display font-bold text-foreground leading-tight">
-                    📦 I deliver & supply
+                    {s.vendor_mode_deliver}
                   </p>
                   <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
-                    Kirana, Pharmacy etc
+                    {s.vendor_mode_deliver_eg}
                   </p>
                 </button>
                 <button
@@ -799,10 +812,10 @@ const VendorMode = () => {
                   )}
                 >
                   <p className="text-base font-display font-bold text-foreground leading-tight">
-                    📅 I take bookings
+                    {s.vendor_mode_booking}
                   </p>
                   <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
-                    Beautician, Tailor etc
+                    {s.vendor_mode_booking_eg}
                   </p>
                 </button>
               </div>
@@ -810,31 +823,31 @@ const VendorMode = () => {
           )}
 
           <Field
-            label="Phone (required)"
+            label={s.vendor_phone_label}
             value={phone}
             onChange={setPhone}
-            placeholder="+91 98xxxxxxxx"
+            placeholder={s.vendor_phone_placeholder}
             required
-            error={phone.length > 0 && !phoneOk ? "Enter a valid 10-digit Indian mobile number." : undefined}
+            error={phone.length > 0 && !phoneOk ? s.vendor_phone_hint : undefined}
           />
           <Field
-            label="UPI ID"
+            label={s.vendor_upi_label}
             value={upi}
             onChange={setUpi}
-            placeholder="name@okbank"
+            placeholder={s.vendor_upi_placeholder}
             required
-            error={upi.length > 0 && !upiFmtOk ? "UPI must look like handle@bank." : undefined}
+            error={upi.length > 0 && !upiFmtOk ? s.vendor_upi_hint : undefined}
           />
 
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Note for customers (optional)
+              {s.vendor_note_label}
             </label>
             <textarea
               value={vendorNote}
               onChange={(e) => setVendorNote(e.target.value.slice(0, 100))}
               rows={2}
-              placeholder="e.g. Delivery every evening 6–8pm. Home visits on weekdays only."
+              placeholder={s.vendor_note_placeholder}
               className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
             />
             <p className="text-[10px] text-muted-foreground text-right mt-0.5">
@@ -843,8 +856,7 @@ const VendorMode = () => {
           </div>
 
           <p className="text-[11px] text-amber-400/90 text-center px-2">
-            ⚠️ Please capture your location from your shop, not from home. This helps customers find you
-            accurately.
+            ⚠️ {s.vendor_gps_warning}
           </p>
 
           <button
@@ -856,8 +868,8 @@ const VendorMode = () => {
           >
             {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
             {coords
-              ? `Location set (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`
-              : "📍 Capture Shop Location"}
+              ? `${s.vendor_location_set} (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`
+              : s.vendor_capture_location}
           </button>
 
           <button
@@ -865,11 +877,11 @@ const VendorMode = () => {
             className="w-full mt-2 rounded-2xl bg-gradient-vendor text-secondary-foreground py-4 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-            Register me
+            {s.vendor_register_btn}
           </button>
           {!phoneOk && (
             <p className="text-xs text-muted-foreground text-center">
-              Registration unlocks once a valid phone number is entered.
+              {s.vendor_register_hint}
             </p>
           )}
           </form>
@@ -879,7 +891,7 @@ const VendorMode = () => {
               <span className="w-full border-t border-border" />
             </div>
             <div className="relative flex justify-center text-xs uppercase tracking-wider">
-              <span className="bg-background px-3 text-muted-foreground">or</span>
+              <span className="bg-background px-3 text-muted-foreground">{s.vendor_or}</span>
             </div>
           </div>
 
@@ -891,7 +903,7 @@ const VendorMode = () => {
             }}
             className="w-full text-center text-sm font-semibold text-[#22C55E] hover:underline py-2 animate-fade-up"
           >
-            Already registered? Find my account
+            {s.vendor_already_registered}
           </button>
         </>
       )}
@@ -899,9 +911,9 @@ const VendorMode = () => {
       {!vendorId && alreadyRegistered && (
         <form onSubmit={lookupVendorByPhone} className="space-y-4 animate-fade-up">
           <div>
-            <h2 className="font-display text-xl font-bold text-foreground">Find your vendor account</h2>
+            <h2 className="font-display text-xl font-bold text-foreground">{s.vendor_find_account_title}</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Enter the phone number you registered with
+              {s.vendor_find_account_hint}
             </p>
           </div>
 
@@ -934,7 +946,7 @@ const VendorMode = () => {
             className="w-full rounded-2xl bg-gradient-vendor text-secondary-foreground py-3.5 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {lookupLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
-            Find My Account
+            {s.vendor_find_btn}
           </button>
 
           <button
@@ -946,7 +958,7 @@ const VendorMode = () => {
             }}
             className="w-full text-center text-sm text-muted-foreground hover:text-foreground py-2"
           >
-            ← Back to registration
+            {s.vendor_back_to_reg}
           </button>
         </form>
       )}
@@ -966,7 +978,7 @@ const VendorMode = () => {
                 vendor.is_active ? "text-[#22C55E]" : "text-[#888]"
               }`}
             >
-              {vendor.is_active ? "Ready to Help" : "Offline"}
+              {vendor.is_active ? s.vendor_ready : s.vendor_offline_label}
             </p>
 
             <button
@@ -985,17 +997,17 @@ const VendorMode = () => {
             </button>
 
             {vendor.is_active ? (
-              <p className="mt-3 text-[11px] font-normal text-[#555]">Tap to go offline</p>
+              <p className="mt-3 text-[11px] font-normal text-[#555]">{s.vendor_tap_offline}</p>
             ) : (
               <>
-                <p className="mt-3 text-[13px] font-medium text-[#22C55E]">Tap to Go Online</p>
-                <p className="mt-1 text-[11px] text-[#666]">Customers nearby are waiting!</p>
+                <p className="mt-3 text-[13px] font-medium text-[#22C55E]">{s.vendor_tap_online}</p>
+                <p className="mt-1 text-[11px] text-[#666]">{s.vendor_customers_waiting}</p>
               </>
             )}
             {isMobileCategory(vendor.category) && (
               <p className="mt-2 text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1">
                 <Truck className="h-3 w-3 text-secondary" />
-                Mobile service · GPS refreshes each time you go live.
+                {s.vendor_mobile_gps}
               </p>
             )}
 
@@ -1031,10 +1043,10 @@ const VendorMode = () => {
             />
             <span className="flex-1 min-w-0 text-sm font-semibold text-foreground">
               {!!vendor.is_manual_verified
-                ? "Verified Professional"
+                ? s.vendor_verified_pro
                 : vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== ""
-                  ? "Verification Pending"
-                  : "Complete your verification"}
+                  ? s.vendor_pending_label
+                  : s.vendor_complete_verification}
             </span>
             <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
           </button>
@@ -1045,13 +1057,13 @@ const VendorMode = () => {
               className="bg-background border-t border-border rounded-t-2xl max-h-[90vh] overflow-y-auto [&>button]:hidden"
             >
               <div className="flex items-center justify-between border-b border-border pb-3 mb-4 -mt-1">
-                <span className="text-sm font-semibold text-foreground">Verification & shop</span>
+                <span className="text-sm font-semibold text-foreground">{s.vendor_verification_shop}</span>
                 <button
                   type="button"
                   onClick={() => setVerificationSheetOpen(false)}
                   className="text-sm font-semibold text-muted-foreground hover:text-foreground"
                 >
-                  ✕ Close
+                  {s.vendor_close}
                 </button>
               </div>
 
@@ -1059,19 +1071,19 @@ const VendorMode = () => {
               <div className="rounded-2xl bg-card border border-border shadow-card p-5 space-y-4">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-5 w-5 text-secondary" />
-                  <h2 className="font-display font-bold">Verification</h2>
+                  <h2 className="font-display font-bold">{s.vendor_verification_heading}</h2>
                 </div>
 
                 <Step
                   done={isValidPhone(vendor.phone ?? "")}
-                  title="Phone on file"
-                  sub={vendor.phone || "Not provided"}
+                  title={s.vendor_phone_on_file}
+                  sub={vendor.phone || s.vendor_not_provided}
                 />
 
                 <div className="flex items-start justify-between gap-3">
                   <Step
                     done={vendor.upi_verified}
-                    title="UPI bank-match"
+                    title={s.vendor_upi_bank_match}
                     sub={vendor.upi_id}
                   />
                   {!vendor.upi_verified && (
@@ -1080,7 +1092,7 @@ const VendorMode = () => {
                       disabled={verifyingUpi}
                       className="text-xs font-semibold rounded-lg bg-primary text-primary-foreground px-3 py-2 disabled:opacity-60 shrink-0"
                     >
-                      {verifyingUpi ? "Checking…" : "Verify UPI"}
+                      {verifyingUpi ? s.vendor_checking : s.vendor_verify_upi_btn}
                     </button>
                   )}
                 </div>
@@ -1088,11 +1100,11 @@ const VendorMode = () => {
                 <div className="flex items-start justify-between gap-3">
                   <Step
                     done={!!vendor.shop_photo_url}
-                    title="Live shop photo + GPS match"
+                    title={s.vendor_photo_gps}
                     sub={
                       vendor.shop_photo_url
-                        ? "Captured & GPS verified"
-                        : "Live camera only · within 75 m of shop"
+                        ? s.vendor_photo_captured
+                        : s.vendor_photo_hint
                     }
                   />
                   <button
@@ -1100,21 +1112,20 @@ const VendorMode = () => {
                     className="text-xs font-semibold rounded-lg bg-foreground text-background px-3 py-2 shrink-0 inline-flex items-center gap-1"
                   >
                     <Camera className="h-3.5 w-3.5" />
-                    {vendor.shop_photo_url ? "Re-shoot" : "Capture"}
+                    {vendor.shop_photo_url ? s.vendor_reshoot : s.vendor_capture}
                   </button>
                 </div>
 
                 {vendor.shop_photo_url && (
                   <img
                     src={vendor.shop_photo_url}
-                    alt="Captured shop"
+                    alt={s.vendor_captured_shop}
                     className="w-full rounded-xl border border-border"
                   />
                 )}
 
                 <div className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">
-                  The Green “Business Verified” badge glows only after admin
-                  approval ({vendor.is_manual_verified ? "✅ approved" : "pending"}).
+                  {s.vendor_badge_approval} ({vendor.is_manual_verified ? s.vendor_approved : s.vendor_approval_pending}).
                 </div>
               </div>
 
@@ -1124,7 +1135,7 @@ const VendorMode = () => {
               <div className="rounded-2xl bg-muted/60 p-4 text-sm space-y-2 mt-4">
                 <div>
                   <p className="font-semibold">{vendor.shop_name}</p>
-                  <p className="text-muted-foreground">{vendor.name} · {vendor.category}</p>
+                  <p className="text-muted-foreground">{vendor.name} · {getLabel(vendor.category)}</p>
                   <p className="text-muted-foreground text-xs">📞 {vendor.phone}</p>
                   <p className="text-muted-foreground text-xs">UPI: {vendor.upi_id}</p>
                   {vendor.latitude != null && vendor.longitude != null && (
@@ -1143,25 +1154,25 @@ const VendorMode = () => {
                   ) : (
                     <MapPin className="h-4 w-4" />
                   )}
-                  Update Shop Location
+                  {s.vendor_update_location}
                 </button>
                 {vendor.verification_status === "business_verified" && (
                   <p className="text-[11px] text-muted-foreground inline-flex items-start gap-1">
                     <AlertTriangle className="h-3 w-3 text-accent mt-0.5 shrink-0" />
-                    Moving location will reset your Verified status.
+                    {s.vendor_location_reset_warning}
                   </p>
                 )}
               </div>
 
               <div className="space-y-1 mt-4">
                 <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Note for customers
+                  {s.vendor_note_customers}
                 </label>
                 <textarea
                   value={editNote}
                   onChange={(e) => setEditNote(e.target.value.slice(0, 100))}
                   rows={2}
-                  placeholder="e.g. Delivery every evening 6–8pm"
+                  placeholder={s.vendor_note_edit_placeholder}
                   className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                 />
                 <div className="flex items-center justify-between">
@@ -1172,7 +1183,7 @@ const VendorMode = () => {
                     disabled={savingNote}
                     className="text-xs font-semibold text-[#22C55E] hover:underline disabled:opacity-50"
                   >
-                    {savingNote ? "Saving…" : "Save Note"}
+                    {savingNote ? s.vendor_saving : s.vendor_save_note}
                   </button>
                 </div>
               </div>
@@ -1199,36 +1210,46 @@ const Field = ({
   placeholder?: string;
   required?: boolean;
   error?: string;
-}) => (
-  <div>
-    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      required={required}
-      className={`mt-1 w-full bg-card border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 ${
-        error ? "border-destructive focus:ring-destructive" : "border-border focus:ring-primary"
-      }`}
-    />
-    {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
-  </div>
-);
+}) => {
+  const { s } = useLanguage();
+  void s;
 
-const Step = ({ done, title, sub }: { done: boolean; title: string; sub: string }) => (
-  <div className="flex-1 flex items-start gap-3">
-    <span
-      className={`mt-0.5 h-5 w-5 rounded-full grid place-items-center shrink-0 ${
-        done ? "bg-secondary text-secondary-foreground" : "bg-muted text-muted-foreground"
-      }`}
-    >
-      {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
-    </span>
-    <div className="min-w-0">
-      <p className="text-sm font-semibold">{title}</p>
-      <p className="text-xs text-muted-foreground truncate">{sub}</p>
+  return (
+    <div>
+      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        required={required}
+        className={`mt-1 w-full bg-card border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 ${
+          error ? "border-destructive focus:ring-destructive" : "border-border focus:ring-primary"
+        }`}
+      />
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </div>
-  </div>
-);
+  );
+};
+
+const Step = ({ done, title, sub }: { done: boolean; title: string; sub: string }) => {
+  const { s } = useLanguage();
+  void s;
+
+  return (
+    <div className="flex-1 flex items-start gap-3">
+      <span
+        className={`mt-0.5 h-5 w-5 rounded-full grid place-items-center shrink-0 ${
+          done ? "bg-secondary text-secondary-foreground" : "bg-muted text-muted-foreground"
+        }`}
+      >
+        {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+      </span>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="text-xs text-muted-foreground truncate">{sub}</p>
+      </div>
+    </div>
+  );
+};
 
 export default VendorMode;

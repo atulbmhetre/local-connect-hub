@@ -1,11 +1,12 @@
 import { Phone, Store, MapPin, AlertTriangle } from "lucide-react";
-import type { Vendor } from "@/lib/supabase";
+import { useCategoryLabel, type Vendor } from "@/lib/supabase";
 import { toast } from "sonner";
 import { VerificationBadge, vendorTier } from "@/components/VerificationBadge";
 
 type Props = { vendor: Vendor; distanceKm?: number | null };
 
 export const VendorCard = ({ vendor, distanceKm }: Props) => {
+  const getLabel = useCategoryLabel();
   const tier = vendorTier(vendor);
   const handleCall = () => {
     toast("AI-Bridge Call", {
@@ -33,7 +34,7 @@ export const VendorCard = ({ vendor, distanceKm }: Props) => {
             <VerificationBadge vendor={vendor} />
           </div>
           <p className="text-sm text-muted-foreground truncate">
-            {vendor.name} · {vendor.category}
+            {vendor.name} · {getLabel(vendor.category)}
           </p>
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
             <span>UPI: {vendor.upi_id}</span>

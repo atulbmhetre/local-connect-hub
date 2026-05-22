@@ -1,4 +1,4 @@
-export type RequestStatus = "sent" | "seen" | "fulfilled" | "done";
+export type RequestStatus = "sent" | "seen" | "fulfilled" | "done" | "cancelled";
 
 export type OrderRequestRow = {
   id: string;
@@ -8,6 +8,10 @@ export type OrderRequestRow = {
   status: string;
   created_at: string;
   user_phone: string | null;
+  cancel_reason?: string | null;
+  delivery_address?: string | null;
+  appointment_time?: string | null;
+  appointment_status?: string | null;
 };
 
 export const ACTIVE_ORDER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -22,7 +26,7 @@ export function buildRequestsActiveWindowOrFilter(
 ): string {
   const since48h = new Date(nowMs - 48 * 60 * 60 * 1000).toISOString();
   const since24h = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
-  const base = `and(status.eq.sent,created_at.gte."${since48h}"),and(status.eq.seen,created_at.gte."${since24h}")`;
+  const base = `and(status.eq.sent,created_at.gte."${since48h}"),and(status.eq.seen,created_at.gte."${since24h}"),and(status.eq.cancelled,created_at.gte."${since48h}")`;
   if (role === "user") return `${base},status.eq.fulfilled`;
   return base;
 }

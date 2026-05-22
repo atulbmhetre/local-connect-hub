@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
-import { supabase } from "@/lib/supabase";
+import { supabase, invokeNotifyVendor } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { RatingSheet } from "@/components/RatingSheet";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { useLanguage } from "@/lib/language";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
+
+const MAX_LEN = 200;
 
 type RowWithShop = OrderRequestRow & {
   vendors: { shop_name: string; service_mode: string | null } | null;
@@ -20,14 +30,15 @@ function orderCreatedWithinLast24h(created_at: string): boolean {
   return Number.isFinite(t) && Date.now() - t < MS_24H;
 }
 
-const userStatusLabel = (r: Pick<OrderRequestRow, "status" | "created_at">) => {
-  if (r.status === "sent") return "📤 Sent";
+const userStatusLabel = (r: Pick<OrderRequestRow, "status" | "created_at">, s: ReturnType<typeof useLanguage>["s"]) => {
+  if (r.status === "sent") return s.myOrders_statusSent;
   if (r.status === "seen") {
     return orderCreatedWithinLast24h(r.created_at)
-      ? "👀 Vendor saw your order"
-      : "⚠️ No response yet";
+      ? s.myOrders_statusSeen
+      : s.myOrders_statusNoResponse;
   }
-  if (r.status === "fulfilled") return "✅ Vendor fulfilled your order";
+  if (r.status === "fulfilled") return s.myOrders_statusFulfilled;
+  if (r.status === "cancelled") return s.myOrders_cancelledByVendor;
   return r.status;
 };
 
@@ -54,8 +65,26 @@ function stripDeliverySlot(message: string): string {
   return message.replace(/\s*\[Deliver:[^\]]+\]/g, "").trim();
 }
 
+function extractLocationTag(message: string): string {
+  const m = message.match(/\s*(\[Come to my place\]|\[I'll visit your shop\]|\[Location TBD\])/);
+  return m ? m[1] : "";
+}
+
+function extractDeliverySlotTag(message: string): string {
+  const m = message.match(/\s*(\[Deliver:[^\]]+\])/);
+  return m ? m[1] : "";
+}
+
+function buildMessageWithTags(base: string, original: string): string {
+  const loc = extractLocationTag(original);
+  const del = extractDeliverySlotTag(original);
+  const suffix = `${loc ? ` ${loc}` : ""}${del ? ` ${del}` : ""}`;
+  return base.slice(0, MAX_LEN) + suffix;
+}
+
 const MyOrders = () => {
   const navigate = useNavigate();
+  const { s } = useLanguage();
   const [rows, setRows] = useState<RowWithShop[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
@@ -69,6 +98,9 @@ const MyOrders = () => {
   const [calledVendor, setCalledVendor] = useState<Record<string, boolean>>({});
   const [showCancelConfirm, setShowCancelConfirm] = useState<Record<string, boolean>>({});
   const [showOrderCancelConfirm, setShowOrderCancelConfirm] = useState<Record<string, boolean>>({});
+  const [editOrder, setEditOrder] = useState<RowWithShop | null>(null);
+  const [editMessage, setEditMessage] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   const mounted = useRef(true);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
@@ -78,7 +110,7 @@ const MyOrders = () => {
     let listQuery = supabase
       .from("requests")
       .select(
-        "id, device_id, vendor_id, message, status, created_at, user_phone, appointment_time, appointment_status, vendors(shop_name, service_mode)",
+        "id, device_id, vendor_id, message, status, created_at, user_phone, appointment_time, appointment_status, cancel_reason, vendors(shop_name, service_mode)",
       )
       .neq("status", "done")
       .order("created_at", { ascending: false });
@@ -148,7 +180,7 @@ const MyOrders = () => {
     const { error } = await updateQuery;
     setMarkingId(null);
     if (error) {
-      toast.error("Could not update", { description: error.message });
+      toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
       return;
     }
     setRows((prev) => prev.filter((r) => r.id !== id));
@@ -164,18 +196,68 @@ const MyOrders = () => {
       .update({ status: "done", appointment_status: "cancelled" })
       .eq("id", id);
     if (error) {
-      toast.error("Could not cancel", { description: error.message });
+      toast.error(s.myOrders_errCouldNotCancel, { description: error.message });
       return;
     }
-    toast.success("Booking cancelled.");
+    toast.success(s.myOrders_bookingCancelled);
     setRows((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const openEditSheet = (r: RowWithShop) => {
+    setEditOrder(r);
+    setEditMessage(stripDeliverySlot(stripLocationTag(r.message)));
+  };
+
+  const closeEditSheet = () => {
+    setEditOrder(null);
+    setEditMessage("");
+  };
+
+  const saveOrderEdit = async () => {
+    if (!editOrder) return;
+    const trimmed = editMessage.trim();
+    if (!trimmed) return;
+    const originalStripped = stripDeliverySlot(stripLocationTag(editOrder.message));
+    if (trimmed === originalStripped) return;
+
+    const newMessage = buildMessageWithTags(trimmed, editOrder.message);
+    const wasSeen = editOrder.status === "seen";
+
+    setSavingEdit(true);
+    const device_id = getDeviceId();
+    const userPhone = getUserPhone();
+    let updateQuery = supabase.from("requests").update({ message: newMessage }).eq("id", editOrder.id);
+    updateQuery =
+      userPhone != null ? updateQuery.eq("user_phone", userPhone) : updateQuery.eq("device_id", device_id);
+    const { error } = await updateQuery;
+    setSavingEdit(false);
+
+    if (error) {
+      toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
+      return;
+    }
+
+    setRows((prev) =>
+      prev.map((r) => (r.id === editOrder.id ? { ...r, message: newMessage } : r)),
+    );
+
+    if (wasSeen) {
+      void invokeNotifyVendor({
+        vendor_id: editOrder.vendor_id,
+        message: stripDeliverySlot(stripLocationTag(newMessage)),
+        notification_title: "Order updated by user",
+      });
+    }
+
+    toast.success(s.orderUpdated);
+    closeEditSheet();
   };
 
   const handleFulfilledDismiss = (r: RowWithShop) => {
     setPendingDismissId(r.id);
     setRatingVendor({
       vendorId: r.vendor_id,
-      shopName: r.vendors?.shop_name ?? "Shop",
+      shopName: r.vendors?.shop_name ?? s.myOrders_shopFallback,
       serviceMode: r.vendors?.service_mode ?? "delivery",
     });
     setRatingSheetOpen(true);
@@ -188,13 +270,13 @@ const MyOrders = () => {
           type="button"
           onClick={() => navigate("/")}
           className="h-10 w-10 shrink-0 grid place-items-center rounded-xl bg-card border border-border"
-          aria-label="Back to home"
+          aria-label={s.myOrders_backToHome}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Aaspaas Pro</p>
-          <h1 className="font-display text-2xl font-bold mt-1">My orders</h1>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">{s.myOrders_appName}</p>
+          <h1 className="font-display text-2xl font-bold mt-1">{s.myOrders_heading}</h1>
         </div>
       </header>
 
@@ -205,16 +287,16 @@ const MyOrders = () => {
       ) : rows.length === 0 ? (
         <div className="rounded-2xl border border-border bg-card p-6 text-center space-y-4">
           <p className="text-sm text-muted-foreground leading-relaxed">
-            No active orders.
+            {s.myOrders_noOrders}
             <br />
-            Search for a vendor to send your first order!
+            {s.myOrders_noOrdersHint}
           </p>
           <button
             type="button"
             onClick={() => navigate("/")}
             className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
           >
-            Find Vendors →
+            {s.myOrders_findVendors}
           </button>
         </div>
       ) : (
@@ -222,26 +304,56 @@ const MyOrders = () => {
           {rows.map((r) => (
             <li
               key={r.id}
-              className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-4 space-y-2"
+              className={cn(
+                "rounded-2xl border p-4 space-y-2",
+                r.status === "cancelled"
+                  ? "border-destructive/50 bg-destructive/5"
+                  : "border-[#2a2a2a] bg-[#141414]",
+              )}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="font-semibold text-foreground truncate min-w-0">
-                  {r.vendors?.shop_name ?? "Shop"}
+                  {r.vendors?.shop_name ?? s.myOrders_shopFallback}
                 </p>
-                <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
-                  {formatTimeAgo(r.created_at)}
-                </span>
+                <div className="flex items-center gap-1 shrink-0">
+                  {(r.status === "sent" || r.status === "seen") && (
+                    <button
+                      type="button"
+                      onClick={() => openEditSheet(r)}
+                      className="h-8 w-8 grid place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
+                      aria-label={s.editOrder}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  )}
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    {formatTimeAgo(r.created_at)}
+                  </span>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">{userStatusLabel(r)}</p>
+              {r.status === "cancelled" ? (
+                <span className="inline-flex rounded-full bg-destructive/15 text-destructive text-[11px] font-semibold px-2.5 py-1 border border-destructive/40">
+                  {s.myOrders_cancelledByVendor}
+                </span>
+              ) : (
+                <p className="text-xs text-muted-foreground">{userStatusLabel(r, s)}</p>
+              )}
               <p className="text-sm text-foreground/90 leading-snug whitespace-pre-wrap break-words">
                 {stripDeliverySlot(stripLocationTag(r.message))}
               </p>
+              {r.status === "cancelled" && (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5">
+                  <p className="text-sm font-semibold text-foreground leading-snug">
+                    {r.cancel_reason?.trim() || s.myOrders_vendorCancelledDefault}
+                  </p>
+                </div>
+              )}
               {(() => {
                 const slot = extractDeliverySlot((r as any).message ?? "");
                 if (!slot) return null;
                 return (
                   <div className="mt-1 rounded-lg border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px]">
-                    🕐 <span className="text-[#22C55E] font-semibold">{slot}</span>
+                    {s.myOrders_deliverySlotPrefix}<span className="text-[#22C55E] font-semibold">{slot}</span>
                   </div>
                 );
               })()}
@@ -266,15 +378,15 @@ const MyOrders = () => {
                       ? "text-purple-400"
                       : "text-gray-400";
                   const locationLabel = isHome
-                    ? "🏠 They'll come to you"
+                    ? s.myOrders_locationComeToYou
                     : isShop
-                      ? "🏪 You'll visit their shop"
-                      : "📞 Location TBD";
+                      ? s.myOrders_locationVisitShop
+                      : s.myOrders_locationTbd;
                   return (
                     <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] space-y-0.5 ${borderColor}`}>
                       <div className={`font-semibold ${labelColor}`}>{locationLabel}</div>
                       <div>
-                        📅 Around{" "}
+                        {s.myOrders_apptAround}
                         <span className={`font-semibold ${timeColor}`}>
                           {new Date((r as any).appointment_time).toLocaleString("en-IN", {
                             weekday: "short",
@@ -285,10 +397,10 @@ const MyOrders = () => {
                           })}
                         </span>
                         <span className="ml-2 text-muted-foreground">
-                          {(r as any).appointment_status === "confirmed" && "· ✅ Vendor confirmed"}
-                          {(r as any).appointment_status === "declined" && "· ❌ Vendor declined"}
-                          {(r as any).appointment_status === "cancelled" && "· ❌ Vendor cancelled"}
-                          {(r as any).appointment_status === "pending" && "· ⏳ Awaiting confirmation"}
+                          {(r as any).appointment_status === "confirmed" && s.myOrders_apptConfirmed}
+                          {(r as any).appointment_status === "declined" && s.myOrders_apptDeclined}
+                          {(r as any).appointment_status === "cancelled" && s.myOrders_apptCancelled}
+                          {(r as any).appointment_status === "pending" && s.myOrders_apptAwaiting}
                         </span>
                       </div>
                     </div>
@@ -309,7 +421,7 @@ const MyOrders = () => {
                         onClick={() => void cancelAppointment(r.id)}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                       >
-                        🗑 Dismiss
+                        {s.myOrders_dismiss}
                       </button>
                     );
                   }
@@ -328,7 +440,7 @@ const MyOrders = () => {
                         onClick={() => setShowCancelConfirm((p) => ({ ...p, [r.id]: true }))}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                       >
-                        Cancel Booking
+                        {s.myOrders_cancelBooking}
                       </button>
                     );
                   }
@@ -337,7 +449,7 @@ const MyOrders = () => {
                     return (
                       <div className="space-y-2">
                         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400 text-center">
-                          ⚠️ Same-day changes require a call to the vendor first
+                          {s.myOrders_sameDayWarning}
                         </div>
                         <button
                           type="button"
@@ -347,7 +459,7 @@ const MyOrders = () => {
                           }}
                           className="w-full rounded-lg border border-[#22C55E]/40 text-[#22C55E] text-xs font-semibold py-2"
                         >
-                          📞 Connect via AI-Bridge to Cancel
+                          {s.myOrders_callThenCancel}
                         </button>
                       </div>
                     );
@@ -356,14 +468,14 @@ const MyOrders = () => {
                   return (
                     <div className="space-y-2">
                       <p className="text-[11px] text-gray-400 text-center">
-                        ✅ Call done — you may now cancel your booking
+                        {s.myOrders_callDone}
                       </p>
                       <button
                         type="button"
                         onClick={() => void cancelAppointment(r.id)}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                       >
-                        Cancel Booking
+                        {s.myOrders_cancelBooking}
                       </button>
                     </div>
                   );
@@ -372,7 +484,7 @@ const MyOrders = () => {
               {showCancelConfirm[r.id] && (
                 <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
                   <p className="text-xs text-destructive font-semibold text-center">
-                    Are you sure you want to cancel?
+                    {s.myOrders_confirmCancelQ}
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -380,20 +492,30 @@ const MyOrders = () => {
                       onClick={() => void cancelAppointment(r.id)}
                       className="rounded-lg bg-destructive text-white text-xs font-semibold py-2"
                     >
-                      Yes, Cancel
+                      {s.myOrders_yesCancel}
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowCancelConfirm((p) => ({ ...p, [r.id]: false }))}
                       className="rounded-lg border border-border text-xs font-semibold py-2"
                     >
-                      Keep it
+                      {s.myOrders_keepIt}
                     </button>
                   </div>
                 </div>
               )}
 
               <div className="flex flex-col gap-1.5">
+                {r.status === "cancelled" ? (
+                  <button
+                    type="button"
+                    disabled={markingId === r.id}
+                    onClick={() => void markDone(r.id)}
+                    className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
+                  </button>
+                ) : null}
                 {r.status === "fulfilled" ? (
                   <button
                     type="button"
@@ -401,10 +523,11 @@ const MyOrders = () => {
                     onClick={() => handleFulfilledDismiss(r)}
                     className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50 shadow-[0_0_14px_rgba(34,197,94,0.35)]"
                   >
-                    {markingId === r.id ? "Saving…" : "✅ Delivered! Tap to dismiss"}
+                    {markingId === r.id ? s.myOrders_saving : s.myOrders_delivered}
                   </button>
                 ) : null}
-                {!(r as any).appointment_time &&
+                {r.status !== "cancelled" &&
+                  !(r as any).appointment_time &&
                   (canShowRemoveOrder(r) ? (
                     !showOrderCancelConfirm[r.id] ? (
                       <button
@@ -413,12 +536,12 @@ const MyOrders = () => {
                         onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: true }))}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                       >
-                        Cancel Order
+                        {s.myOrders_cancelOrder}
                       </button>
                     ) : (
                       <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
                         <p className="text-xs text-destructive font-semibold text-center">
-                          Are you sure you want to cancel this order?
+                          {s.myOrders_confirmCancelOrderQ}
                         </p>
                         <div className="grid grid-cols-2 gap-2">
                           <button
@@ -427,21 +550,21 @@ const MyOrders = () => {
                             onClick={() => void handleRemoveOrder(r.id)}
                             className="rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
                           >
-                            Yes, Cancel
+                            {s.myOrders_yesCancel}
                           </button>
                           <button
                             type="button"
                             onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: false }))}
                             className="rounded-lg border border-border text-xs font-semibold py-2"
                           >
-                            Keep it
+                            {s.myOrders_keepIt}
                           </button>
                         </div>
                       </div>
                     )
                   ) : r.status === "seen" && orderCreatedWithinLast24h(r.created_at) ? (
                     <p className="text-[11px] text-muted-foreground text-center px-1">
-                      🔒 Cannot cancel — vendor is already on it
+                      {s.myOrders_cannotCancel}
                     </p>
                   ) : null)}
               </div>
@@ -449,6 +572,44 @@ const MyOrders = () => {
           ))}
         </ul>
       )}
+
+      <Sheet open={editOrder != null} onOpenChange={(open) => !open && closeEditSheet()}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader className="text-left">
+            <SheetTitle>{s.editOrder}</SheetTitle>
+          </SheetHeader>
+          {editOrder?.status === "seen" && (
+            <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400">
+              {s.vendorSeenWarning}
+            </p>
+          )}
+          <textarea
+            value={editMessage}
+            onChange={(e) => setEditMessage(e.target.value.slice(0, MAX_LEN))}
+            rows={4}
+            className="mt-3 w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+            placeholder="Your order message"
+          />
+          <p className="text-[10px] text-muted-foreground text-right mt-1">
+            {editMessage.length}/{MAX_LEN}
+          </p>
+          <button
+            type="button"
+            disabled={
+              savingEdit ||
+              !editMessage.trim() ||
+              !editOrder ||
+              editMessage.trim() === stripDeliverySlot(stripLocationTag(editOrder.message))
+            }
+            onClick={() => void saveOrderEdit()}
+            className={cn(
+              "mt-4 w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3 font-semibold disabled:opacity-50",
+            )}
+          >
+            {savingEdit ? s.myOrders_saving : s.saveChanges}
+          </button>
+        </SheetContent>
+      </Sheet>
 
       <RatingSheet
         isOpen={ratingSheetOpen}

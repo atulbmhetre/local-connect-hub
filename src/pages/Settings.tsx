@@ -9,6 +9,8 @@ import {
   MapPin,
   Heart,
   Globe,
+  Moon,
+  Sun,
   Store,
   TrendingUp,
   BarChart2,
@@ -19,21 +21,26 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
+import { supabase, useCategoryLabel, useServiceModeLabel } from "@/lib/supabase";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
+import { useTheme } from "@/lib/theme";
 import { LANGUAGE_LABELS, type Language } from "@/lib/strings";
 
 const Settings = () => {
   const { lang, setLang, s } = useLanguage();
+  const { theme, toggleTheme } = useTheme();
+  const getLabel = useCategoryLabel();
+  const getMode = useServiceModeLabel();
   const [titleTaps, setTitleTaps] = useState(0);
   const [devOpen, setDevOpen] = useState(false);
   const userPhone = getUserPhone();
   const deviceId = getDeviceId();
   const vendorId = localStorage.getItem("aaspaas:vendor_id");
   const isAdmin = userPhone === "8888169446";
+  const [devPhone, setDevPhone] = useState(userPhone ?? "");
 
   const [vendorStats, setVendorStats] = useState({
     total: 0,
@@ -76,24 +83,43 @@ const Settings = () => {
     vendor: (typeof vendorList)[number] | null;
   }>({ open: false, vendor: null });
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
+  const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
+  const [savingReasons, setSavingReasons] = useState(false);
 
   useEffect(() => {
     if (!vendorId) return;
     const load = async () => {
       const { data: vendor } = await supabase
         .from("vendors")
-        .select("shop_name, category, service_mode, vendor_note")
+        .select(
+          "shop_name, category, service_mode, vendor_note, cancel_reason_1, cancel_reason_2, cancel_reason_3, cancel_reason_4",
+        )
         .eq("id", vendorId)
         .single();
-      if (vendor)
-        setVendorInfo(
-          vendor as {
-            shop_name: string;
-            category: string;
-            service_mode: string;
-            vendor_note: string;
-          },
-        );
+      if (vendor) {
+        const row = vendor as {
+          shop_name: string;
+          category: string;
+          service_mode: string;
+          vendor_note: string;
+          cancel_reason_1: string | null;
+          cancel_reason_2: string | null;
+          cancel_reason_3: string | null;
+          cancel_reason_4: string | null;
+        };
+        setVendorInfo({
+          shop_name: row.shop_name,
+          category: row.category,
+          service_mode: row.service_mode,
+          vendor_note: row.vendor_note,
+        });
+        setCancelReasons([
+          row.cancel_reason_1 ?? "",
+          row.cancel_reason_2 ?? "",
+          row.cancel_reason_3 ?? "",
+          row.cancel_reason_4 ?? "",
+        ]);
+      }
 
       const { data: orders } = await supabase
         .from("requests")
@@ -177,16 +203,16 @@ const Settings = () => {
     await loadVendorList();
     setVerifying(null);
     closeVerifySheet();
-    toast("Vendor verified ✅");
+    toast(s.settings_vendorVerified);
   };
 
   const confirmUnverify = async (vendorId: string) => {
-    if (!window.confirm("Remove verification from this vendor?")) return;
+    if (!window.confirm(s.settings_removeVerifyConfirm)) return;
     setVerifying(vendorId);
     await supabase.from("vendors").update({ is_manual_verified: false }).eq("id", vendorId);
     await loadVendorList();
     setVerifying(null);
-    toast("Verification removed");
+    toast(s.settings_verificationRemoved);
   };
 
   const filteredVendors = vendorList.filter(
@@ -203,85 +229,124 @@ const Settings = () => {
     if (next >= 7) {
       setDevOpen(true);
       setTitleTaps(0);
-      toast("Developer menu unlocked");
+      toast(s.settings_devMenuUnlocked);
     }
   };
 
+  const saveCancelReasons = async () => {
+    if (!vendorId) return;
+    setSavingReasons(true);
+    const { error } = await supabase
+      .from("vendors")
+      .update({
+        cancel_reason_1: cancelReasons[0].trim() || null,
+        cancel_reason_2: cancelReasons[1].trim() || null,
+        cancel_reason_3: cancelReasons[2].trim() || null,
+        cancel_reason_4: cancelReasons[3].trim() || null,
+      })
+      .eq("id", vendorId);
+    setSavingReasons(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Saved");
+  };
+
   const reset = () => {
-    if (!window.confirm("Clear all locally stored Aaspaas data on this device?")) return;
+    if (!window.confirm(s.settings_clearDataConfirm)) return;
     localStorage.removeItem("aaspaas:role");
     localStorage.removeItem("aaspaas:vendor_id");
     clearUserPhone();
     notifyVendorIdChanged();
-    toast("Local data cleared");
+    toast(s.settings_localDataCleared);
   };
 
   return (
     <AppShell theme="light">
       <header className="mb-6">
-        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Settings</p>
+        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">{s.settings_heading}</p>
         <h1
           onClick={tapTitle}
           className="font-display text-3xl font-bold mt-1 select-none cursor-default"
         >
-          Make it yours.
+          {s.settings_tagline}
         </h1>
       </header>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
-          Switch role
+          {s.settings_switchRole}
         </p>
         <p className="text-sm text-muted-foreground">
-          Use the bottom navigation — <span className="font-semibold text-foreground">Home</span> for help,{" "}
-          <span className="font-semibold text-foreground">Vendor</span> to earn.
+          {s.settings_switchRoleHintPrefix}<span className="font-semibold text-foreground">{s.settings_switchRoleHome}</span>{s.settings_switchRoleForHelp}{" "}
+          <span className="font-semibold text-foreground">{s.settings_switchRoleVendor}</span>{s.settings_switchRoleToEarn}
         </p>
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <div className="flex items-center gap-3 mb-3">
           <Phone className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">My Identity</p>
+          <p className="font-display font-bold">{s.settings_myIdentity}</p>
         </div>
         {userPhone != null ? (
           <div>
-            <p className="text-sm font-semibold text-foreground">📞 {userPhone}</p>
-            <p className="text-xs text-[#22C55E] mt-1">Registered — orders sync across devices</p>
+            <p className="text-sm font-semibold text-foreground">{s.settings_phonePrefix}{userPhone}</p>
+            <p className="text-xs text-[#22C55E] mt-1">{s.settings_registered}</p>
           </div>
         ) : (
           <div>
-            <p className="text-sm font-semibold text-foreground">No phone registered yet</p>
+            <p className="text-sm font-semibold text-foreground">{s.settings_noPhone}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Save a vendor or send an order to register
+              {s.settings_noPhoneHint}
             </p>
           </div>
         )}
         <p className="text-[10px] text-muted-foreground/70 mt-3 tabular-nums">
-          Device: {deviceId.slice(0, 8)}…
+          {s.settings_devicePrefix}{deviceId.slice(0, 8)}{s.settings_deviceEllipsis}
         </p>
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <div className="flex items-center gap-3 mb-3">
           <MapPin className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">My Addresses</p>
+          <p className="font-display font-bold">{s.settings_myAddresses}</p>
         </div>
-        <p className="text-sm text-muted-foreground">Address management coming soon.</p>
+        <p className="text-sm text-muted-foreground">{s.settings_addressComingSoon}</p>
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <div className="flex items-center gap-3 mb-3">
           <Heart className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">Saved Vendors</p>
+          <p className="font-display font-bold">{s.settings_savedVendors}</p>
         </div>
-        <p className="text-sm text-muted-foreground">Your saved vendors appear here.</p>
+        <p className="text-sm text-muted-foreground">{s.settings_savedVendorsHint}</p>
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <div className="flex items-center gap-3 mb-3">
           <Globe className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">Language</p>
+          <p className="font-display font-bold">{s.settings_language}</p>
         </div>
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border border-border bg-background text-left mb-2 transition-colors active:scale-[0.99]"
+        >
+          <div>
+            <p className="font-semibold text-sm text-foreground">{s.theme}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {theme === "dark" ? s.dark : s.light}
+            </p>
+          </div>
+          <span className="h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-border bg-card text-secondary">
+            {theme === "dark" ? (
+              <Moon className="h-5 w-5" aria-hidden />
+            ) : (
+              <Sun className="h-5 w-5" aria-hidden />
+            )}
+          </span>
+        </button>
         <div className="flex flex-col gap-2">
           {(Object.entries(LANGUAGE_LABELS) as [Language, string][]).map(([code, label]) => (
             <button
@@ -305,44 +370,81 @@ const Settings = () => {
           <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
             <div className="flex items-center gap-3 mb-3">
               <Store className="h-5 w-5 text-secondary" />
-              <p className="font-display font-bold">My Shop</p>
+              <p className="font-display font-bold">{s.settings_myShop}</p>
             </div>
             {vendorInfo ? (
               <div className="space-y-1">
                 <p className="text-sm font-semibold">{vendorInfo.shop_name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {vendorInfo.category} · {vendorInfo.service_mode}
+                  {getLabel(vendorInfo.category)}{s.settings_dotSeparator}{getMode(vendorInfo.service_mode)}
                 </p>
                 {vendorInfo.vendor_note && (
-                  <p className="text-xs text-[#22C55E] mt-1">📌 {vendorInfo.vendor_note}</p>
+                  <p className="text-xs text-[#22C55E] mt-1">{s.settings_vendorNotePrefix}{vendorInfo.vendor_note}</p>
                 )}
+
+                <div className="space-y-3 mt-4 pt-4 border-t border-border">
+                  <div>
+                    <p className="text-sm font-semibold">{s.cancelReasons}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {s.cancelReasonsSubtitle}
+                    </p>
+                  </div>
+                  {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="space-y-1">
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Reason {i + 1}
+                      </label>
+                      <input
+                        type="text"
+                        value={cancelReasons[i]}
+                        onChange={(e) => {
+                          const next = [...cancelReasons];
+                          next[i] = e.target.value.slice(0, 60);
+                          setCancelReasons(next);
+                        }}
+                        maxLength={60}
+                        className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  ))}
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void saveCancelReasons()}
+                      disabled={savingReasons}
+                      className="text-xs font-semibold text-[#22C55E] hover:underline disabled:opacity-50"
+                    >
+                      {savingReasons ? s.incoming_saving : s.saveReasons}
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Loading...</p>
+              <p className="text-sm text-muted-foreground">{s.settings_loading}</p>
             )}
           </section>
 
           <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
             <div className="flex items-center gap-3 mb-3">
               <BarChart2 className="h-5 w-5 text-secondary" />
-              <p className="font-display font-bold">My Analytics</p>
+              <p className="font-display font-bold">{s.settings_myAnalytics}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-2xl font-bold text-secondary">{vendorStats.total}</p>
-                <p className="text-xs text-muted-foreground mt-1">Total Orders</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_totalOrders}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-2xl font-bold text-secondary">{vendorStats.thisMonth}</p>
-                <p className="text-xs text-muted-foreground mt-1">This Month</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_thisMonth}</p>
               </div>
               <div className="rounded-2xl bg-green-500/10 p-3 text-center">
                 <p className="text-2xl font-bold text-green-500">{vendorStats.fulfilled}</p>
-                <p className="text-xs text-muted-foreground mt-1">Fulfilled</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_fulfilled}</p>
               </div>
               <div className="rounded-2xl bg-destructive/10 p-3 text-center">
                 <p className="text-2xl font-bold text-destructive">{vendorStats.declined}</p>
-                <p className="text-xs text-muted-foreground mt-1">Declined</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_declined}</p>
               </div>
             </div>
           </section>
@@ -354,43 +456,43 @@ const Settings = () => {
           <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">
             <div className="flex items-center gap-3 mb-1">
               <ShieldAlert className="h-5 w-5 text-secondary" />
-              <p className="font-display font-bold">Admin — App Health</p>
+              <p className="font-display font-bold">{s.settings_adminHealth}</p>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">Only visible to you.</p>
+            <p className="text-xs text-muted-foreground mb-4">{s.settings_adminOnly}</p>
 
-            <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">Orders</p>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">{s.settings_orders}</p>
             <div className="grid grid-cols-3 gap-2 mb-4">
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.totalOrders}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">All Time</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_allTime}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.ordersThisWeek}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">This Week</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_thisWeek}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.ordersToday}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Today</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_today}</p>
               </div>
             </div>
 
-            <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">Vendors</p>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">{s.settings_vendors}</p>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.totalVendors}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Total</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_total}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.activeVendorsToday}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Active Today</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_activeToday}</p>
               </div>
               <div className="rounded-2xl bg-green-500/10 p-3 text-center">
                 <p className="text-xl font-bold text-green-500">{adminStats.newVendorsThisWeek}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">New This Week</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_newThisWeek}</p>
               </div>
               <div className="rounded-2xl bg-destructive/10 p-3 text-center">
                 <p className="text-xl font-bold text-destructive">{adminStats.unverifiedVendors}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Unverified</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_unverified}</p>
               </div>
             </div>
           </section>
@@ -398,15 +500,15 @@ const Settings = () => {
           <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">
             <div className="flex items-center gap-3 mb-1">
               <Users className="h-5 w-5 text-secondary" />
-              <p className="font-display font-bold">Vendor Verification</p>
+              <p className="font-display font-bold">{s.settings_vendorVerification}</p>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">Unverified vendors shown first.</p>
+            <p className="text-xs text-muted-foreground mb-4">{s.settings_unverifiedFirst}</p>
 
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 mb-4">
               <Search className="h-4 w-4 text-muted-foreground shrink-0" />
               <input
                 type="text"
-                placeholder="Search by name, shop, phone..."
+                placeholder={s.settings_searchPlaceholder}
                 value={vendorSearch}
                 onChange={(e) => setVendorSearch(e.target.value)}
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
@@ -415,17 +517,17 @@ const Settings = () => {
 
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {filteredVendors.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">No vendors found.</p>
+                <p className="text-sm text-muted-foreground text-center py-4">{s.settings_noVendorsFound}</p>
               )}
               {filteredVendors.map((v) => (
                 <div key={v.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border p-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold truncate">{v.shop_name}</p>
-                      {v.is_active && <span className="text-[10px] text-green-500 font-semibold">LIVE</span>}
+                      {v.is_active && <span className="text-[10px] text-green-500 font-semibold">{s.settings_live}</span>}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
-                      {v.name} · {v.category}
+                      {v.name}{s.settings_dotSeparator}{getLabel(v.category)}
                     </p>
                     <p className="text-xs text-muted-foreground">{v.phone}</p>
                   </div>
@@ -442,14 +544,14 @@ const Settings = () => {
                     }`}
                   >
                     {verifying === v.id ? (
-                      "..."
+                      s.settings_btnLoading
                     ) : v.is_manual_verified ? (
                       <>
-                        <CheckCircle className="h-3 w-3" /> Verified
+                        <CheckCircle className="h-3 w-3" /> {s.settings_verified}
                       </>
                     ) : (
                       <>
-                        <XCircle className="h-3 w-3" /> Unverified
+                        <XCircle className="h-3 w-3" /> {s.settings_unverified}
                       </>
                     )}
                   </button>
@@ -463,37 +565,60 @@ const Settings = () => {
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <div className="flex items-center gap-3 mb-3">
           <ShieldCheck className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">Trust & Security</p>
+          <p className="font-display font-bold">{s.settings_trustSecurity}</p>
         </div>
         <div className="flex items-center gap-2 rounded-2xl bg-secondary/10 border border-secondary/30 px-4 py-3">
           <CheckCircle2 className="h-5 w-5 text-secondary shrink-0" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-secondary">Database: Connected & Secure</p>
+            <p className="text-sm font-semibold text-secondary">{s.settings_dbConnected}</p>
             <p className="text-xs text-muted-foreground">
-              All data is transmitted over TLS and protected with row-level security.
+              {s.settings_tlsNote}
             </p>
           </div>
         </div>
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5 text-center">
-        <p className="font-display font-bold text-lg">Aaspaas Pro</p>
-        <p className="text-sm text-muted-foreground mt-1">Help, around you. Now.</p>
-        <p className="text-xs text-muted-foreground mt-3">Version 1.0.0 · Built for Bharat</p>
-        <p className="text-xs text-muted-foreground mt-1">© 2026 Aaspaas Pro</p>
+        <p className="font-display font-bold text-lg">{s.settings_appName}</p>
+        <p className="text-sm text-muted-foreground mt-1">{s.settings_appTagline}</p>
+        <p className="text-xs text-muted-foreground mt-3">{s.settings_version}</p>
+        <p className="text-xs text-muted-foreground mt-1">{s.settings_copyright}</p>
       </section>
 
       {devOpen && (
         <section className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 mb-5 animate-fade-up">
           <div className="flex items-center gap-2 mb-3">
             <Wrench className="h-4 w-4 text-destructive" />
-            <p className="text-xs uppercase tracking-wider text-destructive font-semibold">Developer menu</p>
+            <p className="text-xs uppercase tracking-wider text-destructive font-semibold">{s.settings_devMenu}</p>
+          </div>
+          <div className="mb-4 space-y-2">
+            <label className="text-xs font-semibold text-muted-foreground" htmlFor="dev-phone-number">
+              Set phone number (dev)
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="dev-phone-number"
+                value={devPhone}
+                onChange={(e) => setDevPhone(e.target.value)}
+                className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem('aaspaas:user_phone', devPhone);
+                  location.reload();
+                }}
+                className="rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground"
+              >
+                Save
+              </button>
+            </div>
           </div>
           <button
             onClick={() => setDevOpen(false)}
             className="w-full text-xs text-muted-foreground underline"
           >
-            Hide developer menu
+            {s.settings_hideDevMenu}
           </button>
         </section>
       )}
@@ -503,7 +628,7 @@ const Settings = () => {
         onClick={reset}
         className="w-full rounded-2xl border border-destructive/50 text-destructive bg-transparent py-4 font-semibold flex items-center justify-center gap-2"
       >
-        <Trash2 className="h-4 w-4" /> Clear My Data
+        <Trash2 className="h-4 w-4" /> {s.settings_clearMyData}
       </button>
 
       {verifySheet.open && verifySheet.vendor && (
@@ -514,26 +639,26 @@ const Settings = () => {
 
             <div className="flex items-center gap-3 mb-1">
               <ShieldAlert className="h-5 w-5 text-secondary" />
-              <p className="font-display font-bold text-lg">Verify Vendor</p>
+              <p className="font-display font-bold text-lg">{s.settings_verifyVendor}</p>
             </div>
             <p className="text-sm text-muted-foreground mb-1">{verifySheet.vendor.shop_name}</p>
             <p className="text-xs text-muted-foreground mb-5">
-              {verifySheet.vendor.name} · {verifySheet.vendor.category} · {verifySheet.vendor.phone}
+              {verifySheet.vendor.name}{s.settings_dotSeparator}{getLabel(verifySheet.vendor.category)}{s.settings_dotSeparator}{verifySheet.vendor.phone}
             </p>
 
             {[
-              { id: "phone_called", label: "Called vendor on registered phone — person picked up" },
-              { id: "name_match", label: "Name matches what they said on call" },
-              { id: "aware", label: "Vendor is aware they registered on Aaspaas" },
-              { id: "shop_exists", label: "Shop physically exists at registered location" },
-              { id: "shop_name_match", label: "Shop name matches signboard / what they said" },
-              { id: "category_match", label: "Category matches actual service they provide" },
-              { id: "service_mode_correct", label: "Service mode is correct (help / delivery / appointment)" },
-              { id: "no_duplicate", label: "No duplicate account found (same phone or same shop)" },
-              { id: "photo_genuine", label: "Shop photo uploaded and looks genuine" },
-              { id: "upi_verified", label: "UPI ID verified (if provided)" },
-              { id: "no_suspicious", label: "No suspicious activity (multiple rapid orders, fake numbers)" },
-              { id: "rules_understood", label: "Vendor understands Aaspaas usage rules" },
+              { id: "phone_called", label: s.settings_check1 },
+              { id: "name_match", label: s.settings_check2 },
+              { id: "aware", label: s.settings_check3 },
+              { id: "shop_exists", label: s.settings_check4 },
+              { id: "shop_name_match", label: s.settings_check5 },
+              { id: "category_match", label: s.settings_check6 },
+              { id: "service_mode_correct", label: s.settings_check7 },
+              { id: "no_duplicate", label: s.settings_check8 },
+              { id: "photo_genuine", label: s.settings_check9 },
+              { id: "upi_verified", label: s.settings_check10 },
+              { id: "no_suspicious", label: s.settings_check11 },
+              { id: "rules_understood", label: s.settings_check12 },
             ].map((item) => (
               <label key={item.id} className="flex items-start gap-3 mb-4 cursor-pointer">
                 <input
@@ -556,7 +681,7 @@ const Settings = () => {
                 allChecked ? "bg-green-500 text-white" : "bg-muted text-muted-foreground cursor-not-allowed"
               }`}
             >
-              {verifying === verifySheet.vendor?.id ? "Verifying..." : "✅ Mark as Verified"}
+              {verifying === verifySheet.vendor?.id ? s.settings_verifying : s.settings_markVerified}
             </button>
 
             <button
@@ -564,7 +689,7 @@ const Settings = () => {
               onClick={closeVerifySheet}
               className="w-full text-xs text-muted-foreground underline mt-3 py-2"
             >
-              Cancel
+              {s.settings_cancel}
             </button>
           </div>
         </div>

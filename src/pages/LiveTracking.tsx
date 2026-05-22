@@ -21,7 +21,7 @@ import {
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { supabase, type Vendor, distanceKm } from "@/lib/supabase";
+import { supabase, useCategoryLabel, type Vendor, distanceKm } from "@/lib/supabase";
 import { VerificationBadge, vendorTier } from "@/components/VerificationBadge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -70,6 +70,7 @@ const FitBounds = ({ points }: { points: [number, number][] }) => {
 const LiveTracking = () => {
   const navigate = useNavigate();
   const { vendorId } = useParams<{ vendorId: string }>();
+  const getLabel = useCategoryLabel();
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [loading, setLoading] = useState(true);
@@ -520,7 +521,7 @@ const LiveTracking = () => {
             <VerificationBadge vendor={vendor} />
           </div>
           <p className="text-xs text-gray-400 truncate">
-            {vendor.shop_name} · {vendor.category}
+            {vendor.shop_name} · {getLabel(vendor.category)}
           </p>
           <p className="text-[10px] uppercase tracking-[0.2em] text-[#22C55E] mt-0.5 font-bold">
             Ready to Help ·{" "}
@@ -595,7 +596,7 @@ const LiveTracking = () => {
               )}
             </div>
             <p className="font-display text-xl font-bold text-white mt-1">{vendor.name}</p>
-            <p className="text-xs text-gray-400">{vendor.category} · Number masked</p>
+            <p className="text-xs text-gray-400">{getLabel(vendor.category)} · Number masked</p>
             <div className="mt-4 flex items-center gap-2 text-sm text-[#22C55E] font-mono">
               <Clock className="h-4 w-4" />
               {callDuration}

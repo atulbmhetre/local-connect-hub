@@ -10,6 +10,28 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 const AI_GATEWAY_URL = `${SUPABASE_URL}/functions/v1/ai-gateway`;
+export const NOTIFY_VENDOR_URL = `${SUPABASE_URL}/functions/v1/notify-vendor`;
+
+/** Best-effort push to vendor; never throws. */
+export async function invokeNotifyVendor(record: {
+  vendor_id: string;
+  category?: string;
+  message?: string;
+  notification_title?: string;
+}): Promise<void> {
+  try {
+    await fetch(NOTIFY_VENDOR_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ record }),
+    });
+  } catch {
+    /* ignore */
+  }
+}
 
 export type VerificationStatus =
   | "unverified"
@@ -38,6 +60,10 @@ export type Vendor = {
   /** Hyperlocal service vs delivery; drives reputation copy on cards. */
   service_mode?: "help" | "delivery" | "appointment";
   vendor_note?: string | null;
+  cancel_reason_1: string | null;
+  cancel_reason_2: string | null;
+  cancel_reason_3: string | null;
+  cancel_reason_4: string | null;
   total_helped?: number;
   total_delivered?: number;
   /** 0–100, delivery on-time rate */
@@ -49,13 +75,14 @@ export type RequestRow = {
   device_id: string;
   vendor_id: string;
   message: string;
-  status: string;
+  status: "sent" | "seen" | "fulfilled" | "done" | "cancelled";
   created_at: string;
   user_phone: string | null;
   device_id_log: string | null;
   delivery_address: string | null;
   appointment_time: string | null;
   appointment_status: string | null;
+  cancel_reason: string | null;
 };
 
 export type Category = {
@@ -497,4 +524,48 @@ export function emojiForVendorCategory(category: string, categories?: Category[]
   if (categories?.length) return emojiForCategory(category, categories);
   const c = CATEGORIES.find((x) => x.label.toLowerCase() === category.trim().toLowerCase());
   return c?.emoji ?? "✨";
+}
+
+// Category translation helper
+// Usage: const getLabel = useCategoryLabel();
+//        getLabel(vendor.category) → translated label in active language
+
+import { useLanguage } from "@/lib/language";
+import { useEffect, useState } from "react";
+
+type TranslationMap = Record<string, string>; // category English label → translated label
+
+export function useCategoryLabel() {
+  const { lang } = useLanguage();
+  const [map, setMap] = useState<TranslationMap>({});
+
+  useEffect(() => {
+    supabase
+      .from("category_translations")
+      .select("lang, label, categories(label)")
+      .eq("lang", lang)
+      .then(({ data }) => {
+        if (!data) return;
+        const m: TranslationMap = {};
+        data.forEach((row: any) => {
+          const original = row.categories?.label;
+          if (original) m[original] = row.label;
+        });
+        setMap(m);
+      });
+  }, [lang]);
+
+  // Falls back to original English label if translation missing
+  return (englishLabel: string) => map[englishLabel] ?? englishLabel;
+}
+
+// service_mode translation — fixed enum, never changes
+export function useServiceModeLabel() {
+  const { lang } = useLanguage();
+  const map: Record<string, Record<string, string>> = {
+    en: { help: "Help", delivery: "Delivery", appointment: "Appointment" },
+    hi: { help: "मदद", delivery: "डिलीवरी", appointment: "अपॉइंटमेंट" },
+    mr: { help: "मदत", delivery: "डिलिव्हरी", appointment: "अपॉइंटमेंट" },
+  };
+  return (mode: string) => map[lang]?.[mode] ?? mode;
 }

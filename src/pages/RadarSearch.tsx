@@ -24,12 +24,13 @@ import {
   distanceKm,
   fetchAiBridgeBrief,
   displayName,
+  useCategoryLabel,
 } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, migrateUserPhone } from "@/lib/userIdentity";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { ParchiSheet } from "@/components/ParchiSheet";
-import { VerificationBadge, vendorTier } from "@/components/VerificationBadge";
+import { VerificationBadge, vendorTier, verificationCopy } from "@/components/VerificationBadge";
 import { toast } from "sonner";
 import {
   Collapsible,
@@ -44,6 +45,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useLanguage } from "@/lib/language";
 
 type Ranked = { vendor: Vendor; dist: number | null };
 
@@ -196,6 +198,8 @@ function showGovHelpAlongsideRadiusExpand(term: string): boolean {
 }
 
 const RadarSearch = () => {
+  const { s } = useLanguage();
+  const getLabel = useCategoryLabel();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const term = (params.get("q") ?? "").trim();
@@ -256,13 +260,21 @@ const RadarSearch = () => {
         if (error) throw error;
         if (cancelled) return;
 
-        const all: Ranked[] = (data ?? []).map((v) => ({
-          vendor: v as Vendor,
-          dist:
-            coords && v.latitude != null && v.longitude != null
-              ? distanceKm(coords, { lat: v.latitude, lng: v.longitude })
-              : null,
-        }));
+        const all: Ranked[] = (data ?? [])
+          .filter(
+            (v) =>
+              v.latitude != null &&
+              v.longitude != null &&
+              v.latitude !== 0 &&
+              v.longitude !== 0,
+          )
+          .map((v) => ({
+            vendor: v as Vendor,
+            dist:
+              coords && v.latitude != null && v.longitude != null
+                ? distanceKm(coords, { lat: v.latitude, lng: v.longitude })
+                : null,
+          }));
 
         const within = (radius: number) =>
           all.filter((r) => (coords ? r.dist != null && r.dist <= radius : true));
@@ -284,7 +296,7 @@ const RadarSearch = () => {
         if (cancelled) return;
         setResults(scoped);
       } catch (e: any) {
-        if (!cancelled) setError(e.message ?? "Connection Error");
+        if (!cancelled) setError(e.message ?? s.radar_connection_error);
       } finally {
         if (!cancelled) setScanning(false);
       }
@@ -293,12 +305,12 @@ const RadarSearch = () => {
     return () => {
       cancelled = true;
     };
-  }, [coordsTried, coords, term, searchRadiusKm]);
+  }, [coordsTried, coords, term, searchRadiusKm, s.radar_connection_error]);
 
   const headline = useMemo(() => {
     if (term) return displayName(term);
-    return "All emergencies";
-  }, [term]);
+    return s.radar_all_emergencies;
+  }, [term, s.radar_all_emergencies]);
 
   return (
     <AppShell theme="dark">
@@ -308,7 +320,7 @@ const RadarSearch = () => {
           <button
             onClick={() => navigate("/")}
             className="absolute top-4 left-0 h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
-            aria-label="Back to home"
+            aria-label={s.radar_back_home}
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -316,11 +328,10 @@ const RadarSearch = () => {
           {/* Search Header */}
           <div className="absolute top-12 text-center px-6">
             <h2 className="text-[#22C55E] text-sm font-bold tracking-widest uppercase mb-2">
-              {expanded ? "Expanding Scan" : "Scanning Area"}
+              {expanded ? s.radar_expanding_scan : s.radar_scanning_area}
             </h2>
             <p className="text-2xl font-semibold italic capitalize">
-              Finding nearby {headline}
-              {headline.toLowerCase().endsWith("s") ? "" : "s"}…
+              {s.radar_finding_nearby}{headline}…
             </p>
           </div>
 
@@ -337,7 +348,7 @@ const RadarSearch = () => {
           {/* Trust Indicator */}
           <div className="absolute bottom-24 flex items-center gap-2 text-gray-400 text-sm text-center px-6">
             <Loader2 className="w-4 h-4 animate-spin text-[#22C55E] shrink-0" />
-            <span>Searching within {searchRadiusKm} km</span>
+            <span>{s.radar_searching_within}{searchRadiusKm}{s.radar_km}</span>
           </div>
         </div>
       ) : (
@@ -346,15 +357,15 @@ const RadarSearch = () => {
             <button
               onClick={() => navigate("/")}
               className="h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
-              aria-label="Back to home"
+              aria-label={s.radar_back_home}
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div className="text-center">
               <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E]">
-                Live Radar
+                {s.radar_live}
               </p>
-              <h1 className="font-display text-lg font-bold capitalize">{headline}</h1>
+              <h1 className="font-display text-lg font-bold capitalize">{term ? getLabel(term) : headline}</h1>
             </div>
             <div className="h-10 w-10" />
           </header>
@@ -370,11 +381,11 @@ const RadarSearch = () => {
           </div>
 
           <p className="text-center text-xs uppercase tracking-[0.25em] text-[#22C55E] mb-2">
-            {results.length} {results.length === 1 ? "match" : "matches"} found
+            {results.length} {results.length === 1 ? s.radar_match : s.radar_matches}{s.radar_found}
           </p>
           {expanded && results.length > 0 && (
             <p className="text-center text-[11px] text-muted-foreground mb-4">
-              Showing nearest help within {searchRadiusKm} km.
+              {s.radar_showing_within}{searchRadiusKm}{s.radar_km}.
             </p>
           )}
         </>
@@ -385,7 +396,7 @@ const RadarSearch = () => {
         <div className="rounded-2xl bg-destructive/10 border border-destructive/30 p-4 flex gap-3 mt-2">
           <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold text-destructive">Connection Error</p>
+            <p className="font-semibold text-destructive">{s.radar_connection_error}</p>
             <p className="text-sm text-muted-foreground mt-0.5 break-words">{error}</p>
           </div>
         </div>
@@ -412,8 +423,8 @@ const RadarSearch = () => {
         <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-4">
           <p className="text-center font-display text-lg font-semibold text-white">
             {searchRadiusKm === NEAR_RADIUS_KM
-              ? "No helpers found within 15km"
-              : `No helpers found within ${searchRadiusKm}km`}
+              ? s.radar_no_helpers_15
+              : `${s.radar_no_helpers_15.replace('15', String(searchRadiusKm))}`}
           </p>
           <div className="flex flex-col sm:flex-row gap-2">
             {searchRadiusKm < 25 && (
@@ -422,7 +433,7 @@ const RadarSearch = () => {
                 onClick={() => setSearchRadiusKm(25)}
                 className="flex-1 rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
               >
-                Expand to 25km
+                {s.radar_expand_25}
               </button>
             )}
             {searchRadiusKm < 50 && (
@@ -431,7 +442,7 @@ const RadarSearch = () => {
                 onClick={() => setSearchRadiusKm(50)}
                 className="flex-1 rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
               >
-                Expand to 50km
+                {s.radar_expand_50}
               </button>
             )}
           </div>
@@ -454,14 +465,14 @@ const RadarSearch = () => {
 // Critical failsafe when widening to 50 km still returns no private responders.
 // Official helplines only for core emergency-style categories; others get a growth message.
 const EmptyStateFailsafe = ({ term }: { term: string }) => {
+  const { s } = useLanguage();
   const showEmergencyNumbers = isOfficialEmergencyCategory(term);
 
   if (!showEmergencyNumbers) {
     return (
       <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-5">
         <p className="text-center text-sm text-gray-300 leading-relaxed px-1">
-          No helpers found in your area yet. Aaspaas Pro is growing — check back soon or try a
-          different category.
+          {s.radar_no_helpers_area}
         </p>
       </div>
     );
@@ -471,10 +482,10 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
     <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-4">
       <div className="text-center">
         <p className="font-display text-lg font-semibold text-white">
-          No private responders currently online
+          {s.radar_no_private}
         </p>
         <p className="text-sm text-gray-400 mt-1">
-          You can still reach official emergency services below.
+          {s.radar_official_services}
         </p>
       </div>
 
@@ -493,6 +504,7 @@ const VendorReputationLine = ({
   totalHelpedOverride?: number;
   totalDeliveredOverride?: number;
 }) => {
+  const { s } = useLanguage();
   const mode = String(vendor.service_mode ?? "")
     .trim()
     .toLowerCase();
@@ -502,10 +514,13 @@ const VendorReputationLine = ({
     if (n <= 0) return null;
     return (
       <div className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90">
-        <HeartHandshake className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+        <span className="inline-flex items-center gap-1 shrink-0">
+          <HeartHandshake className="h-3.5 w-3.5 opacity-80" />
+          <span className="font-semibold">Helped</span>
+        </span>
         <span>
-          Helped <span className="font-semibold tabular-nums text-[#22C55E]">{n}</span>{" "}
-          {n === 1 ? "person" : "people"}
+          {s.radar_helped}<span className="font-semibold tabular-nums text-[#22C55E]">{n}</span>{" "}
+          {n === 1 ? s.radar_person : s.radar_people}
         </span>
       </div>
     );
@@ -519,14 +534,17 @@ const VendorReputationLine = ({
       typeof raw === "number" && Number.isFinite(raw) ? Math.round(raw) : null;
     return (
       <div className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90">
-        <Package className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+        <span className="inline-flex items-center gap-1 shrink-0">
+          <Package className="h-3.5 w-3.5 opacity-80" />
+          <span className="font-semibold">Delivered</span>
+        </span>
         <span>
-          <span className="font-semibold tabular-nums text-[#22C55E]">{d}</span> orders served
+          <span className="font-semibold tabular-nums text-[#22C55E]">{d}</span>{s.radar_orders_served}
           {pct !== null && d > 0 && (
             <>
               {" "}
               ·{" "}
-              <span className="font-semibold tabular-nums text-[#22C55E]">{pct}</span>% on time
+              <span className="font-semibold tabular-nums text-[#22C55E]">{pct}</span>{s.radar_on_time}
             </>
           )}
         </span>
@@ -553,6 +571,8 @@ const RadarVendorCard = ({
   /** Search query / category the user looked for (URL `q`). */
   userNeed: string;
 }) => {
+  const { s } = useLanguage();
+  const getLabel = useCategoryLabel();
   const tier = vendorTier(vendor);
   const serviceMode = String(vendor.service_mode ?? "")
     .trim()
@@ -738,16 +758,16 @@ const RadarVendorCard = ({
       if (error.code === "23505") {
         writeSessionSaved(vendor.id);
         setSavedVendorLocked(true);
-        toast.success("✅ Saved! Find them on your home screen.");
+        toast.success(`✅ ${s.radar_saved_success}`);
         return;
       }
-      toast.error("Could not save", { description: error.message });
+      toast.error(s.radar_could_not_save, { description: error.message });
       return;
     }
     writeSessionSaved(vendor.id);
     setSavedVendorLocked(true);
-    toast.success("✅ Saved! Find them on your home screen.");
-  }, [savedVendorLocked, vendor.category, vendor.id, vendor.shop_name]);
+    toast.success(`✅ ${s.radar_saved_success}`);
+  }, [savedVendorLocked, vendor.category, vendor.id, vendor.shop_name, s]);
 
   const handleResolution = useCallback(async () => {
     if (resolutionMarked || resolutionBusy) return;
@@ -758,19 +778,20 @@ const RadarVendorCard = ({
     const { error } = await supabase.rpc(rpc, { p_vendor_id: vendor.id });
     setResolutionBusy(false);
     if (error) {
-      toast.error("Could not save", { description: error.message });
+      toast.error(s.radar_could_not_save, { description: error.message });
       return;
     }
     writeResolutionMarked(vendor.id);
     setResolutionMarked(true);
     if (kind === "help") setHelpCount((c) => c + 1);
     else setDeliveredCount((c) => c + 1);
-    toast.success("Thank you! This helps the community.");
+    toast.success(s.radar_thank_community);
   }, [
     resolutionMarked,
     resolutionBusy,
     serviceMode,
     vendor.id,
+    s,
   ]);
 
   return (
@@ -788,7 +809,10 @@ const RadarVendorCard = ({
               loading="lazy"
             />
           ) : (
-            <Store className="h-6 w-6 text-primary-foreground" />
+            <span className="inline-flex items-center gap-1">
+              <Store className="h-6 w-6 text-primary-foreground" />
+              <span className="text-[10px] font-semibold text-primary-foreground">Shop</span>
+            </span>
           )}
         </div>
         <div className="flex-1 min-w-0">
@@ -801,45 +825,58 @@ const RadarVendorCard = ({
                 </span>
               )}
             </div>
-            <VerificationBadge vendor={vendor} />
+            <span className="inline-flex items-center gap-1 shrink-0">
+              <VerificationBadge vendor={vendor} />
+              <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+                {verificationCopy[tier].label}
+              </span>
+            </span>
           </div>
           <p className="text-sm text-muted-foreground truncate">
-            {vendor.name} · {vendor.category}
+            {vendor.name} · {getLabel(vendor.category)}
           </p>
           <VerificationBadge vendor={vendor} showLabel className="mt-1" />
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
             {dist != null ? (
               <span className="inline-flex items-center gap-1">
                 <MapPin className="h-3 w-3" />
-                {dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`}
+                {dist < 1 ? `${Math.round(dist * 1000)} mtr away` : `${dist.toFixed(1)} km away`}
               </span>
             ) : (
-              <span>Location unknown</span>
+              <span>{s.radar_location_unknown}</span>
             )}
-            <SignalFreshness lastUpdated={vendor.last_updated ?? null} />
           </div>
           {serviceMode === "help" && dist != null && (
             <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-[#22C55E]/10 ring-1 ring-[#22C55E]/30 px-2 py-0.5 text-[11px] font-semibold text-[#22C55E]">
-              <Clock className="h-3 w-3" />
-              Est. arrival ~{Math.max(1, Math.round(dist * 2))} min
+              <span className="inline-flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                <span>ETA</span>
+              </span>
+              {s.radar_est_arrival}{Math.max(1, Math.round(dist * 2))}{s.radar_min}
             </div>
           )}
         </div>
       </div>
 
-      {tier === "yellow" && (
+          {tier === "yellow" && (
         <div className="mt-3 rounded-xl bg-[#FACC15]/10 border border-[#FACC15]/60 px-3 py-2 flex items-start gap-2">
-          <ShieldAlert className="h-4 w-4 text-[#FACC15] shrink-0 mt-0.5" />
+          <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
+            <ShieldAlert className="h-4 w-4 text-[#FACC15]" />
+            <span className="text-xs text-[#FACC15] font-semibold">Pending</span>
+          </span>
           <p className="text-xs text-[#FACC15] font-semibold">
-            Verification in Progress — Proceed with caution.
+            {s.radar_verification_progress}
           </p>
         </div>
       )}
       {tier === "red" && (
         <div className="mt-3 rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-2 flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+          <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            <span className="text-xs text-destructive font-semibold">Unverified</span>
+          </span>
           <p className="text-xs text-destructive font-semibold">
-            Warning: Identity Not Verified — connect at your own risk.
+            {s.radar_not_verified}
           </p>
         </div>
       )}
@@ -856,7 +893,7 @@ const RadarVendorCard = ({
         className="mt-4 w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
       >
         <Phone className="h-4 w-4" />
-        Connect via AI-Bridge
+        {s.radar_connect_ai}
       </button>
 
       <Sheet open={aiSheetOpen} onOpenChange={closeAiSheet}>
@@ -865,13 +902,13 @@ const RadarVendorCard = ({
           className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
         >
           <SheetHeader className="text-left space-y-1 pr-8">
-            <SheetTitle className="text-white font-display">AI-Bridge</SheetTitle>
+            <SheetTitle className="text-white font-display">{s.radar_ai_bridge}</SheetTitle>
             <SheetDescription className="text-gray-400">
               {aiSheetLoading
-                ? "Briefing vendor via AI…"
+                ? s.radar_briefing
                 : aiBriefFailed
-                  ? "AI brief unavailable — call directly"
-                  : "Your call brief"}
+                  ? s.radar_ai_unavailable
+                  : s.radar_your_brief}
             </SheetDescription>
           </SheetHeader>
 
@@ -879,13 +916,13 @@ const RadarVendorCard = ({
             {aiSheetLoading && (
               <div className="flex items-center gap-3 py-6 text-gray-300">
                 <Loader2 className="h-6 w-6 animate-spin text-[#22C55E] shrink-0" />
-                <p className="text-sm">Briefing vendor via AI…</p>
+                <p className="text-sm">{s.radar_briefing}</p>
               </div>
             )}
 
             {!aiSheetLoading && aiBriefFailed && (
               <p className="text-sm text-amber-200/90 leading-relaxed">
-                AI brief unavailable — call directly
+                {s.radar_ai_unavailable}
               </p>
             )}
 
@@ -911,14 +948,14 @@ const RadarVendorCard = ({
                   }}
                 >
                   <PhoneCall className="h-4 w-4" />
-                  Call Now
+                  {s.radar_call_now}
                 </button>
                 <button
                   type="button"
                   className="w-full rounded-xl border border-[#333] bg-transparent text-gray-300 py-3 font-semibold active:scale-[0.99] transition-transform"
                   onClick={() => closeAiSheet(false)}
                 >
-                  Cancel
+                  {s.radar_cancel}
                 </button>
               </div>
             )}
@@ -935,7 +972,7 @@ const RadarVendorCard = ({
             )}
           >
             <span className="text-muted-foreground font-medium">
-              {serviceMode === "appointment" ? "📅 Booking Requested" : "✅ Order Sent"}
+              {serviceMode === "appointment" ? `📅 ${s.radar_booking_requested}` : `✅ ${s.radar_order_sent}`}
             </span>
             <span className="text-muted-foreground" aria-hidden>
               ·
@@ -945,7 +982,7 @@ const RadarVendorCard = ({
               onClick={() => setParchiOpen(true)}
               className="font-semibold text-[#22C55E] underline underline-offset-2 hover:opacity-90"
             >
-              {serviceMode === "appointment" ? "Book Again" : "Send New Order"}
+              {serviceMode === "appointment" ? s.radar_book_again : s.radar_send_new_order}
             </button>
           </div>
         ) : (
@@ -954,7 +991,7 @@ const RadarVendorCard = ({
             onClick={() => setParchiOpen(true)}
             className="mt-2 w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform shadow-sm"
           >
-            {serviceMode === "appointment" ? "📅 Book a Service" : "📋 Send Order"}
+            {serviceMode === "appointment" ? `📅 ${s.radar_book_service}` : `📋 ${s.radar_send_order}`}
           </button>
         ))}
 
@@ -971,10 +1008,10 @@ const RadarVendorCard = ({
           )}
         >
           {resolutionMarked
-            ? "✅ Marked!"
+            ? `✅ ${s.radar_marked}`
             : serviceMode === "delivery"
-              ? "📦 Delivered on Time"
-              : "✅ He Helped Me"}
+              ? `📦 ${s.radar_delivered_on_time}`
+              : `✅ ${s.radar_he_helped}`}
         </button>
       )}
 
@@ -987,7 +1024,7 @@ const RadarVendorCard = ({
             "border-border text-foreground bg-muted/40 hover:bg-muted/60",
           )}
         >
-          {`🔖 Save as My ${vendor.category || "Vendor"}`}
+          {`🔖 ${s.radar_save_as}${getLabel(vendor.category) || s.radar_vendor_fallback}`}
         </button>
       )}
       <ParchiSheet
@@ -1012,11 +1049,12 @@ const RadarVendorCard = ({
 // Trust indicator that proves a vendor is actively at their post.
 // Reads the live `last_updated` timestamp from Supabase and labels the gap.
 const SignalFreshness = ({ lastUpdated }: { lastUpdated: string | null }) => {
+  const { s } = useLanguage();
   if (!lastUpdated) {
     return (
       <span className="inline-flex items-center gap-1 text-gray-400 font-semibold">
         <span className="h-2 w-2 rounded-full bg-gray-500" />
-        Signal: Unknown
+        {s.radar_signal_unknown}
       </span>
     );
   }
@@ -1031,21 +1069,21 @@ const SignalFreshness = ({ lastUpdated }: { lastUpdated: string | null }) => {
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
         </span>
-        Signal: Strong
+        {s.radar_signal_strong}
       </span>
     );
   }
   const label =
     ageMin < 60
-      ? `${ageMin} mins ago`
+      ? `${ageMin}${s.radar_mins_ago}`
       : ageMin < 60 * 24
-        ? `${Math.round(ageMin / 60)}h ago`
-        : `${Math.round(ageMin / (60 * 24))}d ago`;
+        ? `${Math.round(ageMin / 60)}${s.radar_h_ago}`
+        : `${Math.round(ageMin / (60 * 24))}${s.radar_d_ago}`;
   return (
     <span className="inline-flex items-center gap-1 text-gray-400 font-semibold">
       <span className="h-2 w-2 rounded-full bg-gray-500 shrink-0 mr-1" />
       <Clock className="h-3 w-3" />
-      Last Active: {label}
+      {s.radar_last_active}{label}
     </span>
   );
 };
@@ -1061,6 +1099,7 @@ const GovEmergencyServices = ({
   /** When true, panel starts expanded (e.g. final 50km failsafe). */
   defaultOpen?: boolean;
 }) => {
+  const { s } = useLanguage();
   const resolved = resolveCategory(termForGovEmergencyHelp(term));
   const isMedical = resolved ? MEDICAL.has(resolved) : false;
   const isRoadside = resolved ? ROADSIDE.has(resolved) : false;
@@ -1108,10 +1147,10 @@ const GovEmergencyServices = ({
             <Siren className="h-4 w-4 text-destructive shrink-0" />
             <div className="text-left min-w-0">
               <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
-                Govt. Help
+                {s.radar_govt_help}
               </p>
               <p className="text-xs text-gray-400 truncate">
-                Tap to open · Primary line: {primary.number}
+                {s.radar_tap_to_open}{primary.number}
               </p>
             </div>
           </div>
@@ -1142,9 +1181,9 @@ const GovEmergencyServices = ({
               <PhoneCall className="h-4 w-4 text-destructive" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">Local Police</p>
+              <p className="text-sm font-semibold text-white truncate">{s.radar_local_police}</p>
               <p className="text-[11px] text-gray-400 truncate">
-                Nearest police station dispatch
+                {s.radar_police_tagline}
               </p>
             </div>
             <span className="text-sm font-bold text-destructive">100</span>
