@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { ParchiSheet } from "@/components/ParchiSheet";
+import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import {
   Sheet,
   SheetContent,
@@ -11,13 +12,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Loader2, Mic, Phone, PhoneCall, Search } from "lucide-react";
+import { Loader2, Mic, Phone, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
   classifySearchTermForRadar,
   fetchCategories,
   groupCategoriesByMode,
-  fetchAiBridgeBrief,
   supabase,
   type Category,
   type CategoryGroup,
@@ -26,6 +26,7 @@ import {
 } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
+import { registerUserPushToken } from "@/lib/pushNotifications";
 import { buildRequestsActiveWindowOrFilter } from "@/lib/orders";
 import { useLanguage } from "@/lib/language";
 
@@ -35,10 +36,6 @@ type SavedNeighbourTile = {
   nickname: string;
   category: string;
 };
-
-function telHref(phone: string) {
-  return `tel:${phone.replace(/[\s-]/g, "").trim()}`;
-}
 
 const Index = () => {
   const { s } = useLanguage();
@@ -54,9 +51,6 @@ const Index = () => {
   const [neighbourSheetVendor, setNeighbourSheetVendor] = useState<Vendor | null>(null);
   const [neighbourSheetOpen, setNeighbourSheetOpen] = useState(false);
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
-  const [aiSheetLoading, setAiSheetLoading] = useState(false);
-  const [aiBriefText, setAiBriefText] = useState<string | null>(null);
-  const [aiBriefFailed, setAiBriefFailed] = useState(false);
   const [aiBridgeVendor, setAiBridgeVendor] = useState<Vendor | null>(null);
   const [activeOrderCount, setActiveOrderCount] = useState(0);
   const [neighbourDeliveryActiveOrder, setNeighbourDeliveryActiveOrder] = useState(false);
@@ -66,6 +60,7 @@ const Index = () => {
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const recRef = useRef<any>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const pushRegisteredUserRef = useRef<string | null>(null);
 
   const loadSavedNeighbours = useCallback(async () => {
     const device_id = getDeviceId();
@@ -88,7 +83,9 @@ const Index = () => {
     }
     const { data: vendors, error: vErr } = await supabase
       .from("vendors")
-      .select("id, shop_name, shop_photo_url, is_active, category, service_mode, phone")
+      .select(
+        "id, name, shop_name, shop_photo_url, is_active, category, service_mode, phone, verification_status, is_manual_verified, upi_verified, vendor_note, total_helped, on_time_rate",
+      )
       .in("id", vendorIds);
     if (vErr || !vendors?.length) {
       setSavedNeighbours([]);
@@ -101,6 +98,14 @@ const Index = () => {
       if (v) tiles.push({ savedId: r.id, vendor: v, nickname: r.nickname, category: r.category });
     }
     setSavedNeighbours(tiles);
+  }, []);
+
+  useEffect(() => {
+    const userPhone = getUserPhone();
+    if (!userPhone) return;
+    if (pushRegisteredUserRef.current === userPhone) return;
+    pushRegisteredUserRef.current = userPhone;
+    void registerUserPushToken(userPhone);
   }, []);
 
   useEffect(() => {
@@ -254,40 +259,9 @@ const Index = () => {
     await runFreeTextSearch(term);
   };
 
-  const closeAiSheet = useCallback((open: boolean) => {
-    setAiSheetOpen(open);
-    if (!open) {
-      setAiSheetLoading(false);
-      setAiBriefText(null);
-      setAiBriefFailed(false);
-      setAiBridgeVendor(null);
-    }
-  }, []);
-
-  const openAiBridgeFromNeighbour = useCallback(async (vendor: Vendor) => {
-    const need = vendor.category || "help";
+  const openAiBridgeFromNeighbour = useCallback((vendor: Vendor) => {
     setAiBridgeVendor(vendor);
     setAiSheetOpen(true);
-    setAiSheetLoading(true);
-    setAiBriefFailed(false);
-    setAiBriefText(null);
-
-    const result = await fetchAiBridgeBrief({
-      vendor_name: vendor.name?.trim() ? vendor.name : vendor.shop_name,
-      shop_name: vendor.shop_name,
-      category: vendor.category,
-      distance_km: null,
-      user_need: need,
-    });
-
-    setAiSheetLoading(false);
-    if (result.ok) {
-      setAiBriefText(result.brief);
-      setAiBriefFailed(false);
-    } else {
-      setAiBriefText(null);
-      setAiBriefFailed(true);
-    }
   }, []);
 
   const startVoice = () => {
@@ -668,75 +642,26 @@ const Index = () => {
         </SheetContent>
       </Sheet>
 
-      <Sheet open={aiSheetOpen} onOpenChange={closeAiSheet}>
-        <SheetContent
-          side="bottom"
-          className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
-        >
-          <SheetHeader className="text-left space-y-1 pr-8">
-            <SheetTitle className="text-white font-display">{s.aiBridge}</SheetTitle>
-            <SheetDescription className="text-gray-400">
-              {aiSheetLoading
-                ? s.briefingVendor
-                : aiBriefFailed
-                  ? s.aiBriefUnavailable
-                  : s.yourCallBrief}
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="mt-4 space-y-4">
-            {aiSheetLoading && (
-              <div className="flex items-center gap-3 py-6 text-gray-300">
-                <Loader2 className="h-6 w-6 animate-spin text-[#22C55E] shrink-0" />
-                <p className="text-sm">{s.briefingVendor}</p>
-              </div>
-            )}
-
-            {!aiSheetLoading && aiBriefFailed && (
-              <p className="text-sm text-amber-200/90 leading-relaxed">
-                {s.aiBriefUnavailable}
-              </p>
-            )}
-
-            {!aiSheetLoading && !aiBriefFailed && aiBriefText && (
-              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{aiBriefText}</p>
-            )}
-
-            {!aiSheetLoading && aiBridgeVendor?.vendor_note && (
-              <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px] text-[#22C55E]">
-                📌 {aiBridgeVendor.vendor_note}
-              </div>
-            )}
-
-            {!aiSheetLoading && aiBridgeVendor && (
-              <div className="flex flex-col gap-2 pt-2">
-                <button
-                  type="button"
-                  className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
-                  onClick={() => {
-                    try {
-                      sessionStorage.setItem(`aaspaas:called:${aiBridgeVendor.id}`, "1");
-                    } catch {
-                      /* ignore */
-                    }
-                    window.open(telHref(aiBridgeVendor.phone), "_self");
-                  }}
-                >
-                  <PhoneCall className="h-4 w-4" />
-                  {s.callNow}
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded-xl border border-[#333] bg-transparent text-gray-300 py-3 font-semibold active:scale-[0.99] transition-transform"
-                  onClick={() => closeAiSheet(false)}
-                >
-                  {s.cancel}
-                </button>
-              </div>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+      {aiBridgeVendor && (
+        <AiBridgeSheet
+          open={aiSheetOpen}
+          onClose={() => {
+            setAiSheetOpen(false);
+            setAiBridgeVendor(null);
+          }}
+          vendor={aiBridgeVendor}
+          callerPhone={getUserPhone() ?? ""}
+          userNeed={aiBridgeVendor.category}
+          distanceKm={null}
+          onCallSuccess={(vendorId) => {
+            try {
+              sessionStorage.setItem(`aaspaas:called:${vendorId}`, "1");
+            } catch {
+              /* ignore */
+            }
+          }}
+        />
+      )}
 
       <ParchiSheet
         vendor={parchiVendor}

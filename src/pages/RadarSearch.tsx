@@ -10,7 +10,6 @@ import {
   Shield,
   ShieldAlert,
   Loader2,
-  PhoneCall,
   Clock,
   Siren,
   ChevronDown,
@@ -22,7 +21,6 @@ import {
   supabase,
   type Vendor,
   distanceKm,
-  fetchAiBridgeBrief,
   displayName,
   useCategoryLabel,
 } from "@/lib/supabase";
@@ -30,6 +28,7 @@ import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, migrateUserPhone } from "@/lib/userIdentity";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { ParchiSheet } from "@/components/ParchiSheet";
+import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { VerificationBadge, vendorTier, verificationCopy } from "@/components/VerificationBadge";
 import { toast } from "sonner";
 import {
@@ -38,13 +37,6 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { useLanguage } from "@/lib/language";
 
 type Ranked = { vendor: Vendor; dist: number | null };
@@ -555,10 +547,6 @@ const VendorReputationLine = ({
   return null;
 };
 
-function telHref(phone: string) {
-  return `tel:${phone.replace(/[\s-]/g, "").trim()}`;
-}
-
 const RadarVendorCard = ({
   vendor,
   dist,
@@ -585,9 +573,6 @@ const RadarVendorCard = ({
   const [resolutionBusy, setResolutionBusy] = useState(false);
 
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
-  const [aiSheetLoading, setAiSheetLoading] = useState(false);
-  const [aiBriefText, setAiBriefText] = useState<string | null>(null);
-  const [aiBriefFailed, setAiBriefFailed] = useState(false);
 
   const [parchiOpen, setParchiOpen] = useState(false);
   const [savedVendorLocked, setSavedVendorLocked] = useState(() =>
@@ -705,39 +690,9 @@ const RadarVendorCard = ({
         ? "ring-[#FACC15]/40"
         : "ring-destructive/30";
 
-  const closeAiSheet = useCallback((open: boolean) => {
-    setAiSheetOpen(open);
-    if (!open) {
-      setAiSheetLoading(false);
-      setAiBriefText(null);
-      setAiBriefFailed(false);
-    }
-  }, []);
-
-  const handleConnect = useCallback(async () => {
-    const need = userNeed.trim() || vendor.category || "help";
+  const handleConnect = useCallback(() => {
     setAiSheetOpen(true);
-    setAiSheetLoading(true);
-    setAiBriefFailed(false);
-    setAiBriefText(null);
-
-    const result = await fetchAiBridgeBrief({
-      vendor_name: vendor.name,
-      shop_name: vendor.shop_name,
-      category: vendor.category,
-      distance_km: dist,
-      user_need: need,
-    });
-
-    setAiSheetLoading(false);
-    if (result.ok) {
-      setAiBriefText(result.brief);
-      setAiBriefFailed(false);
-    } else {
-      setAiBriefText(null);
-      setAiBriefFailed(true);
-    }
-  }, [userNeed, vendor.name, vendor.shop_name, vendor.category, dist]);
+  }, []);
 
   const handleSaveVendor = useCallback(async () => {
     if (savedVendorLocked) return;
@@ -896,72 +851,18 @@ const RadarVendorCard = ({
         {s.radar_connect_ai}
       </button>
 
-      <Sheet open={aiSheetOpen} onOpenChange={closeAiSheet}>
-        <SheetContent
-          side="bottom"
-          className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
-        >
-          <SheetHeader className="text-left space-y-1 pr-8">
-            <SheetTitle className="text-white font-display">{s.radar_ai_bridge}</SheetTitle>
-            <SheetDescription className="text-gray-400">
-              {aiSheetLoading
-                ? s.radar_briefing
-                : aiBriefFailed
-                  ? s.radar_ai_unavailable
-                  : s.radar_your_brief}
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="mt-4 space-y-4">
-            {aiSheetLoading && (
-              <div className="flex items-center gap-3 py-6 text-gray-300">
-                <Loader2 className="h-6 w-6 animate-spin text-[#22C55E] shrink-0" />
-                <p className="text-sm">{s.radar_briefing}</p>
-              </div>
-            )}
-
-            {!aiSheetLoading && aiBriefFailed && (
-              <p className="text-sm text-amber-200/90 leading-relaxed">
-                {s.radar_ai_unavailable}
-              </p>
-            )}
-
-            {!aiSheetLoading && !aiBriefFailed && aiBriefText && (
-              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{aiBriefText}</p>
-            )}
-
-            {!aiSheetLoading && vendor.vendor_note && (
-              <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px] text-[#22C55E]">
-                📌 {vendor.vendor_note}
-              </div>
-            )}
-
-            {!aiSheetLoading && (
-              <div className="flex flex-col gap-2 pt-2">
-                <button
-                  type="button"
-                  className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
-                  onClick={() => {
-                    writeCalledVendor(vendor.id);
-                    setResolutionSessionTick((n) => n + 1);
-                    window.open(telHref(vendor.phone), "_self");
-                  }}
-                >
-                  <PhoneCall className="h-4 w-4" />
-                  {s.radar_call_now}
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded-xl border border-[#333] bg-transparent text-gray-300 py-3 font-semibold active:scale-[0.99] transition-transform"
-                  onClick={() => closeAiSheet(false)}
-                >
-                  {s.radar_cancel}
-                </button>
-              </div>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+      <AiBridgeSheet
+        open={aiSheetOpen}
+        onClose={() => setAiSheetOpen(false)}
+        vendor={vendor}
+        callerPhone={getUserPhone() ?? ""}
+        userNeed={userNeed}
+        distanceKm={dist}
+        onCallSuccess={(vendorId) => {
+          writeCalledVendor(vendorId);
+          setResolutionSessionTick((n) => n + 1);
+        }}
+      />
 
       {showSendOrderSection &&
         (deliveryOrderSent ? (

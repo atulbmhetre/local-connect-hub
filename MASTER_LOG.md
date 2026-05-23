@@ -14,3 +14,9 @@ Project documentation: known issues, tech debt, and key decisions.
 | Topic | Decision | Notes |
 |-------|----------|-------|
 | RLS tightening | Deferred — app uses anon key, JWT policies don't fire yet | Needs proper auth session before RLS can enforce vendor/user boundaries |
+
+## requests table schema
+
+| Column | Type | Notes |
+|--------|------|-------|
+| delivery_slot | text | Nullable — ASAP/Morning/Afternoon/Evening/Tomorrow |

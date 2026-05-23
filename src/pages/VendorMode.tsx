@@ -16,6 +16,7 @@ import {
   classifyCategory,
   useCategoryLabel,
   useServiceModeLabel,
+  invokeNotifyUser,
 } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
@@ -43,6 +44,16 @@ import {
   Sheet,
   SheetContent,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const STORAGE_KEY = "aaspaas:vendor_id";
 
@@ -56,6 +67,52 @@ const DELIVERY_CATEGORIES = new Set([
 
 function defaultServiceModeForCategory(category: string): "help" | "delivery" {
   return DELIVERY_CATEGORIES.has(category.trim()) ? "delivery" : "help";
+}
+
+function isAppointmentToday(iso: string): boolean {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return false;
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
+function orderBlocksGoingOffline(
+  order: { delivery_slot: string | null; appointment_time: string | null },
+  serviceMode: string | null | undefined,
+): boolean {
+  const mode = serviceMode ?? "help";
+  if (mode === "help") return true;
+  if (mode === "delivery") {
+    return (order.delivery_slot ?? "").trim().toLowerCase() !== "tomorrow";
+  }
+  if (mode === "appointment") {
+    return order.appointment_time != null && isAppointmentToday(order.appointment_time);
+  }
+  return false;
+}
+
+type BlockingOfflineOrder = {
+  id: string;
+  user_phone: string | null;
+  delivery_slot: string | null;
+  appointment_time: string | null;
+};
+
+async function fetchBlockingActiveOrders(
+  vendorId: string,
+  serviceMode: string | null | undefined,
+): Promise<BlockingOfflineOrder[]> {
+  const { data, error } = await supabase
+    .from("requests")
+    .select("id, user_phone, delivery_slot, appointment_time")
+    .eq("vendor_id", vendorId)
+    .in("status", ["sent", "seen", "accepted"]);
+  if (error || !data?.length) return [];
+  return data.filter((row) => orderBlocksGoingOffline(row, serviceMode));
 }
 
 // Heuristic gibberish detector: rejects keyboard mashing like "asdfasdf"
@@ -148,6 +205,9 @@ const VendorMode = () => {
   const ordersRef = useRef<HTMLDivElement>(null);
   const pushRegisteredVendorRef = useRef<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [offlineConfirmOpen, setOfflineConfirmOpen] = useState(false);
+  const [checkingOffline, setCheckingOffline] = useState(false);
+  const [offlineBlockingOrders, setOfflineBlockingOrders] = useState<BlockingOfflineOrder[]>([]);
 
   useEffect(() => {
     localStorage.setItem("aaspaas:role", "vendor");
@@ -451,13 +511,10 @@ const VendorMode = () => {
   };
 
   // ---- runtime actions ----
-  const toggleActive = async () => {
-    if (!vendor) return;
-    const next = !vendor.is_active;
+  const applyActiveState = async (next: boolean): Promise<boolean> => {
+    if (!vendor) return false;
     setVendor({ ...vendor, is_active: next });
 
-    // Mobile services (mechanic, key maker) refresh GPS each time they go live,
-    // so customers always see their current position on the radar.
     let liveCoords: { lat: number; lng: number } | null = null;
     if (next && isMobileCategory(vendor.category)) {
       try {
@@ -473,12 +530,12 @@ const VendorMode = () => {
           });
         });
         liveCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      } catch (e: any) {
+      } catch {
         setVendor({ ...vendor, is_active: !next });
         toast.error(s.vendor_location_required, {
           description: s.vendor_location_required_body,
         });
-        return;
+        return false;
       }
     }
 
@@ -498,14 +555,65 @@ const VendorMode = () => {
     if (error) {
       setVendor({ ...vendor, is_active: !next });
       toast.error(s.vendor_status_failed, { description: error.message });
-    } else {
-      toast(next ? s.vendor_you_are_live : s.vendor_you_are_offline, {
-        description: next
-          ? liveCoords
-            ? s.vendor_live_body
-            : s.vendor_live_body_short
-          : s.vendor_offline_body,
+      return false;
+    }
+
+    toast(next ? s.vendor_you_are_live : s.vendor_you_are_offline, {
+      description: next
+        ? liveCoords
+          ? s.vendor_live_body
+          : s.vendor_live_body_short
+        : s.vendor_offline_body,
+    });
+    return true;
+  };
+
+  const notifyUsersVendorOffline = (orders: BlockingOfflineOrder[]) => {
+    const phones = [
+      ...new Set(
+        orders
+          .map((o) => o.user_phone?.trim())
+          .filter((phone): phone is string => !!phone),
+      ),
+    ];
+    for (const userPhone of phones) {
+      void invokeNotifyUser({
+        user_phone: userPhone,
+        title: s.user_vendor_offline_title,
+        body: s.user_vendor_offline_body,
       });
+    }
+  };
+
+  const toggleActive = async () => {
+    if (!vendor || checkingOffline) return;
+    const next = !vendor.is_active;
+
+    if (!next) {
+      setCheckingOffline(true);
+      const blockingOrders = await fetchBlockingActiveOrders(
+        vendor.id,
+        vendor.service_mode,
+      );
+      setCheckingOffline(false);
+      if (blockingOrders.length > 0) {
+        setOfflineBlockingOrders(blockingOrders);
+        setOfflineConfirmOpen(true);
+        return;
+      }
+      setOfflineBlockingOrders([]);
+    }
+
+    await applyActiveState(next);
+  };
+
+  const confirmGoOfflineAnyway = async () => {
+    const ordersToNotify = offlineBlockingOrders;
+    setOfflineConfirmOpen(false);
+    setOfflineBlockingOrders([]);
+    const ok = await applyActiveState(false);
+    if (ok && ordersToNotify.length > 0) {
+      notifyUsersVendorOffline(ordersToNotify);
     }
   };
 
@@ -982,9 +1090,10 @@ const VendorMode = () => {
             </p>
 
             <button
-              onClick={toggleActive}
+              onClick={() => void toggleActive()}
+              disabled={checkingOffline}
               aria-pressed={vendor.is_active}
-              className={`mt-6 mx-auto rounded-full grid place-items-center transition-all active:scale-95 ${
+              className={`mt-6 mx-auto rounded-full grid place-items-center transition-all active:scale-95 disabled:opacity-60 ${
                 vendor.is_active
                   ? "h-11 w-11 bg-[#22C55E] border-0 text-[#000]"
                   : "h-[72px] w-[72px] bg-[#1e3a1e] border-2 border-[#22C55E] text-[#22C55E]"
@@ -1019,6 +1128,7 @@ const VendorMode = () => {
           <div ref={ordersRef}>
             <IncomingOrdersSection
               vendorId={vendor.id}
+              serviceMode={vendor.service_mode ?? "help"}
               onUnreadCount={(n) => setUnreadCount(n)}
             />
           </div>
@@ -1191,6 +1301,26 @@ const VendorMode = () => {
           </Sheet>
         </div>
       )}
+
+      <AlertDialog open={offlineConfirmOpen} onOpenChange={setOfflineConfirmOpen}>
+        <AlertDialogContent className="rounded-2xl border border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{s.vendor_offline_active_orders_title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {s.vendor_offline_active_orders_message}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <AlertDialogCancel className="mt-0">{s.vendor_stay_online}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmGoOfflineAnyway()}
+            >
+              {s.vendor_go_offline_anyway}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <LiveCamera
         open={cameraOpen}

@@ -157,25 +157,24 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               ? s.parchi_locationVisitShop
               : s.parchi_locationTbd
           : "";
-      const deliverySlotNote =
-        effectiveVendor?.service_mode === "delivery"
-          ? ` ${s.parchi_deliverPrefix}${SLOT_LABELS[deliverySlot] ?? s.parchi_slotAsap}]`
-          : "";
       const appointmentTimestamp =
         effectiveVendor?.service_mode === "appointment" && appointmentDate && appointmentTime
           ? new Date(`${appointmentDate}T${appointmentTime}:00`).toISOString()
           : null;
+      const selectedSlot =
+        effectiveVendor?.service_mode === "delivery" ? deliverySlot : null;
       setSending(true);
       const device_id = getDeviceId();
-      console.log('message:', text.slice(0, MAX_LEN) + locationNote + deliverySlotNote);
+      console.log('message:', text.slice(0, MAX_LEN) + locationNote);
       const { error } = await supabase.from("requests").insert({
         device_id,
         vendor_id: v.id,
-        message: text.slice(0, MAX_LEN) + locationNote + deliverySlotNote,
+        message: text.slice(0, MAX_LEN) + locationNote,
         status: "sent",
         user_phone: phone,
         device_id_log: device_id,
         delivery_address: finalAddress,
+        delivery_slot: selectedSlot,
         appointment_time: appointmentTimestamp,
         appointment_status: appointmentTimestamp ? "pending" : null,
       });
@@ -184,12 +183,11 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         toast.error(s.parchi_errCouldNotSend, { description: error.message });
         return;
       }
-      const fullMessage = text.slice(0, MAX_LEN) + locationNote + deliverySlotNote;
+      const fullMessage = text.slice(0, MAX_LEN) + locationNote;
       const notifyBody = fullMessage
         .replace(/\s*\[Come to my place\]/g, "")
         .replace(/\s*\[I'll visit your shop\]/g, "")
         .replace(/\s*\[Location TBD\]/g, "")
-        .replace(/\s*\[Deliver:[^\]]+\]/g, "")
         .trim();
       void invokeNotifyVendor({
         vendor_id: v.id,

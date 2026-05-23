@@ -11,6 +11,42 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 const AI_GATEWAY_URL = `${SUPABASE_URL}/functions/v1/ai-gateway`;
 export const NOTIFY_VENDOR_URL = `${SUPABASE_URL}/functions/v1/notify-vendor`;
+export const NOTIFY_USER_URL = `${SUPABASE_URL}/functions/v1/notify-user`;
+export const INITIATE_CALL_URL = `${SUPABASE_URL}/functions/v1/initiate-call`;
+
+export async function invokeInitiateCall(body: {
+  caller_phone: string;
+  vendor_phone: string;
+  service_mode: string;
+}): Promise<{ success: boolean; call_sid?: string; error?: string }> {
+  try {
+    const resp = await fetch(INITIATE_CALL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const data = (await resp.json()) as {
+      success?: boolean;
+      call_sid?: string;
+      error?: string;
+    };
+    if (!resp.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error ?? `HTTP ${resp.status}`,
+      };
+    }
+    return { success: true, call_sid: data.call_sid };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Network error",
+    };
+  }
+}
 
 /** Best-effort push to vendor; never throws. */
 export async function invokeNotifyVendor(record: {
@@ -27,6 +63,26 @@ export async function invokeNotifyVendor(record: {
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
       body: JSON.stringify({ record }),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Best-effort push to user devices; never throws. */
+export async function invokeNotifyUser(payload: {
+  user_phone: string;
+  title: string;
+  body: string;
+}): Promise<void> {
+  try {
+    await fetch(NOTIFY_USER_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify(payload),
     });
   } catch {
     /* ignore */
@@ -75,7 +131,7 @@ export type RequestRow = {
   device_id: string;
   vendor_id: string;
   message: string;
-  status: "sent" | "seen" | "fulfilled" | "done" | "cancelled";
+  status: "sent" | "seen" | "accepted" | "fulfilled" | "done" | "cancelled";
   created_at: string;
   user_phone: string | null;
   device_id_log: string | null;

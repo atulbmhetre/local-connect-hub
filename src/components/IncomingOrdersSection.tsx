@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
 import { Loader2 } from "lucide-react";
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   vendorId: string;
+  serviceMode?: "help" | "delivery" | "appointment" | null;
   onUnreadCount?: (n: number) => void;
 };
 
@@ -25,17 +26,27 @@ function stripLocationTag(message: string): string {
     .trim();
 }
 
-function extractDeliverySlot(message: string): string | null {
-  const match = message.match(/\[Deliver: ([^\]]+)\]/);
-  return match ? match[1] : null;
+function deliverySlotLabel(
+  slot: string | null | undefined,
+  labels: Record<string, string>,
+): string | null {
+  if (!slot?.trim()) return null;
+  return labels[slot.trim().toLowerCase()] ?? slot;
 }
 
-function stripDeliverySlot(message: string): string {
-  return message.replace(/\s*\[Deliver:[^\]]+\]/g, "").trim();
-}
-
-export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
+export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: Props) {
+  const isHelpMode = serviceMode === "help";
   const { s } = useLanguage();
+  const slotLabels = useMemo(
+    () => ({
+      asap: s.parchi_slotAsap,
+      morning: s.parchi_slotMorning,
+      afternoon: s.parchi_slotAfternoon,
+      evening: s.parchi_slotEvening,
+      tomorrow: s.parchi_slotTomorrow,
+    }),
+    [s],
+  );
   const [rows, setRows] = useState<OrderRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
@@ -48,7 +59,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
   const mounted = useRef(true);
 
   const selectFields =
-    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, appointment_time, appointment_status, cancel_reason";
+    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason";
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -73,7 +84,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
       onUnreadCount?.(list.filter((r) => r.status === "sent").length);
       if (!opts?.silent) setLoading(false);
 
-      const hadSent = list.some((r) => r.status === "sent");
+      const hadSent = !isHelpMode && list.some((r) => r.status === "sent");
       if (hadSent) {
         const { error: upErr } = await supabase
           .from("requests")
@@ -94,7 +105,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
         onUnreadCount?.(refreshedList.filter((r) => r.status === "sent").length);
       }
     },
-    [vendorId, onUnreadCount],
+    [vendorId, onUnreadCount, isHelpMode],
   );
 
   useEffect(() => {
@@ -158,6 +169,31 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
       void supabase.removeChannel(channel);
     };
   }, [vendorId, load]);
+
+  const acceptHelpOrder = async (id: string) => {
+    setMarkingId(id);
+    const { data, error } = await supabase
+      .from("requests")
+      .update({ status: "accepted" })
+      .eq("id", id)
+      .eq("status", "sent")
+      .select("id");
+    setMarkingId(null);
+    if (error) {
+      toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+      return;
+    }
+    if (!data?.length) {
+      toast.error(s.order_already_taken);
+      setRows((prev) => prev.filter((r) => r.id !== id));
+      return;
+    }
+    setRows((prev) => {
+      const next = prev.map((r) => (r.id === id ? { ...r, status: "accepted" } : r));
+      onUnreadCount?.(next.filter((r) => r.status === "sent").length);
+      return next;
+    });
+  };
 
   const markDone = async (id: string) => {
     setMarkingId(id);
@@ -255,6 +291,12 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
           {s.incoming_statusSeen}
         </span>
       );
+    if (status === "accepted")
+      return (
+        <span className="rounded-full bg-[#22C55E]/20 text-[#22C55E] text-[10px] font-semibold px-2 py-0.5 border border-[#22C55E]/40">
+          {s.status_accepted}
+        </span>
+      );
     if (status === "fulfilled")
       return (
         <span className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-[#22C55E]/30 text-[#22C55E]">
@@ -307,7 +349,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                 {badge(r.status)}
               </div>
               <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
-                {stripDeliverySlot(stripLocationTag(r.message))}
+                {stripLocationTag(r.message)}
               </p>
               {r.status === "cancelled" && r.cancel_reason && (
                 <span className="inline-flex rounded-full bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 border border-border">
@@ -321,7 +363,7 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
               )}
 
               {(() => {
-                const slot = extractDeliverySlot((r as any).message ?? "");
+                const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
                 if (!slot) return null;
                 return (
                   <div className="rounded-lg border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px]">
@@ -457,6 +499,17 @@ export function IncomingOrdersSection({ vendorId, onUnreadCount }: Props) {
                     </div>
                   );
                 })()}
+
+              {isHelpMode && r.status === "sent" && (
+                  <button
+                    type="button"
+                    disabled={markingId === r.id}
+                    onClick={() => void acceptHelpOrder(r.id)}
+                    className="w-full rounded-lg bg-[#22C55E] text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {markingId === r.id ? s.incoming_saving : s.incoming_btnAccept}
+                  </button>
+                )}
 
               {(r.status === "sent" || r.status === "seen") && (
                 <button

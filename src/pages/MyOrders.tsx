@@ -1,27 +1,84 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
-import { supabase, invokeNotifyVendor } from "@/lib/supabase";
+import { supabase, invokeNotifyVendor, distanceMeters, fetchAiBridgeBrief } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { RatingSheet } from "@/components/RatingSheet";
-import { ArrowLeft, Loader2, Pencil } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, PhoneCall } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 const MAX_LEN = 200;
+const MS_10M = 10 * 60 * 1000;
+const STOPPED_RADIUS_M = 200;
 
 type RowWithShop = OrderRequestRow & {
-  vendors: { shop_name: string; service_mode: string | null } | null;
+  vendors: { shop_name: string; service_mode: string | null; phone: string | null } | null;
 };
+
+type VendorLocationPoint = {
+  latitude: number;
+  longitude: number;
+  timestamp: number;
+};
+
+type VendorLiveLocation = {
+  latitude: number;
+  longitude: number;
+  lastUpdated: string;
+};
+
+function telHref(phone: string) {
+  return `tel:${phone.replace(/[\s-]/g, "").trim()}`;
+}
+
+function formatVendorDistance(meters: number): string {
+  if (meters < 1000) return `${Math.round(meters)} mtr away`;
+  return `${(meters / 1000).toFixed(1)} km away`;
+}
+
+function maxSpreadMeters(points: Pick<VendorLocationPoint, "latitude" | "longitude">[]): number {
+  if (points.length < 2) return 0;
+  let max = 0;
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      max = Math.max(
+        max,
+        distanceMeters(
+          { lat: points[i].latitude, lng: points[i].longitude },
+          { lat: points[j].latitude, lng: points[j].longitude },
+        ),
+      );
+    }
+  }
+  return max;
+}
+
+function computeVendorStopped(history: VendorLocationPoint[]): boolean {
+  const cutoff = Date.now() - MS_10M;
+  const recent = history.filter((p) => p.timestamp >= cutoff);
+  if (recent.length < 2) return false;
+
+  const last = recent[recent.length - 1];
+  const prev = recent[recent.length - 2];
+  const movedSincePrev = distanceMeters(
+    { lat: prev.latitude, lng: prev.longitude },
+    { lat: last.latitude, lng: last.longitude },
+  );
+  if (movedSincePrev > STOPPED_RADIUS_M) return false;
+
+  return maxSpreadMeters(recent) <= STOPPED_RADIUS_M;
+}
 
 const MS_24H = 24 * 60 * 60 * 1000;
 
@@ -30,7 +87,15 @@ function orderCreatedWithinLast24h(created_at: string): boolean {
   return Number.isFinite(t) && Date.now() - t < MS_24H;
 }
 
-const userStatusLabel = (r: Pick<OrderRequestRow, "status" | "created_at">, s: ReturnType<typeof useLanguage>["s"]) => {
+const userStatusLabel = (
+  r: Pick<OrderRequestRow, "status" | "created_at"> & {
+    vendors?: { service_mode: string | null } | null;
+  },
+  s: ReturnType<typeof useLanguage>["s"],
+) => {
+  if (r.status === "accepted" && r.vendors?.service_mode === "help") {
+    return s.status_accepted;
+  }
   if (r.status === "sent") return s.myOrders_statusSent;
   if (r.status === "seen") {
     return orderCreatedWithinLast24h(r.created_at)
@@ -56,35 +121,38 @@ function stripLocationTag(message: string): string {
     .trim();
 }
 
-function extractDeliverySlot(message: string): string | null {
-  const match = message.match(/\[Deliver: ([^\]]+)\]/);
-  return match ? match[1] : null;
-}
-
-function stripDeliverySlot(message: string): string {
-  return message.replace(/\s*\[Deliver:[^\]]+\]/g, "").trim();
-}
-
 function extractLocationTag(message: string): string {
   const m = message.match(/\s*(\[Come to my place\]|\[I'll visit your shop\]|\[Location TBD\])/);
   return m ? m[1] : "";
 }
 
-function extractDeliverySlotTag(message: string): string {
-  const m = message.match(/\s*(\[Deliver:[^\]]+\])/);
-  return m ? m[1] : "";
-}
-
 function buildMessageWithTags(base: string, original: string): string {
   const loc = extractLocationTag(original);
-  const del = extractDeliverySlotTag(original);
-  const suffix = `${loc ? ` ${loc}` : ""}${del ? ` ${del}` : ""}`;
+  const suffix = loc ? ` ${loc}` : "";
   return base.slice(0, MAX_LEN) + suffix;
+}
+
+function deliverySlotLabel(
+  slot: string | null | undefined,
+  labels: Record<string, string>,
+): string | null {
+  if (!slot?.trim()) return null;
+  return labels[slot.trim().toLowerCase()] ?? slot;
 }
 
 const MyOrders = () => {
   const navigate = useNavigate();
   const { s } = useLanguage();
+  const slotLabels = useMemo(
+    () => ({
+      asap: s.parchi_slotAsap,
+      morning: s.parchi_slotMorning,
+      afternoon: s.parchi_slotAfternoon,
+      evening: s.parchi_slotEvening,
+      tomorrow: s.parchi_slotTomorrow,
+    }),
+    [s],
+  );
   const [rows, setRows] = useState<RowWithShop[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
@@ -101,7 +169,36 @@ const MyOrders = () => {
   const [editOrder, setEditOrder] = useState<RowWithShop | null>(null);
   const [editMessage, setEditMessage] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [vendorLiveById, setVendorLiveById] = useState<Record<string, VendorLiveLocation>>({});
+  const [vendorStoppedByOrderId, setVendorStoppedByOrderId] = useState<Record<string, boolean>>({});
+  const [locationTick, setLocationTick] = useState(0);
+  const [helpCallVendor, setHelpCallVendor] = useState<{
+    vendorId: string;
+    shopName: string;
+    phone: string;
+    userNeed: string;
+    distanceKm: number | null;
+  } | null>(null);
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
+  const [aiSheetLoading, setAiSheetLoading] = useState(false);
+  const [aiBriefText, setAiBriefText] = useState<string | null>(null);
+  const [aiBriefFailed, setAiBriefFailed] = useState(false);
   const mounted = useRef(true);
+  const vendorLocationHistoryRef = useRef<Map<string, VendorLocationPoint[]>>(new Map());
+
+  const acceptedHelpOrders = useMemo(
+    () =>
+      rows.filter(
+        (r) => r.status === "accepted" && r.vendors?.service_mode === "help",
+      ),
+    [rows],
+  );
+
+  const acceptedHelpVendorIds = useMemo(
+    () => [...new Set(acceptedHelpOrders.map((r) => r.vendor_id))],
+    [acceptedHelpOrders],
+  );
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -110,7 +207,7 @@ const MyOrders = () => {
     let listQuery = supabase
       .from("requests")
       .select(
-        "id, device_id, vendor_id, message, status, created_at, user_phone, appointment_time, appointment_status, cancel_reason, vendors(shop_name, service_mode)",
+        "id, device_id, vendor_id, message, status, created_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, vendors(shop_name, service_mode, phone)",
       )
       .neq("status", "done")
       .order("created_at", { ascending: false });
@@ -137,6 +234,207 @@ const MyOrders = () => {
       window.clearInterval(t);
     };
   }, [load]);
+
+  useEffect(() => {
+    if (acceptedHelpVendorIds.length === 0) return;
+    if (!("geolocation" in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (!mounted.current) return;
+        setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
+      () => {
+        /* best-effort */
+      },
+      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
+    );
+  }, [acceptedHelpVendorIds.join(",")]);
+
+  useEffect(() => {
+    if (acceptedHelpVendorIds.length === 0) return;
+    const t = window.setInterval(() => setLocationTick((n) => n + 1), 60_000);
+    return () => window.clearInterval(t);
+  }, [acceptedHelpVendorIds.join(",")]);
+
+  const applyVendorLocationUpdate = useCallback(
+    (
+      vendorId: string,
+      latitude: number | null,
+      longitude: number | null,
+      lastUpdated: string | null,
+    ) => {
+      if (
+        latitude == null ||
+        longitude == null ||
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude)
+      ) {
+        return;
+      }
+
+      const timestamp = lastUpdated ? new Date(lastUpdated).getTime() : Date.now();
+      const history = [...(vendorLocationHistoryRef.current.get(vendorId) ?? [])];
+      const prev = history[history.length - 1];
+      const live: VendorLiveLocation = {
+        latitude,
+        longitude,
+        lastUpdated: lastUpdated ?? new Date().toISOString(),
+      };
+
+      if (
+        prev &&
+        prev.latitude === latitude &&
+        prev.longitude === longitude &&
+        Math.abs(prev.timestamp - timestamp) < 5000
+      ) {
+        setVendorLiveById((prevLive) => ({ ...prevLive, [vendorId]: live }));
+        const stopped = computeVendorStopped(history);
+        setVendorStoppedByOrderId((prevStopped) => {
+          const next = { ...prevStopped };
+          for (const order of acceptedHelpOrders) {
+            if (order.vendor_id === vendorId) {
+              next[order.id] = stopped;
+            }
+          }
+          return next;
+        });
+        return;
+      }
+
+      history.push({ latitude, longitude, timestamp });
+      vendorLocationHistoryRef.current.set(vendorId, history);
+      setVendorLiveById((prevLive) => ({ ...prevLive, [vendorId]: live }));
+
+      const stopped = computeVendorStopped(history);
+      setVendorStoppedByOrderId((prevStopped) => {
+        const next = { ...prevStopped };
+        for (const order of acceptedHelpOrders) {
+          if (order.vendor_id === vendorId) {
+            next[order.id] = stopped;
+          }
+        }
+        return next;
+      });
+    },
+    [acceptedHelpOrders],
+  );
+
+  useEffect(() => {
+    if (acceptedHelpVendorIds.length === 0) return;
+
+    let cancelled = false;
+    const activeIds = new Set(acceptedHelpVendorIds);
+    for (const key of vendorLocationHistoryRef.current.keys()) {
+      if (!activeIds.has(key)) vendorLocationHistoryRef.current.delete(key);
+    }
+
+    void (async () => {
+      const { data } = await supabase
+        .from("vendors")
+        .select("id, latitude, longitude, last_updated")
+        .in("id", acceptedHelpVendorIds);
+      if (cancelled || !data) return;
+      for (const row of data) {
+        applyVendorLocationUpdate(
+          row.id,
+          row.latitude,
+          row.longitude,
+          row.last_updated ?? null,
+        );
+      }
+    })();
+
+    const channel = supabase.channel("my-orders-vendor-locations");
+    for (const vendorId of acceptedHelpVendorIds) {
+      channel.on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "vendors",
+          filter: `id=eq.${vendorId}`,
+        },
+        (payload) => {
+          if (!mounted.current) return;
+          const row = payload.new as {
+            id: string;
+            latitude: number | null;
+            longitude: number | null;
+            last_updated?: string | null;
+          };
+          applyVendorLocationUpdate(
+            row.id,
+            row.latitude,
+            row.longitude,
+            row.last_updated ?? null,
+          );
+        },
+      );
+    }
+    channel.subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [acceptedHelpVendorIds.join(","), applyVendorLocationUpdate]);
+
+  const closeAiSheet = useCallback((open: boolean) => {
+    setAiSheetOpen(open);
+    if (!open) {
+      setAiSheetLoading(false);
+      setAiBriefText(null);
+      setAiBriefFailed(false);
+      setHelpCallVendor(null);
+    }
+  }, []);
+
+  const openHelpVendorCall = useCallback(
+    async (order: RowWithShop) => {
+      const phone = order.vendors?.phone?.trim();
+      if (!phone) return;
+
+      const live = vendorLiveById[order.vendor_id];
+      const distM =
+        live && userCoords
+          ? distanceMeters(
+              { lat: userCoords.lat, lng: userCoords.lng },
+              { lat: live.latitude, lng: live.longitude },
+            )
+          : null;
+
+      setHelpCallVendor({
+        vendorId: order.vendor_id,
+        shopName: order.vendors?.shop_name ?? s.myOrders_shopFallback,
+        phone,
+        userNeed: stripLocationTag(order.message),
+        distanceKm: distM != null ? distM / 1000 : null,
+      });
+      setAiSheetOpen(true);
+      setAiSheetLoading(true);
+      setAiBriefFailed(false);
+      setAiBriefText(null);
+
+      const result = await fetchAiBridgeBrief({
+        vendor_name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
+        shop_name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
+        category: "help",
+        distance_km: distM != null ? distM / 1000 : null,
+        user_need: stripLocationTag(order.message) || "help",
+      });
+
+      if (!mounted.current) return;
+      setAiSheetLoading(false);
+      if (result.ok) {
+        setAiBriefText(result.brief);
+        setAiBriefFailed(false);
+      } else {
+        setAiBriefText(null);
+        setAiBriefFailed(true);
+      }
+    },
+    [s.myOrders_shopFallback, userCoords, vendorLiveById],
+  );
 
   useEffect(() => {
     const userPhone = getUserPhone();
@@ -205,7 +503,7 @@ const MyOrders = () => {
 
   const openEditSheet = (r: RowWithShop) => {
     setEditOrder(r);
-    setEditMessage(stripDeliverySlot(stripLocationTag(r.message)));
+    setEditMessage(stripLocationTag(r.message));
   };
 
   const closeEditSheet = () => {
@@ -217,7 +515,7 @@ const MyOrders = () => {
     if (!editOrder) return;
     const trimmed = editMessage.trim();
     if (!trimmed) return;
-    const originalStripped = stripDeliverySlot(stripLocationTag(editOrder.message));
+    const originalStripped = stripLocationTag(editOrder.message);
     if (trimmed === originalStripped) return;
 
     const newMessage = buildMessageWithTags(trimmed, editOrder.message);
@@ -244,7 +542,7 @@ const MyOrders = () => {
     if (wasSeen) {
       void invokeNotifyVendor({
         vendor_id: editOrder.vendor_id,
-        message: stripDeliverySlot(stripLocationTag(newMessage)),
+        message: stripLocationTag(newMessage),
         notification_title: "Order updated by user",
       });
     }
@@ -335,12 +633,64 @@ const MyOrders = () => {
                 <span className="inline-flex rounded-full bg-destructive/15 text-destructive text-[11px] font-semibold px-2.5 py-1 border border-destructive/40">
                   {s.myOrders_cancelledByVendor}
                 </span>
+              ) : r.status === "accepted" && r.vendors?.service_mode === "help" ? (
+                <span className="inline-flex rounded-full bg-[#22C55E]/15 text-[#22C55E] text-[11px] font-semibold px-2.5 py-1 border border-[#22C55E]/40">
+                  {s.status_accepted}
+                </span>
               ) : (
                 <p className="text-xs text-muted-foreground">{userStatusLabel(r, s)}</p>
               )}
               <p className="text-sm text-foreground/90 leading-snug whitespace-pre-wrap break-words">
-                {stripDeliverySlot(stripLocationTag(r.message))}
+                {stripLocationTag(r.message)}
               </p>
+              {r.status === "accepted" &&
+                r.vendors?.service_mode === "help" &&
+                (() => {
+                  const live = vendorLiveById[r.vendor_id];
+                  const distM =
+                    live && userCoords
+                      ? distanceMeters(
+                          { lat: userCoords.lat, lng: userCoords.lng },
+                          { lat: live.latitude, lng: live.longitude },
+                        )
+                      : null;
+                  void locationTick;
+                  return (
+                    <>
+                      {live && distM != null && (
+                        <p className="text-[11px] text-[#22C55E]">
+                          📍 Vendor is {formatVendorDistance(distM)} · {s.vendor_last_updated}{" "}
+                          {formatTimeAgo(live.lastUpdated)}
+                        </p>
+                      )}
+                      {!live && (
+                        <p className="text-[11px] text-muted-foreground">📍 {s.vendor_distance}</p>
+                      )}
+                      {live && distM == null && (
+                        <p className="text-[11px] text-[#22C55E]">
+                          📍 {s.vendor_distance} · {s.vendor_last_updated}{" "}
+                          {formatTimeAgo(live.lastUpdated)}
+                        </p>
+                      )}
+                      {vendorStoppedByOrderId[r.id] && (
+                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
+                          <p className="text-[11px] text-amber-400 text-center leading-snug">
+                            {s.vendor_stopped_warning}
+                          </p>
+                          {r.vendors?.phone && (
+                            <button
+                              type="button"
+                              onClick={() => void openHelpVendorCall(r)}
+                              className="w-full rounded-lg border border-[#22C55E]/40 text-[#22C55E] text-xs font-semibold py-2"
+                            >
+                              {s.radar_connect_ai}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               {r.status === "cancelled" && (
                 <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5">
                   <p className="text-sm font-semibold text-foreground leading-snug">
@@ -349,7 +699,7 @@ const MyOrders = () => {
                 </div>
               )}
               {(() => {
-                const slot = extractDeliverySlot((r as any).message ?? "");
+                const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
                 if (!slot) return null;
                 return (
                   <div className="mt-1 rounded-lg border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px]">
@@ -599,7 +949,7 @@ const MyOrders = () => {
               savingEdit ||
               !editMessage.trim() ||
               !editOrder ||
-              editMessage.trim() === stripDeliverySlot(stripLocationTag(editOrder.message))
+              editMessage.trim() === stripLocationTag(editOrder.message)
             }
             onClick={() => void saveOrderEdit()}
             className={cn(
@@ -624,6 +974,61 @@ const MyOrders = () => {
           setRatingVendor(null);
         }}
       />
+
+      <Sheet open={aiSheetOpen} onOpenChange={closeAiSheet}>
+        <SheetContent
+          side="bottom"
+          className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
+        >
+          <SheetHeader className="text-left space-y-1 pr-8">
+            <SheetTitle className="text-white font-display">{s.aiBridge}</SheetTitle>
+            <SheetDescription className="text-gray-400">
+              {aiSheetLoading
+                ? s.briefingVendor
+                : aiBriefFailed
+                  ? s.aiBriefUnavailable
+                  : s.radar_your_brief}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-4 space-y-4">
+            {aiSheetLoading && (
+              <div className="flex items-center gap-3 py-6 text-gray-300">
+                <Loader2 className="h-6 w-6 animate-spin text-[#22C55E] shrink-0" />
+                <p className="text-sm">{s.briefingVendor}</p>
+              </div>
+            )}
+
+            {!aiSheetLoading && aiBriefFailed && (
+              <p className="text-sm text-amber-200/90 leading-relaxed">{s.aiBriefUnavailable}</p>
+            )}
+
+            {!aiSheetLoading && !aiBriefFailed && aiBriefText && (
+              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{aiBriefText}</p>
+            )}
+
+            {!aiSheetLoading && helpCallVendor && (
+              <div className="flex flex-col gap-2 pt-2">
+                <button
+                  type="button"
+                  className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+                  onClick={() => window.open(telHref(helpCallVendor.phone), "_self")}
+                >
+                  <PhoneCall className="h-4 w-4" />
+                  {s.callNow}
+                </button>
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-[#333] bg-transparent text-gray-300 py-3 font-semibold active:scale-[0.99] transition-transform"
+                  onClick={() => closeAiSheet(false)}
+                >
+                  {s.radar_cancel}
+                </button>
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </AppShell>
   );
 };
