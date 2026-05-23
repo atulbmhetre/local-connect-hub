@@ -80,8 +80,11 @@ serve(async (req) => {
               body: message,
             },
             android: {
+              priority: "high",
               notification: {
-                channel_id: "default",
+                channel_id: "order_alert",
+                notification_priority: "PRIORITY_MAX",
+                visibility: "PUBLIC",
               },
             },
           },

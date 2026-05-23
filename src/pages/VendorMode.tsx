@@ -40,6 +40,11 @@ import { cn } from "@/lib/utils";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { useLanguage } from '@/lib/language';
 import { registerPushToken } from "../lib/pushNotifications";
+import { Capacitor } from "@capacitor/core";
+import {
+  VendorOnboarding,
+  isVendorOnboardingComplete,
+} from "@/components/VendorOnboarding";
 import {
   Sheet,
   SheetContent,
@@ -168,6 +173,7 @@ const VendorMode = () => {
   const [vendorId, setVendorId] = useState<string | null>(
     localStorage.getItem(STORAGE_KEY),
   );
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -275,6 +281,13 @@ const VendorMode = () => {
     pushRegisteredVendorRef.current = vendorId;
     void registerPushToken(vendorId);
   }, [vendorId, vendor?.id]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    if (!vendorId || !vendor) return;
+    if (isVendorOnboardingComplete()) return;
+    setShowOnboarding(true);
+  }, [vendorId, vendor]);
 
   const detectLocation = (): Promise<{ lat: number; lng: number } | null> => {
     return new Promise((resolve) => {
@@ -760,6 +773,9 @@ const VendorMode = () => {
 
   return (
     <AppShell theme="dark">
+      {showOnboarding && vendorId && vendor && (
+        <VendorOnboarding onComplete={() => setShowOnboarding(false)} />
+      )}
       <header className="flex items-center justify-between mb-6">
         <div className="flex items-start gap-3 min-w-0 flex-1">
           <button

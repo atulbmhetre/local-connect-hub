@@ -4,6 +4,32 @@ import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 
 const VENDOR_ID_KEY = "aaspaas:vendor_id";
+export const VENDOR_SOUND_KEY = "aaspaas:vendor_sound";
+export const VENDOR_VIBRATE_KEY = "aaspaas:vendor_vibrate";
+
+export function isVendorSoundEnabled(): boolean {
+  const v = localStorage.getItem(VENDOR_SOUND_KEY);
+  return v === null || v === "true";
+}
+
+export function isVendorVibrateEnabled(): boolean {
+  const v = localStorage.getItem(VENDOR_VIBRATE_KEY);
+  return v === null || v === "true";
+}
+
+export function setVendorSoundEnabled(enabled: boolean): void {
+  localStorage.setItem(VENDOR_SOUND_KEY, enabled ? "true" : "false");
+}
+
+export function setVendorVibrateEnabled(enabled: boolean): void {
+  localStorage.setItem(VENDOR_VIBRATE_KEY, enabled ? "true" : "false");
+}
+
+function vibrateOnOrderPush(): void {
+  if (!isVendorVibrateEnabled()) return;
+  if (!("vibrate" in navigator)) return;
+  navigator.vibrate([500, 200, 500]);
+}
 
 async function handleLocationPing(data: Record<string, string> | undefined): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
@@ -42,12 +68,13 @@ async function setupPushListeners(
   onToken: (token: string) => Promise<void>,
 ): Promise<void> {
   await PushNotifications.createChannel({
-    id: "default",
-    name: "Default Channel",
-    description: "General App Notifications",
+    id: "order_alert",
+    name: "Order Alerts",
+    description: "Incoming order notifications",
     importance: 5,
     visibility: 1,
     sound: "default",
+    vibration: true,
   });
 
   await PushNotifications.register();
@@ -63,9 +90,9 @@ async function setupPushListeners(
 
   await PushNotifications.addListener("pushNotificationReceived", (notification) => {
     void handleLocationPing(notification.data);
-    if (notification.data?.type !== "location_ping") {
-      console.info("Push received in foreground", notification);
-    }
+    if (notification.data?.type === "location_ping") return;
+    vibrateOnOrderPush();
+    console.info("Push received in foreground", notification);
   });
 
   await PushNotifications.addListener("pushNotificationActionPerformed", (action) => {

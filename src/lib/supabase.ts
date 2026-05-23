@@ -34,17 +34,23 @@ export async function invokeInitiateCall(body: {
       error?: string;
     };
     if (!resp.ok || !data.success) {
-      return {
-        success: false,
+      const result = {
+        success: false as const,
         error: data.error ?? `HTTP ${resp.status}`,
+        status: resp.status,
+        data,
       };
+      console.log("Exotel response:", result);
+      return { success: false, error: result.error };
     }
     return { success: true, call_sid: data.call_sid };
   } catch (err) {
-    return {
-      success: false,
+    const result = {
+      success: false as const,
       error: err instanceof Error ? err.message : "Network error",
     };
+    console.log("Exotel response:", result);
+    return result;
   }
 }
 

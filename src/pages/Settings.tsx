@@ -16,6 +16,7 @@ import {
   BarChart2,
   Users,
   ShieldAlert,
+  Bell,
   Search,
   CheckCircle,
   XCircle,
@@ -27,6 +28,14 @@ import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
+import { Switch } from "@/components/ui/switch";
+import {
+  isVendorSoundEnabled,
+  isVendorVibrateEnabled,
+  setVendorSoundEnabled,
+  setVendorVibrateEnabled,
+} from "@/lib/pushNotifications";
+import { Capacitor } from "@capacitor/core";
 import { LANGUAGE_LABELS, type Language } from "@/lib/strings";
 
 const Settings = () => {
@@ -77,6 +86,8 @@ const Settings = () => {
     }[]
   >([]);
   const [vendorSearch, setVendorSearch] = useState("");
+  const [vendorVibrate, setVendorVibrate] = useState(() => isVendorVibrateEnabled());
+  const [vendorSound, setVendorSound] = useState(() => isVendorSoundEnabled());
   const [verifying, setVerifying] = useState<string | null>(null);
   const [verifySheet, setVerifySheet] = useState<{
     open: boolean;
@@ -423,6 +434,42 @@ const Settings = () => {
               <p className="text-sm text-muted-foreground">{s.settings_loading}</p>
             )}
           </section>
+
+          {Capacitor.isNativePlatform() && (
+            <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+              <div className="flex items-center gap-3 mb-3">
+                <Bell className="h-5 w-5 text-secondary" />
+                <p className="font-display font-bold">{s.settings_notifications}</p>
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{s.settings_vibrate}</p>
+                  </div>
+                  <Switch
+                    checked={vendorVibrate}
+                    onCheckedChange={(checked) => {
+                      setVendorVibrate(checked);
+                      setVendorVibrateEnabled(checked);
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{s.settings_sound}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{s.settings_sound_body}</p>
+                  </div>
+                  <Switch
+                    checked={vendorSound}
+                    onCheckedChange={(checked) => {
+                      setVendorSound(checked);
+                      setVendorSoundEnabled(checked);
+                    }}
+                  />
+                </div>
+              </div>
+            </section>
+          )}
 
           <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
             <div className="flex items-center gap-3 mb-3">
