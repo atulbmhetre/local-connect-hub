@@ -36,6 +36,7 @@ import {
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { VerificationBadge } from "@/components/VerificationBadge";
 import { IncomingOrdersSection } from "@/components/IncomingOrdersSection";
+import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
 import { cn } from "@/lib/utils";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { useLanguage } from '@/lib/language';
@@ -200,9 +201,6 @@ const VendorMode = () => {
   const [verifyingUpi, setVerifyingUpi] = useState(false);
   const [updatingLocation, setUpdatingLocation] = useState(false);
   const [verificationSheetOpen, setVerificationSheetOpen] = useState(false);
-  const [editNote, setEditNote] = useState("");
-  const [savingNote, setSavingNote] = useState(false);
-
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const [lookupPhone, setLookupPhone] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -751,26 +749,6 @@ const VendorMode = () => {
     });
   };
 
-  useEffect(() => {
-    setEditNote(vendor?.vendor_note ?? "");
-  }, [vendor?.vendor_note]);
-
-  const saveNote = async () => {
-    if (!vendor) return;
-    setSavingNote(true);
-    const { error } = await supabase
-      .from("vendors")
-      .update({ vendor_note: editNote.trim() || null })
-      .eq("id", vendor.id);
-    setSavingNote(false);
-    if (error) {
-      toast.error(s.vendor_note_save_failed, { description: error.message });
-      return;
-    }
-    setVendor({ ...vendor, vendor_note: editNote.trim() || null });
-    toast.success(s.vendor_note_saved);
-  };
-
   return (
     <AppShell theme="dark">
       {showOnboarding && vendorId && vendor && (
@@ -1290,29 +1268,13 @@ const VendorMode = () => {
                 )}
               </div>
 
-              <div className="space-y-1 mt-4">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {s.vendor_note_customers}
-                </label>
-                <textarea
-                  value={editNote}
-                  onChange={(e) => setEditNote(e.target.value.slice(0, 100))}
-                  rows={2}
-                  placeholder={s.vendor_note_edit_placeholder}
-                  className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-                />
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] text-muted-foreground">{editNote.length}/100</p>
-                  <button
-                    type="button"
-                    onClick={() => void saveNote()}
-                    disabled={savingNote}
-                    className="text-xs font-semibold text-brand hover:underline disabled:opacity-50"
-                  >
-                    {savingNote ? s.vendor_saving : s.vendor_save_note}
-                  </button>
-                </div>
-              </div>
+              <VendorNoteEditor
+                vendorId={vendor.id}
+                initialNote={vendor.vendor_note}
+                onSaved={(newNote) =>
+                  setVendor({ ...vendor, vendor_note: newNote || null })
+                }
+              />
             </SheetContent>
           </Sheet>
         </div>

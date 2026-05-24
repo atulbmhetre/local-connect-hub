@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+﻿import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
   ArrowLeft,
   MapPin,
-  Phone,
-  Store,
   AlertTriangle,
   Shield,
   ShieldAlert,
@@ -14,8 +12,7 @@ import {
   Siren,
   ChevronDown,
   Zap,
-  HeartHandshake,
-  Package,
+  PhoneCall,
 } from "lucide-react";
 import {
   supabase,
@@ -24,90 +21,16 @@ import {
   displayName,
   useCategoryLabel,
 } from "@/lib/supabase";
-import { getDeviceId } from "@/lib/deviceId";
-import { getUserPhone, migrateUserPhone } from "@/lib/userIdentity";
-import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
-import { ParchiSheet } from "@/components/ParchiSheet";
-import { AiBridgeSheet } from "@/components/AiBridgeSheet";
-import { VerificationBadge, vendorTier, verificationCopy } from "@/components/VerificationBadge";
-import { toast } from "sonner";
+import { vendorTier } from "@/components/VerificationBadge";
+import { RadarVendorCard, readSessionSaved } from "@/components/RadarVendorCard";
 import {
   Collapsible,
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
 
 type Ranked = { vendor: Vendor; dist: number | null };
-
-const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
-const VENDOR_SELF_STORAGE_KEY = "aaspaas:vendor_id";
-
-function readResolutionMarked(vendorId: string): boolean {
-  try {
-    return sessionStorage.getItem(`${RESOLUTION_SESSION_PREFIX}${vendorId}`) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeResolutionMarked(vendorId: string) {
-  try {
-    sessionStorage.setItem(`${RESOLUTION_SESSION_PREFIX}${vendorId}`, "1");
-  } catch {
-    /* ignore quota / private mode */
-  }
-}
-
-const CALLED_SESSION_PREFIX = "aaspaas:called:";
-const PARCHI_SESSION_PREFIX = "aaspaas:parchi:";
-function readCalledVendor(vendorId: string): boolean {
-  try {
-    return sessionStorage.getItem(`${CALLED_SESSION_PREFIX}${vendorId}`) === "1";
-  } catch {
-    return false;
-  }
-}
-function writeCalledVendor(vendorId: string) {
-  try {
-    sessionStorage.setItem(`${CALLED_SESSION_PREFIX}${vendorId}`, "1");
-  } catch {
-    /* ignore */
-  }
-}
-function readParchiVendor(vendorId: string): boolean {
-  try {
-    return sessionStorage.getItem(`${PARCHI_SESSION_PREFIX}${vendorId}`) === "1";
-  } catch {
-    return false;
-  }
-}
-
-const SAVED_SESSION_PREFIX = "aaspaas:saved:";
-function readSessionSaved(vendorId: string): boolean {
-  try {
-    return sessionStorage.getItem(`${SAVED_SESSION_PREFIX}${vendorId}`) === "1";
-  } catch {
-    return false;
-  }
-}
-function writeSessionSaved(vendorId: string) {
-  try {
-    sessionStorage.setItem(`${SAVED_SESSION_PREFIX}${vendorId}`, "1");
-  } catch {
-    /* ignore */
-  }
-}
-
-function readIsOwnVendorCard(vendorId: string): boolean {
-  try {
-    const mine = localStorage.getItem(VENDOR_SELF_STORAGE_KEY);
-    return mine != null && mine === vendorId;
-  } catch {
-    return false;
-  }
-}
 
 // Strict resolver mirrors Home: maps free-text/voice to canonical category labels.
 // TODO Phase 2: Replace KNOWN_CATEGORIES with DB lookup from categories table
@@ -199,7 +122,7 @@ const RadarSearch = () => {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [coordsTried, setCoordsTried] = useState(false);
   const [scanning, setScanning] = useState(true);
-  /** Active search radius in km (15 → optional 25 / 50). */
+  /** Active search radius in km (15 â†’ optional 25 / 50). */
   const [searchRadiusKm, setSearchRadiusKm] = useState(NEAR_RADIUS_KM);
   const [results, setResults] = useState<Ranked[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -226,7 +149,7 @@ const RadarSearch = () => {
     );
   }, []);
 
-  // Run search once GPS resolved (or denied — we still scan, just without geofence).
+  // Run search once GPS resolved (or denied â€” we still scan, just without geofence).
   useEffect(() => {
     if (!coordsTried) return;
     let cancelled = false;
@@ -323,7 +246,7 @@ const RadarSearch = () => {
               {expanded ? s.radar_expanding_scan : s.radar_scanning_area}
             </h2>
             <p className="text-2xl font-semibold italic capitalize">
-              {s.radar_finding_nearby}{headline}…
+              {s.radar_finding_nearby}{headline}â€¦
             </p>
           </div>
 
@@ -404,6 +327,12 @@ const RadarSearch = () => {
               dist={dist}
               index={i}
               userNeed={term}
+              categories={[]}
+              isSaved={readSessionSaved(vendor.id)}
+              hasOrdered={false}
+              onOrder={() => {}}
+              onAiBridge={() => {}}
+              onSave={() => {}}
             />
           ))}
           {isOfficialEmergencyCategory(term) && <GovEmergencyServices term={term} />}
@@ -446,7 +375,7 @@ const RadarSearch = () => {
         </div>
       )}
 
-      {/* True empty state — no private responders even at 50 km. */}
+      {/* True empty state â€” no private responders even at 50 km. */}
       {!scanning && !error && results.length === 0 && searchRadiusKm >= MAX_RADIUS_KM && (
         <EmptyStateFailsafe term={term} />
       )}
@@ -486,466 +415,6 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
   );
 };
 
-/** Subtle reputation line: below trust badge area, above Connect CTA. */
-const VendorReputationLine = ({
-  vendor,
-  totalHelpedOverride,
-  totalDeliveredOverride,
-}: {
-  vendor: Vendor;
-  totalHelpedOverride?: number;
-  totalDeliveredOverride?: number;
-}) => {
-  const { s } = useLanguage();
-  const mode = String(vendor.service_mode ?? "")
-    .trim()
-    .toLowerCase();
-
-  if (mode === "help") {
-    const n = totalHelpedOverride ?? vendor.total_helped ?? 0;
-    if (n <= 0) return null;
-    return (
-      <div className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90">
-        <span className="inline-flex items-center gap-1 shrink-0">
-          <HeartHandshake className="h-3.5 w-3.5 opacity-80" />
-          <span className="font-semibold">Helped</span>
-        </span>
-        <span>
-          {s.radar_helped}<span className="font-semibold tabular-nums text-brand">{n}</span>{" "}
-          {n === 1 ? s.radar_person : s.radar_people}
-        </span>
-      </div>
-    );
-  }
-
-  if (mode === "delivery") {
-    const d = totalDeliveredOverride ?? vendor.total_delivered ?? 0;
-    if (d <= 0) return null;
-    const raw = vendor.on_time_rate;
-    const pct =
-      typeof raw === "number" && Number.isFinite(raw) ? Math.round(raw) : null;
-    return (
-      <div className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90">
-        <span className="inline-flex items-center gap-1 shrink-0">
-          <Package className="h-3.5 w-3.5 opacity-80" />
-          <span className="font-semibold">Delivered</span>
-        </span>
-        <span>
-          <span className="font-semibold tabular-nums text-brand">{d}</span>{s.radar_orders_served}
-          {pct !== null && d > 0 && (
-            <>
-              {" "}
-              ·{" "}
-              <span className="font-semibold tabular-nums text-brand">{pct}</span>{s.radar_on_time}
-            </>
-          )}
-        </span>
-      </div>
-    );
-  }
-
-  return null;
-};
-
-const RadarVendorCard = ({
-  vendor,
-  dist,
-  index,
-  userNeed,
-}: {
-  vendor: Vendor;
-  dist: number | null;
-  index: number;
-  /** Search query / category the user looked for (URL `q`). */
-  userNeed: string;
-}) => {
-  const { s } = useLanguage();
-  const getLabel = useCategoryLabel();
-  const tier = vendorTier(vendor);
-  const serviceMode = String(vendor.service_mode ?? "")
-    .trim()
-    .toLowerCase();
-  const isOwnVendor = readIsOwnVendorCard(vendor.id);
-
-  const [helpCount, setHelpCount] = useState(() => vendor.total_helped ?? 0);
-  const [deliveredCount, setDeliveredCount] = useState(() => vendor.total_delivered ?? 0);
-  const [resolutionMarked, setResolutionMarked] = useState(() => readResolutionMarked(vendor.id));
-  const [resolutionBusy, setResolutionBusy] = useState(false);
-
-  const [aiSheetOpen, setAiSheetOpen] = useState(false);
-
-  const [parchiOpen, setParchiOpen] = useState(false);
-  const [savedVendorLocked, setSavedVendorLocked] = useState(() =>
-    readSessionSaved(vendor.id),
-  );
-  const [resolutionSessionTick, setResolutionSessionTick] = useState(0);
-  const [deliveryActiveFromDb, setDeliveryActiveFromDb] = useState(false);
-  const [deliveryFulfilledFromDb, setDeliveryFulfilledFromDb] = useState(false);
-  const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
-
-  useEffect(() => {
-    setHelpCount(vendor.total_helped ?? 0);
-    setDeliveredCount(vendor.total_delivered ?? 0);
-    setResolutionMarked(readResolutionMarked(vendor.id));
-    setSavedVendorLocked(readSessionSaved(vendor.id));
-  }, [vendor.id]);
-
-  useEffect(() => {
-    if ((serviceMode !== "delivery" && serviceMode !== "appointment") || isOwnVendor) {
-      setDeliveryActiveFromDb(false);
-      return;
-    }
-    let cancelled = false;
-    const run = async () => {
-      const device_id = getDeviceId();
-      const { data } = await supabase
-        .from("requests")
-        .select("id")
-        .eq("device_id", device_id)
-        .eq("vendor_id", vendor.id)
-        .in("status", ["sent", "seen"])
-        .limit(1);
-      if (!cancelled) setDeliveryActiveFromDb(!!data?.length);
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [vendor.id, serviceMode, isOwnVendor, resolutionSessionTick]);
-
-  useEffect(() => {
-    if (serviceMode !== "delivery" || isOwnVendor) {
-      setDeliveryFulfilledFromDb(false);
-      return;
-    }
-    let cancelled = false;
-    const run = async () => {
-      const device_id = getDeviceId();
-      const { data } = await supabase
-        .from("requests")
-        .select("id")
-        .eq("device_id", device_id)
-        .eq("vendor_id", vendor.id)
-        .eq("status", "fulfilled")
-        .limit(1);
-      if (!cancelled) setDeliveryFulfilledFromDb(!!data?.length);
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [vendor.id, serviceMode, isOwnVendor, resolutionSessionTick]);
-
-  useEffect(() => {
-    if (isOwnVendor) return;
-    if (readSessionSaved(vendor.id)) {
-      setSavedVendorLocked(true);
-      return;
-    }
-    let cancelled = false;
-    const run = async () => {
-      const deviceId = getDeviceId();
-      const userPhone = getUserPhone();
-      console.log("[RadarVendorCard] saved_vendors check", {
-        deviceId,
-        userPhone,
-        vendorId: vendor.id,
-      });
-      let savedQuery = supabase
-        .from("saved_vendors")
-        .select("id")
-        .eq("vendor_id", vendor.id)
-        .limit(1);
-      savedQuery =
-        userPhone != null ? savedQuery.eq("user_phone", userPhone) : savedQuery.eq("device_id", deviceId);
-      const { data } = await savedQuery;
-      if (cancelled || !data?.length) return;
-      writeSessionSaved(vendor.id);
-      setSavedVendorLocked(true);
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [vendor.id, isOwnVendor]);
-
-  const showResolution =
-    !isOwnVendor &&
-    ((serviceMode === "help" && readCalledVendor(vendor.id)) ||
-      (serviceMode === "delivery" && deliveryFulfilledFromDb));
-
-  const showSendOrderSection = !isOwnVendor && (serviceMode === "delivery" || serviceMode === "appointment");
-
-  const deliveryOrderSent = deliveryActiveFromDb;
-
-  const showSaveRow =
-    !isOwnVendor &&
-    !readSessionSaved(vendor.id) &&
-    !savedVendorLocked;
-
-  const accentRing =
-    tier === "green"
-      ? "ring-brand/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
-      : tier === "yellow"
-        ? "ring-warning/40"
-        : "ring-destructive/30";
-
-  const handleConnect = useCallback(() => {
-    setAiSheetOpen(true);
-  }, []);
-
-  const handleSaveVendor = useCallback(async () => {
-    if (savedVendorLocked) return;
-    const userPhone = getUserPhone();
-    if (userPhone === null) {
-      setPhoneSheetOpen(true);
-      return;
-    }
-    const device_id = getDeviceId();
-    const { error } = await supabase.from("saved_vendors").insert({
-      device_id,
-      vendor_id: vendor.id,
-      category: vendor.category,
-      nickname: vendor.shop_name,
-      user_phone: userPhone,
-    });
-    if (error) {
-      if (error.code === "23505") {
-        writeSessionSaved(vendor.id);
-        setSavedVendorLocked(true);
-        toast.success(`✅ ${s.radar_saved_success}`);
-        return;
-      }
-      toast.error(s.radar_could_not_save, { description: error.message });
-      return;
-    }
-    writeSessionSaved(vendor.id);
-    setSavedVendorLocked(true);
-    toast.success(`✅ ${s.radar_saved_success}`);
-  }, [savedVendorLocked, vendor.category, vendor.id, vendor.shop_name, s]);
-
-  const handleResolution = useCallback(async () => {
-    if (resolutionMarked || resolutionBusy) return;
-    const kind = serviceMode === "delivery" ? "delivery" : "help";
-    const rpc =
-      kind === "help" ? "increment_vendor_helped" : "increment_vendor_delivered";
-    setResolutionBusy(true);
-    const { error } = await supabase.rpc(rpc, { p_vendor_id: vendor.id });
-    setResolutionBusy(false);
-    if (error) {
-      toast.error(s.radar_could_not_save, { description: error.message });
-      return;
-    }
-    writeResolutionMarked(vendor.id);
-    setResolutionMarked(true);
-    if (kind === "help") setHelpCount((c) => c + 1);
-    else setDeliveredCount((c) => c + 1);
-    toast.success(s.radar_thank_community);
-  }, [
-    resolutionMarked,
-    resolutionBusy,
-    serviceMode,
-    vendor.id,
-    s,
-  ]);
-
-  return (
-    <div
-      className={`rounded-2xl bg-card/80 backdrop-blur-xl border border-border ring-1 ${accentRing} p-4 animate-fade-up`}
-      style={{ animationDelay: `${Math.min(index * 70, 420)}ms` }}
-    >
-      <div className="flex items-start gap-3">
-        <div className="h-12 w-12 rounded-xl bg-gradient-vendor grid place-items-center shrink-0 overflow-hidden">
-          {vendor.shop_photo_url ? (
-            <img
-              src={vendor.shop_photo_url}
-              alt={`${vendor.shop_name} shop`}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <span className="inline-flex items-center gap-1">
-              <Store className="h-6 w-6 text-primary-foreground" />
-              <span className="text-[10px] font-semibold text-primary-foreground">Shop</span>
-            </span>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-              <h3 className="font-display font-bold truncate">{vendor.shop_name}</h3>
-              {readIsOwnVendorCard(vendor.id) && (
-                <span className="text-[10px] font-medium text-muted-foreground shrink-0">
-                  • You
-                </span>
-              )}
-            </div>
-            <span className="inline-flex items-center gap-1 shrink-0">
-              <VerificationBadge vendor={vendor} />
-              <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
-                {verificationCopy[tier].label}
-              </span>
-            </span>
-          </div>
-          <p className="text-sm text-muted-foreground truncate">
-            {vendor.name} · {getLabel(vendor.category)}
-          </p>
-          <VerificationBadge vendor={vendor} showLabel className="mt-1" />
-          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-            {dist != null ? (
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="h-3 w-3" />
-                {dist < 1 ? `${Math.round(dist * 1000)} mtr away` : `${dist.toFixed(1)} km away`}
-              </span>
-            ) : (
-              <span>{s.radar_location_unknown}</span>
-            )}
-          </div>
-          {serviceMode === "help" && dist != null && (
-            <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-brand-muted ring-1 ring-brand/30 px-2 py-0.5 text-[11px] font-semibold text-brand">
-              <span className="inline-flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                <span>ETA</span>
-              </span>
-              {s.radar_est_arrival}{Math.max(1, Math.round(dist * 2))}{s.radar_min}
-            </div>
-          )}
-        </div>
-      </div>
-
-          {tier === "yellow" && (
-        <div className="mt-3 rounded-xl bg-warning/10 border border-warning/60 px-3 py-2 flex items-start gap-2">
-          <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
-            <ShieldAlert className="h-4 w-4 text-warning" />
-            <span className="text-xs text-warning font-semibold">Pending</span>
-          </span>
-          <p className="text-xs text-warning font-semibold">
-            {s.radar_verification_progress}
-          </p>
-        </div>
-      )}
-      {tier === "red" && (
-        <div className="mt-3 rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-2 flex items-start gap-2">
-          <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
-            <AlertTriangle className="h-4 w-4 text-destructive" />
-            <span className="text-xs text-destructive font-semibold">Unverified</span>
-          </span>
-          <p className="text-xs text-destructive font-semibold">
-            {s.radar_not_verified}
-          </p>
-        </div>
-      )}
-
-      <VendorReputationLine
-        vendor={vendor}
-        totalHelpedOverride={helpCount}
-        totalDeliveredOverride={deliveredCount}
-      />
-
-      <button
-        type="button"
-        onClick={handleConnect}
-        className="mt-4 w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
-      >
-        <Phone className="h-4 w-4" />
-        {s.radar_connect_ai}
-      </button>
-
-      <AiBridgeSheet
-        open={aiSheetOpen}
-        onClose={() => setAiSheetOpen(false)}
-        vendor={vendor}
-        callerPhone={getUserPhone() ?? ""}
-        userNeed={userNeed}
-        distanceKm={dist}
-        onCallSuccess={(vendorId) => {
-          writeCalledVendor(vendorId);
-          setResolutionSessionTick((n) => n + 1);
-        }}
-      />
-
-      {showSendOrderSection &&
-        (deliveryOrderSent ? (
-          <div
-            className={cn(
-              "mt-2 w-full rounded-xl border px-3 py-2.5 text-sm",
-              "border-brand/50 bg-brand/5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1",
-            )}
-          >
-            <span className="text-muted-foreground font-medium">
-              {serviceMode === "appointment" ? `📅 ${s.radar_booking_requested}` : `✅ ${s.radar_order_sent}`}
-            </span>
-            <span className="text-muted-foreground" aria-hidden>
-              ·
-            </span>
-            <button
-              type="button"
-              onClick={() => setParchiOpen(true)}
-              className="font-semibold text-brand underline underline-offset-2 hover:opacity-90"
-            >
-              {serviceMode === "appointment" ? s.radar_book_again : s.radar_send_new_order}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setParchiOpen(true)}
-            className="mt-2 w-full rounded-xl bg-brand text-[#0b1f14] py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform shadow-sm"
-          >
-            {serviceMode === "appointment" ? `📅 ${s.radar_book_service}` : `📋 ${s.radar_send_order}`}
-          </button>
-        ))}
-
-      {showResolution && (
-        <button
-          type="button"
-          onClick={handleResolution}
-          disabled={resolutionMarked || resolutionBusy}
-          className={cn(
-            "mt-2 w-full rounded-xl border py-2.5 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
-            "border-brand/70 text-brand bg-transparent",
-            "hover:bg-brand-muted",
-            (resolutionMarked || resolutionBusy) && "opacity-60 cursor-not-allowed hover:bg-transparent",
-          )}
-        >
-          {resolutionMarked
-            ? `✅ ${s.radar_marked}`
-            : serviceMode === "delivery"
-              ? `📦 ${s.radar_delivered_on_time}`
-              : `✅ ${s.radar_he_helped}`}
-        </button>
-      )}
-
-      {showSaveRow && (
-        <button
-          type="button"
-          onClick={() => void handleSaveVendor()}
-          className={cn(
-            "mt-2 w-full rounded-xl border py-2.5 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
-            "border-border text-foreground bg-muted/40 hover:bg-muted/60",
-          )}
-        >
-          {`🔖 ${s.radar_save_as}${getLabel(vendor.category) || s.radar_vendor_fallback}`}
-        </button>
-      )}
-      <ParchiSheet
-        vendor={vendor}
-        isOpen={parchiOpen}
-        onClose={() => setParchiOpen(false)}
-        onOrderSent={() => setResolutionSessionTick((n) => n + 1)}
-      />
-      <PhoneEntrySheet
-        isOpen={phoneSheetOpen}
-        onClose={() => setPhoneSheetOpen(false)}
-        onConfirmed={async (phone) => {
-          setPhoneSheetOpen(false);
-          await migrateUserPhone(phone, getDeviceId());
-          void handleSaveVendor();
-        }}
-      />
-    </div>
-  );
-};
 
 // Trust indicator that proves a vendor is actively at their post.
 // Reads the live `last_updated` timestamp from Supabase and labels the gap.
@@ -991,7 +460,7 @@ const SignalFreshness = ({ lastUpdated }: { lastUpdated: string | null }) => {
 
 // Collapsible government & emergency services panel rendered below the
 // vendor results. Primary number shifts based on the searched category:
-// Fire → 101, Medical → 108, Roadside → 1033, Security/Default → 112.
+// Fire â†’ 101, Medical â†’ 108, Roadside â†’ 1033, Security/Default â†’ 112.
 const GovEmergencyServices = ({
   term,
   defaultOpen = false,
@@ -1019,7 +488,7 @@ const GovEmergencyServices = ({
     lines.push({
       label: "108 Ambulance",
       number: "108",
-      tagline: "Free 24×7 medical & ambulance response",
+      tagline: "Free 24Ã—7 medical & ambulance response",
       href: "tel:108",
     });
   } else if (isRoadside) {
@@ -1033,7 +502,7 @@ const GovEmergencyServices = ({
     lines.push({
       label: "112 National Emergency",
       number: "112",
-      tagline: "Police, fire & medical — single line",
+      tagline: "Police, fire & medical â€” single line",
       href: "tel:112",
     });
   }

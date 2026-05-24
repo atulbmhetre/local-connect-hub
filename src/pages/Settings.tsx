@@ -6,7 +6,6 @@ import {
   Wrench,
   CheckCircle2,
   Phone,
-  Heart,
   Globe,
   Moon,
   Sun,
@@ -381,7 +380,7 @@ const Settings = () => {
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <p className="font-display font-bold mb-3">📍 Saved Addresses</p>
+        <p className="font-display font-bold mb-3">📍 My Delivery Addresses</p>
         {addressesLoading ? (
           <p className="text-sm text-muted-foreground">{s.settings_loading}</p>
         ) : addresses.length === 0 ? (
@@ -450,14 +449,6 @@ const Settings = () => {
             ))}
           </ul>
         )}
-      </section>
-
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="flex items-center gap-3 mb-3">
-          <Heart className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">{s.settings_savedVendors}</p>
-        </div>
-        <p className="text-sm text-muted-foreground">{s.settings_savedVendorsHint}</p>
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
