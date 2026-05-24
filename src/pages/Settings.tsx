@@ -46,11 +46,7 @@ import {
 } from "@/lib/pushNotifications";
 import { Capacitor } from "@capacitor/core";
 import { LANGUAGE_LABELS, type Language } from "@/lib/strings";
-
-type SavedAddress = {
-  id: string;
-  address_text: string;
-};
+import { useUserAddresses } from "@/hooks/useUserAddresses";
 
 const Settings = () => {
   const { lang, setLang, s } = useLanguage();
@@ -110,36 +106,12 @@ const Settings = () => {
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
   const [savingReasons, setSavingReasons] = useState(false);
-  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
-  const [addressesLoading, setAddressesLoading] = useState(true);
+  const { addresses, loading: addressesLoading, refresh: refreshAddresses } = useUserAddresses();
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [editAddressValue, setEditAddressValue] = useState("");
   const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
   const [deletingAddress, setDeletingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
-
-  const loadSavedAddresses = useCallback(async () => {
-    setAddressesLoading(true);
-    const deviceId = getDeviceId();
-    const phone = getUserPhone();
-    let query = supabase.from("user_addresses").select("id, address_text");
-    if (phone != null) {
-      query = query.or(`device_id.eq.${deviceId},user_phone.eq.${phone}`);
-    } else {
-      query = query.eq("device_id", deviceId);
-    }
-    const { data, error } = await query;
-    if (error) {
-      setSavedAddresses([]);
-    } else {
-      setSavedAddresses((data ?? []) as SavedAddress[]);
-    }
-    setAddressesLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void loadSavedAddresses();
-  }, [loadSavedAddresses]);
 
   useEffect(() => {
     if (!vendorId) return;
@@ -317,7 +289,7 @@ const Settings = () => {
     toast(s.settings_localDataCleared);
   };
 
-  const startEditAddress = (addr: SavedAddress) => {
+  const startEditAddress = (addr: (typeof addresses)[number]) => {
     setEditingAddressId(addr.id);
     setEditAddressValue(addr.address_text);
   };
@@ -344,7 +316,7 @@ const Settings = () => {
       return;
     }
     cancelEditAddress();
-    await loadSavedAddresses();
+    await refreshAddresses();
   };
 
   const confirmDeleteAddress = async () => {
@@ -360,7 +332,7 @@ const Settings = () => {
     if (editingAddressId === deleteAddressId) {
       cancelEditAddress();
     }
-    await loadSavedAddresses();
+    await refreshAddresses();
   };
 
   return (
@@ -412,11 +384,11 @@ const Settings = () => {
         <p className="font-display font-bold mb-3">📍 Saved Addresses</p>
         {addressesLoading ? (
           <p className="text-sm text-muted-foreground">{s.settings_loading}</p>
-        ) : savedAddresses.length === 0 ? (
+        ) : addresses.length === 0 ? (
           <p className="text-sm text-muted-foreground">No saved addresses yet.</p>
         ) : (
           <ul className="space-y-2">
-            {savedAddresses.map((addr) => (
+            {addresses.map((addr) => (
               <li
                 key={addr.id}
                 className="rounded-2xl border border-border bg-background px-3 py-2.5"

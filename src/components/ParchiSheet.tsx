@@ -14,6 +14,7 @@ import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
+import { useUserAddresses, type SavedAddress } from "@/hooks/useUserAddresses";
 
 type Props = {
   vendor: Vendor | null;
@@ -21,13 +22,6 @@ type Props = {
   onClose: () => void;
   /** After successful order send; e.g. refresh radar resolution button visibility. */
   onOrderSent?: () => void;
-};
-
-type SavedAddress = {
-  id: string;
-  label: string;
-  address_text: string;
-  is_default: boolean;
 };
 
 export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
@@ -43,11 +37,10 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
-  const [addresses, setAddresses] = useState<SavedAddress[]>([]);
+  const { addresses, loading: addressLoading } = useUserAddresses();
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [newAddress, setNewAddress] = useState("");
   const [saveAddress, setSaveAddress] = useState(false);
-  const [addressLoading, setAddressLoading] = useState(false);
   const [appointmentDate, setAppointmentDate] = useState("");
   const [appointmentTime, setAppointmentTime] = useState("");
   const [appointmentLocation, setAppointmentLocation] = useState<"home" | "shop" | "decide">("decide");
@@ -63,39 +56,10 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
     const mode = effectiveVendor?.service_mode;
     const loadForAddress =
       mode === "delivery" || (mode === "appointment" && appointmentLocation === "home");
-    if (!loadForAddress) return;
-
-    let cancelled = false;
-    const loadAddresses = async () => {
-      setAddressLoading(true);
-      const deviceId = getDeviceId();
-      const userPhone = getUserPhone();
-      let query = supabase
-        .from("user_addresses")
-        .select("id, label, address_text, is_default");
-      if (userPhone != null) {
-        query = query.or(`device_id.eq.${deviceId},user_phone.eq.${userPhone}`);
-      } else {
-        query = query.eq("device_id", deviceId);
-      }
-      const { data, error } = await query;
-      if (cancelled) return;
-      if (error) {
-        setAddresses([]);
-        setSelectedAddressId(null);
-      } else {
-        const list = (data ?? []) as SavedAddress[];
-        setAddresses(list);
-        const defaultAddr = list.find((a) => a.is_default);
-        setSelectedAddressId(defaultAddr?.id ?? null);
-      }
-      setAddressLoading(false);
-    };
-    void loadAddresses();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, effectiveVendor?.service_mode, effectiveVendor?.id, appointmentLocation]);
+    if (!loadForAddress || addressLoading) return;
+    const defaultAddr = addresses.find((a) => a.is_default);
+    setSelectedAddressId(defaultAddr?.id ?? null);
+  }, [isOpen, effectiveVendor?.service_mode, effectiveVendor?.id, appointmentLocation, addresses, addressLoading]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -105,7 +69,6 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         setSelectedAddressId(null);
         setNewAddress("");
         setSaveAddress(false);
-        setAddresses([]);
         setAppointmentDate("");
         setAppointmentTime("");
         setAppointmentLocation("decide");
