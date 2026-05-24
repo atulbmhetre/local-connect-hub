@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import {
   ShieldCheck,
@@ -6,7 +6,6 @@ import {
   Wrench,
   CheckCircle2,
   Phone,
-  MapPin,
   Heart,
   Globe,
   Moon,
@@ -30,6 +29,16 @@ import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
 import { Switch } from "@/components/ui/switch";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   isVendorSoundEnabled,
   isVendorVibrateEnabled,
   setVendorSoundEnabled,
@@ -37,6 +46,11 @@ import {
 } from "@/lib/pushNotifications";
 import { Capacitor } from "@capacitor/core";
 import { LANGUAGE_LABELS, type Language } from "@/lib/strings";
+
+type SavedAddress = {
+  id: string;
+  address_text: string;
+};
 
 const Settings = () => {
   const { lang, setLang, s } = useLanguage();
@@ -96,6 +110,36 @@ const Settings = () => {
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
   const [savingReasons, setSavingReasons] = useState(false);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [addressesLoading, setAddressesLoading] = useState(true);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [editAddressValue, setEditAddressValue] = useState("");
+  const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
+  const [deletingAddress, setDeletingAddress] = useState(false);
+  const [savingAddress, setSavingAddress] = useState(false);
+
+  const loadSavedAddresses = useCallback(async () => {
+    setAddressesLoading(true);
+    const deviceId = getDeviceId();
+    const phone = getUserPhone();
+    let query = supabase.from("user_addresses").select("id, address_text");
+    if (phone != null) {
+      query = query.or(`device_id.eq.${deviceId},user_phone.eq.${phone}`);
+    } else {
+      query = query.eq("device_id", deviceId);
+    }
+    const { data, error } = await query;
+    if (error) {
+      setSavedAddresses([]);
+    } else {
+      setSavedAddresses((data ?? []) as SavedAddress[]);
+    }
+    setAddressesLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void loadSavedAddresses();
+  }, [loadSavedAddresses]);
 
   useEffect(() => {
     if (!vendorId) return;
@@ -273,6 +317,52 @@ const Settings = () => {
     toast(s.settings_localDataCleared);
   };
 
+  const startEditAddress = (addr: SavedAddress) => {
+    setEditingAddressId(addr.id);
+    setEditAddressValue(addr.address_text);
+  };
+
+  const cancelEditAddress = () => {
+    setEditingAddressId(null);
+    setEditAddressValue("");
+  };
+
+  const saveEditAddress = async () => {
+    const trimmed = editAddressValue.trim();
+    if (!trimmed || !editingAddressId) {
+      toast.error("Address cannot be empty");
+      return;
+    }
+    setSavingAddress(true);
+    const { error } = await supabase
+      .from("user_addresses")
+      .update({ address_text: trimmed })
+      .eq("id", editingAddressId);
+    setSavingAddress(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    cancelEditAddress();
+    await loadSavedAddresses();
+  };
+
+  const confirmDeleteAddress = async () => {
+    if (!deleteAddressId) return;
+    setDeletingAddress(true);
+    const { error } = await supabase.from("user_addresses").delete().eq("id", deleteAddressId);
+    setDeletingAddress(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setDeleteAddressId(null);
+    if (editingAddressId === deleteAddressId) {
+      cancelEditAddress();
+    }
+    await loadSavedAddresses();
+  };
+
   return (
     <AppShell theme="light">
       <header className="mb-6">
@@ -319,11 +409,75 @@ const Settings = () => {
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="flex items-center gap-3 mb-3">
-          <MapPin className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">{s.settings_myAddresses}</p>
-        </div>
-        <p className="text-sm text-muted-foreground">{s.settings_addressComingSoon}</p>
+        <p className="font-display font-bold mb-3">📍 Saved Addresses</p>
+        {addressesLoading ? (
+          <p className="text-sm text-muted-foreground">{s.settings_loading}</p>
+        ) : savedAddresses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No saved addresses yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {savedAddresses.map((addr) => (
+              <li
+                key={addr.id}
+                className="rounded-2xl border border-border bg-background px-3 py-2.5"
+              >
+                {editingAddressId === addr.id ? (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={editAddressValue}
+                      onChange={(e) => setEditAddressValue(e.target.value)}
+                      className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      autoFocus
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void saveEditAddress()}
+                        disabled={savingAddress}
+                        className="text-xs font-semibold text-[#22C55E] disabled:opacity-50"
+                        aria-label="Save address"
+                      >
+                        ✅ Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditAddress}
+                        disabled={savingAddress}
+                        className="text-xs font-semibold text-muted-foreground disabled:opacity-50"
+                        aria-label="Cancel edit"
+                      >
+                        ❌ Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <p className="flex-1 min-w-0 text-sm text-foreground truncate">
+                      {addr.address_text}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => startEditAddress(addr)}
+                      className="shrink-0 h-8 w-8 rounded-lg border border-border text-sm hover:bg-card transition-colors"
+                      aria-label="Edit address"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteAddressId(addr.id)}
+                      className="shrink-0 h-8 w-8 rounded-lg border border-border text-sm hover:bg-card transition-colors"
+                      aria-label="Delete address"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
@@ -677,6 +831,37 @@ const Settings = () => {
       >
         <Trash2 className="h-4 w-4" /> {s.settings_clearMyData}
       </button>
+
+      <AlertDialog
+        open={deleteAddressId != null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteAddressId(null);
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl border border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete address?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This address will be removed from your saved list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <AlertDialogCancel className="mt-0" disabled={deletingAddress}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletingAddress}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDeleteAddress();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingAddress ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {verifySheet.open && verifySheet.vendor && (
         <div className="fixed inset-0 z-50 flex items-end">

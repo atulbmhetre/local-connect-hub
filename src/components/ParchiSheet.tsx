@@ -198,7 +198,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         await supabase.from("user_addresses").insert({
           device_id: getDeviceId(),
           user_phone: getUserPhone() ?? null,
-          label: s.parchi_addressLabelHome,
+          label: "",
           address_text: newAddress.trim(),
           is_default: addresses.length === 0,
         });
@@ -316,8 +316,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                             : "border-[#2a2a2a] bg-[#141414] text-gray-300"
                         }`}
                       >
-                        <span className="font-semibold">{addr.label}</span>
-                        <span className="text-gray-400 ml-2">{addr.address_text}</span>
+                        {addr.address_text}
                       </button>
                     ))}
                     <button
