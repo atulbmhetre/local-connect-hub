@@ -142,8 +142,9 @@ export type RequestRow = {
   user_phone: string | null;
   device_id_log: string | null;
   delivery_address: string | null;
+  delivery_slot: string | null;
   appointment_time: string | null;
-  appointment_status: string | null;
+  appointment_status: "pending" | "confirmed" | "declined" | "cancelled" | null;
   cancel_reason: string | null;
 };
 

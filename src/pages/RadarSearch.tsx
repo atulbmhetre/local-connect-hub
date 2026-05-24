@@ -149,7 +149,7 @@ const RadarSearch = () => {
     );
   }, []);
 
-  // Run search once GPS resolved (or denied â€” we still scan, just without geofence).
+  // Run search once GPS resolved (or denied — we still scan, just without geofence).
   useEffect(() => {
     if (!coordsTried) return;
     let cancelled = false;
@@ -246,7 +246,7 @@ const RadarSearch = () => {
               {expanded ? s.radar_expanding_scan : s.radar_scanning_area}
             </h2>
             <p className="text-2xl font-semibold italic capitalize">
-              {s.radar_finding_nearby}{headline}â€¦
+              {s.radar_finding_nearby}{headline}…
             </p>
           </div>
 
@@ -375,7 +375,7 @@ const RadarSearch = () => {
         </div>
       )}
 
-      {/* True empty state â€” no private responders even at 50 km. */}
+      {/* True empty state — no private responders even at 50 km. */}
       {!scanning && !error && results.length === 0 && searchRadiusKm >= MAX_RADIUS_KM && (
         <EmptyStateFailsafe term={term} />
       )}
@@ -488,7 +488,7 @@ const GovEmergencyServices = ({
     lines.push({
       label: "108 Ambulance",
       number: "108",
-      tagline: "Free 24Ã—7 medical & ambulance response",
+      tagline: "Free 24×7 medical & ambulance response",
       href: "tel:108",
     });
   } else if (isRoadside) {
@@ -502,7 +502,7 @@ const GovEmergencyServices = ({
     lines.push({
       label: "112 National Emergency",
       number: "112",
-      tagline: "Police, fire & medical â€” single line",
+      tagline: "Police, fire & medical — single line",
       href: "tel:112",
     });
   }

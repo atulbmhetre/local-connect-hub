@@ -719,9 +719,9 @@ const MyOrders = () => {
                   </div>
                 );
               })()}
-              {(r as any).appointment_time &&
+              {r.appointment_time &&
                 (() => {
-                  const msg = (r as any).message ?? "";
+                  const msg = r.message ?? "";
                   const isHome = msg.includes("[Come to my place]");
                   const isShop = msg.includes("[I'll visit your shop]");
                   const borderColor = isHome
@@ -750,7 +750,7 @@ const MyOrders = () => {
                       <div>
                         {s.myOrders_apptAround}
                         <span className={`font-semibold ${timeColor}`}>
-                          {new Date((r as any).appointment_time).toLocaleString("en-IN", {
+                          {new Date(r.appointment_time).toLocaleString("en-IN", {
                             weekday: "short",
                             day: "numeric",
                             month: "short",
@@ -759,23 +759,23 @@ const MyOrders = () => {
                           })}
                         </span>
                         <span className="ml-2 text-muted-foreground">
-                          {(r as any).appointment_status === "confirmed" && s.myOrders_apptConfirmed}
-                          {(r as any).appointment_status === "declined" && s.myOrders_apptDeclined}
-                          {(r as any).appointment_status === "cancelled" && s.myOrders_apptCancelled}
-                          {(r as any).appointment_status === "pending" && s.myOrders_apptAwaiting}
+                          {r.appointment_status === "confirmed" && s.myOrders_apptConfirmed}
+                          {r.appointment_status === "declined" && s.myOrders_apptDeclined}
+                          {r.appointment_status === "cancelled" && s.myOrders_apptCancelled}
+                          {r.appointment_status === "pending" && s.myOrders_apptAwaiting}
                         </span>
                       </div>
                     </div>
                   );
                 })()}
 
-              {(r as any).appointment_time &&
+              {r.appointment_time &&
                 r.status !== "fulfilled" &&
                 r.status !== "done" &&
                 (() => {
                   if (
-                    (r as any).appointment_status === "declined" ||
-                    (r as any).appointment_status === "cancelled"
+                    r.appointment_status === "declined" ||
+                    r.appointment_status === "cancelled"
                   ) {
                     return (
                       <button
@@ -788,7 +788,7 @@ const MyOrders = () => {
                     );
                   }
 
-                  const appointmentDate = new Date((r as any).appointment_time);
+                  const appointmentDate = new Date(r.appointment_time);
                   const today = new Date();
                   const isSameDay = appointmentDate.toDateString() === today.toDateString();
                   const isPast = appointmentDate < today;
@@ -889,7 +889,7 @@ const MyOrders = () => {
                   </button>
                 ) : null}
                 {r.status !== "cancelled" &&
-                  !(r as any).appointment_time &&
+                  !r.appointment_time &&
                   (canShowRemoveOrder(r) ? (
                     !showOrderCancelConfirm[r.id] ? (
                       <button

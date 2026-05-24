@@ -223,7 +223,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       return;
     }
     setRows((prev) =>
-      prev.map((r) => (r.id === id ? ({ ...r, appointment_status: action } as any) : r)),
+      prev.map((r) => (r.id === id ? { ...r, appointment_status: action } : r)),
     );
     toast.success(action === "confirmed" ? s.incoming_apptConfirmed : s.incoming_apptDeclined);
   };
@@ -272,7 +272,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     }
     toast.success(s.incoming_bookingCancelled);
     setRows((prev) =>
-      prev.map((r) => (r.id === id ? ({ ...r, appointment_status: "cancelled" } as any) : r)),
+      prev.map((r) => (r.id === id ? { ...r, appointment_status: "cancelled" } : r)),
     );
   };
 
@@ -356,9 +356,9 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                   {r.cancel_reason}
                 </span>
               )}
-              {(r as any).delivery_address && (
+              {r.delivery_address && (
                 <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                  {s.incoming_addressPrefix}<span className="text-foreground font-medium">{(r as any).delivery_address}</span>
+                  {s.incoming_addressPrefix}<span className="text-foreground font-medium">{r.delivery_address}</span>
                 </div>
               )}
 
@@ -372,9 +372,9 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                 );
               })()}
 
-              {(r as any).appointment_time &&
+              {r.appointment_time &&
                 (() => {
-                  const msg = (r as any).message ?? "";
+                  const msg = r.message ?? "";
                   const isHome = msg.includes("[Come to my place]");
                   const isShop = msg.includes("[I'll visit your shop]");
                   const colorClass = isHome
@@ -393,7 +393,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                       <div>
                         {s.incoming_apptAround}
                         <span className="font-semibold">
-                          {new Date((r as any).appointment_time).toLocaleString("en-IN", {
+                          {new Date(r.appointment_time).toLocaleString("en-IN", {
                             weekday: "short",
                             day: "numeric",
                             month: "short",
@@ -406,8 +406,8 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                   );
                 })()}
 
-              {(r as any).appointment_time &&
-                (r as any).appointment_status === "pending" &&
+              {r.appointment_time &&
+                r.appointment_status === "pending" &&
                 r.status !== "fulfilled" && (
                 <div className="grid grid-cols-2 gap-2">
                     <button
@@ -429,23 +429,23 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                   </div>
               )}
 
-              {(r as any).appointment_time && (r as any).appointment_status === "confirmed" && (
+              {r.appointment_time && r.appointment_status === "confirmed" && (
                 <div className="rounded-lg border border-brand/40 bg-brand-muted px-3 py-2 text-[11px] text-brand font-semibold text-center">
                   {s.incoming_bannerConfirmed}
                 </div>
               )}
 
-              {(r as any).appointment_time && (r as any).appointment_status === "declined" && (
+              {r.appointment_time && r.appointment_status === "declined" && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] text-destructive font-semibold text-center">
                   {s.incoming_bannerDeclined}
                 </div>
               )}
 
-              {(r as any).appointment_time &&
-                (r as any).appointment_status === "confirmed" &&
+              {r.appointment_time &&
+                r.appointment_status === "confirmed" &&
                 r.status !== "fulfilled" &&
                 (() => {
-                  const appointmentDate = new Date((r as any).appointment_time);
+                  const appointmentDate = new Date(r.appointment_time);
                   const today = new Date();
                   const isSameDay = appointmentDate.toDateString() === today.toDateString();
                   const isPast = appointmentDate < today;
