@@ -281,7 +281,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const badge = (status: string) => {
     if (status === "sent")
       return (
-        <span className="rounded-full bg-[#22C55E]/20 text-[#22C55E] text-[10px] font-bold px-2 py-0.5 border border-[#22C55E]/40">
+        <span className="rounded-full bg-brand/20 text-brand text-[10px] font-bold px-2 py-0.5 border border-brand/40">
           {s.incoming_statusNew}
         </span>
       );
@@ -293,13 +293,13 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       );
     if (status === "accepted")
       return (
-        <span className="rounded-full bg-[#22C55E]/20 text-[#22C55E] text-[10px] font-semibold px-2 py-0.5 border border-[#22C55E]/40">
+        <span className="rounded-full bg-brand/20 text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40">
           {s.status_accepted}
         </span>
       );
     if (status === "fulfilled")
       return (
-        <span className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-[#22C55E]/30 text-[#22C55E]">
+        <span className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-brand-border text-brand">
           {s.incoming_statusDone}
         </span>
       );
@@ -310,7 +310,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         </span>
       );
     return (
-      <span className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-[#22C55E]/30 text-[#22C55E]">
+      <span className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-brand-border text-brand">
         {s.incoming_statusDone}
       </span>
     );
@@ -322,7 +322,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         <h2 className="font-display font-bold text-base flex items-center gap-2">
           {s.incoming_heading}
           {unread > 0 && (
-            <span className="rounded-full bg-[#22C55E] text-[#0b1f14] text-[11px] font-bold min-w-[1.25rem] h-5 px-1.5 grid place-items-center tabular-nums">
+            <span className="rounded-full bg-brand text-[#0b1f14] text-[11px] font-bold min-w-[1.25rem] h-5 px-1.5 grid place-items-center tabular-nums">
               {unread > 99 ? s.incoming_unreadCap : unread}
             </span>
           )}
@@ -366,8 +366,8 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                 const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
                 if (!slot) return null;
                 return (
-                  <div className="rounded-lg border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px]">
-                    {s.incoming_slotPrefix}<span className="text-[#22C55E] font-semibold">{slot}</span>
+                  <div className="rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-[11px]">
+                    {s.incoming_slotPrefix}<span className="text-brand font-semibold">{slot}</span>
                   </div>
                 );
               })()}
@@ -414,7 +414,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                       type="button"
                       disabled={markingId === r.id}
                       onClick={() => void handleAppointmentAction(r.id, "confirmed")}
-                      className="rounded-lg bg-[#22C55E] text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                      className="rounded-lg bg-brand text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                     >
                       {s.incoming_btnConfirm}
                     </button>
@@ -430,7 +430,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               )}
 
               {(r as any).appointment_time && (r as any).appointment_status === "confirmed" && (
-                <div className="rounded-lg border border-[#22C55E]/40 bg-[#22C55E]/10 px-3 py-2 text-[11px] text-[#22C55E] font-semibold text-center">
+                <div className="rounded-lg border border-brand/40 bg-brand-muted px-3 py-2 text-[11px] text-brand font-semibold text-center">
                   {s.incoming_bannerConfirmed}
                 </div>
               )}
@@ -476,7 +476,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                             window.open(`tel:${r.user_phone}`, "_self");
                             setTimeout(() => setCalledUser((p) => ({ ...p, [r.id]: true })), 3000);
                           }}
-                          className="w-full rounded-lg border border-[#22C55E]/40 text-[#22C55E] text-xs font-semibold py-2"
+                          className="w-full rounded-lg border border-brand/40 text-brand text-xs font-semibold py-2"
                         >
                           {s.incoming_callThenCancel}
                         </button>
@@ -505,7 +505,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                     type="button"
                     disabled={markingId === r.id}
                     onClick={() => void acceptHelpOrder(r.id)}
-                    className="w-full rounded-lg bg-[#22C55E] text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                    className="w-full rounded-lg bg-brand text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                   >
                     {markingId === r.id ? s.incoming_saving : s.incoming_btnAccept}
                   </button>
@@ -531,7 +531,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                     window.open(`tel:+91${r.user_phone.replace(/\D/g, "")}`, "_self");
                   }
                 }}
-                className="inline-flex w-full items-center justify-center rounded-lg border border-[#22C55E]/40 bg-transparent text-[#22C55E] text-[11px] font-semibold py-1.5 px-2 active:scale-[0.99] transition-transform hover:bg-[#22C55E]/5"
+                className="inline-flex w-full items-center justify-center rounded-lg border border-brand/40 bg-transparent text-brand text-[11px] font-semibold py-1.5 px-2 active:scale-[0.99] transition-transform hover:bg-brand/5"
               >
                 {s.incoming_callBridge}
               </button>
@@ -540,7 +540,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                   type="button"
                   disabled={markingId === r.id}
                   onClick={() => void markDone(r.id)}
-                  className="w-full rounded-lg border border-[#22C55E]/50 bg-[#22C55E]/10 text-[#22C55E] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                  className="w-full rounded-lg border border-brand/50 bg-brand-muted text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                 >
                   {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
                 </button>

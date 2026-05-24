@@ -604,7 +604,7 @@ const MyOrders = () => {
           <button
             type="button"
             onClick={() => navigate("/")}
-            className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+            className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
           >
             {s.myOrders_findVendors}
           </button>
@@ -618,7 +618,7 @@ const MyOrders = () => {
                 "rounded-2xl border p-4 space-y-2",
                 r.status === "cancelled"
                   ? "border-destructive/50 bg-destructive/5"
-                  : "border-[#2a2a2a] bg-[#141414]",
+                  : "border-surface-border bg-surface",
               )}
             >
               <div className="flex items-start justify-between gap-2">
@@ -646,7 +646,7 @@ const MyOrders = () => {
                   {s.myOrders_cancelledByVendor}
                 </span>
               ) : r.status === "accepted" && r.vendors?.service_mode === "help" ? (
-                <span className="inline-flex rounded-full bg-[#22C55E]/15 text-[#22C55E] text-[11px] font-semibold px-2.5 py-1 border border-[#22C55E]/40">
+                <span className="inline-flex rounded-full bg-brand/15 text-brand text-[11px] font-semibold px-2.5 py-1 border border-brand/40">
                   {s.status_accepted}
                 </span>
               ) : (
@@ -670,7 +670,7 @@ const MyOrders = () => {
                   return (
                     <>
                       {live && distM != null && (
-                        <p className="text-[11px] text-[#22C55E]">
+                        <p className="text-[11px] text-brand">
                           📍 Vendor is {formatVendorDistance(distM)} · {s.vendor_last_updated}{" "}
                           {formatTimeAgo(live.lastUpdated)}
                         </p>
@@ -679,7 +679,7 @@ const MyOrders = () => {
                         <p className="text-[11px] text-muted-foreground">📍 {s.vendor_distance}</p>
                       )}
                       {live && distM == null && (
-                        <p className="text-[11px] text-[#22C55E]">
+                        <p className="text-[11px] text-brand">
                           📍 {s.vendor_distance} · {s.vendor_last_updated}{" "}
                           {formatTimeAgo(live.lastUpdated)}
                         </p>
@@ -693,7 +693,7 @@ const MyOrders = () => {
                             <button
                               type="button"
                               onClick={() => void openHelpVendorCall(r)}
-                              className="w-full rounded-lg border border-[#22C55E]/40 text-[#22C55E] text-xs font-semibold py-2"
+                              className="w-full rounded-lg border border-brand/40 text-brand text-xs font-semibold py-2"
                             >
                               {s.radar_connect_ai}
                             </button>
@@ -714,8 +714,8 @@ const MyOrders = () => {
                 const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
                 if (!slot) return null;
                 return (
-                  <div className="mt-1 rounded-lg border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px]">
-                    {s.myOrders_deliverySlotPrefix}<span className="text-[#22C55E] font-semibold">{slot}</span>
+                  <div className="mt-1 rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-[11px]">
+                    {s.myOrders_deliverySlotPrefix}<span className="text-brand font-semibold">{slot}</span>
                   </div>
                 );
               })()}
@@ -819,7 +819,7 @@ const MyOrders = () => {
                             window.open(`tel:${r.user_phone}`, "_self");
                             setTimeout(() => setCalledVendor((p) => ({ ...p, [r.id]: true })), 3000);
                           }}
-                          className="w-full rounded-lg border border-[#22C55E]/40 text-[#22C55E] text-xs font-semibold py-2"
+                          className="w-full rounded-lg border border-brand/40 text-brand text-xs font-semibold py-2"
                         >
                           {s.myOrders_callThenCancel}
                         </button>
@@ -883,7 +883,7 @@ const MyOrders = () => {
                     type="button"
                     disabled={markingId === r.id}
                     onClick={() => handleFulfilledDismiss(r)}
-                    className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50 shadow-[0_0_14px_rgba(34,197,94,0.35)]"
+                    className="w-full rounded-xl bg-brand text-[#0b1f14] text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50 shadow-[0_0_14px_rgba(34,197,94,0.35)]"
                   >
                     {markingId === r.id ? s.myOrders_saving : s.myOrders_delivered}
                   </button>
@@ -965,7 +965,7 @@ const MyOrders = () => {
             }
             onClick={() => void saveOrderEdit()}
             className={cn(
-              "mt-4 w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3 font-semibold disabled:opacity-50",
+              "mt-4 w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold disabled:opacity-50",
             )}
           >
             {savingEdit ? s.myOrders_saving : s.saveChanges}
@@ -990,7 +990,7 @@ const MyOrders = () => {
       <Sheet open={aiSheetOpen} onOpenChange={closeAiSheet}>
         <SheetContent
           side="bottom"
-          className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
+          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
         >
           <SheetHeader className="text-left space-y-1 pr-8">
             <SheetTitle className="text-white font-display">{s.aiBridge}</SheetTitle>
@@ -1006,7 +1006,7 @@ const MyOrders = () => {
           <div className="mt-4 space-y-4">
             {aiSheetLoading && (
               <div className="flex items-center gap-3 py-6 text-gray-300">
-                <Loader2 className="h-6 w-6 animate-spin text-[#22C55E] shrink-0" />
+                <Loader2 className="h-6 w-6 animate-spin text-brand shrink-0" />
                 <p className="text-sm">{s.briefingVendor}</p>
               </div>
             )}
@@ -1023,7 +1023,7 @@ const MyOrders = () => {
               <div className="flex flex-col gap-2 pt-2">
                 <button
                   type="button"
-                  className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+                  className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
                   onClick={() => window.open(telHref(helpCallVendor.phone), "_self")}
                 >
                   <PhoneCall className="h-4 w-4" />
@@ -1031,7 +1031,7 @@ const MyOrders = () => {
                 </button>
                 <button
                   type="button"
-                  className="w-full rounded-xl border border-[#333] bg-transparent text-gray-300 py-3 font-semibold active:scale-[0.99] transition-transform"
+                  className="w-full rounded-xl border border-surface-border bg-transparent text-gray-300 py-3 font-semibold active:scale-[0.99] transition-transform"
                   onClick={() => closeAiSheet(false)}
                 >
                   {s.radar_cancel}

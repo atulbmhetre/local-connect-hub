@@ -307,7 +307,7 @@ const RadarSearch = () => {
   return (
     <AppShell theme="dark">
       {scanning ? (
-        <div className="min-h-[80vh] bg-[#121212] flex flex-col items-center justify-center p-6 text-white relative animate-fade-in">
+        <div className="min-h-[80vh] bg-page-bg flex flex-col items-center justify-center p-6 text-white relative animate-fade-in">
           {/* Back */}
           <button
             onClick={() => navigate("/")}
@@ -319,7 +319,7 @@ const RadarSearch = () => {
 
           {/* Search Header */}
           <div className="absolute top-12 text-center px-6">
-            <h2 className="text-[#22C55E] text-sm font-bold tracking-widest uppercase mb-2">
+            <h2 className="text-brand text-sm font-bold tracking-widest uppercase mb-2">
               {expanded ? s.radar_expanding_scan : s.radar_scanning_area}
             </h2>
             <p className="text-2xl font-semibold italic capitalize">
@@ -329,17 +329,17 @@ const RadarSearch = () => {
 
           {/* The Radar Core */}
           <div className="relative flex items-center justify-center w-64 h-64">
-            <div className="absolute w-full h-full border-2 border-[#22C55E]/30 rounded-full animate-ping shadow-[0_0_20px_rgba(34,197,94,0.3)]" />
-            <div className="absolute w-3/4 h-3/4 border-2 border-[#22C55E]/20 rounded-full animate-[ping_1.5s_linear_infinite]" />
-            <div className="absolute w-1/2 h-1/2 border-2 border-[#22C55E]/10 rounded-full animate-[ping_2s_linear_infinite]" />
-            <div className="relative z-10 w-24 h-24 bg-[#121212] border-2 border-[#22C55E] rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(34,197,94,0.5)]">
-              <Shield className="w-10 h-10 text-[#22C55E] animate-pulse" />
+            <div className="absolute w-full h-full border-2 border-brand-border rounded-full animate-ping shadow-[0_0_20px_rgba(34,197,94,0.3)]" />
+            <div className="absolute w-3/4 h-3/4 border-2 border-brand/20 rounded-full animate-[ping_1.5s_linear_infinite]" />
+            <div className="absolute w-1/2 h-1/2 border-2 border-brand/10 rounded-full animate-[ping_2s_linear_infinite]" />
+            <div className="relative z-10 w-24 h-24 bg-page-bg border-2 border-brand rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(34,197,94,0.5)]">
+              <Shield className="w-10 h-10 text-brand animate-pulse" />
             </div>
           </div>
 
           {/* Trust Indicator */}
           <div className="absolute bottom-24 flex items-center gap-2 text-gray-400 text-sm text-center px-6">
-            <Loader2 className="w-4 h-4 animate-spin text-[#22C55E] shrink-0" />
+            <Loader2 className="w-4 h-4 animate-spin text-brand shrink-0" />
             <span>{s.radar_searching_within}{searchRadiusKm}{s.radar_km}</span>
           </div>
         </div>
@@ -354,7 +354,7 @@ const RadarSearch = () => {
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div className="text-center">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E]">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-brand">
                 {s.radar_live}
               </p>
               <h1 className="font-display text-lg font-bold capitalize">{term ? getLabel(term) : headline}</h1>
@@ -363,16 +363,16 @@ const RadarSearch = () => {
           </header>
 
           <div className="relative h-32 w-32 mx-auto mb-3">
-            <div className="absolute inset-0 rounded-full border-2 border-[#22C55E]/30" />
-            <div className="absolute inset-3 rounded-full border-2 border-[#22C55E]/20" />
+            <div className="absolute inset-0 rounded-full border-2 border-brand-border" />
+            <div className="absolute inset-3 rounded-full border-2 border-brand/20" />
             <div className="absolute inset-0 grid place-items-center">
-              <div className="h-14 w-14 rounded-full bg-[#121212] border-2 border-[#22C55E] grid place-items-center shadow-[0_0_24px_rgba(34,197,94,0.4)]">
-                <Shield className="h-6 w-6 text-[#22C55E]" />
+              <div className="h-14 w-14 rounded-full bg-page-bg border-2 border-brand grid place-items-center shadow-[0_0_24px_rgba(34,197,94,0.4)]">
+                <Shield className="h-6 w-6 text-brand" />
               </div>
             </div>
           </div>
 
-          <p className="text-center text-xs uppercase tracking-[0.25em] text-[#22C55E] mb-2">
+          <p className="text-center text-xs uppercase tracking-[0.25em] text-brand mb-2">
             {results.length} {results.length === 1 ? s.radar_match : s.radar_matches}{s.radar_found}
           </p>
           {expanded && results.length > 0 && (
@@ -412,7 +412,7 @@ const RadarSearch = () => {
 
       {/* 0 results before 50 km: widen only; failsafe comes after 50 km if still empty. */}
       {!scanning && !error && results.length === 0 && searchRadiusKm < MAX_RADIUS_KM && (
-        <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-4">
+        <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4">
           <p className="text-center font-display text-lg font-semibold text-white">
             {searchRadiusKm === NEAR_RADIUS_KM
               ? s.radar_no_helpers_15
@@ -423,7 +423,7 @@ const RadarSearch = () => {
               <button
                 type="button"
                 onClick={() => setSearchRadiusKm(25)}
-                className="flex-1 rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
+                className="flex-1 rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
               >
                 {s.radar_expand_25}
               </button>
@@ -432,14 +432,14 @@ const RadarSearch = () => {
               <button
                 type="button"
                 onClick={() => setSearchRadiusKm(50)}
-                className="flex-1 rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
+                className="flex-1 rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
               >
                 {s.radar_expand_50}
               </button>
             )}
           </div>
           {showGovHelpAlongsideRadiusExpand(term) && (
-            <div className="pt-2 border-t border-[#22C55E]/20">
+            <div className="pt-2 border-t border-brand/20">
               <GovEmergencyServices term={term} />
             </div>
           )}
@@ -462,7 +462,7 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
 
   if (!showEmergencyNumbers) {
     return (
-      <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-5">
+      <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-5">
         <p className="text-center text-sm text-gray-300 leading-relaxed px-1">
           {s.radar_no_helpers_area}
         </p>
@@ -471,7 +471,7 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
   }
 
   return (
-    <div className="rounded-2xl border border-[#22C55E]/30 bg-[#1A1A1A] p-5 mt-4 space-y-4">
+    <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4">
       <div className="text-center">
         <p className="font-display text-lg font-semibold text-white">
           {s.radar_no_private}
@@ -511,7 +511,7 @@ const VendorReputationLine = ({
           <span className="font-semibold">Helped</span>
         </span>
         <span>
-          {s.radar_helped}<span className="font-semibold tabular-nums text-[#22C55E]">{n}</span>{" "}
+          {s.radar_helped}<span className="font-semibold tabular-nums text-brand">{n}</span>{" "}
           {n === 1 ? s.radar_person : s.radar_people}
         </span>
       </div>
@@ -531,12 +531,12 @@ const VendorReputationLine = ({
           <span className="font-semibold">Delivered</span>
         </span>
         <span>
-          <span className="font-semibold tabular-nums text-[#22C55E]">{d}</span>{s.radar_orders_served}
+          <span className="font-semibold tabular-nums text-brand">{d}</span>{s.radar_orders_served}
           {pct !== null && d > 0 && (
             <>
               {" "}
               ·{" "}
-              <span className="font-semibold tabular-nums text-[#22C55E]">{pct}</span>{s.radar_on_time}
+              <span className="font-semibold tabular-nums text-brand">{pct}</span>{s.radar_on_time}
             </>
           )}
         </span>
@@ -685,9 +685,9 @@ const RadarVendorCard = ({
 
   const accentRing =
     tier === "green"
-      ? "ring-[#22C55E]/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
+      ? "ring-brand/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
       : tier === "yellow"
-        ? "ring-[#FACC15]/40"
+        ? "ring-warning/40"
         : "ring-destructive/30";
 
   const handleConnect = useCallback(() => {
@@ -802,7 +802,7 @@ const RadarVendorCard = ({
             )}
           </div>
           {serviceMode === "help" && dist != null && (
-            <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-[#22C55E]/10 ring-1 ring-[#22C55E]/30 px-2 py-0.5 text-[11px] font-semibold text-[#22C55E]">
+            <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-brand-muted ring-1 ring-brand/30 px-2 py-0.5 text-[11px] font-semibold text-brand">
               <span className="inline-flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 <span>ETA</span>
@@ -814,12 +814,12 @@ const RadarVendorCard = ({
       </div>
 
           {tier === "yellow" && (
-        <div className="mt-3 rounded-xl bg-[#FACC15]/10 border border-[#FACC15]/60 px-3 py-2 flex items-start gap-2">
+        <div className="mt-3 rounded-xl bg-warning/10 border border-warning/60 px-3 py-2 flex items-start gap-2">
           <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
-            <ShieldAlert className="h-4 w-4 text-[#FACC15]" />
-            <span className="text-xs text-[#FACC15] font-semibold">Pending</span>
+            <ShieldAlert className="h-4 w-4 text-warning" />
+            <span className="text-xs text-warning font-semibold">Pending</span>
           </span>
-          <p className="text-xs text-[#FACC15] font-semibold">
+          <p className="text-xs text-warning font-semibold">
             {s.radar_verification_progress}
           </p>
         </div>
@@ -845,7 +845,7 @@ const RadarVendorCard = ({
       <button
         type="button"
         onClick={handleConnect}
-        className="mt-4 w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
+        className="mt-4 w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
       >
         <Phone className="h-4 w-4" />
         {s.radar_connect_ai}
@@ -869,7 +869,7 @@ const RadarVendorCard = ({
           <div
             className={cn(
               "mt-2 w-full rounded-xl border px-3 py-2.5 text-sm",
-              "border-[#22C55E]/50 bg-[#22C55E]/5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1",
+              "border-brand/50 bg-brand/5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1",
             )}
           >
             <span className="text-muted-foreground font-medium">
@@ -881,7 +881,7 @@ const RadarVendorCard = ({
             <button
               type="button"
               onClick={() => setParchiOpen(true)}
-              className="font-semibold text-[#22C55E] underline underline-offset-2 hover:opacity-90"
+              className="font-semibold text-brand underline underline-offset-2 hover:opacity-90"
             >
               {serviceMode === "appointment" ? s.radar_book_again : s.radar_send_new_order}
             </button>
@@ -890,7 +890,7 @@ const RadarVendorCard = ({
           <button
             type="button"
             onClick={() => setParchiOpen(true)}
-            className="mt-2 w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform shadow-sm"
+            className="mt-2 w-full rounded-xl bg-brand text-[#0b1f14] py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform shadow-sm"
           >
             {serviceMode === "appointment" ? `📅 ${s.radar_book_service}` : `📋 ${s.radar_send_order}`}
           </button>
@@ -903,8 +903,8 @@ const RadarVendorCard = ({
           disabled={resolutionMarked || resolutionBusy}
           className={cn(
             "mt-2 w-full rounded-xl border py-2.5 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
-            "border-[#22C55E]/70 text-[#22C55E] bg-transparent",
-            "hover:bg-[#22C55E]/10",
+            "border-brand/70 text-brand bg-transparent",
+            "hover:bg-brand-muted",
             (resolutionMarked || resolutionBusy) && "opacity-60 cursor-not-allowed hover:bg-transparent",
           )}
         >
@@ -965,7 +965,7 @@ const SignalFreshness = ({ lastUpdated }: { lastUpdated: string | null }) => {
   );
   if (ageMin < 30) {
     return (
-      <span className="inline-flex items-center text-[#22C55E] font-semibold">
+      <span className="inline-flex items-center text-brand font-semibold">
         <span className="relative flex h-2 w-2 mr-1 shrink-0">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
@@ -1042,7 +1042,7 @@ const GovEmergencyServices = ({
 
   return (
     <Collapsible defaultOpen={defaultOpen}>
-      <div className="rounded-2xl border border-destructive/40 bg-[#1A1A1A] overflow-hidden">
+      <div className="rounded-2xl border border-destructive/40 bg-surface overflow-hidden">
         <CollapsibleTrigger className="w-full flex items-center justify-between gap-3 p-4 group">
           <div className="flex items-center gap-2 min-w-0">
             <Siren className="h-4 w-4 text-destructive shrink-0" />
@@ -1062,7 +1062,7 @@ const GovEmergencyServices = ({
             <a
               key={l.number}
               href={l.href}
-              className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+              className="flex items-center gap-3 rounded-xl bg-page-bg border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
             >
               <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
                 <PhoneCall className="h-4 w-4 text-destructive" />
@@ -1076,7 +1076,7 @@ const GovEmergencyServices = ({
           ))}
           <a
             href="tel:100"
-            className="flex items-center gap-3 rounded-xl bg-[#121212] border border-destructive/20 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+            className="flex items-center gap-3 rounded-xl bg-page-bg border border-destructive/20 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
           >
             <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
               <PhoneCall className="h-4 w-4 text-destructive" />

@@ -139,8 +139,8 @@ const VendorPostRegistrationGuidance = ({ vendor }: { vendor: Vendor }) => {
 
   if (!!vendor.is_manual_verified) {
     return (
-      <div className="rounded-2xl border border-[#22C55E]/45 bg-[#22C55E]/10 p-4 text-sm">
-        <p className="font-semibold text-[#22C55E]">🟢 {s.vendor_verified_title}</p>
+      <div className="rounded-2xl border border-brand/45 bg-brand-muted p-4 text-sm">
+        <p className="font-semibold text-brand">🟢 {s.vendor_verified_title}</p>
         <p className="mt-2 text-muted-foreground leading-relaxed">
           {s.vendor_verified_body}
         </p>
@@ -802,7 +802,7 @@ const VendorMode = () => {
               <Bell className="h-5 w-5" />
             </button>
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 rounded-full bg-[#22C55E] text-[#0b1f14] text-[10px] font-bold min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center tabular-nums">
+              <span className="absolute -top-1 -right-1 rounded-full bg-brand text-[#0b1f14] text-[10px] font-bold min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center tabular-nums">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -861,8 +861,8 @@ const VendorMode = () => {
                   </div>
                 )}
                 {categorySuggestion && !confirmedCategory && categorySuggestion.canonical != null && (
-                  <div className="mt-2 rounded-xl border border-[#22C55E]/40 bg-[#22C55E]/10 p-3">
-                    <p className="text-sm text-[#22C55E] font-medium">
+                  <div className="mt-2 rounded-xl border border-brand/40 bg-brand-muted p-3">
+                    <p className="text-sm text-brand font-medium">
                       {s.vendor_we_think} {categorySuggestion.canonical} {categorySuggestion.emoji} (
                       {categorySuggestion.mode === "help" ? s.vendor_help_service : s.vendor_delivery_service})
                       {categorySuggestion.is_government ? ` ${s.vendor_govt_service}` : ""}
@@ -870,14 +870,14 @@ const VendorMode = () => {
                     <button
                       type="button"
                       onClick={() => setConfirmedCategory(categorySuggestion.canonical!)}
-                      className="mt-2 rounded-lg bg-[#22C55E] text-[#0b1f14] px-3 py-1.5 text-xs font-semibold"
+                      className="mt-2 rounded-lg bg-brand text-[#0b1f14] px-3 py-1.5 text-xs font-semibold"
                     >
                       {s.vendor_confirm}
                     </button>
                   </div>
                 )}
                 {confirmedCategory && (
-                  <p className="mt-2 text-xs text-[#22C55E] font-semibold">
+                  <p className="mt-2 text-xs text-brand font-semibold">
                     {s.vendor_confirmed_category} {confirmedCategory}
                   </p>
                 )}
@@ -896,9 +896,9 @@ const VendorMode = () => {
                   onClick={() => setServiceMode("help")}
                   className={cn(
                     "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
-                    "bg-[#141414] border-[#2a2a2a]",
+                    "bg-surface border-surface-border",
                     serviceMode === "help" &&
-                      "border-[#22C55E] bg-[#22C55E]/15 ring-1 ring-[#22C55E]/30",
+                      "border-brand bg-brand/15 ring-1 ring-brand/30",
                   )}
                 >
                   <p className="text-base font-display font-bold text-foreground leading-tight">
@@ -913,9 +913,9 @@ const VendorMode = () => {
                   onClick={() => setServiceMode("delivery")}
                   className={cn(
                     "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
-                    "bg-[#141414] border-[#2a2a2a]",
+                    "bg-surface border-surface-border",
                     serviceMode === "delivery" &&
-                      "border-[#22C55E] bg-[#22C55E]/15 ring-1 ring-[#22C55E]/30",
+                      "border-brand bg-brand/15 ring-1 ring-brand/30",
                   )}
                 >
                   <p className="text-base font-display font-bold text-foreground leading-tight">
@@ -930,9 +930,9 @@ const VendorMode = () => {
                   onClick={() => setServiceMode("appointment")}
                   className={cn(
                     "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
-                    "bg-[#141414] border-[#2a2a2a]",
+                    "bg-surface border-surface-border",
                     serviceMode === "appointment" &&
-                      "border-[#22C55E] bg-[#22C55E]/15 ring-1 ring-[#22C55E]/30",
+                      "border-brand bg-brand/15 ring-1 ring-brand/30",
                   )}
                 >
                   <p className="text-base font-display font-bold text-foreground leading-tight">
@@ -1025,7 +1025,7 @@ const VendorMode = () => {
               setAlreadyRegistered(true);
               setLookupError(null);
             }}
-            className="w-full text-center text-sm font-semibold text-[#22C55E] hover:underline py-2 animate-fade-up"
+            className="w-full text-center text-sm font-semibold text-brand hover:underline py-2 animate-fade-up"
           >
             {s.vendor_already_registered}
           </button>
@@ -1099,7 +1099,7 @@ const VendorMode = () => {
           <div className="rounded-3xl bg-card border border-border shadow-card p-6 text-center">
             <p
               className={`mt-1 font-display text-xl font-semibold ${
-                vendor.is_active ? "text-[#22C55E]" : "text-[#888]"
+                vendor.is_active ? "text-brand" : "text-gray-400"
               }`}
             >
               {vendor.is_active ? s.vendor_ready : s.vendor_offline_label}
@@ -1111,12 +1111,12 @@ const VendorMode = () => {
               aria-pressed={vendor.is_active}
               className={`mt-6 mx-auto rounded-full grid place-items-center transition-all active:scale-95 disabled:opacity-60 ${
                 vendor.is_active
-                  ? "h-11 w-11 bg-[#22C55E] border-0 text-[#000]"
-                  : "h-[72px] w-[72px] bg-[#1e3a1e] border-2 border-[#22C55E] text-[#22C55E]"
+                  ? "h-11 w-11 bg-brand border-0 text-black"
+                  : "h-[72px] w-[72px] bg-[#1e3a1e] border-2 border-brand text-brand"
               }`}
             >
               <Power
-                className={vendor.is_active ? "h-[18px] w-[18px] text-[#000]" : "h-[30px] w-[30px] text-[#22C55E]"}
+                className={vendor.is_active ? "h-[18px] w-[18px] text-black" : "h-[30px] w-[30px] text-brand"}
                 strokeWidth={2.5}
               />
             </button>
@@ -1125,7 +1125,7 @@ const VendorMode = () => {
               <p className="mt-3 text-[11px] font-normal text-[#555]">{s.vendor_tap_offline}</p>
             ) : (
               <>
-                <p className="mt-3 text-[13px] font-medium text-[#22C55E]">{s.vendor_tap_online}</p>
+                <p className="mt-3 text-[13px] font-medium text-brand">{s.vendor_tap_online}</p>
                 <p className="mt-1 text-[11px] text-[#666]">{s.vendor_customers_waiting}</p>
               </>
             )}
@@ -1157,11 +1157,11 @@ const VendorMode = () => {
             <span
               className={cn(
                 "h-2.5 w-2.5 rounded-full shrink-0",
-                !!vendor.is_manual_verified && "bg-[#22C55E]",
+                !!vendor.is_manual_verified && "bg-brand",
                 !vendor.is_manual_verified &&
                   vendor.shop_photo_url != null &&
                   String(vendor.shop_photo_url).trim() !== "" &&
-                  "bg-[#FACC15]",
+                  "bg-warning",
                 (!vendor.is_manual_verified &&
                   (vendor.shop_photo_url == null || String(vendor.shop_photo_url).trim() === "")) &&
                   "bg-destructive",
@@ -1307,7 +1307,7 @@ const VendorMode = () => {
                     type="button"
                     onClick={() => void saveNote()}
                     disabled={savingNote}
-                    className="text-xs font-semibold text-[#22C55E] hover:underline disabled:opacity-50"
+                    className="text-xs font-semibold text-brand hover:underline disabled:opacity-50"
                   >
                     {savingNote ? s.vendor_saving : s.vendor_save_note}
                   </button>

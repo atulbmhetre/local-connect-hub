@@ -263,7 +263,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
       <Sheet open={isOpen} onOpenChange={handleOpenChange}>
         <SheetContent
           side="bottom"
-          className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[90vh] overflow-y-auto [&>button]:text-gray-400"
+          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[90vh] overflow-y-auto [&>button]:text-gray-400"
         >
           <SheetHeader className="text-left space-y-2 pr-8">
             <SheetTitle className="text-white font-display text-lg">
@@ -285,7 +285,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               )}
             </SheetDescription>
             {effectiveVendor?.vendor_note && (
-              <div className="mt-2 rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px] text-[#22C55E]">
+              <div className="mt-2 rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-brand">
                 {s.parchi_vendorNotePrefix}{effectiveVendor.vendor_note}
               </div>
             )}
@@ -312,8 +312,8 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                         onClick={() => setSelectedAddressId(addr.id)}
                         className={`w-full text-left rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                           selectedAddressId === addr.id
-                            ? "border-[#22C55E] bg-[#22C55E]/10 text-white"
-                            : "border-[#2a2a2a] bg-[#141414] text-gray-300"
+                            ? "border-brand bg-brand-muted text-white"
+                            : "border-surface-border bg-surface text-gray-300"
                         }`}
                       >
                         {addr.address_text}
@@ -324,8 +324,8 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                       onClick={() => setSelectedAddressId(null)}
                       className={`w-full text-left rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                         selectedAddressId === null
-                          ? "border-[#22C55E] bg-[#22C55E]/10 text-white"
-                          : "border-[#2a2a2a] bg-[#141414] text-gray-400"
+                          ? "border-brand bg-brand-muted text-white"
+                          : "border-surface-border bg-surface text-gray-400"
                       }`}
                     >
                       {s.parchi_useDifferentAddress}
@@ -340,14 +340,14 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                       value={newAddress}
                       onChange={(e) => setNewAddress(e.target.value)}
                       placeholder={s.parchi_addressPlaceholder}
-                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#141414] px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/50"
+                      className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
                     />
                     <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={saveAddress}
                         onChange={(e) => setSaveAddress(e.target.checked)}
-                        className="accent-[#22C55E]"
+                        className="accent-brand"
                       />
                       {s.parchi_saveAddress}
                     </label>
@@ -367,7 +367,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                       className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
                         appointmentLocation === "home"
                           ? "border-blue-500 bg-blue-500/10 text-blue-400"
-                          : "border-[#2a2a2a] bg-[#141414] text-gray-400"
+                          : "border-surface-border bg-surface text-gray-400"
                       }`}
                     >
                       {s.parchi_locationComeToMeBtn}
@@ -378,7 +378,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                       className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
                         appointmentLocation === "shop"
                           ? "border-purple-500 bg-purple-500/10 text-purple-400"
-                          : "border-[#2a2a2a] bg-[#141414] text-gray-400"
+                          : "border-surface-border bg-surface text-gray-400"
                       }`}
                     >
                       {s.parchi_locationVisitBtn}
@@ -389,7 +389,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                       className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
                         appointmentLocation === "decide"
                           ? "border-gray-500 bg-gray-500/10 text-gray-300"
-                          : "border-[#2a2a2a] bg-[#141414] text-gray-400"
+                          : "border-surface-border bg-surface text-gray-400"
                       }`}
                     >
                       {s.parchi_locationDecideLater}
@@ -407,7 +407,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                       value={appointmentDate}
                       min={new Date().toISOString().split("T")[0]}
                       onChange={(e) => setAppointmentDate(e.target.value)}
-                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#141414] px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#22C55E]/50"
+                      className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
                     />
                   </div>
                   <div className="space-y-1">
@@ -416,7 +416,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                       type="time"
                       value={appointmentTime}
                       onChange={(e) => setAppointmentTime(e.target.value)}
-                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#141414] px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#22C55E]/50"
+                      className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
                     />
                   </div>
                 </div>
@@ -431,7 +431,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                 <select
                   value={deliverySlot}
                   onChange={(e) => setDeliverySlot(e.target.value)}
-                  className="w-full rounded-xl border border-[#2a2a2a] bg-[#141414] px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#22C55E]/50"
+                  className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
                 >
                   {getAvailableSlots().map((slot) => (
                     <option key={slot.value} value={slot.value}>
@@ -455,7 +455,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                   ? s.parchi_placeholderAppt
                   : s.parchi_placeholderOrder
               }
-              className="w-full resize-none rounded-xl border border-[#2a2a2a] bg-[#141414] px-3 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/50"
+              className="w-full resize-none rounded-xl border border-surface-border bg-surface px-3 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
             />
             <div className="flex justify-end text-xs text-gray-500 tabular-nums">
               {len}{s.parchi_charSeparator}{config.maxOrderMessageChars}
@@ -475,7 +475,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               type="button"
               disabled={sending}
               onClick={() => void send()}
-              className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+              className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
             >
               {effectiveVendor?.service_mode === "appointment"
                 ? s.parchi_btnConfirmBooking

@@ -126,9 +126,9 @@ export const LiveCamera = ({ open, onClose, onCapture }: Props) => {
     <div className="fixed inset-0 z-[100] bg-black/90 grid place-items-center p-4">
       <div className="w-full max-w-md flex flex-col rounded-3xl bg-card border border-border shadow-card overflow-hidden max-h-[min(90vh,920px)]">
         {/* Full-width top bar — never covered by viewfinder overlays so Cancel always receives clicks */}
-        <div className="flex shrink-0 items-center justify-between gap-3 bg-[#0a0a0a] px-4 py-3 border-b border-white/10">
+        <div className="flex shrink-0 items-center justify-between gap-3 bg-page-bg px-4 py-3 border-b border-white/10">
           <div className="min-w-0 flex items-start gap-2">
-            <MapPin className="h-4 w-4 text-[#22C55E] shrink-0 mt-0.5" aria-hidden />
+            <MapPin className="h-4 w-4 text-brand shrink-0 mt-0.5" aria-hidden />
             <div>
               <p className="text-[10px] uppercase tracking-[0.25em] text-gray-400">
                 Live Shop Photo

@@ -200,7 +200,7 @@ export function AiBridgeSheet({
     <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
       <SheetContent
         side="bottom"
-        className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
+        className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
       >
         <SheetHeader className="text-left space-y-1 pr-8">
           <SheetTitle className="text-white font-display">{s.aiBridge}</SheetTitle>
@@ -229,7 +229,7 @@ export function AiBridgeSheet({
           </div>
 
           {vendor.vendor_note?.trim() && (
-            <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/5 px-3 py-2 text-[11px] text-[#22C55E]">
+            <div className="rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-brand">
               📌 {vendor.vendor_note}
             </div>
           )}
@@ -240,7 +240,7 @@ export function AiBridgeSheet({
               {vendor.total_helped != null && vendor.total_helped > 0 && (
                 <span>
                   {s.radar_helped}
-                  <span className="font-semibold text-[#22C55E] tabular-nums">
+                  <span className="font-semibold text-brand tabular-nums">
                     {vendor.total_helped}
                   </span>{" "}
                   {vendor.total_helped === 1 ? s.radar_person : s.radar_people}
@@ -248,7 +248,7 @@ export function AiBridgeSheet({
               )}
               {vendor.on_time_rate != null && Number.isFinite(vendor.on_time_rate) && (
                 <span>
-                  <span className="font-semibold text-[#22C55E] tabular-nums">
+                  <span className="font-semibold text-brand tabular-nums">
                     {Math.round(vendor.on_time_rate)}
                   </span>
                   {s.radar_on_time}
@@ -263,7 +263,7 @@ export function AiBridgeSheet({
 
           {briefLoading && (
             <div className="flex items-center gap-3 py-4 text-gray-300">
-              <Loader2 className="h-6 w-6 animate-spin text-[#22C55E] shrink-0" />
+              <Loader2 className="h-6 w-6 animate-spin text-brand shrink-0" />
               <p className="text-sm">{s.briefingVendor}</p>
             </div>
           )}
@@ -279,13 +279,13 @@ export function AiBridgeSheet({
           )}
 
           {connecting ? (
-            <p className="text-sm text-[#22C55E] text-center py-3">{s.ai_bridge_connecting}</p>
+            <p className="text-sm text-brand text-center py-3">{s.ai_bridge_connecting}</p>
           ) : (
             <button
               type="button"
               disabled={briefLoading || callLoading}
               onClick={() => void handleCallNow()}
-              className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
+              className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
             >
               {callLoading ? (
                 <Loader2 className="h-5 w-5 animate-spin" />

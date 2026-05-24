@@ -334,14 +334,14 @@ const LiveTracking = () => {
       : "Locating responder";
 
   const movingTone = stalled
-    ? "text-[#F97316] border-[#F97316]/40 bg-[#F97316]/10"
-    : "text-[#22C55E] border-[#22C55E]/40 bg-[#22C55E]/10";
+    ? "text-orange-500 border-orange-500/40 bg-orange-500/10"
+    : "text-brand border-brand/40 bg-brand-muted";
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#121212] grid place-items-center text-white">
+      <div className="min-h-screen bg-page-bg grid place-items-center text-white">
         <div className="flex items-center gap-2 text-sm text-gray-400">
-          <Loader2 className="h-4 w-4 animate-spin text-[#22C55E]" />
+          <Loader2 className="h-4 w-4 animate-spin text-brand" />
           Opening secure tracking channel…
         </div>
       </div>
@@ -350,10 +350,10 @@ const LiveTracking = () => {
 
   if (error || !vendor) {
     return (
-      <div className="min-h-screen bg-[#121212] text-white p-6 flex flex-col gap-4">
+      <div className="min-h-screen bg-page-bg text-white p-6 flex flex-col gap-4">
         <button
           onClick={() => navigate(-1)}
-          className="h-10 w-10 grid place-items-center rounded-xl bg-[#1A1A1A] border border-white/10"
+          className="h-10 w-10 grid place-items-center rounded-xl bg-surface border border-white/10"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -369,7 +369,7 @@ const LiveTracking = () => {
   const minutesSinceMove = Math.floor((now - lastMoveRef.current) / 60_000);
 
   return (
-    <div className="min-h-screen bg-[#121212] text-white flex flex-col">
+    <div className="min-h-screen bg-page-bg text-white flex flex-col">
       <style>{`
         @keyframes aaspaasPing {
           0% { transform: scale(0.6); opacity: 0.6; }
@@ -390,13 +390,13 @@ const LiveTracking = () => {
       <header className="px-4 pt-4 pb-3 flex items-center gap-3">
         <button
           onClick={() => navigate(-1)}
-          className="h-10 w-10 grid place-items-center rounded-xl bg-[#1A1A1A] border border-white/10"
+          className="h-10 w-10 grid place-items-center rounded-xl bg-surface border border-white/10"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex-1">
-          <p className="text-[10px] uppercase tracking-[0.3em] text-[#22C55E] font-bold">
+          <p className="text-[10px] uppercase tracking-[0.3em] text-brand font-bold">
             Live Tracking
           </p>
           <h1 className="font-display text-base font-bold leading-tight">
@@ -406,10 +406,10 @@ const LiveTracking = () => {
       </header>
 
       {/* Permanent Secure Connection banner */}
-      <div className="mx-4 mb-3 rounded-xl bg-[#1A1A1A] border border-[#22C55E]/40 px-3 py-2.5 flex items-start gap-2 shadow-[0_0_18px_rgba(34,197,94,0.15)]">
-        <ShieldCheck className="h-4 w-4 text-[#22C55E] mt-0.5 shrink-0" />
+      <div className="mx-4 mb-3 rounded-xl bg-surface border border-brand/40 px-3 py-2.5 flex items-start gap-2 shadow-[0_0_18px_rgba(34,197,94,0.15)]">
+        <ShieldCheck className="h-4 w-4 text-brand mt-0.5 shrink-0" />
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-[#22C55E] leading-tight">
+          <p className="text-[11px] font-semibold text-brand leading-tight">
             Secure Connection Active
           </p>
           <p className="text-[10.5px] text-gray-400 leading-snug">
@@ -461,7 +461,7 @@ const LiveTracking = () => {
           <span
             className={cn(
               "h-2 w-2 rounded-full animate-pulse",
-              stalled ? "bg-[#F97316]" : "bg-[#22C55E]",
+              stalled ? "bg-orange-500" : "bg-brand",
             )}
           />
           {stalled
@@ -481,10 +481,10 @@ const LiveTracking = () => {
 
       {/* Stalled alert */}
       {stalled && (
-        <div className="mx-4 mt-3 rounded-2xl bg-[#F97316]/10 border-2 border-[#F97316]/50 p-3 flex items-start gap-3 shadow-[0_0_24px_rgba(249,115,22,0.25)] animate-fade-up">
-          <ShieldAlert className="h-5 w-5 text-[#F97316] shrink-0 mt-0.5" />
+        <div className="mx-4 mt-3 rounded-2xl bg-orange-500/10 border-2 border-orange-500/50 p-3 flex items-start gap-3 shadow-[0_0_24px_rgba(249,115,22,0.25)] animate-fade-up">
+          <ShieldAlert className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-[#F97316]">
+            <p className="text-sm font-semibold text-orange-500">
               Stalled? Check Status via AI-Bridge
             </p>
             <p className="text-[11px] text-gray-400 mt-0.5">
@@ -493,7 +493,7 @@ const LiveTracking = () => {
           </div>
           <button
             onClick={handleVerifyCall}
-            className="rounded-lg bg-[#F97316] text-black px-3 py-1.5 text-xs font-bold active:scale-95"
+            className="rounded-lg bg-orange-500 text-black px-3 py-1.5 text-xs font-bold active:scale-95"
           >
             Check
           </button>
@@ -501,8 +501,8 @@ const LiveTracking = () => {
       )}
 
       {/* Responder card */}
-      <section className="mx-4 mt-3 rounded-2xl bg-[#1A1A1A] border border-white/10 p-4 flex items-center gap-3">
-        <div className="h-14 w-14 rounded-2xl overflow-hidden bg-[#121212] border border-white/10 grid place-items-center shrink-0">
+      <section className="mx-4 mt-3 rounded-2xl bg-surface border border-white/10 p-4 flex items-center gap-3">
+        <div className="h-14 w-14 rounded-2xl overflow-hidden bg-page-bg border border-white/10 grid place-items-center shrink-0">
           {vendor.shop_photo_url ? (
             <img
               src={vendor.shop_photo_url}
@@ -510,7 +510,7 @@ const LiveTracking = () => {
               className="h-full w-full object-cover"
             />
           ) : (
-            <span className="text-xl font-display font-bold text-[#22C55E]">
+            <span className="text-xl font-display font-bold text-brand">
               {vendor.name?.[0]?.toUpperCase() ?? "?"}
             </span>
           )}
@@ -523,7 +523,7 @@ const LiveTracking = () => {
           <p className="text-xs text-gray-400 truncate">
             {vendor.shop_name} · {getLabel(vendor.category)}
           </p>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-[#22C55E] mt-0.5 font-bold">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-brand mt-0.5 font-bold">
             Ready to Help ·{" "}
             {vendorTier(vendor) === "green"
               ? "Verified Professional"
@@ -538,7 +538,7 @@ const LiveTracking = () => {
       <div className="mx-4 mt-3">
         <button
           onClick={handleSecureCall}
-          className="w-full rounded-2xl bg-[#22C55E] text-black py-4 flex items-center justify-center gap-2 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_28px_rgba(34,197,94,0.45)]"
+          className="w-full rounded-2xl bg-brand text-black py-4 flex items-center justify-center gap-2 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_28px_rgba(34,197,94,0.45)]"
         >
           <PhoneCall className="h-5 w-5" />
           Secure Call · AI-Bridge
@@ -556,8 +556,8 @@ const LiveTracking = () => {
           className={cn(
             "rounded-2xl border py-3.5 flex flex-col items-center justify-center gap-1 transition-colors active:scale-[0.98]",
             flashing
-              ? "bg-[#22C55E]/15 border-[#22C55E] text-[#22C55E] shadow-[0_0_20px_rgba(34,197,94,0.35)]"
-              : "bg-[#1A1A1A] border-white/10 text-white hover:border-[#22C55E]/40",
+              ? "bg-brand/15 border-brand text-brand shadow-[0_0_20px_rgba(34,197,94,0.35)]"
+              : "bg-surface border-white/10 text-white hover:border-brand/40",
           )}
         >
           <Flashlight className={cn("h-5 w-5", flashing && "animate-pulse")} />
@@ -568,9 +568,9 @@ const LiveTracking = () => {
         </button>
         <button
           onClick={handleShareStatus}
-          className="rounded-2xl bg-[#1A1A1A] border border-white/10 py-3.5 flex flex-col items-center justify-center gap-1 active:scale-[0.98] hover:border-[#22C55E]/40 transition-colors"
+          className="rounded-2xl bg-surface border border-white/10 py-3.5 flex flex-col items-center justify-center gap-1 active:scale-[0.98] hover:border-brand/40 transition-colors"
         >
-          <Share2 className="h-5 w-5 text-[#22C55E]" />
+          <Share2 className="h-5 w-5 text-brand" />
           <span className="text-xs font-semibold">Share Live Status</span>
           <span className="text-[10px] text-gray-500">Send link to family</span>
         </button>
@@ -581,23 +581,23 @@ const LiveTracking = () => {
 
       {/* Secure Call modal */}
       {callOpen && (
-        <div className="fixed inset-0 z-50 bg-[#0A0A0A]/95 backdrop-blur-sm flex flex-col items-center justify-between py-12 px-6">
+        <div className="fixed inset-0 z-50 bg-page-bg/95 backdrop-blur-sm flex flex-col items-center justify-between py-12 px-6">
           <div className="flex flex-col items-center gap-3 mt-6">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.3em] text-[#22C55E] font-bold">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.3em] text-brand font-bold">
               <Lock className="h-3 w-3" /> AI-Bridge · Secure
             </div>
-            <div className="h-24 w-24 rounded-full overflow-hidden border-2 border-[#22C55E] shadow-[0_0_36px_rgba(34,197,94,0.45)] bg-[#1A1A1A] grid place-items-center">
+            <div className="h-24 w-24 rounded-full overflow-hidden border-2 border-brand shadow-[0_0_36px_rgba(34,197,94,0.45)] bg-surface grid place-items-center">
               {vendor.shop_photo_url ? (
                 <img src={vendor.shop_photo_url} alt={vendor.name} className="h-full w-full object-cover" />
               ) : (
-                <span className="text-3xl font-display font-bold text-[#22C55E]">
+                <span className="text-3xl font-display font-bold text-brand">
                   {vendor.name?.[0]?.toUpperCase() ?? "?"}
                 </span>
               )}
             </div>
             <p className="font-display text-xl font-bold text-white mt-1">{vendor.name}</p>
             <p className="text-xs text-gray-400">{getLabel(vendor.category)} · Number masked</p>
-            <div className="mt-4 flex items-center gap-2 text-sm text-[#22C55E] font-mono">
+            <div className="mt-4 flex items-center gap-2 text-sm text-brand font-mono">
               <Clock className="h-4 w-4" />
               {callDuration}
             </div>
@@ -611,7 +611,7 @@ const LiveTracking = () => {
                   "rounded-2xl py-4 flex flex-col items-center gap-1 border transition-colors",
                   muted
                     ? "bg-white text-black border-white"
-                    : "bg-[#1A1A1A] text-white border-white/10",
+                    : "bg-surface text-white border-white/10",
                 )}
               >
                 {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
@@ -623,7 +623,7 @@ const LiveTracking = () => {
                   "rounded-2xl py-4 flex flex-col items-center gap-1 border transition-colors",
                   speaker
                     ? "bg-white text-black border-white"
-                    : "bg-[#1A1A1A] text-white border-white/10",
+                    : "bg-surface text-white border-white/10",
                 )}
               >
                 {speaker ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}

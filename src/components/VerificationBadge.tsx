@@ -52,9 +52,9 @@ export const VerificationBadge = ({
 
   const tone =
     tier === "green"
-      ? "bg-[#22C55E]/15 text-[#22C55E] ring-[#22C55E]/40"
+      ? "bg-brand/15 text-brand ring-brand/40"
       : tier === "yellow"
-        ? "bg-[#FACC15]/15 text-[#CA8A04] ring-[#FACC15]/45"
+        ? "bg-warning/15 text-yellow-600 ring-warning/45"
         : "bg-destructive/10 text-destructive ring-destructive/30";
 
   const glow = tier === "green" ? "shadow-[0_0_18px_rgba(34,197,94,0.45)]" : "";

@@ -61,7 +61,7 @@ export function RatingSheet({ isOpen, shopName, serviceMode, vendorId, onDismiss
     >
       <SheetContent
         side="bottom"
-        className="bg-[#0a0a0a] border-t border-[#1f1f1f] text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
+        className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
       >
         <SheetHeader className="text-left space-y-1 pr-8">
           <SheetTitle className="text-white font-display">{s.rating_heading}</SheetTitle>
@@ -73,7 +73,7 @@ export function RatingSheet({ isOpen, shopName, serviceMode, vendorId, onDismiss
             type="button"
             disabled={busy}
             onClick={() => void handleRate()}
-            className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
+            className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
           >
             {loading === "rate" ? <Loader2 className="h-5 w-5 animate-spin shrink-0" /> : null}
             {isDelivery ? s.rating_btnDelivered : s.rating_btnHelped}

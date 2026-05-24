@@ -344,7 +344,7 @@ const Index = () => {
 
       {savedNeighbours.length > 0 && (
         <section className="mb-8 animate-fade-up">
-          <p className="text-xs uppercase tracking-[0.25em] text-[#15803d] dark:text-[#22C55E] text-center mb-3 font-semibold">
+          <p className="text-xs uppercase tracking-[0.25em] text-green-700 dark:text-brand text-center mb-3 font-semibold">
             {s.myNeighbourhood}
           </p>
           <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
@@ -373,7 +373,7 @@ const Index = () => {
                   )}
                   {vendor.is_active && (
                     <span
-                      className="absolute bottom-1 right-1 h-2 w-2 rounded-full bg-[#22C55E] ring-2 ring-card"
+                      className="absolute bottom-1 right-1 h-2 w-2 rounded-full bg-brand ring-2 ring-card"
                       aria-label="Online"
                     />
                   )}
@@ -393,7 +393,7 @@ const Index = () => {
           <button
             type="button"
             onClick={() => navigate("/my-orders")}
-            className="text-sm text-[#15803d] hover:text-[#166534] underline underline-offset-2 font-medium"
+            className="text-sm text-green-700 hover:text-green-800 underline underline-offset-2 font-medium"
           >
             {s.activeOrders(activeOrderCount)}
           </button>
@@ -418,7 +418,7 @@ const Index = () => {
                   <div className="relative shrink-0">
                     <span
                       className={`absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-card ${
-                        neighbourSheetVendor.is_active ? "bg-[#22C55E]" : "bg-muted-foreground/50"
+                        neighbourSheetVendor.is_active ? "bg-brand" : "bg-muted-foreground/50"
                       }`}
                       aria-hidden
                     />
@@ -443,7 +443,7 @@ const Index = () => {
                     <p className="text-sm text-muted-foreground">{neighbourSheetVendor.category}</p>
                     <p className="text-xs text-muted-foreground">
                       {neighbourSheetVendor.is_active ? (
-                        <span className="text-[#22C55E] font-medium">{s.online}</span>
+                        <span className="text-brand font-medium">{s.online}</span>
                       ) : (
                         <span>{s.offline}</span>
                       )}
@@ -473,7 +473,7 @@ const Index = () => {
                       </button>
                       <button
                         type="button"
-                        className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+                        className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
                         onClick={() => {
                           const v = neighbourSheetVendor;
                           setNeighbourSheetOpen(false);
@@ -487,7 +487,7 @@ const Index = () => {
                   ) : (
                     <button
                       type="button"
-                      className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+                      className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
                       onClick={() => {
                         const v = neighbourSheetVendor;
                         setNeighbourSheetOpen(false);
@@ -516,7 +516,7 @@ const Index = () => {
                         </button>
                         <button
                           type="button"
-                          className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+                          className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
                           onClick={() => {
                             const v = neighbourSheetVendor;
                             setNeighbourSheetOpen(false);
@@ -530,7 +530,7 @@ const Index = () => {
                     ) : (
                       <button
                         type="button"
-                        className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+                        className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
                         onClick={() => {
                           const v = neighbourSheetVendor;
                           setNeighbourSheetOpen(false);
@@ -583,7 +583,7 @@ const Index = () => {
                 ) : (
                   <button
                     type="button"
-                    className="w-full rounded-xl bg-[#22C55E] text-[#0b1f14] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98]"
+                    className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98]"
                     onClick={() => {
                       const v = neighbourSheetVendor;
                       setNeighbourSheetOpen(false);

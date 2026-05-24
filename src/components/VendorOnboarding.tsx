@@ -125,14 +125,14 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
   const current = steps[step - 1];
 
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col bg-[#0a0a0a] text-white">
+    <div className="fixed inset-0 z-[200] flex flex-col bg-page-bg text-white">
       <div className="px-6 pt-10 pb-4">
         <div className="flex gap-2">
           {Array.from({ length: TOTAL_STEPS }, (_, i) => (
             <div
               key={i}
               className={`h-1 flex-1 rounded-full transition-colors ${
-                i < step ? "bg-[#22C55E]" : "bg-[#333]"
+                i < step ? "bg-brand" : "bg-surface-border"
               }`}
             />
           ))}
@@ -155,7 +155,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
           type="button"
           disabled={busy}
           onClick={() => void current.onAction()}
-          className="w-full rounded-xl bg-[#22C55E] text-[#0a0a0a] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-60"
+          className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-60"
         >
           {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : current.action}
         </button>

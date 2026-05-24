@@ -393,7 +393,7 @@ const Settings = () => {
         {userPhone != null ? (
           <div>
             <p className="text-sm font-semibold text-foreground">{s.settings_phonePrefix}{userPhone}</p>
-            <p className="text-xs text-[#22C55E] mt-1">{s.settings_registered}</p>
+            <p className="text-xs text-brand mt-1">{s.settings_registered}</p>
           </div>
         ) : (
           <div>
@@ -435,7 +435,7 @@ const Settings = () => {
                         type="button"
                         onClick={() => void saveEditAddress()}
                         disabled={savingAddress}
-                        className="text-xs font-semibold text-[#22C55E] disabled:opacity-50"
+                        className="text-xs font-semibold text-brand disabled:opacity-50"
                         aria-label="Save address"
                       >
                         ✅ Save
@@ -544,7 +544,7 @@ const Settings = () => {
                   {getLabel(vendorInfo.category)}{s.settings_dotSeparator}{getMode(vendorInfo.service_mode)}
                 </p>
                 {vendorInfo.vendor_note && (
-                  <p className="text-xs text-[#22C55E] mt-1">{s.settings_vendorNotePrefix}{vendorInfo.vendor_note}</p>
+                  <p className="text-xs text-brand mt-1">{s.settings_vendorNotePrefix}{vendorInfo.vendor_note}</p>
                 )}
 
                 <div className="space-y-3 mt-4 pt-4 border-t border-border">
@@ -577,7 +577,7 @@ const Settings = () => {
                       type="button"
                       onClick={() => void saveCancelReasons()}
                       disabled={savingReasons}
-                      className="text-xs font-semibold text-[#22C55E] hover:underline disabled:opacity-50"
+                      className="text-xs font-semibold text-brand hover:underline disabled:opacity-50"
                     >
                       {savingReasons ? s.incoming_saving : s.saveReasons}
                     </button>
