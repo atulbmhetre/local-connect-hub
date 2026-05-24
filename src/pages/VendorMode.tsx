@@ -37,6 +37,7 @@ import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { VerificationBadge } from "@/components/VerificationBadge";
 import { IncomingOrdersSection } from "@/components/IncomingOrdersSection";
 import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
+import { VendorAnalytics } from "@/components/vendor/VendorAnalytics";
 import { cn } from "@/lib/utils";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { useLanguage } from '@/lib/language';
@@ -1118,6 +1119,8 @@ const VendorMode = () => {
               <VerificationBadge vendor={vendor} showLabel />
             </div>
           </div>
+
+          <VendorAnalytics vendorId={vendor.id} />
 
           <div ref={ordersRef}>
             <IncomingOrdersSection
