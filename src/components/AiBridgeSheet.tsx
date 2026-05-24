@@ -21,6 +21,7 @@ import {
   type Vendor,
 } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
+import { useAppConfig } from "@/hooks/useAppConfig";
 
 export type AiBridgeVendor = Pick<
   Vendor,
@@ -50,19 +51,6 @@ type AiBridgeSheetProps = {
   distanceKm?: number | null;
   onCallSuccess?: (vendorId: string) => void;
 };
-
-function callLimitMinutes(serviceMode: string | undefined): number {
-  switch ((serviceMode ?? "").toLowerCase()) {
-    case "help":
-      return 5;
-    case "delivery":
-      return 2;
-    case "appointment":
-      return 3;
-    default:
-      return 3;
-  }
-}
 
 function asVendor(v: AiBridgeVendor): Vendor {
   return {
@@ -101,6 +89,7 @@ export function AiBridgeSheet({
   onCallSuccess,
 }: AiBridgeSheetProps) {
   const { s } = useLanguage();
+  const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
   const vendorRow = useMemo(() => asVendor(vendor), [vendor]);
   const tier = vendorTier(vendorRow);
@@ -111,7 +100,18 @@ export function AiBridgeSheet({
   const [callLoading, setCallLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
 
-  const limitMinutes = callLimitMinutes(vendor.service_mode);
+  const limitMinutes = (() => {
+    switch ((vendor.service_mode ?? "").toLowerCase()) {
+      case "help":
+        return Math.round(config.helpCallLimitSeconds / 60);
+      case "delivery":
+        return Math.round(config.deliveryCallLimitSeconds / 60);
+      case "appointment":
+        return Math.round(config.appointmentCallLimitSeconds / 60);
+      default:
+        return Math.round(config.appointmentCallLimitSeconds / 60);
+    }
+  })();
   const callLimitedLabel = s.ai_bridge_call_limited.replace("X", String(limitMinutes));
   const categoryEmoji = emojiForVendorCategory(vendor.category);
   const categoryLabel = getLabel(vendor.category);

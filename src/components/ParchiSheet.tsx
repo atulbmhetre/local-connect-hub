@@ -13,8 +13,7 @@ import { getUserPhone, isPhoneKnown, migrateUserPhone } from "@/lib/userIdentity
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
-
-const MAX_LEN = 200;
+import { useAppConfig } from "@/hooks/useAppConfig";
 
 type Props = {
   vendor: Vendor | null;
@@ -33,6 +32,7 @@ type SavedAddress = {
 
 export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
   const { s } = useLanguage();
+  const { config } = useAppConfig();
   const SLOT_LABELS: Record<string, string> = useMemo(() => ({
     asap: s.parchi_slotAsap,
     morning: s.parchi_slotMorning,
@@ -165,11 +165,11 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         effectiveVendor?.service_mode === "delivery" ? deliverySlot : null;
       setSending(true);
       const device_id = getDeviceId();
-      console.log('message:', text.slice(0, MAX_LEN) + locationNote);
+      console.log('message:', text.slice(0, config.maxOrderMessageChars) + locationNote);
       const { error } = await supabase.from("requests").insert({
         device_id,
         vendor_id: v.id,
-        message: text.slice(0, MAX_LEN) + locationNote,
+        message: text.slice(0, config.maxOrderMessageChars) + locationNote,
         status: "sent",
         user_phone: phone,
         device_id_log: device_id,
@@ -183,7 +183,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         toast.error(s.parchi_errCouldNotSend, { description: error.message });
         return;
       }
-      const fullMessage = text.slice(0, MAX_LEN) + locationNote;
+      const fullMessage = text.slice(0, config.maxOrderMessageChars) + locationNote;
       const notifyBody = fullMessage
         .replace(/\s*\[Come to my place\]/g, "")
         .replace(/\s*\[I'll visit your shop\]/g, "")
@@ -448,7 +448,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
             <textarea
               id="parchi-message"
               value={message}
-              onChange={(e) => setMessage(e.target.value.slice(0, MAX_LEN))}
+              onChange={(e) => setMessage(e.target.value.slice(0, config.maxOrderMessageChars))}
               rows={5}
               placeholder={
                 effectiveVendor?.service_mode === "appointment"
@@ -458,7 +458,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               className="w-full resize-none rounded-xl border border-[#2a2a2a] bg-[#141414] px-3 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#22C55E]/50"
             />
             <div className="flex justify-end text-xs text-gray-500 tabular-nums">
-              {len}{s.parchi_charSeparator}{MAX_LEN}
+              {len}{s.parchi_charSeparator}{config.maxOrderMessageChars}
             </div>
 
             {effectiveVendor?.service_mode === "appointment" ? (

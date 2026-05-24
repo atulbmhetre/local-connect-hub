@@ -9,6 +9,7 @@ import { RatingSheet } from "@/components/RatingSheet";
 import { ArrowLeft, Loader2, Pencil, PhoneCall } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import {
   Sheet,
   SheetContent,
@@ -19,8 +20,6 @@ import {
 import { cn } from "@/lib/utils";
 
 const MAX_LEN = 200;
-const MS_10M = 10 * 60 * 1000;
-const STOPPED_RADIUS_M = 200;
 
 type RowWithShop = OrderRequestRow & {
   vendors: { shop_name: string; service_mode: string | null; phone: string | null } | null;
@@ -64,8 +63,12 @@ function maxSpreadMeters(points: Pick<VendorLocationPoint, "latitude" | "longitu
   return max;
 }
 
-function computeVendorStopped(history: VendorLocationPoint[]): boolean {
-  const cutoff = Date.now() - MS_10M;
+function computeVendorStopped(
+  history: VendorLocationPoint[],
+  stoppedRadiusM: number,
+  stoppedMinutes: number,
+): boolean {
+  const cutoff = Date.now() - stoppedMinutes * 60 * 1000;
   const recent = history.filter((p) => p.timestamp >= cutoff);
   if (recent.length < 2) return false;
 
@@ -75,9 +78,9 @@ function computeVendorStopped(history: VendorLocationPoint[]): boolean {
     { lat: prev.latitude, lng: prev.longitude },
     { lat: last.latitude, lng: last.longitude },
   );
-  if (movedSincePrev > STOPPED_RADIUS_M) return false;
+  if (movedSincePrev > stoppedRadiusM) return false;
 
-  return maxSpreadMeters(recent) <= STOPPED_RADIUS_M;
+  return maxSpreadMeters(recent) <= stoppedRadiusM;
 }
 
 const MS_24H = 24 * 60 * 60 * 1000;
@@ -143,6 +146,7 @@ function deliverySlotLabel(
 const MyOrders = () => {
   const navigate = useNavigate();
   const { s } = useLanguage();
+  const { config } = useAppConfig();
   const slotLabels = useMemo(
     () => ({
       asap: s.parchi_slotAsap,
@@ -288,7 +292,11 @@ const MyOrders = () => {
         Math.abs(prev.timestamp - timestamp) < 5000
       ) {
         setVendorLiveById((prevLive) => ({ ...prevLive, [vendorId]: live }));
-        const stopped = computeVendorStopped(history);
+        const stopped = computeVendorStopped(
+          history,
+          config.vendorStoppedDistanceMeters,
+          config.vendorStoppedMinutes,
+        );
         setVendorStoppedByOrderId((prevStopped) => {
           const next = { ...prevStopped };
           for (const order of acceptedHelpOrders) {
@@ -305,7 +313,11 @@ const MyOrders = () => {
       vendorLocationHistoryRef.current.set(vendorId, history);
       setVendorLiveById((prevLive) => ({ ...prevLive, [vendorId]: live }));
 
-      const stopped = computeVendorStopped(history);
+      const stopped = computeVendorStopped(
+        history,
+        config.vendorStoppedDistanceMeters,
+        config.vendorStoppedMinutes,
+      );
       setVendorStoppedByOrderId((prevStopped) => {
         const next = { ...prevStopped };
         for (const order of acceptedHelpOrders) {
@@ -316,7 +328,7 @@ const MyOrders = () => {
         return next;
       });
     },
-    [acceptedHelpOrders],
+    [acceptedHelpOrders, config.vendorStoppedDistanceMeters, config.vendorStoppedMinutes],
   );
 
   useEffect(() => {

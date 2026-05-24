@@ -1,0 +1,138 @@
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
+export interface AppConfig {
+  paymentsEnabled: boolean;
+  vendorTrialDays: number;
+  subscriptionPriceInr: number;
+  helpCallLimitSeconds: number;
+  deliveryCallLimitSeconds: number;
+  appointmentCallLimitSeconds: number;
+  vendorStoppedDistanceMeters: number;
+  vendorStoppedMinutes: number;
+  locationPingSeconds: number;
+  radarCityRadiusKm: number;
+  radarHighwayRadiusKm: number;
+  maxOrderMessageChars: number;
+  referralEnabled: boolean;
+}
+
+const DEFAULT_CONFIG: AppConfig = {
+  paymentsEnabled: false,
+  vendorTrialDays: 30,
+  subscriptionPriceInr: 99,
+  helpCallLimitSeconds: 300,
+  deliveryCallLimitSeconds: 120,
+  appointmentCallLimitSeconds: 180,
+  vendorStoppedDistanceMeters: 200,
+  vendorStoppedMinutes: 10,
+  locationPingSeconds: 60,
+  radarCityRadiusKm: 15,
+  radarHighwayRadiusKm: 50,
+  maxOrderMessageChars: 200,
+  referralEnabled: false,
+};
+
+const BOOLEAN_KEYS = new Set<keyof AppConfig>(["paymentsEnabled", "referralEnabled"]);
+
+const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
+  payments_enabled: "paymentsEnabled",
+  vendor_trial_days: "vendorTrialDays",
+  subscription_price_inr: "subscriptionPriceInr",
+  help_call_limit_seconds: "helpCallLimitSeconds",
+  delivery_call_limit_seconds: "deliveryCallLimitSeconds",
+  appointment_call_limit_seconds: "appointmentCallLimitSeconds",
+  vendor_stopped_distance_meters: "vendorStoppedDistanceMeters",
+  vendor_stopped_minutes: "vendorStoppedMinutes",
+  location_ping_seconds: "locationPingSeconds",
+  radar_city_radius_km: "radarCityRadiusKm",
+  radar_highway_radius_km: "radarHighwayRadiusKm",
+  max_order_message_chars: "maxOrderMessageChars",
+  referral_enabled: "referralEnabled",
+};
+
+for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {
+  DB_KEY_TO_CONFIG[key] = key;
+}
+
+type AppConfigRow = {
+  key: string;
+  value: string;
+};
+
+function parseConfigValue(field: keyof AppConfig, raw: string): boolean | number {
+  const trimmed = raw.trim();
+  if (BOOLEAN_KEYS.has(field)) {
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+    return DEFAULT_CONFIG[field];
+  }
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : DEFAULT_CONFIG[field];
+}
+
+function rowsToConfig(rows: AppConfigRow[]): AppConfig {
+  const config = { ...DEFAULT_CONFIG };
+  for (const row of rows) {
+    const field = DB_KEY_TO_CONFIG[row.key];
+    if (!field) continue;
+    const parsed = parseConfigValue(field, row.value);
+    config[field] = parsed as AppConfig[typeof field];
+  }
+  return config;
+}
+
+let cachedConfig: AppConfig | null = null;
+let fetchPromise: Promise<AppConfig> | null = null;
+
+async function loadAppConfig(): Promise<AppConfig> {
+  if (cachedConfig) return cachedConfig;
+  if (fetchPromise) return fetchPromise;
+
+  fetchPromise = (async () => {
+    const { data, error } = await supabase.from("app_config").select("key, value");
+    if (error || !data) {
+      cachedConfig = DEFAULT_CONFIG;
+      return DEFAULT_CONFIG;
+    }
+    cachedConfig = rowsToConfig(data as AppConfigRow[]);
+    return cachedConfig;
+  })();
+
+  try {
+    return await fetchPromise;
+  } catch {
+    cachedConfig = DEFAULT_CONFIG;
+    return DEFAULT_CONFIG;
+  } finally {
+    fetchPromise = null;
+  }
+}
+
+export function useAppConfig(): { config: AppConfig; loading: boolean } {
+  const [config, setConfig] = useState<AppConfig>(cachedConfig ?? DEFAULT_CONFIG);
+  const [loading, setLoading] = useState(cachedConfig === null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (cachedConfig) {
+      setConfig(cachedConfig);
+      setLoading(false);
+      return;
+    }
+
+    void loadAppConfig().then((loaded) => {
+      if (!cancelled) {
+        setConfig(loaded);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { config, loading };
+}
