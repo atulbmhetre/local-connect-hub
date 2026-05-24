@@ -118,11 +118,16 @@ const Index = () => {
       setCategoriesLoading(true);
       const cats = await fetchCategories();
       setCategories(cats);
-      setCategoryGroups(groupCategoriesByMode(cats));
+      const modeLabels = {
+        help: s.category_mode_help,
+        delivery: s.category_mode_delivery,
+        appointment: s.category_mode_appointment,
+      };
+      setCategoryGroups(groupCategoriesByMode(cats, modeLabels));
       setCategoriesLoading(false);
     };
     void run();
-  }, []);
+  }, [s.category_mode_help, s.category_mode_delivery, s.category_mode_appointment]);
 
   const loadActiveOrderCount = useCallback(async () => {
     const device_id = getDeviceId();

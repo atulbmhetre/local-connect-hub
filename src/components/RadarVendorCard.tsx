@@ -437,7 +437,7 @@ export function RadarVendorCard({
         <div className="mt-3 rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-2 flex items-start gap-2">
           <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
             <AlertTriangle className="h-4 w-4 text-destructive" />
-            <span className="text-xs text-destructive font-semibold">Unverified</span>
+            <span className="text-xs text-destructive font-semibold">{s.settings_unverified}</span>
           </span>
           <p className="text-xs text-destructive font-semibold">{s.radar_not_verified}</p>
         </div>

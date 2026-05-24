@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 import { type Language, strings } from './strings';
 
 const STORAGE_KEY = 'aaspaas:language';
@@ -15,19 +16,51 @@ const LanguageContext = createContext<LanguageContextType>({
   s: strings.en,
 });
 
+function readStoredLanguage(): Language {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  return stored === 'hi' || stored === 'mr' ? stored : 'en';
+}
+
 export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
-  const [lang, setLangState] = useState<Language>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return (stored === 'hi' || stored === 'mr') ? stored : 'en';
-  });
+  const [lang, setLangState] = useState<Language>('en');
+  const [localizationEnabled, setLocalizationEnabled] = useState(true);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const { data } = await supabase
+        .from('app_config')
+        .select('value')
+        .eq('key', 'localization_enabled')
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      const enabled = data?.value?.trim().toLowerCase() !== 'false';
+      setLocalizationEnabled(enabled);
+      setLangState(enabled ? readStoredLanguage() : 'en');
+      setReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setLang = (l: Language) => {
+    if (!localizationEnabled) return;
     localStorage.setItem(STORAGE_KEY, l);
     setLangState(l);
   };
 
+  const effectiveLang = ready ? lang : 'en';
+
   return (
-    <LanguageContext.Provider value={{ lang, setLang, s: strings[lang] }}>
+    <LanguageContext.Provider
+      value={{ lang: effectiveLang, setLang, s: strings[effectiveLang] }}
+    >
       {children}
     </LanguageContext.Provider>
   );

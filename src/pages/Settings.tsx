@@ -93,6 +93,10 @@ const Settings = () => {
         .select("*")
         .eq("id", vendorId)
         .single();
+      if (error) {
+        console.error("Failed to load vendor:", error.message);
+        return;
+      }
       if (data) setVendor(data as Vendor);
     };
     void load();
@@ -154,7 +158,15 @@ const Settings = () => {
   const confirmVerify = async () => {
     if (!verifySheet.vendor || !allChecked) return;
     setVerifying(verifySheet.vendor.id);
-    await supabase.from("vendors").update({ is_manual_verified: true }).eq("id", verifySheet.vendor.id);
+    const { error } = await supabase
+      .from("vendors")
+      .update({ is_manual_verified: true })
+      .eq("id", verifySheet.vendor.id);
+    if (error) {
+      setVerifying(null);
+      toast.error("Update failed: " + error.message);
+      return;
+    }
     await loadVendorList();
     setVerifying(null);
     closeVerifySheet();
@@ -164,7 +176,15 @@ const Settings = () => {
   const confirmUnverify = async (vendorId: string) => {
     if (!window.confirm(s.settings_removeVerifyConfirm)) return;
     setVerifying(vendorId);
-    await supabase.from("vendors").update({ is_manual_verified: false }).eq("id", vendorId);
+    const { error } = await supabase
+      .from("vendors")
+      .update({ is_manual_verified: false })
+      .eq("id", vendorId);
+    if (error) {
+      setVerifying(null);
+      toast.error("Update failed: " + error.message);
+      return;
+    }
     await loadVendorList();
     setVerifying(null);
     toast(s.settings_verificationRemoved);
@@ -289,7 +309,7 @@ const Settings = () => {
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <p className="font-display font-bold mb-3">📍 My Delivery Addresses</p>
+        <p className="font-display font-bold mb-3">{s.settings_myDeliveryAddresses}</p>
         {addressesLoading ? (
           <p className="text-sm text-muted-foreground">{s.settings_loading}</p>
         ) : addresses.length === 0 ? (

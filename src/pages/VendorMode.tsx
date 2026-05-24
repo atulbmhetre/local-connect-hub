@@ -260,10 +260,11 @@ const VendorMode = () => {
     const pingInterval = window.setInterval(() => {
       void (async () => {
         if (!vendor?.is_active) return;
-        await supabase
+        const { error } = await supabase
           .from("vendors")
           .update({ last_updated: new Date().toISOString() })
           .eq("id", vendorId);
+        if (error) console.error("Vendor ping failed:", error.message);
       })();
     }, 20 * 60 * 1000);
 

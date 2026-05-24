@@ -23,6 +23,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { supabase, useCategoryLabel, type Vendor, distanceKm } from "@/lib/supabase";
 import { VerificationBadge, vendorTier } from "@/components/VerificationBadge";
+import { useLanguage } from "@/lib/language";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -70,6 +71,7 @@ const FitBounds = ({ points }: { points: [number, number][] }) => {
 const LiveTracking = () => {
   const navigate = useNavigate();
   const { vendorId } = useParams<{ vendorId: string }>();
+  const { s } = useLanguage();
   const getLabel = useCategoryLabel();
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
@@ -526,10 +528,10 @@ const LiveTracking = () => {
           <p className="text-[10px] uppercase tracking-[0.2em] text-brand mt-0.5 font-bold">
             Ready to Help ·{" "}
             {vendorTier(vendor) === "green"
-              ? "Verified Professional"
+              ? s.vendor_verified_pro
               : vendorTier(vendor) === "yellow"
                 ? "Identity submitted — pending admin"
-                : "Unverified — call with care"}
+                : `${s.settings_unverified} — ${s.liveTracking_callWithCare}`}
           </p>
         </div>
       </section>

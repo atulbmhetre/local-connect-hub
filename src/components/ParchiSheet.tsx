@@ -158,13 +158,14 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         message: notifyBody,
       });
       if (saveAddress && newAddress.trim()) {
-        await supabase.from("user_addresses").insert({
+        const { error: addrError } = await supabase.from("user_addresses").insert({
           device_id: getDeviceId(),
           user_phone: getUserPhone() ?? null,
           label: "",
           address_text: newAddress.trim(),
           is_default: addresses.length === 0,
         });
+        if (addrError) console.error("Address save failed:", addrError.message);
       }
       setSending(false);
       toast.success(

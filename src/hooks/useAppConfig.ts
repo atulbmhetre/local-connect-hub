@@ -15,6 +15,7 @@ export interface AppConfig {
   radarHighwayRadiusKm: number;
   maxOrderMessageChars: number;
   referralEnabled: boolean;
+  localizationEnabled: boolean;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -31,9 +32,14 @@ const DEFAULT_CONFIG: AppConfig = {
   radarHighwayRadiusKm: 50,
   maxOrderMessageChars: 200,
   referralEnabled: false,
+  localizationEnabled: true,
 };
 
-const BOOLEAN_KEYS = new Set<keyof AppConfig>(["paymentsEnabled", "referralEnabled"]);
+const BOOLEAN_KEYS = new Set<keyof AppConfig>([
+  "paymentsEnabled",
+  "referralEnabled",
+  "localizationEnabled",
+]);
 
 const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   payments_enabled: "paymentsEnabled",
@@ -49,6 +55,7 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   radar_highway_radius_km: "radarHighwayRadiusKm",
   max_order_message_chars: "maxOrderMessageChars",
   referral_enabled: "referralEnabled",
+  localization_enabled: "localizationEnabled",
 };
 
 for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {

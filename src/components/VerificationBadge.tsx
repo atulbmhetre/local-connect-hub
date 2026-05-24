@@ -1,6 +1,7 @@
 import { ShieldCheck, AlertTriangle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Vendor } from "@/lib/supabase";
+import { useLanguage } from "@/lib/language";
 
 export type VerificationDisplayTier = "green" | "yellow" | "red";
 
@@ -47,7 +48,14 @@ export const VerificationBadge = ({
   showLabel?: boolean;
   className?: string;
 }) => {
+  const { s } = useLanguage();
   const tier = vendorTier(vendor);
+  const label =
+    tier === "green"
+      ? s.vendor_verified_pro
+      : tier === "red"
+        ? s.settings_unverified
+        : COPY[tier].label;
   const Icon = tier === "green" ? ShieldCheck : tier === "yellow" ? Clock : AlertTriangle;
 
   const tone =
@@ -64,7 +72,7 @@ export const VerificationBadge = ({
   if (!showLabel) {
     return (
       <span
-        title={`${COPY[tier].label} — ${COPY[tier].sub}`}
+        title={`${label} — ${COPY[tier].sub}`}
         className={cn(
           "inline-grid place-items-center rounded-full ring-1 p-1 shrink-0",
           tone,
@@ -87,7 +95,7 @@ export const VerificationBadge = ({
       )}
     >
       <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
-      {COPY[tier].label}
+      {label}
     </span>
   );
 };

@@ -118,7 +118,7 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
             {[0, 1, 2, 3].map((i) => (
               <div key={i} className="space-y-1">
                 <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Reason {i + 1}
+                  {`${s.cancelReason} ${i + 1}`}
                 </label>
                 <input
                   type="text"

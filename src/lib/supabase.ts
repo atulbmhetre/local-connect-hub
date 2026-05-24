@@ -558,8 +558,11 @@ export async function fetchCategories(): Promise<Category[]> {
   return (catResult.data as Category[]).filter((c) => activeVendorCategories.has(c.label));
 }
 
-export function groupCategoriesByMode(categories: Category[]): CategoryGroup[] {
-  const MODE_LABELS: Record<string, string> = {
+export function groupCategoriesByMode(
+  categories: Category[],
+  labels?: { help: string; delivery: string; appointment: string },
+): CategoryGroup[] {
+  const MODE_LABELS: Record<string, string> = labels ?? {
     help: "🚨 Emergency & Help",
     delivery: "🛒 Delivery",
     appointment: "✂️ Book a Service",

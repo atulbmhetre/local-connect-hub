@@ -5,14 +5,15 @@ import {
   readHasVendorId,
   VENDOR_ID_CHANGED_EVENT,
 } from "@/lib/vendorSessionSync";
-
-const tabs = [
-  { to: "/", label: "Home", Icon: Home },
-  { to: "/vendor", label: "Vendor", Icon: Store },
-  { to: "/settings", label: "Settings", Icon: Settings },
-];
+import { useLanguage } from "@/lib/language";
 
 export const BottomNav = () => {
+  const { s } = useLanguage();
+  const tabs = [
+    { to: "/", label: s.nav_home, Icon: Home },
+    { to: "/vendor", label: s.nav_vendor, Icon: Store },
+    { to: "/settings", label: s.nav_settings, Icon: Settings },
+  ];
   const [hasVendorId, setHasVendorId] = useState(readHasVendorId);
   // Listen for the vendor "Ready to Help" flag so the Vendor tab can pulse.
   const [vendorLive, setVendorLive] = useState(
