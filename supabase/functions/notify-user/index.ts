@@ -6,31 +6,36 @@ serve(async (req) => {
   try {
     const payload = await req.json();
     const userPhone = payload?.user_phone as string | undefined;
+    const directToken = (payload?.fcm_token as string | undefined)?.trim();
     const title = (payload?.title ?? "").substring(0, 100);
     const body = (payload?.body ?? "").substring(0, 100);
-
-    if (!userPhone) {
-      return new Response(JSON.stringify({ sent: 0 }), { status: 200 });
-    }
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const { data: devices, error } = await supabase
-      .from("user_devices")
-      .select("fcm_token")
-      .eq("user_phone", userPhone);
+    let tokens: string[] = [];
 
-    if (error) {
-      console.error("notify-user user_devices query failed", error);
+    if (directToken) {
+      tokens = [directToken];
+    } else if (userPhone) {
+      const { data: devices, error } = await supabase
+        .from("user_devices")
+        .select("fcm_token")
+        .eq("user_phone", userPhone);
+
+      if (error) {
+        console.error("notify-user user_devices query failed", error);
+        return new Response(JSON.stringify({ sent: 0 }), { status: 200 });
+      }
+
+      tokens = (devices ?? [])
+        .map((row) => row.fcm_token)
+        .filter((token): token is string => typeof token === "string" && token.length > 0);
+    } else {
       return new Response(JSON.stringify({ sent: 0 }), { status: 200 });
     }
-
-    const tokens = (devices ?? [])
-      .map((row) => row.fcm_token)
-      .filter((token): token is string => typeof token === "string" && token.length > 0);
 
     if (tokens.length === 0) {
       return new Response(JSON.stringify({ sent: 0 }), { status: 200 });

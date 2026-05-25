@@ -16,7 +16,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase, useCategoryLabel, type Vendor } from "@/lib/supabase";
+import { supabase, useCategoryLabel, useServiceModeLabel, type Vendor } from "@/lib/supabase";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
@@ -62,6 +62,7 @@ const Settings = () => {
     [config.langHindiEnabled, config.langMarathiEnabled],
   );
   const getLabel = useCategoryLabel();
+  const getServiceModeLabel = useServiceModeLabel();
   const [titleTaps, setTitleTaps] = useState(0);
   const [devOpen, setDevOpen] = useState(false);
   const userPhone = getUserPhone();
@@ -94,6 +95,17 @@ const Settings = () => {
     }[]
   >([]);
   const [vendorSearch, setVendorSearch] = useState("");
+  const [pendingCategories, setPendingCategories] = useState<
+    {
+      id: string;
+      label: string;
+      emoji: string;
+      service_mode: string;
+      ai_confidence: string | null;
+      suggested_by_vendor_id: string | null;
+    }[]
+  >([]);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [verifySheet, setVerifySheet] = useState<{
     open: boolean;
@@ -172,6 +184,71 @@ const Settings = () => {
     if (!isAdmin) return;
     void loadVendorList();
   }, [isAdmin]);
+
+  const loadPendingCategories = async () => {
+    const { data } = await supabase
+      .from("categories")
+      .select("id, label, emoji, service_mode, ai_confidence, suggested_by_vendor_id")
+      .eq("pending_review", true)
+      .eq("is_active", false)
+      .order("created_at", { ascending: false });
+    setPendingCategories(data ?? []);
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadPendingCategories();
+  }, [isAdmin]);
+
+  const approvePendingCategory = async (categoryId: string) => {
+    setPendingAction(categoryId);
+    const { error } = await supabase
+      .from("categories")
+      .update({ is_active: true, pending_review: false })
+      .eq("id", categoryId);
+    setPendingAction(null);
+    if (error) {
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    await loadPendingCategories();
+  };
+
+  const rejectPendingCategory = async (categoryId: string) => {
+    setPendingAction(categoryId);
+    const { error: updateError } = await supabase
+      .from("categories")
+      .update({ pending_review: false, is_active: false })
+      .eq("id", categoryId);
+    if (updateError) {
+      setPendingAction(null);
+      toast.error("Update failed: " + updateError.message);
+      return;
+    }
+    const { error: deleteError } = await supabase
+      .from("categories")
+      .delete()
+      .eq("id", categoryId);
+    setPendingAction(null);
+    if (deleteError) {
+      toast.error("Delete failed: " + deleteError.message);
+      return;
+    }
+    await loadPendingCategories();
+  };
+
+  const confidenceBadgeClass = (confidence: string | null) => {
+    if (confidence === "high") {
+      return "bg-green-500/10 text-green-700 border border-green-500/30";
+    }
+    if (confidence === "medium") {
+      return "bg-amber-500/10 text-amber-700 border border-amber-500/30";
+    }
+    if (confidence === "low") {
+      return "bg-destructive/10 text-destructive border border-destructive/30";
+    }
+    return "bg-muted text-muted-foreground border border-border";
+  };
 
   const openVerifySheet = (vendor: (typeof vendorList)[number]) => {
     setVerifySheet({ open: true, vendor });
@@ -545,6 +622,59 @@ const Settings = () => {
                 <p className="text-[10px] text-muted-foreground mt-1">{s.settings_unverified}</p>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">
+            <p className="font-display font-bold mb-4">
+              {s.admin_pendingCategories} ({pendingCategories.length})
+            </p>
+            {pendingCategories.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{s.admin_noPendingCategories}</p>
+            ) : (
+              <div className="space-y-3">
+                {pendingCategories.map((cat) => (
+                  <div
+                    key={cat.id}
+                    className="rounded-2xl border border-border p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-lg" aria-hidden>
+                        {cat.emoji}
+                      </span>
+                      <p className="text-sm font-semibold">{cat.label}</p>
+                      <span className="rounded-full bg-secondary/10 text-secondary text-[10px] font-semibold px-2 py-0.5 border border-secondary/30">
+                        {getServiceModeLabel(cat.service_mode)}
+                      </span>
+                      {cat.ai_confidence && (
+                        <span
+                          className={`rounded-full text-[10px] font-semibold px-2 py-0.5 ${confidenceBadgeClass(cat.ai_confidence)}`}
+                        >
+                          {cat.ai_confidence}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void approvePendingCategory(cat.id)}
+                        disabled={pendingAction === cat.id}
+                        className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        ✅ {s.admin_approve}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void rejectPendingCategory(cat.id)}
+                        disabled={pendingAction === cat.id}
+                        className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        ❌ {s.admin_reject}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">

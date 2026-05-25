@@ -272,12 +272,6 @@ const HINDI_BY_CANONICAL: Record<string, string> = {
   Other: "अन्य",
 };
 
-const MODE_BY_CANONICAL: Record<string, CategoryMode> = {
-  Beautician: "help",
-  "Grocery Store": "delivery",
-  Pharmacy: "delivery",
-};
-
 function resolveKnownCategory(rawInput: string): string | null {
   const t = rawInput.toLowerCase().trim();
   for (const c of KNOWN_CATEGORIES) {
@@ -292,17 +286,37 @@ function emojiForCanonical(canonical: string) {
   return cat?.emoji ?? "✨";
 }
 
+async function serviceModeForCanonical(canonical: string): Promise<CategoryMode> {
+  const { data: catData } = await supabase
+    .from("categories")
+    .select("service_mode")
+    .ilike("label", canonical)
+    .eq("is_active", true)
+    .single();
+
+  const mode = catData?.service_mode;
+  if (mode === "delivery" || mode === "help" || mode === "appointment") {
+    return mode;
+  }
+  return "help";
+}
+
 /** Resolved canonical label → full classification (vendor picker + edge fallback). */
-function classificationFromCanonical(canonical: string): CategoryClassification {
+async function classificationFromCanonical(
+  canonical: string,
+): Promise<CategoryClassification> {
+  const mode = await serviceModeForCanonical(canonical);
   return {
     canonical,
-    mode: MODE_BY_CANONICAL[canonical] ?? "help",
+    mode,
     emoji: emojiForCanonical(canonical),
     hindi: HINDI_BY_CANONICAL[canonical] ?? "अन्य",
   };
 }
 
-function defaultClassification(rawInput: string): CategoryClassification {
+async function defaultClassification(
+  rawInput: string,
+): Promise<CategoryClassification> {
   const resolved = resolveKnownCategory(rawInput);
   if (resolved) return classificationFromCanonical(resolved);
 
@@ -349,9 +363,12 @@ export async function classifyCategory(rawInput: string): Promise<CategoryClassi
       return defaultClassification(rawInput);
     }
 
+    const canonical = result.canonical.trim();
+    const mode = await serviceModeForCanonical(canonical);
+
     return {
-      canonical: result.canonical.trim(),
-      mode: result.mode === "delivery" ? "delivery" : "help",
+      canonical,
+      mode,
       emoji: typeof result.emoji === "string" && result.emoji.trim() ? result.emoji.trim() : "✨",
       hindi: typeof result.hindi === "string" && result.hindi.trim() ? result.hindi.trim() : "अन्य",
       is_government: result.is_government === true,
@@ -374,7 +391,10 @@ export async function classifySearchTermForRadar(
   if (!term) return { outcome: "fallback", query: "" };
 
   const localCanon = resolveKnownCategory(rawInput);
-  if (localCanon) return { outcome: "canonical", query: localCanon };
+  if (localCanon) {
+    await serviceModeForCanonical(localCanon);
+    return { outcome: "canonical", query: localCanon };
+  }
 
   try {
     const ctrl = new AbortController();
@@ -411,7 +431,9 @@ export async function classifySearchTermForRadar(
     }
 
     if (typeof result.canonical === "string" && result.canonical.trim()) {
-      return { outcome: "canonical", query: result.canonical.trim() };
+      const canonical = result.canonical.trim();
+      await serviceModeForCanonical(canonical);
+      return { outcome: "canonical", query: canonical };
     }
 
     return { outcome: "fallback", query: term };

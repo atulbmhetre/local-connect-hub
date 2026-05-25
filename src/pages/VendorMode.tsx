@@ -506,6 +506,19 @@ const VendorMode = () => {
         }),
       });
     }
+    if (isOther && confirmedCategory) {
+      void fetch(`${SUPABASE_URL}/functions/v1/process-new-category`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          label: confirmedCategory,
+          vendor_id: newVendorId,
+        }),
+      });
+    }
     toast.success(s.vendor_welcome_title, {
       description: s.vendor_welcome_body,
     });
