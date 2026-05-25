@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -172,6 +173,7 @@ const VendorPostRegistrationGuidance = ({ vendor }: { vendor: Vendor }) => {
 const VendorMode = () => {
   const navigate = useNavigate();
   const { s } = useLanguage();
+  const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
   const getMode = useServiceModeLabel();
   const [vendorId, setVendorId] = useState<string | null>(
@@ -179,6 +181,18 @@ const VendorMode = () => {
   );
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [vendor, setVendor] = useState<Vendor | null>(null);
+  const trialDaysLeft =
+    vendor != null
+      ? Math.max(
+          0,
+          config.vendorTrialDays -
+            Math.floor(
+              (Date.now() - new Date(vendor.created_at).getTime()) / (1000 * 60 * 60 * 24),
+            ),
+        )
+      : null;
+  const isInTrial =
+    trialDaysLeft !== null && trialDaysLeft > 0 && !vendor?.subscription_active;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1104,6 +1118,16 @@ const VendorMode = () => {
 
       {vendor && (
         <div className="space-y-5 animate-fade-up">
+          {isInTrial && (
+            <div className="rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning text-center">
+              {s.vendor_trialDaysLeft(trialDaysLeft!)}
+            </div>
+          )}
+          {trialDaysLeft === 0 && !vendor.subscription_active && (
+            <div className="rounded-xl border border-danger/30 bg-danger-muted px-3 py-2 text-xs text-danger text-center">
+              {s.vendor_trialExpired}
+            </div>
+          )}
           {/* Status card */}
           <div className="rounded-3xl bg-card border border-border shadow-card p-6 text-center">
             <p

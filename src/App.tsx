@@ -15,6 +15,7 @@ import NotFound from "./pages/NotFound.tsx";
 import RadarSearch from "./pages/RadarSearch.tsx";
 import LiveTracking from "./pages/LiveTracking.tsx";
 import MyOrders from "./pages/MyOrders.tsx";
+import Landing from "./pages/Landing.tsx";
 import { ReferralRedirect } from "@/components/ReferralRedirect";
 
 const queryClient = new QueryClient();
@@ -56,6 +57,7 @@ const App = () => (
             <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/r/:code" element={<ReferralRedirect />} />
+            <Route path="/landing" element={<Landing />} />
             <Route path="/radar" element={<RadarSearch />} />
             <Route path="/track/:vendorId" element={<LiveTracking />} />
             <Route path="/tracking" element={<LiveTracking />} />

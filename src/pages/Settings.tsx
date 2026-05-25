@@ -43,6 +43,9 @@ import {
 import { LANGUAGE_LABELS, type Language } from "@/lib/strings";
 import { useUserAddresses } from "@/hooks/useUserAddresses";
 import { VendorSettings } from "@/components/settings/VendorSettings";
+import { Switch } from "@/components/ui/switch";
+
+const LARGE_TEXT_KEY = "aaspaas:large_text";
 
 const Settings = () => {
   const { lang, setLang, s } = useLanguage();
@@ -93,6 +96,13 @@ const Settings = () => {
   const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
   const [deletingAddress, setDeletingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [largeText, setLargeText] = useState(() => {
+    try {
+      return localStorage.getItem(LARGE_TEXT_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (!vendorId) return;
@@ -450,6 +460,28 @@ const Settings = () => {
             ))}
           </SelectContent>
         </Select>
+      </section>
+
+      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+        <p className="font-display font-bold mb-3">{s.settings_accessibility}</p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">{s.settings_largeText}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{s.settings_largeTextHint}</p>
+          </div>
+          <Switch
+            checked={largeText}
+            onCheckedChange={(checked) => {
+              setLargeText(checked);
+              try {
+                localStorage.setItem(LARGE_TEXT_KEY, checked ? "true" : "false");
+              } catch {
+                /* ignore */
+              }
+              document.documentElement.classList.toggle("large-text", checked);
+            }}
+          />
+        </div>
       </section>
 
       {vendorId && !vendor && (

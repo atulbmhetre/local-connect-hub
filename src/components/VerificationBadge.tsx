@@ -63,7 +63,7 @@ export const VerificationBadge = ({
       ? "bg-brand/15 text-brand ring-brand/40"
       : tier === "yellow"
         ? "bg-warning/15 text-yellow-600 ring-warning/45"
-        : "bg-destructive/10 text-destructive ring-destructive/30";
+        : "bg-amber-950/40 text-amber-400 ring-amber-800/50";
 
   const glow = tier === "green" ? "shadow-[0_0_18px_rgba(34,197,94,0.45)]" : "";
 

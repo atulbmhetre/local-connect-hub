@@ -7,4 +7,12 @@ import { checkAndStoreReferral } from "./lib/referral";
 initThemeFromStorage();
 checkAndStoreReferral();
 
+try {
+  if (localStorage.getItem("aaspaas:large_text") === "true") {
+    document.documentElement.classList.add("large-text");
+  }
+} catch {
+  /* ignore */
+}
+
 createRoot(document.getElementById("root")!).render(<App />);

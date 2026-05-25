@@ -118,6 +118,7 @@ export type Vendor = {
   upi_verified: boolean;
   is_manual_verified: boolean;
   created_at: string;
+  subscription_active?: boolean;
   last_updated?: string | null;
   /** Hyperlocal service vs delivery; drives reputation copy on cards. */
   service_mode?: "help" | "delivery" | "appointment";

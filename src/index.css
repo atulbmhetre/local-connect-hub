@@ -222,3 +222,7 @@ select.vendor-select option {
   background-color: #1A1A1A;
   color: #FFFFFF;
 }
+
+html.large-text {
+  font-size: 18px;
+}
