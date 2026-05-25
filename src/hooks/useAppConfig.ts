@@ -16,6 +16,8 @@ export interface AppConfig {
   maxOrderMessageChars: number;
   referralEnabled: boolean;
   localizationEnabled: boolean;
+  langHindiEnabled: boolean;
+  langMarathiEnabled: boolean;
   appBaseUrl: string;
   referralVendorCreditTotal: number;
   referralVendorCreditM1: number;
@@ -40,6 +42,8 @@ const DEFAULT_CONFIG: AppConfig = {
   maxOrderMessageChars: 200,
   referralEnabled: false,
   localizationEnabled: true,
+  langHindiEnabled: true,
+  langMarathiEnabled: true,
   appBaseUrl: "https://aaspaas.app",
   referralVendorCreditTotal: 25,
   referralVendorCreditM1: 8.34,
@@ -53,6 +57,8 @@ const BOOLEAN_KEYS = new Set<keyof AppConfig>([
   "paymentsEnabled",
   "referralEnabled",
   "localizationEnabled",
+  "langHindiEnabled",
+  "langMarathiEnabled",
 ]);
 
 const STRING_KEYS = new Set<keyof AppConfig>(["appBaseUrl"]);
@@ -72,6 +78,8 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   max_order_message_chars: "maxOrderMessageChars",
   referral_enabled: "referralEnabled",
   localization_enabled: "localizationEnabled",
+  lang_hindi_enabled: "langHindiEnabled",
+  lang_marathi_enabled: "langMarathiEnabled",
   app_base_url: "appBaseUrl",
   referral_vendor_credit_total: "referralVendorCreditTotal",
   referral_vendor_credit_m1: "referralVendorCreditM1",

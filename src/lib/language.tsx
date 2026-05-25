@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useAppConfig } from '@/hooks/useAppConfig';
 import { type Language, strings } from './strings';
 
 const STORAGE_KEY = 'aaspaas:language';
@@ -21,36 +21,80 @@ function readStoredLanguage(): Language {
   return stored === 'hi' || stored === 'mr' ? stored : 'en';
 }
 
+function resolveLanguage(
+  candidate: Language,
+  localizationEnabled: boolean,
+  hindiEnabled: boolean,
+  marathiEnabled: boolean,
+): Language {
+  if (!localizationEnabled) return 'en';
+  if (candidate === 'hi' && !hindiEnabled) return 'en';
+  if (candidate === 'mr' && !marathiEnabled) return 'en';
+  return candidate;
+}
+
 export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
+  const { config, loading } = useAppConfig();
   const [lang, setLangState] = useState<Language>('en');
-  const [localizationEnabled, setLocalizationEnabled] = useState(true);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    if (loading) return;
 
-    void (async () => {
-      const { data } = await supabase
-        .from('app_config')
-        .select('value')
-        .eq('key', 'localization_enabled')
-        .maybeSingle();
+    const stored = readStoredLanguage();
+    const resolved = resolveLanguage(
+      stored,
+      config.localizationEnabled,
+      config.langHindiEnabled,
+      config.langMarathiEnabled,
+    );
+    setLangState(resolved);
+    if (config.localizationEnabled && resolved !== stored) {
+      try {
+        localStorage.setItem(STORAGE_KEY, resolved);
+      } catch {
+        /* ignore */
+      }
+    }
+    setReady(true);
+  }, [
+    loading,
+    config.localizationEnabled,
+    config.langHindiEnabled,
+    config.langMarathiEnabled,
+  ]);
 
-      if (cancelled) return;
+  useEffect(() => {
+    if (!ready || loading) return;
 
-      const enabled = data?.value?.trim().toLowerCase() !== 'false';
-      setLocalizationEnabled(enabled);
-      setLangState(enabled ? readStoredLanguage() : 'en');
-      setReady(true);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setLangState((prev) => {
+      const next = resolveLanguage(
+        prev,
+        config.localizationEnabled,
+        config.langHindiEnabled,
+        config.langMarathiEnabled,
+      );
+      if (next !== prev) {
+        try {
+          localStorage.setItem(STORAGE_KEY, next);
+        } catch {
+          /* ignore */
+        }
+      }
+      return next;
+    });
+  }, [
+    ready,
+    loading,
+    config.localizationEnabled,
+    config.langHindiEnabled,
+    config.langMarathiEnabled,
+  ]);
 
   const setLang = (l: Language) => {
-    if (!localizationEnabled) return;
+    if (!config.localizationEnabled) return;
+    if (l === 'hi' && !config.langHindiEnabled) return;
+    if (l === 'mr' && !config.langMarathiEnabled) return;
     localStorage.setItem(STORAGE_KEY, l);
     setLangState(l);
   };

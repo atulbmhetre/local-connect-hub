@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import {
   ShieldCheck,
@@ -51,6 +51,16 @@ const Settings = () => {
   const { lang, setLang, s } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const { config } = useAppConfig();
+  const languageOptions = useMemo(
+    () =>
+      (Object.entries(LANGUAGE_LABELS) as [Language, string][]).filter(([code]) => {
+        if (code === "en") return true;
+        if (code === "hi") return config.langHindiEnabled;
+        if (code === "mr") return config.langMarathiEnabled;
+        return false;
+      }),
+    [config.langHindiEnabled, config.langMarathiEnabled],
+  );
   const getLabel = useCategoryLabel();
   const [titleTaps, setTitleTaps] = useState(0);
   const [devOpen, setDevOpen] = useState(false);
@@ -453,7 +463,7 @@ const Settings = () => {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {(Object.entries(LANGUAGE_LABELS) as [Language, string][]).map(([code, label]) => (
+            {languageOptions.map(([code, label]) => (
               <SelectItem key={code} value={code}>
                 {label}
               </SelectItem>
