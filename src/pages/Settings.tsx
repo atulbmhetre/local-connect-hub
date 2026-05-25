@@ -22,6 +22,14 @@ import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
+import { useAppConfig } from "@/hooks/useAppConfig";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +47,7 @@ import { VendorSettings } from "@/components/settings/VendorSettings";
 const Settings = () => {
   const { lang, setLang, s } = useLanguage();
   const { theme, toggleTheme } = useTheme();
+  const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
   const [titleTaps, setTitleTaps] = useState(0);
   const [devOpen, setDevOpen] = useState(false);
@@ -247,6 +256,19 @@ const Settings = () => {
     await refreshAddresses();
   };
 
+  const inviteFriend = async () => {
+    const shareMessage = `Get help around you, now! Download Aaspaas: ${config.appBaseUrl}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ text: shareMessage });
+        return;
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+      }
+    }
+    await navigator.clipboard.writeText(shareMessage);
+  };
+
   const confirmDeleteAddress = async () => {
     if (!deleteAddressId) return;
     setDeletingAddress(true);
@@ -380,6 +402,18 @@ const Settings = () => {
         )}
       </section>
 
+      {vendor == null && (
+        <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+          <button
+            type="button"
+            onClick={() => void inviteFriend()}
+            className="w-full rounded-2xl bg-secondary text-secondary-foreground px-4 py-3 text-sm font-semibold transition-colors active:scale-[0.99]"
+          >
+            {s.settings_shareApp}
+          </button>
+        </section>
+      )}
+
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <div className="flex items-center gap-3 mb-3">
           <Globe className="h-5 w-5 text-secondary" />
@@ -404,22 +438,18 @@ const Settings = () => {
             )}
           </span>
         </button>
-        <div className="flex flex-col gap-2">
-          {(Object.entries(LANGUAGE_LABELS) as [Language, string][]).map(([code, label]) => (
-            <button
-              key={code}
-              type="button"
-              onClick={() => setLang(code)}
-              className={`w-full text-left px-4 py-3 rounded-2xl border font-semibold text-sm transition-colors ${
-                lang === code
-                  ? "bg-secondary/10 border-secondary text-secondary"
-                  : "bg-background border-border text-foreground"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Select value={lang} onValueChange={(value) => setLang(value as Language)}>
+          <SelectTrigger className="w-full rounded-2xl border-border bg-background h-auto px-4 py-3 font-semibold text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.entries(LANGUAGE_LABELS) as [Language, string][]).map(([code, label]) => (
+              <SelectItem key={code} value={code}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </section>
 
       {vendorId && !vendor && (

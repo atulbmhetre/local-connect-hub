@@ -16,6 +16,7 @@ export interface AppConfig {
   maxOrderMessageChars: number;
   referralEnabled: boolean;
   localizationEnabled: boolean;
+  appBaseUrl: string;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -33,6 +34,7 @@ const DEFAULT_CONFIG: AppConfig = {
   maxOrderMessageChars: 200,
   referralEnabled: false,
   localizationEnabled: true,
+  appBaseUrl: "https://aaspaas.app",
 };
 
 const BOOLEAN_KEYS = new Set<keyof AppConfig>([
@@ -40,6 +42,8 @@ const BOOLEAN_KEYS = new Set<keyof AppConfig>([
   "referralEnabled",
   "localizationEnabled",
 ]);
+
+const STRING_KEYS = new Set<keyof AppConfig>(["appBaseUrl"]);
 
 const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   payments_enabled: "paymentsEnabled",
@@ -56,6 +60,7 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   max_order_message_chars: "maxOrderMessageChars",
   referral_enabled: "referralEnabled",
   localization_enabled: "localizationEnabled",
+  app_base_url: "appBaseUrl",
 };
 
 for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {
@@ -67,15 +72,18 @@ type AppConfigRow = {
   value: string;
 };
 
-function parseConfigValue(field: keyof AppConfig, raw: string): boolean | number {
+function parseConfigValue(field: keyof AppConfig, raw: string): boolean | number | string {
   const trimmed = raw.trim();
   if (BOOLEAN_KEYS.has(field)) {
     if (trimmed === "true") return true;
     if (trimmed === "false") return false;
-    return DEFAULT_CONFIG[field];
+    return DEFAULT_CONFIG[field] as boolean;
+  }
+  if (STRING_KEYS.has(field)) {
+    return trimmed || (DEFAULT_CONFIG[field] as string);
   }
   const n = Number(trimmed);
-  return Number.isFinite(n) ? n : DEFAULT_CONFIG[field];
+  return Number.isFinite(n) ? n : (DEFAULT_CONFIG[field] as number);
 }
 
 function rowsToConfig(rows: AppConfigRow[]): AppConfig {
