@@ -241,6 +241,11 @@ const Index = () => {
         toast.info(r.message);
         return;
       }
+      if (r.outcome === "fallback") {
+        toast.info(s.search_fallback, { duration: 3000 });
+        document.getElementById("category-grid")?.scrollIntoView({ behavior: "smooth" });
+        return;
+      }
       goToRadar(r.query);
     } finally {
       setClassifying(false);
@@ -680,7 +685,7 @@ const Index = () => {
         }}
       />
 
-      <section className="mb-4 animate-fade-up">
+      <section id="category-grid" className="mb-4 animate-fade-up">
         {categoriesLoading ? (
           <div className="flex justify-center py-6">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

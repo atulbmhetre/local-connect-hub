@@ -446,7 +446,6 @@ export type AiBridgeBriefResult =
   | { ok: true; brief: string }
   | { ok: false; error: string };
 
-/** Calls deployed `ai-gateway` Edge Function (action `ai_bridge_brief`). */
 export async function fetchAiBridgeBrief(payload: {
   vendor_name: string;
   shop_name: string;
@@ -455,46 +454,15 @@ export async function fetchAiBridgeBrief(payload: {
   user_need: string;
 }): Promise<AiBridgeBriefResult> {
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 14_000);
-    const resp = await fetch(AI_GATEWAY_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        action: "ai_bridge_brief",
-        vendor_name: payload.vendor_name,
-        shop_name: payload.shop_name,
-        category: payload.category,
-        distance_km: payload.distance_km,
-        user_need: payload.user_need,
-      }),
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
+    const distance = payload.distance_km != null
+      ? `${payload.distance_km.toFixed(1)} km away`
+      : "nearby";
 
-    if (!resp.ok) {
-      const t = await resp.text();
-      return { ok: false, error: t || `HTTP ${resp.status}` };
-    }
+    const brief = `${payload.shop_name} (${payload.category}) is ${distance}. Customer needs: ${payload.user_need.slice(0, 100)}`;
 
-    const data: unknown = await resp.json();
-    const brief =
-      data &&
-      typeof data === "object" &&
-      "result" in data &&
-      data.result &&
-      typeof (data as { result: { brief?: unknown } }).result.brief === "string"
-        ? (data as { result: { brief: string } }).result.brief.trim()
-        : "";
-
-    if (!brief) return { ok: false, error: "Empty brief" };
     return { ok: true, brief };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Network error";
-    return { ok: false, error: msg };
+    return { ok: false, error: "Could not generate brief" };
   }
 }
 

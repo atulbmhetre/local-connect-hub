@@ -10,7 +10,7 @@ const CORS_HEADERS = {
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
-type GatewayAction = "classify_category" | "ai_bridge_brief" | "transcribe_parchi";
+type GatewayAction = "classify_category";
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: CORS_HEADERS });
@@ -174,178 +174,164 @@ Deno.serve(async (req) => {
         });
       }
 
-      const system = `You are a category classifier for a hyperlocal service app in India.
-Your job is to match user search terms to ONLY these exact categories:
+      const VALID_CATEGORIES = new Set([
+        "Mechanic",
+        "Towing",
+        "Tyre Service",
+        "Key Maker",
+        "Ambulance",
+        "Pharmacy",
+        "Nursing",
+        "Plumber",
+        "Electrician",
+        "Security",
+        "Tailor",
+        "Beautician",
+        "Cook",
+        "Barber",
+        "Therapist",
+        "Grocery Store",
+        "Other",
+      ]);
 
-Mechanic, Towing, Tyre Service, Key Maker, Ambulance, Nursing, 
-Plumber, Electrician, Security, Pharmacy, Grocery Store, 
-Medicine Delivery, Beautician, Fire Brigade
+      const classifyFallback = {
+        canonical: "Other",
+        emoji: "✨",
+        hindi: "अन्य",
+        mode: "help" as const,
+      };
 
-STRICT RULES:
-1. Only return a category from the list above — nothing else
-2. If the term does not clearly match any category, return null
-3. Do NOT guess or approximate — wrong answer is worse than null
-4. Aliases allowed: common misspellings, Hindi/Marathi words, 
-   slang for the SAME service
-5. If confidence is below 80%, return null
+      const escapedInput = input.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const system = `You are a strict category classifier for a hyperlocal service app in India called Aaspaas.
 
-Examples of CORRECT matches:
-- 'mikanik' → Mechanic
-- 'bijli' → Electrician  
-- 'butishin' → Beautician
-- 'dawai' → Pharmacy
-- 'puncture' → Tyre Service
+User input: "${escapedInput}"
 
-Examples of what to return null for:
-- 'hospital' → null (not a vendor category)
-- 'food' → null (not in our categories)
-- 'cobbler' → null (not in our categories)
+You must classify this into ONE of these exact canonical categories:
+Mechanic, Towing, Tyre Service, Key Maker, Ambulance, Pharmacy, Nursing, Plumber, Electrician, Security, Tailor, Beautician, Cook, Barber, Therapist, Grocery Store, Other
 
-Return JSON only: { "canonical": string | null }`;
+Rules:
+1. Return ONLY valid JSON, no other text
+2. If input matches a category above → return that exact label
+3. If input is a government service (fire brigade, police, hospital) → return is_government: true with a helpful message
+4. If input is completely unrelated to local services → return canonical: "Other"
+5. NEVER invent category names not in the list above
 
-      const { text } = await callGroq(system, input, 0.08);
-      const parsed = extractJson<{ canonical?: string | null }>(text);
+Response format:
+{
+  "canonical": "exact category name from list above OR null if government",
+  "emoji": "single emoji",
+  "hindi": "Hindi name",
+  "is_government": false,
+  "message": "only if is_government is true"
+}`;
 
-      let resolved: AllowedCategory | null = null;
-      if (parsed && Object.prototype.hasOwnProperty.call(parsed, "canonical")) {
-        const c = parsed.canonical;
-        if (c === null) {
-          resolved = null;
-        } else if (typeof c === "string") {
-          resolved = normalizeAllowedCanonical(c);
+      try {
+        const { text } = await callGroq(system, input, 0.08);
+        const parsed = extractJson<{
+          canonical?: string | null;
+          emoji?: string;
+          hindi?: string;
+          is_government?: boolean;
+          message?: string;
+        }>(text);
+
+        if (!parsed || typeof parsed !== "object") {
+          return jsonResponse({ action, result: classifyFallback });
         }
-      }
 
-      if (resolved === null) {
-        return jsonResponse(
-          {
+        const result = { ...parsed };
+
+        if (result.is_government === true) {
+          const message =
+            typeof result.message === "string" && result.message.trim()
+              ? result.message.trim()
+              : "This is a government or emergency service — use official helplines.";
+          return jsonResponse({
             action,
-            result: { canonical: null },
-            raw: text,
-          },
-          200,
-        );
-      }
-
-      const meta = CATEGORY_META[resolved];
-      return jsonResponse({
-        action,
-        result: {
-          canonical: resolved,
-          mode: meta.mode,
-          emoji: meta.emoji,
-          hindi: meta.hindi,
-        },
-      });
-    }
-
-    if (action === "ai_bridge_brief") {
-      const userNeed = String(body?.user_need ?? "").trim();
-      if (!userNeed) {
-        return jsonResponse({ error: "Missing user_need" }, 400);
-      }
-
-      let vendorName = String(body?.vendor_name ?? "").trim();
-      let shopName = String(body?.shop_name ?? "").trim();
-      let category = String(body?.category ?? "").trim();
-      let distanceKm: number | null = null;
-      const rawDist = body?.distance_km;
-      if (rawDist !== null && rawDist !== undefined && rawDist !== "") {
-        const n = typeof rawDist === "number" ? rawDist : parseFloat(String(rawDist));
-        if (Number.isFinite(n)) distanceKm = n;
-      }
-
-      const legacyVendor = body?.vendor;
-      if (legacyVendor && typeof legacyVendor === "object") {
-        const v = legacyVendor as Record<string, unknown>;
-        if (!vendorName) vendorName = String(v.name ?? "").trim();
-        if (!shopName) shopName = String(v.shop_name ?? v.shopName ?? "").trim();
-        if (!category) category = String(v.category ?? "").trim();
-        if (distanceKm == null && v.distance_km != null) {
-          const n = Number(v.distance_km);
-          if (Number.isFinite(n)) distanceKm = n;
+            result: {
+              canonical: null,
+              is_government: true,
+              message,
+            },
+          });
         }
+
+        if (result.canonical === null) {
+          return jsonResponse(
+            {
+              action,
+              result: { canonical: null },
+              raw: text,
+            },
+            200,
+          );
+        }
+
+        if (typeof result.canonical !== "string" || !result.canonical.trim()) {
+          return jsonResponse({ action, result: classifyFallback });
+        }
+
+        let canonical = result.canonical.trim();
+        if (!VALID_CATEGORIES.has(canonical)) {
+          const matched = [...VALID_CATEGORIES].find(
+            (c) => c.toLowerCase() === canonical.toLowerCase(),
+          );
+          canonical = matched ?? "Other";
+        }
+        if (!VALID_CATEGORIES.has(canonical)) {
+          canonical = "Other";
+        }
+
+        if (canonical === "Other") {
+          return jsonResponse({
+            action,
+            result: {
+              canonical: "Other",
+              emoji:
+                typeof result.emoji === "string" && result.emoji.trim()
+                  ? result.emoji.trim()
+                  : classifyFallback.emoji,
+              hindi:
+                typeof result.hindi === "string" && result.hindi.trim()
+                  ? result.hindi.trim()
+                  : classifyFallback.hindi,
+              mode: classifyFallback.mode,
+            },
+          });
+        }
+
+        const resolved = normalizeAllowedCanonical(canonical);
+        if (resolved) {
+          const meta = CATEGORY_META[resolved];
+          return jsonResponse({
+            action,
+            result: {
+              canonical: resolved,
+              mode: meta.mode,
+              emoji: meta.emoji,
+              hindi: meta.hindi,
+            },
+          });
+        }
+
+        return jsonResponse({
+          action,
+          result: {
+            canonical,
+            mode: "help",
+            emoji:
+              typeof result.emoji === "string" && result.emoji.trim()
+                ? result.emoji.trim()
+                : "✨",
+            hindi:
+              typeof result.hindi === "string" && result.hindi.trim()
+                ? result.hindi.trim()
+                : "अन्य",
+          },
+        });
+      } catch {
+        return jsonResponse({ action, result: classifyFallback });
       }
-
-      const displayVendor = vendorName || shopName || "Vendor";
-      const displayCategory = category || "service";
-      const distancePhrase =
-        distanceKm != null && Number.isFinite(distanceKm)
-          ? distanceKm < 1
-            ? `${Math.round(distanceKm * 1000)} meters`
-            : `${distanceKm.toFixed(1)} km`
-          : "nearby";
-
-      const system = `You are sending a quick alert to a local vendor in India.
-Write exactly 2 short sentences in English only. No Hindi. No Hinglish.
-Adjust tone based on category:
-
-- Ambulance, Nursing, Medical:
-  Urgent and serious.
-  Example: 'Urgent: A patient needs immediate help 2km away.
-  Please respond immediately.'
-
-- Mechanic, Towing, Tyre Service, Key Maker:
-  Casual and friendly.
-  Example: 'Vijay, there is a customer 4.9km away who needs towing.
-  Are you available right now?'
-
-- Plumber, Electrician, Security:
-  Friendly but professional.
-  Example: 'Hi Santosh, a customer 3km away needs plumbing help.
-  Can you take it?'
-
-- Grocery Store, Pharmacy, Medicine Delivery:
-  Warm, neighbourhood feel.
-  Example: 'Rajesh, a nearby customer needs medicines from your shop.
-  Can you deliver today?'
-
-Always include vendor first name and distance.
-Never use Hindi words. English only.
-
-Return ONLY JSON: {"brief":"..."} with those two sentences in brief. No markdown, no nested quotes inside the brief text.`;
-
-      const userMsg =
-        `Vendor: ${displayVendor}, Category: ${displayCategory}. ` +
-        `Shop: ${shopName || "—"}. ` +
-        `A user ${distancePhrase} away needs help with: ${userNeed}. ` +
-        `Write the 2-sentence brief for this vendor (use their first name from "${displayVendor}" if clear).`;
-
-      const { text } = await callGroq(system, userMsg);
-      const parsed = extractJson<{ brief?: string }>(text);
-
-      return jsonResponse({
-        action,
-        result: {
-          brief:
-            parsed?.brief ??
-            `${displayVendor}, a user nearby needs ${displayCategory} help (${userNeed}). ` +
-              `They are ${distancePhrase}. Please confirm availability and exact location.`,
-        },
-      });
-    }
-
-    if (action === "transcribe_parchi") {
-      const input = String(body?.input ?? "").trim();
-      if (!input) return jsonResponse({ error: "Missing input" }, 400);
-
-      const system =
-        "You clean and structure Indian grocery or service 'parchi' text. Return ONLY JSON with: list_type (grocery|service|mixed), cleaned_text, items (array of strings).";
-      const { text } = await callGroq(system, input);
-      const parsed = extractJson<{
-        list_type?: "grocery" | "service" | "mixed";
-        cleaned_text?: string;
-        items?: string[];
-      }>(text);
-
-      return jsonResponse({
-        action,
-        result: {
-          list_type: parsed?.list_type ?? "mixed",
-          cleaned_text: parsed?.cleaned_text ?? input,
-          items: Array.isArray(parsed?.items) ? parsed!.items : [],
-        },
-      });
     }
 
     return jsonResponse({ error: "Unknown action" }, 400);
