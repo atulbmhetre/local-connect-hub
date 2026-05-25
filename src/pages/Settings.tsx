@@ -104,6 +104,7 @@ const Settings = () => {
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [editAddressValue, setEditAddressValue] = useState("");
   const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
+  const [clearDataOpen, setClearDataOpen] = useState(false);
   const [deletingAddress, setDeletingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [largeText, setLargeText] = useState(() => {
@@ -238,11 +239,11 @@ const Settings = () => {
   };
 
   const reset = () => {
-    if (!window.confirm(s.settings_clearDataConfirm)) return;
     localStorage.removeItem("aaspaas:role");
     localStorage.removeItem("aaspaas:vendor_id");
     clearUserPhone();
     notifyVendorIdChanged();
+    setClearDataOpen(false);
     toast(s.settings_localDataCleared);
   };
 
@@ -355,7 +356,7 @@ const Settings = () => {
         {addressesLoading ? (
           <p className="text-sm text-muted-foreground">{s.settings_loading}</p>
         ) : addresses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No saved addresses yet.</p>
+          <p className="text-sm text-muted-foreground">{s.settings_noAddresses}</p>
         ) : (
           <ul className="space-y-2">
             {addresses.map((addr) => (
@@ -480,6 +481,7 @@ const Settings = () => {
             <p className="text-xs text-muted-foreground mt-0.5">{s.settings_largeTextHint}</p>
           </div>
           <Switch
+            className="data-[state=checked]:bg-brand"
             checked={largeText}
             onCheckedChange={(checked) => {
               setLargeText(checked);
@@ -673,11 +675,32 @@ const Settings = () => {
 
       <button
         type="button"
-        onClick={reset}
+        onClick={() => setClearDataOpen(true)}
         className="w-full rounded-2xl border border-destructive/50 text-destructive bg-transparent py-4 font-semibold flex items-center justify-center gap-2"
       >
         <Trash2 className="h-4 w-4" /> {s.settings_clearMyData}
       </button>
+
+      <AlertDialog open={clearDataOpen} onOpenChange={setClearDataOpen}>
+        <AlertDialogContent className="rounded-2xl border border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{s.settings_clearDataTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{s.settings_clearDataDescription}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                reset();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {s.settings_clearDataConfirm}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={deleteAddressId != null}

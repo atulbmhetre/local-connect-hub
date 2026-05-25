@@ -1,4 +1,4 @@
-import { type Category } from "@/lib/supabase";
+import { type Category, useCategoryLabel } from "@/lib/supabase";
 import { Mic, X } from "lucide-react";
 
 type Props = {
@@ -10,6 +10,7 @@ type Props = {
 };
 
 export const CategoryPicker = ({ open, onClose, onPick, onMic, categories }: Props) => {
+  const getCategoryLabel = useCategoryLabel();
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-foreground/60 backdrop-blur-sm grid place-items-end sm:place-items-center animate-fade-in">
@@ -32,7 +33,9 @@ export const CategoryPicker = ({ open, onClose, onPick, onMic, categories }: Pro
               className="aspect-square rounded-2xl bg-muted hover:bg-accent/30 active:scale-95 transition-all flex flex-col items-center justify-center gap-2 border border-border"
             >
               <span className="text-4xl">{c.emoji}</span>
-              <span className="font-semibold text-sm text-center px-2 leading-tight">{c.label}</span>
+              <span className="font-semibold text-sm text-center px-2 leading-tight">
+                {getCategoryLabel(c.label)}
+              </span>
             </button>
           ))}
         </div>

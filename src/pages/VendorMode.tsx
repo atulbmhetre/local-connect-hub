@@ -838,7 +838,7 @@ const VendorMode = () => {
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 focus:ring-primary vendor-select"
+              className="mt-1 w-full bg-surface text-foreground border-surface-border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 focus:ring-primary vendor-select"
             >
               {CATEGORIES.map((c) => (
                 <option key={c.id} value={c.label}>{c.emoji}  {c.label}</option>
@@ -1021,7 +1021,7 @@ const VendorMode = () => {
 
           <button
             disabled={!canRegister}
-            className="w-full mt-2 rounded-2xl bg-gradient-vendor text-secondary-foreground py-4 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full mt-2 rounded-2xl bg-gradient-vendor text-white py-4 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
             {s.vendor_register_btn}
@@ -1145,7 +1145,7 @@ const VendorMode = () => {
               className={`mt-6 mx-auto rounded-full grid place-items-center transition-all active:scale-95 disabled:opacity-60 ${
                 vendor.is_active
                   ? "h-11 w-11 bg-brand border-0 text-black"
-                  : "h-[72px] w-[72px] bg-[#1e3a1e] border-2 border-brand text-brand"
+                  : "h-[72px] w-[72px] bg-green-950 dark:bg-[#1e3a1e] border-2 border-brand text-brand"
               }`}
             >
               <Power

@@ -249,7 +249,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               )}
             </SheetDescription>
             {effectiveVendor?.vendor_note && (
-              <div className="mt-2 rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-brand">
+              <div className="mt-2 rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-green-700 dark:text-brand">
                 {s.parchi_vendorNotePrefix}{effectiveVendor.vendor_note}
               </div>
             )}
@@ -395,7 +395,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                 <select
                   value={deliverySlot}
                   onChange={(e) => setDeliverySlot(e.target.value)}
-                  className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
+                  className="w-full rounded-xl border border-surface-border bg-surface text-foreground px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
                 >
                   {getAvailableSlots().map((slot) => (
                     <option key={slot.value} value={slot.value}>

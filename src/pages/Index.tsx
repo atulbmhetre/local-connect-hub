@@ -23,6 +23,7 @@ import {
   type CategoryGroup,
   type Vendor,
   emojiForVendorCategory,
+  useCategoryLabel,
 } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
@@ -39,6 +40,7 @@ type SavedNeighbourTile = {
 
 const Index = () => {
   const { s } = useLanguage();
+  const getCategoryLabel = useCategoryLabel();
   const navigate = useNavigate();
   const location = useLocation();
   const [query, setQuery] = useState("");
@@ -699,7 +701,7 @@ const Index = () => {
                     >
                       <span className="text-3xl">{cat.emoji}</span>
                       <span className="font-semibold text-[10px] text-center leading-tight">
-                        {cat.label}
+                        {getCategoryLabel(cat.label)}
                       </span>
                     </button>
                   ))}

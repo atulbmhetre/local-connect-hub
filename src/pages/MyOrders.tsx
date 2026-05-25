@@ -646,7 +646,7 @@ const MyOrders = () => {
                   {s.myOrders_cancelledByVendor}
                 </span>
               ) : r.status === "accepted" && r.vendors?.service_mode === "help" ? (
-                <span className="inline-flex rounded-full bg-brand/15 text-brand text-[11px] font-semibold px-2.5 py-1 border border-brand/40">
+                <span className="inline-flex rounded-full bg-brand/15 text-green-700 dark:text-brand text-[11px] font-semibold px-2.5 py-1 border border-brand/40">
                   {s.status_accepted}
                 </span>
               ) : (
@@ -715,7 +715,7 @@ const MyOrders = () => {
                 if (!slot) return null;
                 return (
                   <div className="mt-1 rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-[11px]">
-                    {s.myOrders_deliverySlotPrefix}<span className="text-brand font-semibold">{slot}</span>
+                    {s.myOrders_deliverySlotPrefix}<span className="text-green-700 dark:text-brand font-semibold">{slot}</span>
                   </div>
                 );
               })()}

@@ -337,7 +337,7 @@ const LiveTracking = () => {
 
   const movingTone = stalled
     ? "text-orange-500 border-orange-500/40 bg-orange-500/10"
-    : "text-brand border-brand/40 bg-brand-muted";
+    : "text-green-700 dark:text-brand border-brand/40 bg-brand-muted";
 
   if (loading) {
     return (
@@ -558,7 +558,7 @@ const LiveTracking = () => {
           className={cn(
             "rounded-2xl border py-3.5 flex flex-col items-center justify-center gap-1 transition-colors active:scale-[0.98]",
             flashing
-              ? "bg-brand/15 border-brand text-brand shadow-[0_0_20px_rgba(34,197,94,0.35)]"
+              ? "bg-brand/15 border-brand text-green-700 dark:text-brand shadow-[0_0_20px_rgba(34,197,94,0.35)]"
               : "bg-surface border-white/10 text-white hover:border-brand/40",
           )}
         >

@@ -411,7 +411,7 @@ export function RadarVendorCard({
             )}
           </div>
           {serviceMode === "help" && dist != null && (
-            <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-brand-muted ring-1 ring-brand/30 px-2 py-0.5 text-[11px] font-semibold text-brand">
+            <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-brand-muted ring-1 ring-brand/30 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:text-brand">
               <span className="inline-flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 <span>ETA</span>
@@ -490,7 +490,7 @@ export function RadarVendorCard({
             <button
               type="button"
               onClick={openParchi}
-              className="font-semibold text-brand underline underline-offset-2 hover:opacity-90"
+              className="font-semibold text-green-700 dark:text-brand underline underline-offset-2 hover:opacity-90"
             >
               {serviceMode === "appointment" ? s.radar_book_again : s.radar_send_new_order}
             </button>

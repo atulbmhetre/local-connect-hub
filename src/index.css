@@ -33,7 +33,7 @@
     --accent: 38 95% 55%;
     --accent-foreground: 20 14% 10%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 25 15% 88%;
@@ -90,7 +90,7 @@
     --muted-foreground: 0 0% 65%;
     --accent: 142 71% 45%;
     --accent-foreground: 0 0% 7%;
-    --destructive: 0 75% 55%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 100% / 0.08;     /* glassmorphism border */
     --input: 0 0% 100% / 0.06;
@@ -221,6 +221,12 @@
 select.vendor-select option {
   background-color: #1A1A1A;
   color: #FFFFFF;
+}
+
+select {
+  background-color: var(--color-surface);
+  color: var(--foreground);
+  border-color: var(--color-surface-border);
 }
 
 html.large-text {

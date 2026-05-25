@@ -114,7 +114,7 @@ function showGovHelpAlongsideRadiusExpand(term: string): boolean {
 
 const RadarSearch = () => {
   const { s } = useLanguage();
-  const getLabel = useCategoryLabel();
+  const getCategoryLabel = useCategoryLabel();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const term = (params.get("q") ?? "").trim();
@@ -246,7 +246,7 @@ const RadarSearch = () => {
               {expanded ? s.radar_expanding_scan : s.radar_scanning_area}
             </h2>
             <p className="text-2xl font-semibold italic capitalize">
-              {s.radar_finding_nearby}{headline}…
+              {s.radar_finding_nearby}{getCategoryLabel(headline)}…
             </p>
           </div>
 
@@ -280,7 +280,7 @@ const RadarSearch = () => {
               <p className="text-[10px] uppercase tracking-[0.3em] text-brand">
                 {s.radar_live}
               </p>
-              <h1 className="font-display text-lg font-bold capitalize">{term ? getLabel(term) : headline}</h1>
+              <h1 className="font-display text-lg font-bold capitalize">{term ? getCategoryLabel(term) : headline}</h1>
             </div>
             <div className="h-10 w-10" />
           </header>

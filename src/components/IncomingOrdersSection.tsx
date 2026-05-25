@@ -281,7 +281,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const badge = (status: string) => {
     if (status === "sent")
       return (
-        <span className="rounded-full bg-brand/20 text-brand text-[10px] font-bold px-2 py-0.5 border border-brand/40">
+        <span className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-bold px-2 py-0.5 border border-brand/40">
           {s.incoming_statusNew}
         </span>
       );
@@ -293,7 +293,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       );
     if (status === "accepted")
       return (
-        <span className="rounded-full bg-brand/20 text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40">
+        <span className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40">
           {s.status_accepted}
         </span>
       );
@@ -367,7 +367,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                 if (!slot) return null;
                 return (
                   <div className="rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-[11px]">
-                    {s.incoming_slotPrefix}<span className="text-brand font-semibold">{slot}</span>
+                    {s.incoming_slotPrefix}<span className="text-green-700 dark:text-brand font-semibold">{slot}</span>
                   </div>
                 );
               })()}
@@ -430,7 +430,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               )}
 
               {r.appointment_time && r.appointment_status === "confirmed" && (
-                <div className="rounded-lg border border-brand/40 bg-brand-muted px-3 py-2 text-[11px] text-brand font-semibold text-center">
+                <div className="rounded-lg border border-brand/40 bg-brand-muted px-3 py-2 text-[11px] text-green-700 dark:text-brand font-semibold text-center">
                   {s.incoming_bannerConfirmed}
                 </div>
               )}
@@ -540,7 +540,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                   type="button"
                   disabled={markingId === r.id}
                   onClick={() => void markDone(r.id)}
-                  className="w-full rounded-lg border border-brand/50 bg-brand-muted text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                  className="w-full rounded-lg border border-brand/50 bg-brand-muted text-green-700 dark:text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                 >
                   {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
                 </button>

@@ -229,7 +229,7 @@ export function AiBridgeSheet({
           </div>
 
           {vendor.vendor_note?.trim() && (
-            <div className="rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-brand">
+            <div className="rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-green-700 dark:text-brand">
               📌 {vendor.vendor_note}
             </div>
           )}

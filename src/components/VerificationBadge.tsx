@@ -60,7 +60,7 @@ export const VerificationBadge = ({
 
   const tone =
     tier === "green"
-      ? "bg-brand/15 text-brand ring-brand/40"
+      ? "bg-brand/15 text-green-700 dark:text-brand ring-brand/40"
       : tier === "yellow"
         ? "bg-warning/15 text-yellow-600 ring-warning/45"
         : "bg-amber-950/40 text-amber-400 ring-amber-800/50";
