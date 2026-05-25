@@ -270,8 +270,12 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
         ) : (
           <p className="text-sm text-muted-foreground mb-3">{s.settings_loading}</p>
         )}
-        <p className="text-xs text-muted-foreground">{s.vendor_referVendorCredit}</p>
-        <p className="text-xs text-muted-foreground mt-1">{s.vendor_referUserCredit}</p>
+        <p className="text-xs text-muted-foreground">
+          {s.vendor_referVendorCredit(config.referralVendorCreditTotal)}
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          {s.vendor_referUserCredit(config.referralUserCredit)}
+        </p>
       </section>
     </>
   );

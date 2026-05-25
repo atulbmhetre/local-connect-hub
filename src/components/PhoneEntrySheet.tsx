@@ -7,6 +7,8 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { saveUserPhone } from "@/lib/userIdentity";
+import { recordUserReferral } from "@/lib/referral";
+import { getDeviceId } from "@/lib/deviceId";
 
 type Props = {
   isOpen: boolean;
@@ -30,6 +32,7 @@ export function PhoneEntrySheet({ isOpen, onClose, onConfirmed }: Props) {
     }
     const { normalized } = saveUserPhone(digits);
     onConfirmed(normalized);
+    void recordUserReferral(normalized, getDeviceId());
   };
 
   return (

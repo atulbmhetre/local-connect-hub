@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
   supabase,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
   type Vendor,
   type VerificationStatus,
   type CategoryClassification,
@@ -192,6 +194,7 @@ const VendorMode = () => {
   /** help | delivery | appointment — set after category step; required before register. */
   const [serviceMode, setServiceMode] = useState<"help" | "delivery" | "appointment" | null>(null);
   const [vendorNote, setVendorNote] = useState("");
+  const [referralCodeInput, setReferralCodeInput] = useState("");
   const [upi, setUpi] = useState("");
   const [phone, setPhone] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -471,10 +474,24 @@ const VendorMode = () => {
       setError(error.message);
       return;
     }
-    localStorage.setItem(STORAGE_KEY, data.id);
+    const newVendorId = data.id;
+    localStorage.setItem(STORAGE_KEY, newVendorId);
     notifyVendorIdChanged();
-    setVendorId(data.id);
+    setVendorId(newVendorId);
     setVendor(data as Vendor);
+    if (referralCodeInput.trim()) {
+      void fetch(`${SUPABASE_URL}/functions/v1/process-vendor-referral`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          new_vendor_id: newVendorId,
+          referral_code: referralCodeInput.trim(),
+        }),
+      });
+    }
     toast.success(s.vendor_welcome_title, {
       description: s.vendor_welcome_body,
     });
@@ -957,6 +974,18 @@ const VendorMode = () => {
             <p className="text-[10px] text-muted-foreground text-right mt-0.5">
               {vendorNote.length}/100
             </p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-gray-400">{s.vendor_referralCodeLabel}</label>
+            <input
+              type="text"
+              value={referralCodeInput}
+              onChange={(e) => setReferralCodeInput(e.target.value.toUpperCase().trim())}
+              placeholder={s.vendor_referralCodePlaceholder}
+              maxLength={10}
+              className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
+            />
           </div>
 
           <p className="text-[11px] text-amber-400/90 text-center px-2">

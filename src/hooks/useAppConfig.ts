@@ -17,6 +17,12 @@ export interface AppConfig {
   referralEnabled: boolean;
   localizationEnabled: boolean;
   appBaseUrl: string;
+  referralVendorCreditTotal: number;
+  referralVendorCreditM1: number;
+  referralVendorCreditM2: number;
+  referralVendorCreditM3: number;
+  referralUserCredit: number;
+  referralVeteranThresholdMonths: number;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -35,6 +41,12 @@ const DEFAULT_CONFIG: AppConfig = {
   referralEnabled: false,
   localizationEnabled: true,
   appBaseUrl: "https://aaspaas.app",
+  referralVendorCreditTotal: 25,
+  referralVendorCreditM1: 8.34,
+  referralVendorCreditM2: 8.34,
+  referralVendorCreditM3: 8.32,
+  referralUserCredit: 2.5,
+  referralVeteranThresholdMonths: 12,
 };
 
 const BOOLEAN_KEYS = new Set<keyof AppConfig>([
@@ -61,6 +73,12 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   referral_enabled: "referralEnabled",
   localization_enabled: "localizationEnabled",
   app_base_url: "appBaseUrl",
+  referral_vendor_credit_total: "referralVendorCreditTotal",
+  referral_vendor_credit_m1: "referralVendorCreditM1",
+  referral_vendor_credit_m2: "referralVendorCreditM2",
+  referral_vendor_credit_m3: "referralVendorCreditM3",
+  referral_user_credit: "referralUserCredit",
+  referral_veteran_threshold_months: "referralVeteranThresholdMonths",
 };
 
 for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {

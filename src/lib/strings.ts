@@ -190,6 +190,8 @@ export const strings = {
     vendor_upi_placeholder: 'name@okbank',
     vendor_upi_hint: 'UPI must look like handle@bank.',
     vendor_note_label: 'Note for customers (optional)',
+    vendor_referralCodeLabel: 'Referral Code (optional)',
+    vendor_referralCodePlaceholder: 'e.g. MAT-9973',
     vendor_note_placeholder:
       'e.g. Delivery every evening 6–8pm. Home visits on weekdays only.',
     vendor_gps_warning:
@@ -219,8 +221,9 @@ export const strings = {
     vendor_referCopyLink: '📋 Copy Link',
     vendor_referShare: '📤 Share',
     vendor_referLinkCopied: 'Link copied!',
-    vendor_referVendorCredit: 'Refer a vendor → earn ₹25 credit over 3 months',
-    vendor_referUserCredit: 'Refer a user → earn ₹2.50 credit',
+    vendor_referVendorCredit: (amount: number) =>
+      `Refer a vendor → earn ₹${amount} credit over 3 months`,
+    vendor_referUserCredit: (amount: number) => `Refer a user → earn ₹${amount} credit`,
     liveTracking_callWithCare: 'call with care',
     vendor_pending_label: 'Verification Pending',
     vendor_complete_verification: 'Complete your verification',
@@ -688,6 +691,8 @@ export const strings = {
     vendor_upi_placeholder: 'name@okbank',
     vendor_upi_hint: 'UPI ऐसा होना चाहिए: handle@bank',
     vendor_note_label: 'ग्राहकों के लिए नोट (वैकल्पिक)',
+    vendor_referralCodeLabel: 'रेफरल कोड (वैकल्पिक)',
+    vendor_referralCodePlaceholder: 'जैसे MAT-9973',
     vendor_note_placeholder: 'जैसे: शाम 6-8 बजे डिलीवरी। हफ्ते में घर पर आना।',
     vendor_gps_warning:
       'लोकेशन घर से नहीं, दुकान से लें। इससे ग्राहक आपको आसानी से ढूंढ सकते हैं।',
@@ -716,8 +721,9 @@ export const strings = {
     vendor_referCopyLink: '📋 लिंक कॉपी करें',
     vendor_referShare: '📤 शेयर करें',
     vendor_referLinkCopied: 'लिंक कॉपी हो गई!',
-    vendor_referVendorCredit: 'विक्रेता को रेफर करें → 3 महीने में ₹25 क्रेडिट',
-    vendor_referUserCredit: 'यूजर को रेफर करें → ₹2.50 क्रेडिट',
+    vendor_referVendorCredit: (amount: number) =>
+      `विक्रेता को रेफर करें → 3 महीने में ₹${amount} क्रेडिट`,
+    vendor_referUserCredit: (amount: number) => `यूजर को रेफर करें → ₹${amount} क्रेडिट`,
     liveTracking_callWithCare: 'सावधानी से कॉल करें',
     vendor_pending_label: 'वेरिफिकेशन बाकी है',
     vendor_complete_verification: 'वेरिफिकेशन पूरा करें',
@@ -1185,6 +1191,8 @@ export const strings = {
     vendor_upi_placeholder: 'name@okbank',
     vendor_upi_hint: 'UPI असे असावे: handle@bank',
     vendor_note_label: 'ग्राहकांसाठी नोट (ऐच्छिक)',
+    vendor_referralCodeLabel: 'रेफरल कोड (ऐच्छिक)',
+    vendor_referralCodePlaceholder: 'उदा. MAT-9973',
     vendor_note_placeholder: 'उदा. संध्याकाळी 6-8 डिलिव्हरी. आठवड्यात घरभेट.',
     vendor_gps_warning:
       'लोकेशन घरातून नाही, दुकानातून घ्या. यामुळे ग्राहक तुम्हाला सहज शोधू शकतात.',
@@ -1213,8 +1221,9 @@ export const strings = {
     vendor_referCopyLink: '📋 लिंक कॉपी करा',
     vendor_referShare: '📤 शेअर करा',
     vendor_referLinkCopied: 'लिंक कॉपी झाली!',
-    vendor_referVendorCredit: 'विक्रेत्याला रेफर करा → 3 महिन्यांत ₹25 क्रेडिट',
-    vendor_referUserCredit: 'युजरला रेफर करा → ₹2.50 क्रेडिट',
+    vendor_referVendorCredit: (amount: number) =>
+      `विक्रेत्याला रेफर करा → 3 महिन्यांत ₹${amount} क्रेडिट`,
+    vendor_referUserCredit: (amount: number) => `युजरला रेफर करा → ₹${amount} क्रेडिट`,
     liveTracking_callWithCare: 'काळजीपूर्वक कॉल करा',
     vendor_pending_label: 'व्हेरिफिकेशन बाकी आहे',
     vendor_complete_verification: 'व्हेरिफिकेशन पूर्ण करा',
