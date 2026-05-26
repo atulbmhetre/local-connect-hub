@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
-import { supabase, invokeNotifyVendor, distanceMeters, fetchAiBridgeBrief } from "@/lib/supabase";
+import {
+  supabase,
+  invokeNotifyVendor,
+  distanceMeters,
+  fetchAiBridgeBrief,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+} from "@/lib/supabase";
+import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { RatingSheet } from "@/components/RatingSheet";
-import { ArrowLeft, Loader2, Pencil, PhoneCall } from "lucide-react";
+import { ArrowLeft, Loader2, Mic, Camera, Loader2 as Loader2Icon, Pencil, PhoneCall } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
@@ -172,6 +180,8 @@ const MyOrders = () => {
   const [showOrderCancelConfirm, setShowOrderCancelConfirm] = useState<Record<string, boolean>>({});
   const [editOrder, setEditOrder] = useState<RowWithShop | null>(null);
   const [editMessage, setEditMessage] = useState("");
+  const [isListeningEdit, setIsListeningEdit] = useState(false);
+  const [isProcessingImageEdit, setIsProcessingImageEdit] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [vendorLiveById, setVendorLiveById] = useState<Record<string, VendorLiveLocation>>({});
@@ -521,6 +531,86 @@ const MyOrders = () => {
   const closeEditSheet = () => {
     setEditOrder(null);
     setEditMessage("");
+    setIsListeningEdit(false);
+    setIsProcessingImageEdit(false);
+  };
+
+  const startVoiceEdit = async () => {
+    try {
+      const permission = await (
+        SpeechRecognition as unknown as {
+          requestPermission: () => Promise<{ speechRecognition: string }>;
+        }
+      ).requestPermission();
+      if (permission.speechRecognition !== "granted") {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
+      setIsListeningEdit(true);
+      await SpeechRecognition.start({
+        language: "hi-IN",
+        maxResults: 1,
+        prompt: s.voice_prompt,
+        partialResults: false,
+        popup: true,
+      });
+      SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
+        if (data.matches?.[0]) {
+          setEditMessage((prev) =>
+            prev ? `${prev} ${data.matches![0]}` : data.matches![0],
+          );
+        }
+      });
+    } catch {
+      toast.error(s.voice_failed);
+    } finally {
+      setIsListeningEdit(false);
+    }
+  };
+
+  const startImageEdit = async () => {
+    try {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.capture = "environment";
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        setIsProcessingImageEdit(true);
+        try {
+          const base64 = await new Promise<string>((res, rej) => {
+            const reader = new FileReader();
+            reader.onload = () => res((reader.result as string).split(",")[1]);
+            reader.onerror = rej;
+            reader.readAsDataURL(file);
+          });
+          const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-image-order`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify({ image_base64: base64, media_type: file.type }),
+          });
+          const data = await resp.json();
+          if (data.success && data.text) {
+            setEditMessage((prev) => (prev ? `${prev}\n${data.text}` : data.text));
+            toast.success(s.image_parsed);
+          } else {
+            toast.error(s.image_failed);
+          }
+        } catch {
+          toast.error(s.image_failed);
+        } finally {
+          setIsProcessingImageEdit(false);
+        }
+      };
+      input.click();
+    } catch {
+      toast.error(s.image_failed);
+      setIsProcessingImageEdit(false);
+    }
   };
 
   const saveOrderEdit = async () => {
@@ -945,13 +1035,38 @@ const MyOrders = () => {
               {s.vendorSeenWarning}
             </p>
           )}
-          <textarea
-            value={editMessage}
-            onChange={(e) => setEditMessage(e.target.value.slice(0, MAX_LEN))}
-            rows={4}
-            className="mt-3 w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-            placeholder="Your order message"
-          />
+          <div className="relative mt-3">
+            <textarea
+              value={editMessage}
+              onChange={(e) => setEditMessage(e.target.value.slice(0, MAX_LEN))}
+              rows={4}
+              className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary pr-20"
+              placeholder="Your order message"
+            />
+            <button
+              type="button"
+              onClick={() => void startImageEdit()}
+              disabled={isProcessingImageEdit}
+              className="absolute bottom-3 right-10 p-1.5 rounded-full bg-surface-raised text-gray-400 hover:text-brand transition-colors disabled:opacity-50"
+            >
+              {isProcessingImageEdit ? (
+                <Loader2Icon className="h-4 w-4 animate-spin" />
+              ) : (
+                <Camera className="h-4 w-4" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => void startVoiceEdit()}
+              className={`absolute bottom-3 right-3 p-1.5 rounded-full transition-colors ${
+                isListeningEdit
+                  ? "bg-danger text-white animate-pulse"
+                  : "bg-surface-raised text-gray-400 hover:text-brand"
+              }`}
+            >
+              <Mic className="h-4 w-4" />
+            </button>
+          </div>
           <p className="text-[10px] text-muted-foreground text-right mt-1">
             {editMessage.length}/{MAX_LEN}
           </p>

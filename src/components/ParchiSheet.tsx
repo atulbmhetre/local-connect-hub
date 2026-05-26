@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapPin } from "lucide-react";
+import { Camera, Loader2, MapPin, Mic } from "lucide-react";
+import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import {
   Sheet,
   SheetContent,
@@ -7,7 +8,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { supabase, invokeNotifyVendor, type Vendor } from "@/lib/supabase";
+import {
+  supabase,
+  invokeNotifyVendor,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+  type Vendor,
+} from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, isPhoneKnown, migrateUserPhone } from "@/lib/userIdentity";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
@@ -35,6 +42,8 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
     tomorrow: s.parchi_slotTomorrow,
   }), [s]);
   const [message, setMessage] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [sending, setSending] = useState(false);
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
   const { addresses, loading: addressLoading } = useUserAddresses();
@@ -78,6 +87,84 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
     },
     [onClose],
   );
+
+  const startVoiceInput = async () => {
+    try {
+      const permission = await SpeechRecognition.requestPermission();
+      if (permission.speechRecognition !== "granted") {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
+      setIsListening(true);
+      await SpeechRecognition.start({
+        language: "hi-IN",
+        maxResults: 1,
+        prompt: s.voice_prompt,
+        partialResults: false,
+        popup: true,
+      });
+      SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
+        if (data.matches && data.matches[0]) {
+          setMessage((prev) =>
+            prev ? `${prev} ${data.matches[0]}` : data.matches[0],
+          );
+        }
+      });
+    } catch (e) {
+      toast.error(s.voice_failed);
+    } finally {
+      setIsListening(false);
+    }
+  };
+
+  const startImageInput = async () => {
+    try {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.capture = "environment";
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        setIsProcessingImage(true);
+        try {
+          const base64 = await new Promise<string>((res, rej) => {
+            const reader = new FileReader();
+            reader.onload = () => res((reader.result as string).split(",")[1]);
+            reader.onerror = rej;
+            reader.readAsDataURL(file);
+          });
+          const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-image-order`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify({
+              image_base64: base64,
+              media_type: file.type,
+            }),
+          });
+          const data = await resp.json();
+          if (data.success && data.text) {
+            setMessage((prev) => (prev ? `${prev}\n${data.text}` : data.text));
+            toast.success(s.image_parsed);
+          } else {
+            toast.error(s.image_failed);
+          }
+        } catch {
+          toast.error(s.image_failed);
+        } finally {
+          setIsProcessingImage(false);
+        }
+      };
+      input.click();
+    } catch {
+      toast.error(s.image_failed);
+    } finally {
+      setIsProcessingImage(false);
+    }
+  };
 
   const send = useCallback(
     async (overridePhone?: string) => {
@@ -409,18 +496,45 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
             <label className="sr-only" htmlFor="parchi-message">
               {s.parchi_orderLabel}
             </label>
-            <textarea
-              id="parchi-message"
-              value={message}
-              onChange={(e) => setMessage(e.target.value.slice(0, config.maxOrderMessageChars))}
-              rows={5}
-              placeholder={
-                effectiveVendor?.service_mode === "appointment"
-                  ? s.parchi_placeholderAppt
-                  : s.parchi_placeholderOrder
-              }
-              className="w-full resize-none rounded-xl border border-surface-border bg-surface px-3 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
-            />
+            <div className="relative">
+              <textarea
+                id="parchi-message"
+                value={message}
+                onChange={(e) => setMessage(e.target.value.slice(0, config.maxOrderMessageChars))}
+                rows={5}
+                placeholder={
+                  effectiveVendor?.service_mode === "appointment"
+                    ? s.parchi_placeholderAppt
+                    : s.parchi_placeholderOrder
+                }
+                className="w-full resize-none rounded-xl border border-surface-border bg-surface px-3 py-3 pr-20 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
+              />
+              <button
+                type="button"
+                onClick={() => void startImageInput()}
+                disabled={isProcessingImage}
+                className="absolute bottom-3 right-10 p-1.5 rounded-full bg-surface-raised text-gray-400 hover:text-brand transition-colors disabled:opacity-50"
+                aria-label={isProcessingImage ? s.image_processing : s.image_parsed}
+              >
+                {isProcessingImage ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Camera className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => void startVoiceInput()}
+                className={`absolute bottom-3 right-3 p-1.5 rounded-full transition-colors ${
+                  isListening
+                    ? "bg-danger text-white animate-pulse"
+                    : "bg-surface-raised text-gray-400 hover:text-brand"
+                }`}
+                aria-label={isListening ? s.voice_listening : s.voice_prompt}
+              >
+                <Mic className="h-4 w-4" />
+              </button>
+            </div>
             <div className="flex justify-end text-xs text-gray-500 tabular-nums">
               {len}{s.parchi_charSeparator}{config.maxOrderMessageChars}
             </div>
