@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, invokecalculateTrustScore, fetchUserTrust } from "@/lib/supabase";
 import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
-import { Loader2 } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import {
@@ -12,6 +12,55 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { BillSheet } from "@/components/BillSheet";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+
+const FLAG_OPTIONS = [
+  { value: "noshow" as const, label: "User was not available / no-show" },
+  { value: "fake" as const, label: "Request seemed fake or a prank" },
+  { value: "abusive" as const, label: "User was rude or abusive" },
+];
+
+type TrustInfo = {
+  trust_score: number;
+  total_orders: number;
+  is_banned: boolean;
+  ban_reason: string | null;
+} | null;
+
+function getUserTrustBadge(trust: TrustInfo | undefined): { label: string; className: string } | null {
+  if (trust === undefined) return null;
+  if (trust === null || trust.total_orders < 3) {
+    return { label: "🔵 New User", className: "text-blue-500/80" };
+  }
+  if (trust.trust_score >= 75) {
+    return { label: "🟢 Trusted User", className: "text-green-600 dark:text-green-500" };
+  }
+  if (trust.trust_score >= 50) {
+    return { label: "🟡 Has Complaints", className: "text-amber-600 dark:text-amber-500" };
+  }
+  return { label: "🔴 Risky User", className: "text-red-600 dark:text-red-500" };
+}
+
+function OrderTrustLoader({
+  orderId,
+  userPhone,
+  onLoaded,
+}: {
+  orderId: string;
+  userPhone: string;
+  onLoaded: (orderId: string, trust: TrustInfo) => void;
+}) {
+  useEffect(() => {
+    let cancelled = false;
+    void fetchUserTrust(userPhone).then((data) => {
+      if (!cancelled) onLoaded(orderId, data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, userPhone, onLoaded]);
+  return null;
+}
 
 type Props = {
   vendorId: string;
@@ -49,6 +98,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     [s],
   );
   const [rows, setRows] = useState<OrderRequestRow[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [calledUser, setCalledUser] = useState<Record<string, boolean>>({});
@@ -59,8 +109,21 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [cancelling, setCancelling] = useState(false);
   const [billRequestId, setBillRequestId] = useState<string | null>(null);
   const [billUserPhone, setBillUserPhone] = useState<string | null>(null);
+  const [flagOrderId, setFlagOrderId] = useState<string | null>(null);
+  const [flagUserPhone, setFlagUserPhone] = useState<string | null>(null);
+  const [selectedFlagType, setSelectedFlagType] = useState<
+    "noshow" | "fake" | "abusive" | null
+  >(null);
+  const [flagNotes, setFlagNotes] = useState("");
+  const [flagSubmitting, setFlagSubmitting] = useState(false);
+  const [flaggedOrderIds, setFlaggedOrderIds] = useState<Record<string, boolean>>({});
+  const [trustMap, setTrustMap] = useState<Record<string, TrustInfo>>({});
   const [vendor, setVendor] = useState<{ id: string; shop_name: string } | null>(null);
   const mounted = useRef(true);
+
+  const handleTrustLoaded = useCallback((orderId: string, trust: TrustInfo) => {
+    setTrustMap((prev) => ({ ...prev, [orderId]: trust }));
+  }, []);
 
   const selectFields =
     "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason";
@@ -241,6 +304,45 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     setOtherReasonText("");
   };
 
+  const openFlagSheet = (order: OrderRequestRow) => {
+    if (!order.user_phone) return;
+    setFlagOrderId(order.id);
+    setFlagUserPhone(order.user_phone);
+    setSelectedFlagType(null);
+    setFlagNotes("");
+  };
+
+  const closeFlagSheet = () => {
+    setFlagOrderId(null);
+    setFlagUserPhone(null);
+    setSelectedFlagType(null);
+    setFlagNotes("");
+  };
+
+  const submitFlagReport = async () => {
+    if (!flagOrderId || !flagUserPhone || !selectedFlagType) return;
+
+    setFlagSubmitting(true);
+    const { error } = await supabase.from("user_flags").insert({
+      request_id: flagOrderId,
+      vendor_id: vendorId,
+      user_phone: flagUserPhone,
+      flag_type: selectedFlagType,
+      notes: flagNotes.trim() || null,
+    });
+    setFlagSubmitting(false);
+
+    if (error) {
+      console.error("submitFlagReport", error);
+      return;
+    }
+
+    void invokecalculateTrustScore(flagUserPhone);
+    setFlaggedOrderIds((prev) => ({ ...prev, [flagOrderId]: true }));
+    closeFlagSheet();
+    toast.success("Report submitted — thank you for keeping the community safe");
+  };
+
   const confirmCancelOrder = async () => {
     if (!cancelOrderId || !selectedReason) return;
     const reasonText =
@@ -284,6 +386,18 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   };
 
   const unread = rows.filter((r) => r.status === "sent").length;
+
+  const filteredRows = useMemo(() => {
+    if (!searchQuery.trim()) return rows;
+    const q = searchQuery.toLowerCase().trim();
+    return rows.filter(
+      (r) =>
+        r.user_phone?.includes(q) ||
+        r.message?.toLowerCase().includes(q) ||
+        r.status?.toLowerCase().includes(q) ||
+        r.delivery_address?.toLowerCase().includes(q),
+    );
+  }, [rows, searchQuery]);
 
   const badge = (status: string) => {
     if (status === "sent")
@@ -336,15 +450,41 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         </h2>
       </div>
 
+      {rows.length > 0 && (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={s.search_ordersPlaceholder}
+            className="w-full bg-surface border border-surface-border rounded-xl pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      )}
+
       {loading && rows.length === 0 ? (
         <div className="flex justify-center py-6 text-muted-foreground">
           <Loader2 className="h-6 w-6 animate-spin" aria-hidden />
         </div>
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-4">{s.incoming_empty}</p>
+      ) : searchQuery.trim() && filteredRows.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">
+          {s.search_noResults}
+        </div>
       ) : (
         <ul className="space-y-3">
-          {rows.map((r) => (
+          {filteredRows.map((r) => (
             <li
               key={r.id}
               className="rounded-xl border border-border bg-muted/30 p-3 space-y-2"
@@ -358,6 +498,24 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
                 {stripLocationTag(r.message)}
               </p>
+              {r.user_phone && (
+                <>
+                  <OrderTrustLoader
+                    orderId={r.id}
+                    userPhone={r.user_phone}
+                    onLoaded={handleTrustLoaded}
+                  />
+                  {(() => {
+                    const trustBadge = getUserTrustBadge(trustMap[r.id]);
+                    if (!trustBadge) return null;
+                    return (
+                      <p className={cn("text-xs font-normal", trustBadge.className)}>
+                        {trustBadge.label}
+                      </p>
+                    );
+                  })()}
+                </>
+              )}
               {r.status === "cancelled" && r.cancel_reason && (
                 <span className="inline-flex rounded-full bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 border border-border">
                   {r.cancel_reason}
@@ -564,10 +722,78 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                   {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
                 </button>
               )}
+              {(r.status === "fulfilled" || r.status === "cancelled") &&
+                r.user_phone &&
+                !flaggedOrderIds[r.id] && (
+                  <button
+                    type="button"
+                    onClick={() => openFlagSheet(r)}
+                    className="w-full text-left text-[11px] text-muted-foreground/80 hover:text-muted-foreground py-1"
+                  >
+                    🚩 Report an issue with this order
+                  </button>
+                )}
             </li>
           ))}
         </ul>
       )}
+
+      <Sheet open={flagOrderId != null} onOpenChange={(open) => !open && closeFlagSheet()}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader className="text-left">
+            <SheetTitle>Report an Issue</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <RadioGroup
+              value={selectedFlagType ?? ""}
+              onValueChange={(value) =>
+                setSelectedFlagType(value as "noshow" | "fake" | "abusive")
+              }
+            >
+              {FLAG_OPTIONS.map((opt) => (
+                <div key={opt.value} className="flex items-start gap-3">
+                  <RadioGroupItem
+                    value={opt.value}
+                    id={`flag-${opt.value}`}
+                    className="mt-0.5"
+                  />
+                  <label
+                    htmlFor={`flag-${opt.value}`}
+                    className="text-sm text-foreground leading-snug cursor-pointer"
+                  >
+                    {opt.label}
+                  </label>
+                </div>
+              ))}
+            </RadioGroup>
+            <div>
+              <label
+                htmlFor="flag-notes"
+                className="text-xs text-muted-foreground block mb-1.5"
+              >
+                Additional notes (optional)
+              </label>
+              <textarea
+                id="flag-notes"
+                value={flagNotes}
+                onChange={(e) => setFlagNotes(e.target.value.slice(0, 200))}
+                maxLength={200}
+                rows={2}
+                placeholder="Additional notes (optional)"
+                className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={flagSubmitting || !selectedFlagType}
+              onClick={() => void submitFlagReport()}
+              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold disabled:opacity-50"
+            >
+              {flagSubmitting ? s.incoming_saving : "Submit Report"}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={cancelOrderId != null} onOpenChange={(open) => !open && closeCancelSheet()}>
         <SheetContent side="bottom" className="rounded-t-2xl">

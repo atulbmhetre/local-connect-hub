@@ -16,7 +16,13 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase, useCategoryLabel, useServiceModeLabel, type Vendor } from "@/lib/supabase";
+import {
+  supabase,
+  invokeNotifyUser,
+  useCategoryLabel,
+  useServiceModeLabel,
+  type Vendor,
+} from "@/lib/supabase";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
@@ -106,6 +112,22 @@ const Settings = () => {
     }[]
   >([]);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [flaggedUsers, setFlaggedUsers] = useState<
+    {
+      phone: string;
+      trust_score: number;
+      noshow_count: number;
+      fake_count: number;
+      is_banned: boolean;
+      ban_reason: string | null;
+    }[]
+  >([]);
+  const [flaggedAction, setFlaggedAction] = useState<string | null>(null);
+  const [banDialog, setBanDialog] = useState<{ open: boolean; phone: string | null }>({
+    open: false,
+    phone: null,
+  });
+  const [banReason, setBanReason] = useState("");
   const [verifying, setVerifying] = useState<string | null>(null);
   const [verifySheet, setVerifySheet] = useState<{
     open: boolean;
@@ -199,6 +221,83 @@ const Settings = () => {
     if (!isAdmin) return;
     void loadPendingCategories();
   }, [isAdmin]);
+
+  const loadFlaggedUsers = async () => {
+    const { data, error } = await supabase
+      .from("users")
+      .select("phone, trust_score, noshow_count, fake_count, is_banned, ban_reason")
+      .or("noshow_count.gt.0,fake_count.gt.0,is_banned.eq.true")
+      .order("trust_score", { ascending: true });
+    if (error) {
+      console.error("loadFlaggedUsers", error);
+      setFlaggedUsers([]);
+      return;
+    }
+    setFlaggedUsers(data ?? []);
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadFlaggedUsers();
+  }, [isAdmin]);
+
+  const trustScoreClass = (score: number) => {
+    if (score >= 75) return "text-green-500";
+    if (score >= 50) return "text-amber-500";
+    return "text-red-500";
+  };
+
+  const warnFlaggedUser = async (phone: string) => {
+    setFlaggedAction(phone);
+    await invokeNotifyUser({
+      user_phone: phone,
+      title: "⚠️ Account Warning",
+      body: "Your account has received complaints from vendors. Further issues may result in suspension.",
+    });
+    setFlaggedAction(null);
+    toast.success("Warning sent");
+  };
+
+  const confirmBanUser = async () => {
+    if (!banDialog.phone || !banReason.trim()) return;
+    setFlaggedAction(banDialog.phone);
+    const { error } = await supabase
+      .from("users")
+      .update({
+        is_banned: true,
+        ban_reason: banReason.trim(),
+        trust_score: 0,
+      })
+      .eq("phone", banDialog.phone);
+    setFlaggedAction(null);
+    if (error) {
+      console.error("confirmBanUser", error);
+      return;
+    }
+    toast.success("User banned");
+    setBanDialog({ open: false, phone: null });
+    setBanReason("");
+    await loadFlaggedUsers();
+  };
+
+  const unbanFlaggedUser = async (phone: string) => {
+    setFlaggedAction(phone);
+    const { error } = await supabase
+      .from("users")
+      .update({
+        is_banned: false,
+        ban_reason: null,
+        trust_score: 50,
+      })
+      .eq("phone", phone);
+    setFlaggedAction(null);
+    if (error) {
+      console.error("unbanFlaggedUser", error);
+      return;
+    }
+    toast.success("User unbanned");
+    await loadFlaggedUsers();
+  };
 
   const approvePendingCategory = async (categoryId: string) => {
     setPendingAction(categoryId);
@@ -739,6 +838,120 @@ const Settings = () => {
               ))}
             </div>
           </section>
+
+          <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">
+            <div className="flex items-center gap-3 mb-1">
+              <ShieldAlert className="h-5 w-5 text-secondary" />
+              <p className="font-display font-bold">Flagged Users</p>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">{s.settings_adminOnly}</p>
+
+            {flaggedUsers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">✅ No flagged users at this time</p>
+            ) : (
+              <div className="space-y-3">
+                {flaggedUsers.map((user) => (
+                  <div
+                    key={user.phone}
+                    className="rounded-2xl border border-border p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">{user.phone}</p>
+                      {user.is_banned && (
+                        <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-bold px-2 py-0.5 border border-destructive/30">
+                          BANNED
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Trust score:{" "}
+                      <span className={`font-semibold ${trustScoreClass(user.trust_score)}`}>
+                        {user.trust_score}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {user.noshow_count} no-shows, {user.fake_count} fakes
+                    </p>
+                    {user.is_banned && user.ban_reason && (
+                      <p className="text-[11px] text-destructive/80">{user.ban_reason}</p>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void warnFlaggedUser(user.phone)}
+                        disabled={flaggedAction === user.phone}
+                        className="flex-1 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        Warn
+                      </button>
+                      {!user.is_banned && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBanReason("");
+                            setBanDialog({ open: true, phone: user.phone });
+                          }}
+                          disabled={flaggedAction === user.phone}
+                          className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                        >
+                          Ban
+                        </button>
+                      )}
+                      {user.is_banned && (
+                        <button
+                          type="button"
+                          onClick={() => void unbanFlaggedUser(user.phone)}
+                          disabled={flaggedAction === user.phone}
+                          className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                        >
+                          Unban
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <AlertDialog
+            open={banDialog.open}
+            onOpenChange={(open) => {
+              if (!open) {
+                setBanDialog({ open: false, phone: null });
+                setBanReason("");
+              }
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Ban this user?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Enter a reason for the ban. The user will be notified on their next order attempt.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <input
+                type="text"
+                value={banReason}
+                onChange={(e) => setBanReason(e.target.value.slice(0, 200))}
+                placeholder="Ban reason"
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={!banReason.trim() || flaggedAction != null}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmBanUser();
+                  }}
+                >
+                  Confirm ban
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
 

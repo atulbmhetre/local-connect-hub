@@ -14,7 +14,7 @@ import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { RatingSheet } from "@/components/RatingSheet";
-import { ArrowLeft, Loader2, Mic, Camera, Loader2 as Loader2Icon, Pencil, PhoneCall } from "lucide-react";
+import { ArrowLeft, Loader2, Mic, Camera, Loader2 as Loader2Icon, Pencil, PhoneCall, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
@@ -181,6 +181,7 @@ const MyOrders = () => {
     [s],
   );
   const [rows, setRows] = useState<RowWithShop[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBill>>({});
   const [myKhata, setMyKhata] = useState<
     { vendor_id: string; shop_name: string; total_outstanding: number }[]
@@ -232,6 +233,19 @@ const MyOrders = () => {
     () => [...new Set(acceptedHelpOrders.map((r) => r.vendor_id))],
     [acceptedHelpOrders],
   );
+
+  const filteredRows = useMemo(() => {
+    if (!searchQuery.trim()) return rows;
+    const q = searchQuery.toLowerCase().trim();
+    return rows.filter(
+      (r) =>
+        r.vendors?.shop_name?.toLowerCase().includes(q) ||
+        r.message?.toLowerCase().includes(q) ||
+        r.status?.toLowerCase().includes(q) ||
+        r.delivery_address?.toLowerCase().includes(q) ||
+        r.user_phone?.includes(q),
+    );
+  }, [rows, searchQuery]);
 
   const loadBills = async (requestIds: string[]) => {
     if (!requestIds.length) return;
@@ -747,6 +761,26 @@ const MyOrders = () => {
         </div>
       </header>
 
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={s.search_ordersPlaceholder}
+          className="w-full bg-surface border border-surface-border rounded-xl pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
       {myKhata.length > 0 && (
         <div className="rounded-2xl border border-warning/30 bg-warning/5 p-4 mb-4 space-y-2">
           <p className="text-xs font-semibold text-warning uppercase tracking-wider">
@@ -780,9 +814,13 @@ const MyOrders = () => {
             {s.myOrders_findVendors}
           </button>
         </div>
+      ) : searchQuery.trim() && filteredRows.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">
+          {s.search_noResults}
+        </div>
       ) : (
         <ul className="space-y-3 pb-4">
-          {rows.map((r) => (
+          {filteredRows.map((r) => (
             <li
               key={r.id}
               className={cn(

@@ -54,6 +54,70 @@ export async function invokeInitiateCall(body: {
   }
 }
 
+export async function upsertUser(phone: string): Promise<void> {
+  try {
+    const { error } = await supabase.from("users").upsert(
+      { phone, last_active: new Date().toISOString() },
+      { onConflict: "phone" },
+    );
+    if (error) console.error("upsertUser", error);
+  } catch (err) {
+    console.error("upsertUser", err);
+  }
+}
+
+export async function incrementUserOrders(phone: string): Promise<void> {
+  try {
+    const { error } = await supabase.rpc("increment_user_orders", {
+      user_phone: phone,
+    });
+    if (error) console.error("incrementUserOrders", error);
+  } catch (err) {
+    console.error("incrementUserOrders", err);
+  }
+}
+
+export async function fetchUserTrust(phone: string): Promise<{
+  trust_score: number;
+  total_orders: number;
+  is_banned: boolean;
+  ban_reason: string | null;
+} | null> {
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("trust_score, total_orders, is_banned, ban_reason")
+      .eq("phone", phone)
+      .maybeSingle();
+    if (error) {
+      console.error("fetchUserTrust", error);
+      return null;
+    }
+    return data;
+  } catch (err) {
+    console.error("fetchUserTrust", err);
+    return null;
+  }
+}
+
+export async function invokecalculateTrustScore(
+  userPhone: string,
+): Promise<{ success?: boolean; trust_score?: number } | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke("calculate-trust-score", {
+      body: { user_phone: userPhone },
+    });
+    if (error) {
+      console.error("invokecalculateTrustScore", error);
+      return null;
+    }
+    return data ?? null;
+  } catch (err) {
+    console.error("invokecalculateTrustScore", err);
+    return null;
+  }
+}
+
 /** Best-effort push to vendor; never throws. */
 export async function invokeNotifyVendor(record: {
   vendor_id: string;

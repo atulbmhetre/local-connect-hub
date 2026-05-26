@@ -11,10 +11,23 @@ import {
 import {
   supabase,
   invokeNotifyVendor,
+  upsertUser,
+  incrementUserOrders,
+  fetchUserTrust,
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
   type Vendor,
 } from "@/lib/supabase";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, isPhoneKnown, migrateUserPhone } from "@/lib/userIdentity";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
@@ -54,6 +67,11 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
   const [appointmentTime, setAppointmentTime] = useState("");
   const [appointmentLocation, setAppointmentLocation] = useState<"home" | "shop" | "decide">("decide");
   const [deliverySlot, setDeliverySlot] = useState<string>("asap");
+  const [trustBlock, setTrustBlock] = useState<"banned" | "suspended" | null>(null);
+  const [lowTrustSheetOpen, setLowTrustSheetOpen] = useState(false);
+  const [lowTrustConfirmed, setLowTrustConfirmed] = useState(false);
+  const [mediumTrustDialogOpen, setMediumTrustDialogOpen] = useState(false);
+  const [pendingPhone, setPendingPhone] = useState<string | null>(null);
   const lastVendor = useRef<Vendor | null>(null);
   useEffect(() => {
     if (vendor) lastVendor.current = vendor;
@@ -82,6 +100,11 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         setAppointmentTime("");
         setAppointmentLocation("decide");
         setDeliverySlot("asap");
+        setTrustBlock(null);
+        setLowTrustSheetOpen(false);
+        setLowTrustConfirmed(false);
+        setMediumTrustDialogOpen(false);
+        setPendingPhone(null);
         onClose();
       }
     },
@@ -166,15 +189,11 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
     }
   };
 
-  const send = useCallback(
-    async (overridePhone?: string) => {
+  const executeOrderInsert = useCallback(
+    async (phone: string) => {
       const v = effectiveVendor;
       if (!v) return;
       const text = message.trim();
-      if (!text) {
-        toast.error(s.parchi_errNoOrder);
-        return;
-      }
       const needsAddress =
         effectiveVendor?.service_mode === "delivery" ||
         (effectiveVendor?.service_mode === "appointment" && appointmentLocation === "home");
@@ -183,22 +202,6 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
           ? (addresses.find((a) => a.id === selectedAddressId)?.address_text ?? "")
           : newAddress.trim()
         : null;
-
-      if (needsAddress && !finalAddress) {
-        toast.error(s.parchi_errNoAddress);
-        return;
-      }
-      if (effectiveVendor?.service_mode === "appointment") {
-        if (!appointmentDate || !appointmentTime) {
-          toast.error(s.parchi_errNoDateTime);
-          return;
-        }
-      }
-      if (overridePhone == null && !isPhoneKnown()) {
-        setPhoneSheetOpen(true);
-        return;
-      }
-      const phone = overridePhone ?? getUserPhone()!;
       const locationNote =
         effectiveVendor?.service_mode === "appointment"
           ? appointmentLocation === "home"
@@ -213,9 +216,9 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
           : null;
       const selectedSlot =
         effectiveVendor?.service_mode === "delivery" ? deliverySlot : null;
+
       setSending(true);
       const device_id = getDeviceId();
-      console.log('message:', text.slice(0, config.maxOrderMessageChars) + locationNote);
       const { error } = await supabase.from("requests").insert({
         device_id,
         vendor_id: v.id,
@@ -233,6 +236,8 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         toast.error(s.parchi_errCouldNotSend, { description: error.message });
         return;
       }
+      void upsertUser(phone);
+      void incrementUserOrders(phone);
       const fullMessage = text.slice(0, config.maxOrderMessageChars) + locationNote;
       const notifyBody = fullMessage
         .replace(/\s*\[Come to my place\]/g, "")
@@ -266,6 +271,7 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         /* ignore */
       }
       setMessage("");
+      setPendingPhone(null);
       onOrderSent?.();
       onClose();
     },
@@ -282,10 +288,106 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
       appointmentTime,
       appointmentLocation,
       deliverySlot,
-      SLOT_LABELS,
+      config.maxOrderMessageChars,
       s,
     ],
   );
+
+  const send = useCallback(
+    async (overridePhone?: string) => {
+      const v = effectiveVendor;
+      if (!v) return;
+      const text = message.trim();
+      if (!text) {
+        toast.error(s.parchi_errNoOrder);
+        return;
+      }
+      const needsAddress =
+        effectiveVendor?.service_mode === "delivery" ||
+        (effectiveVendor?.service_mode === "appointment" && appointmentLocation === "home");
+      const finalAddress = needsAddress
+        ? selectedAddressId
+          ? (addresses.find((a) => a.id === selectedAddressId)?.address_text ?? "")
+          : newAddress.trim()
+        : null;
+
+      if (needsAddress && !finalAddress) {
+        toast.error(s.parchi_errNoAddress);
+        return;
+      }
+      if (effectiveVendor?.service_mode === "appointment") {
+        if (!appointmentDate || !appointmentTime) {
+          toast.error(s.parchi_errNoDateTime);
+          return;
+        }
+      }
+      if (overridePhone == null && !isPhoneKnown()) {
+        setPhoneSheetOpen(true);
+        return;
+      }
+      const phone = overridePhone ?? getUserPhone()!;
+
+      setSending(true);
+      const trust = await fetchUserTrust(phone);
+      setSending(false);
+
+      if (trust?.is_banned) {
+        setTrustBlock("banned");
+        return;
+      }
+
+      const score = trust?.trust_score;
+      if (score != null && score >= 1 && score <= 24) {
+        setTrustBlock("suspended");
+        return;
+      }
+
+      if (score != null && score >= 25 && score <= 49) {
+        if (effectiveVendor?.service_mode === "help") {
+          toast.error("Help mode is currently unavailable for your account");
+          onClose();
+          return;
+        }
+        setPendingPhone(phone);
+        setLowTrustConfirmed(false);
+        setLowTrustSheetOpen(true);
+        return;
+      }
+
+      if (score != null && score >= 50 && score <= 74) {
+        setPendingPhone(phone);
+        setMediumTrustDialogOpen(true);
+        return;
+      }
+
+      await executeOrderInsert(phone);
+    },
+    [
+      effectiveVendor,
+      message,
+      onClose,
+      executeOrderInsert,
+      selectedAddressId,
+      addresses,
+      newAddress,
+      appointmentDate,
+      appointmentTime,
+      appointmentLocation,
+      s,
+    ],
+  );
+
+  const confirmLowTrustOrder = () => {
+    if (!lowTrustConfirmed || !pendingPhone) return;
+    setLowTrustSheetOpen(false);
+    setLowTrustConfirmed(false);
+    void executeOrderInsert(pendingPhone);
+  };
+
+  const confirmMediumTrustOrder = () => {
+    setMediumTrustDialogOpen(false);
+    if (pendingPhone) void executeOrderInsert(pendingPhone);
+  };
 
   if (!effectiveVendor) return null;
 
@@ -343,6 +445,18 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
           </SheetHeader>
 
           <div className="mt-5 space-y-3">
+            {trustBlock === "banned" && (
+              <div className="rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-6 text-sm text-center text-foreground leading-relaxed">
+                🚫 Your account has been suspended. Please contact aaspaaspro.privacy@gmail.com
+              </div>
+            )}
+            {trustBlock === "suspended" && (
+              <div className="rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-6 text-sm text-center text-foreground leading-relaxed">
+                ⛔ Orders temporarily unavailable. Please contact aaspaaspro.privacy@gmail.com
+              </div>
+            )}
+            {!trustBlock && (
+            <>
             {(effectiveVendor?.service_mode === "delivery" ||
               (effectiveVendor?.service_mode === "appointment" && appointmentLocation === "home")) && (
               <div className="space-y-2">
@@ -555,9 +669,11 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
               onClick={() => void send()}
               className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
             >
-              {effectiveVendor?.service_mode === "appointment"
-                ? s.parchi_btnConfirmBooking
-                : s.parchi_btnSendOrder}
+              {sending
+                ? "..."
+                : effectiveVendor?.service_mode === "appointment"
+                  ? s.parchi_btnConfirmBooking
+                  : s.parchi_btnSendOrder}
             </button>
             <button
               type="button"
@@ -567,9 +683,81 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
             >
               {s.parchi_btnCancel}
             </button>
+            </>
+            )}
           </div>
         </SheetContent>
       </Sheet>
+      <Sheet
+        open={lowTrustSheetOpen}
+        onOpenChange={(open) => {
+          setLowTrustSheetOpen(open);
+          if (!open) {
+            setLowTrustConfirmed(false);
+            setPendingPhone(null);
+          }
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl"
+        >
+          <SheetHeader className="text-left">
+            <SheetTitle className="text-white">Additional Confirmation Required</SheetTitle>
+            <SheetDescription className="text-gray-400 text-left">
+              Your account has had some issues recently. Please confirm you will be available to
+              receive this order.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-5 space-y-4">
+            <label className="flex items-start gap-3 text-sm text-gray-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={lowTrustConfirmed}
+                onChange={(e) => setLowTrustConfirmed(e.target.checked)}
+                className="mt-0.5 accent-brand"
+              />
+              I confirm I will be available
+            </label>
+            <button
+              type="button"
+              disabled={!lowTrustConfirmed || sending}
+              onClick={confirmLowTrustOrder}
+              className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold disabled:opacity-50"
+            >
+              {sending ? "..." : "Confirm"}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <AlertDialog
+        open={mediumTrustDialogOpen}
+        onOpenChange={(open) => {
+          setMediumTrustDialogOpen(open);
+          if (!open) setPendingPhone(null);
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Place this order?</AlertDialogTitle>
+            <AlertDialogDescription className="text-left leading-relaxed">
+              ⚠️ Please confirm you want to place this order. Vendors travel to fulfil requests —
+              only place orders you genuinely need.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-brand text-page-bg hover:bg-brand/90"
+              onClick={confirmMediumTrustOrder}
+            >
+              Yes, place order
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <PhoneEntrySheet
         isOpen={phoneSheetOpen}
         onClose={() => setPhoneSheetOpen(false)}

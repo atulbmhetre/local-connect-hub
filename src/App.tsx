@@ -16,6 +16,7 @@ import RadarSearch from "./pages/RadarSearch.tsx";
 import LiveTracking from "./pages/LiveTracking.tsx";
 import MyOrders from "./pages/MyOrders.tsx";
 import Landing from "./pages/Landing.tsx";
+import PrivacyPolicy from "./pages/PrivacyPolicy.tsx";
 import { ReferralRedirect } from "@/components/ReferralRedirect";
 
 const queryClient = new QueryClient();
@@ -65,6 +66,7 @@ const App = () => (
             <Route path="/vendor" element={<VendorMode />} />
             <Route path="/my-orders" element={<MyOrders />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
             </Routes>
