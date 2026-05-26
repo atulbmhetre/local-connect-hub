@@ -33,6 +33,21 @@ type RowWithShop = OrderRequestRow & {
   vendors: { shop_name: string; service_mode: string | null; phone: string | null } | null;
 };
 
+type OrderBill = {
+  id: string;
+  total_amount: number;
+  payment_mode: "cash" | "upi" | "khata";
+  payment_status: "unpaid" | "paid";
+  notes: string | null;
+  items: {
+    description: string;
+    quantity: number;
+    unit: string | null;
+    unit_price: number;
+    total_price: number;
+  }[];
+};
+
 type VendorLocationPoint = {
   latitude: number;
   longitude: number;
@@ -166,6 +181,10 @@ const MyOrders = () => {
     [s],
   );
   const [rows, setRows] = useState<RowWithShop[]>([]);
+  const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBill>>({});
+  const [myKhata, setMyKhata] = useState<
+    { vendor_id: string; shop_name: string; total_outstanding: number }[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [ratingSheetOpen, setRatingSheetOpen] = useState(false);
@@ -214,6 +233,52 @@ const MyOrders = () => {
     [acceptedHelpOrders],
   );
 
+  const loadBills = async (requestIds: string[]) => {
+    if (!requestIds.length) return;
+    const { data } = await supabase
+      .from("order_bills")
+      .select("id, request_id, total_amount, payment_mode, payment_status, notes")
+      .in("request_id", requestIds);
+
+    if (!data?.length) return;
+
+    const { data: items } = await supabase
+      .from("order_items")
+      .select("request_id, description, quantity, unit, unit_price, total_price")
+      .in("request_id", requestIds);
+
+    const billMap: Record<string, OrderBill> = {};
+    for (const bill of data) {
+      billMap[bill.request_id] = {
+        id: bill.id,
+        total_amount: bill.total_amount,
+        payment_mode: bill.payment_mode,
+        payment_status: bill.payment_status,
+        notes: bill.notes,
+        items: (items ?? []).filter((i) => i.request_id === bill.request_id),
+      };
+    }
+    setBillsByRequestId(billMap);
+  };
+
+  const loadMyKhata = async () => {
+    const userPhone = getUserPhone();
+    if (!userPhone) return;
+    const { data } = await supabase
+      .from("khata_ledger")
+      .select("vendor_id, total_outstanding, vendors(shop_name)")
+      .eq("user_phone", userPhone)
+      .gt("total_outstanding", 0);
+
+    setMyKhata(
+      (data ?? []).map((k: any) => ({
+        vendor_id: k.vendor_id,
+        shop_name: k.vendors?.shop_name ?? "Unknown",
+        total_outstanding: k.total_outstanding,
+      })),
+    );
+  };
+
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     const device_id = getDeviceId();
@@ -236,6 +301,8 @@ const MyOrders = () => {
     }
     const list = (data ?? []) as unknown as RowWithShop[];
     setRows([...list]);
+    void loadBills(list.map((r) => r.id));
+    void loadMyKhata();
     if (!opts?.silent) setLoading(false);
   }, []);
 
@@ -680,6 +747,20 @@ const MyOrders = () => {
         </div>
       </header>
 
+      {myKhata.length > 0 && (
+        <div className="rounded-2xl border border-warning/30 bg-warning/5 p-4 mb-4 space-y-2">
+          <p className="text-xs font-semibold text-warning uppercase tracking-wider">
+            📒 {s.khata_myTabs}
+          </p>
+          {myKhata.map((k) => (
+            <div key={k.vendor_id} className="flex justify-between text-sm">
+              <span className="text-foreground">{k.shop_name}</span>
+              <span className="font-bold text-warning">₹{k.total_outstanding.toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-16 text-muted-foreground">
           <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
@@ -745,6 +826,58 @@ const MyOrders = () => {
               <p className="text-sm text-foreground/90 leading-snug whitespace-pre-wrap break-words">
                 {stripLocationTag(r.message)}
               </p>
+              {billsByRequestId[r.id] &&
+                (() => {
+                  const bill = billsByRequestId[r.id];
+                  return (
+                    <div className="rounded-xl border border-brand-border bg-brand/5 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-brand">{s.bill_title}</p>
+                      <div className="space-y-1">
+                        {bill.items.map((item, i) => (
+                          <div
+                            key={i}
+                            className="flex justify-between text-xs text-foreground"
+                          >
+                            <span>
+                              {item.description}{" "}
+                              {item.quantity > 1
+                                ? `×${item.quantity}${item.unit ? item.unit : ""}`
+                                : ""}
+                            </span>
+                            <span>₹{item.total_price.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t border-brand-border pt-1 flex justify-between text-sm font-semibold">
+                        <span>{s.bill_total}</span>
+                        <span className="text-brand">₹{bill.total_amount.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          {bill.payment_mode === "cash"
+                            ? s.bill_cash
+                            : bill.payment_mode === "upi"
+                              ? s.bill_upi
+                              : s.bill_khata}
+                          {" · "}
+                          {bill.payment_status === "paid" ? "✅ Paid" : "⏳ Unpaid"}
+                        </span>
+                        {bill.payment_status === "unpaid" && (
+                          <button
+                            type="button"
+                            className="text-xs text-brand font-semibold border border-brand/40 rounded-lg px-3 py-1"
+                            onClick={() => toast.info(s.bill_payDirectly)}
+                          >
+                            {s.bill_acknowledge}
+                          </button>
+                        )}
+                      </div>
+                      {bill.notes && (
+                        <p className="text-xs text-muted-foreground italic">{bill.notes}</p>
+                      )}
+                    </div>
+                  );
+                })()}
               {r.status === "accepted" &&
                 r.vendors?.service_mode === "help" &&
                 (() => {

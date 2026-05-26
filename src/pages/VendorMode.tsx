@@ -53,7 +53,10 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetHeader,
+  SheetTitle,
 } from "@/components/ui/sheet";
+import { formatTimeAgo } from "@/lib/orders";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -227,6 +230,10 @@ const VendorMode = () => {
   const ordersRef = useRef<HTMLDivElement>(null);
   const pushRegisteredVendorRef = useRef<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [khataEntries, setKhataEntries] = useState<
+    { user_phone: string; total_outstanding: number; last_updated: string }[]
+  >([]);
+  const [khataOpen, setKhataOpen] = useState(false);
   const [offlineConfirmOpen, setOfflineConfirmOpen] = useState(false);
   const [checkingOffline, setCheckingOffline] = useState(false);
   const [offlineBlockingOrders, setOfflineBlockingOrders] = useState<BlockingOfflineOrder[]>([]);
@@ -672,6 +679,43 @@ const VendorMode = () => {
     if (ok && ordersToNotify.length > 0) {
       notifyUsersVendorOffline(ordersToNotify);
     }
+  };
+
+  const loadKhata = async () => {
+    if (!vendor) return;
+    const { data } = await supabase
+      .from("khata_ledger")
+      .select("user_phone, total_outstanding, last_updated")
+      .eq("vendor_id", vendor.id)
+      .gt("total_outstanding", 0)
+      .order("last_updated", { ascending: false });
+    setKhataEntries(data ?? []);
+  };
+
+  const markKhataPaid = async (userPhone: string) => {
+    if (!vendor) return;
+    await supabase
+      .from("khata_ledger")
+      .update({ total_outstanding: 0, last_updated: new Date().toISOString() })
+      .eq("vendor_id", vendor.id)
+      .eq("user_phone", userPhone);
+
+    await supabase
+      .from("order_bills")
+      .update({ payment_status: "paid", paid_at: new Date().toISOString() })
+      .eq("vendor_id", vendor.id)
+      .eq("user_phone", userPhone)
+      .eq("payment_mode", "khata")
+      .eq("payment_status", "unpaid");
+
+    void invokeNotifyUser({
+      user_phone: userPhone,
+      title: s.khata_paidNotifTitle,
+      body: `${vendor.shop_name}: ${s.khata_paidNotifBody}`,
+    });
+
+    toast.success(s.khata_markedPaid);
+    void loadKhata();
   };
 
   const verifyUpi = async () => {
@@ -1189,6 +1233,18 @@ const VendorMode = () => {
 
           <VendorAnalytics vendorId={vendor.id} />
 
+          <button
+            type="button"
+            onClick={() => {
+              void loadKhata();
+              setKhataOpen(true);
+            }}
+            className="w-full rounded-xl border border-surface-border bg-surface px-4 py-3 text-sm font-semibold text-left flex items-center justify-between"
+          >
+            <span>📒 {s.khata_book}</span>
+            <span className="text-brand text-xs">{s.khata_view}</span>
+          </button>
+
           <div ref={ordersRef}>
             <IncomingOrdersSection
               vendorId={vendor.id}
@@ -1349,6 +1405,48 @@ const VendorMode = () => {
           </Sheet>
         </div>
       )}
+
+      <Sheet open={khataOpen} onOpenChange={setKhataOpen}>
+        <SheetContent
+          side="bottom"
+          className="bg-page-bg border-t border-surface-raised rounded-t-2xl max-h-[80vh] overflow-y-auto"
+        >
+          <SheetHeader>
+            <SheetTitle className="text-white">📒 {s.khata_book}</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-2">
+            {khataEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">{s.khata_empty}</p>
+            ) : (
+              khataEntries.map((entry) => (
+                <div
+                  key={entry.user_phone}
+                  className="flex items-center justify-between rounded-xl border border-surface-border bg-surface px-4 py-3"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{entry.user_phone}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatTimeAgo(entry.last_updated)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-brand">
+                      ₹{entry.total_outstanding.toFixed(2)}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void markKhataPaid(entry.user_phone)}
+                      className="text-xs text-green-600 font-semibold"
+                    >
+                      {s.khata_markPaid}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <AlertDialog open={offlineConfirmOpen} onOpenChange={setOfflineConfirmOpen}>
         <AlertDialogContent className="rounded-2xl border border-border bg-card">

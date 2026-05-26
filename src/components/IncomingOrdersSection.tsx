@@ -11,6 +11,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { BillSheet } from "@/components/BillSheet";
 
 type Props = {
   vendorId: string;
@@ -56,6 +57,9 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [otherReasonText, setOtherReasonText] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [billRequestId, setBillRequestId] = useState<string | null>(null);
+  const [billUserPhone, setBillUserPhone] = useState<string | null>(null);
+  const [vendor, setVendor] = useState<{ id: string; shop_name: string } | null>(null);
   const mounted = useRef(true);
 
   const selectFields =
@@ -112,10 +116,13 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     void (async () => {
       const { data } = await supabase
         .from("vendors")
-        .select("cancel_reason_1, cancel_reason_2, cancel_reason_3, cancel_reason_4")
+        .select(
+          "id, shop_name, cancel_reason_1, cancel_reason_2, cancel_reason_3, cancel_reason_4",
+        )
         .eq("id", vendorId)
         .single();
       if (!data) return;
+      setVendor({ id: data.id, shop_name: data.shop_name });
       const presets = [
         data.cancel_reason_1,
         data.cancel_reason_2,
@@ -535,6 +542,18 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               >
                 {s.incoming_callBridge}
               </button>
+              {(r.status === "accepted" || r.status === "fulfilled") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBillRequestId(r.id);
+                    setBillUserPhone(r.user_phone);
+                  }}
+                  className="w-full rounded-xl border border-brand/40 text-brand text-sm font-semibold py-2.5 active:scale-[0.99]"
+                >
+                  {s.bill_title}
+                </button>
+              )}
               {r.status !== "done" && r.status !== "fulfilled" && r.status !== "cancelled" && (
                 <button
                   type="button"
@@ -611,6 +630,20 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
           </button>
         </SheetContent>
       </Sheet>
+
+      {billRequestId && vendor && (
+        <BillSheet
+          isOpen={billRequestId !== null}
+          onClose={() => {
+            setBillRequestId(null);
+            setBillUserPhone(null);
+          }}
+          requestId={billRequestId}
+          vendorId={vendor.id}
+          userPhone={billUserPhone}
+          shopName={vendor.shop_name}
+        />
+      )}
     </div>
   );
 }
