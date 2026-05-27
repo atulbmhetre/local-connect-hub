@@ -195,6 +195,20 @@ export function RadarVendorCard({
   const [deliveryActiveFromDb, setDeliveryActiveFromDb] = useState(false);
   const [deliveryFulfilledFromDb, setDeliveryFulfilledFromDb] = useState(false);
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
+  const [menuItems, setMenuItems] = useState<
+    { name: string; price: number; unit: string | null; is_available: boolean }[]
+  >([]);
+
+  useEffect(() => {
+    void supabase
+      .from("vendor_menu_items")
+      .select("name, price, unit, is_available")
+      .eq("vendor_id", vendor.id)
+      .eq("is_available", true)
+      .order("sort_order", { ascending: true })
+      .limit(5)
+      .then(({ data }) => setMenuItems(data ?? []));
+  }, [vendor.id]);
 
   useEffect(() => {
     setHelpCount(vendor.total_helped ?? 0);
@@ -448,6 +462,28 @@ export function RadarVendorCard({
         totalHelpedOverride={helpCount}
         totalDeliveredOverride={deliveredCount}
       />
+
+      {menuItems.length > 0 && (
+        <div className="mt-3 rounded-xl border border-surface-border bg-surface/50 px-3 py-2 space-y-1">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            {s.menu_preview}
+          </p>
+          {menuItems.slice(0, 3).map((item, i) => (
+            <div key={i} className="flex justify-between text-xs">
+              <span className="text-foreground">{item.name}</span>
+              <span className="text-brand font-semibold">
+                ₹{item.price}
+                {item.unit ? `/${item.unit}` : ""}
+              </span>
+            </div>
+          ))}
+          {menuItems.length > 3 && (
+            <p className="text-[10px] text-muted-foreground">
+              +{menuItems.length - 3} {s.menu_moreItems}
+            </p>
+          )}
+        </div>
+      )}
 
       <button
         type="button"

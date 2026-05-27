@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
-import { Store, BarChart2, Bell, ChevronDown } from "lucide-react";
+import { Store, BarChart2, Bell, ChevronDown, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
+import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
-import { supabase, useCategoryLabel, useServiceModeLabel, type Vendor } from "@/lib/supabase";
+import {
+  supabase,
+  useCategoryLabel,
+  useServiceModeLabel,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+  type Vendor,
+} from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { Switch } from "@/components/ui/switch";
@@ -17,6 +25,16 @@ import {
   setVendorSoundEnabled,
   setVendorVibrateEnabled,
 } from "@/lib/pushNotifications";
+
+type MenuItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  unit: string | null;
+  is_available: boolean;
+  sort_order: number;
+};
 
 type Props = {
   vendor: Vendor;
@@ -40,6 +58,28 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
   const [savingReasons, setSavingReasons] = useState(false);
   const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [menuLoading, setMenuLoading] = useState(false);
+  const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
+  const [newItem, setNewItem] = useState({ name: "", price: "", unit: "", description: "" });
+  const [addingItem, setAddingItem] = useState(false);
+  const [isListeningMenu, setIsListeningMenu] = useState(false);
+  const [isProcessingImageMenu, setIsProcessingImageMenu] = useState(false);
+
+  const loadMenu = async () => {
+    setMenuLoading(true);
+    const { data } = await supabase
+      .from("vendor_menu_items")
+      .select("*")
+      .eq("vendor_id", vendor.id)
+      .order("sort_order", { ascending: true });
+    setMenuItems(data ?? []);
+    setMenuLoading(false);
+  };
+
+  useEffect(() => {
+    void loadMenu();
+  }, [vendor.id]);
 
   useEffect(() => {
     setCancelReasons([
@@ -112,6 +152,142 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
   const referLink =
     referralCode != null ? `${config.appBaseUrl}/r/${referralCode}` : null;
 
+  const saveNewItem = async () => {
+    if (!newItem.name.trim() || !newItem.price) return;
+    await supabase.from("vendor_menu_items").insert({
+      vendor_id: vendor.id,
+      name: newItem.name.trim(),
+      price: parseFloat(newItem.price),
+      unit: newItem.unit.trim() || null,
+      description: newItem.description.trim() || null,
+      sort_order: menuItems.length,
+    });
+    setNewItem({ name: "", price: "", unit: "", description: "" });
+    setAddingItem(false);
+    void loadMenu();
+  };
+
+  const toggleAvailability = async (item: MenuItem) => {
+    await supabase
+      .from("vendor_menu_items")
+      .update({ is_available: !item.is_available })
+      .eq("id", item.id);
+    void loadMenu();
+  };
+
+  const deleteMenuItem = async (id: string) => {
+    await supabase.from("vendor_menu_items").delete().eq("id", id);
+    void loadMenu();
+  };
+
+  const startVoiceMenu = async () => {
+    try {
+      const permission = await SpeechRecognition.requestPermission();
+      if (permission.speechRecognition !== "granted") {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
+      setIsListeningMenu(true);
+      await SpeechRecognition.start({
+        language: "hi-IN",
+        maxResults: 1,
+        prompt: s.menu_voicePrompt,
+        partialResults: false,
+        popup: true,
+      });
+      SpeechRecognition.addListener("partialResults", async (data: { matches?: string[] }) => {
+        if (!data.matches?.[0]) return;
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-voice-bill`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ text: data.matches[0] }),
+        });
+        const result = await resp.json();
+        if (result.success && result.items?.length) {
+          await supabase.from("vendor_menu_items").insert(
+            result.items.map(
+              (
+                item: { description?: string; unit_price?: number; unit?: string },
+                idx: number,
+              ) => ({
+                vendor_id: vendor.id,
+                name: item.description ?? "",
+                price: item.unit_price ?? 0,
+                unit: item.unit || null,
+                sort_order: menuItems.length + idx,
+              }),
+            ),
+          );
+          void loadMenu();
+          toast.success(s.menu_voiceAdded);
+        } else {
+          toast.error(s.voice_failed);
+        }
+      });
+    } catch {
+      toast.error(s.voice_failed);
+    } finally {
+      setIsListeningMenu(false);
+    }
+  };
+
+  const startImageMenu = async () => {
+    try {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.capture = "environment";
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        setIsProcessingImageMenu(true);
+        const base64 = await new Promise<string>((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = () => res((reader.result as string).split(",")[1]);
+          reader.onerror = rej;
+          reader.readAsDataURL(file);
+        });
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-image-bill`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ image_base64: base64, media_type: file.type }),
+        });
+        const result = await resp.json();
+        if (result.success && result.items?.length) {
+          await supabase.from("vendor_menu_items").insert(
+            result.items.map(
+              (
+                item: { description?: string; unit_price?: number; unit?: string },
+                idx: number,
+              ) => ({
+                vendor_id: vendor.id,
+                name: item.description ?? "",
+                price: item.unit_price ?? 0,
+                unit: item.unit || null,
+                sort_order: menuItems.length + idx,
+              }),
+            ),
+          );
+          void loadMenu();
+          toast.success(s.menu_imageAdded);
+        } else {
+          toast.error(s.image_failed);
+        }
+        setIsProcessingImageMenu(false);
+      };
+      input.click();
+    } catch {
+      toast.error(s.image_failed);
+      setIsProcessingImageMenu(false);
+    }
+  };
+
   const shareReferLink = async () => {
     if (!referLink) return;
     const message = `Order from ${vendor.shop_name} on Aaspaas! ${referLink}`;
@@ -147,6 +323,151 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
               {vendor.vendor_note}
             </p>
           )}
+
+          <div className="mt-4 pt-4 border-t border-border space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-foreground">📋 {s.menu_title}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void startImageMenu()}
+                  disabled={isProcessingImageMenu}
+                  className="p-1.5 rounded-lg border border-surface-border bg-surface text-gray-400 hover:text-brand disabled:opacity-50"
+                >
+                  {isProcessingImageMenu ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Camera className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void startVoiceMenu()}
+                  className={`p-1.5 rounded-lg border transition-colors ${
+                    isListeningMenu
+                      ? "border-danger bg-danger/10 text-danger animate-pulse"
+                      : "border-surface-border bg-surface text-gray-400 hover:text-brand"
+                  }`}
+                >
+                  <Mic className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddingItem(true)}
+                  className="text-xs text-brand font-semibold"
+                >
+                  + {s.menu_addItem}
+                </button>
+              </div>
+            </div>
+
+            {menuLoading && (
+              <p className="text-xs text-muted-foreground">{s.settings_loading}</p>
+            )}
+
+            {!menuLoading && menuItems.length === 0 && (
+              <p className="text-xs text-muted-foreground">{s.menu_empty}</p>
+            )}
+
+            {menuItems.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center justify-between rounded-xl border border-surface-border bg-surface px-3 py-2.5"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{item.name}</p>
+                  {item.description && (
+                    <p className="text-xs text-muted-foreground truncate">{item.description}</p>
+                  )}
+                  <p className="text-xs text-brand font-semibold">
+                    ₹{item.price}
+                    {item.unit ? `/${item.unit}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 ml-2">
+                  <button
+                    type="button"
+                    onClick={() => void toggleAvailability(item)}
+                    className={`text-xs px-2 py-1 rounded-lg border ${
+                      item.is_available
+                        ? "border-brand/40 text-brand"
+                        : "border-surface-border text-muted-foreground"
+                    }`}
+                  >
+                    {item.is_available ? s.menu_available : s.menu_unavailable}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingMenuItem(item)}
+                    className="text-muted-foreground hover:text-brand"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteMenuItem(item.id)}
+                    className="text-muted-foreground hover:text-danger"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {addingItem && (
+              <div className="rounded-xl border border-brand-border bg-brand/5 p-3 space-y-2">
+                <input
+                  type="text"
+                  value={newItem.name}
+                  onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
+                  placeholder={s.menu_itemName}
+                  className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    value={newItem.price}
+                    onChange={(e) => setNewItem((p) => ({ ...p, price: e.target.value }))}
+                    placeholder={s.menu_price}
+                    className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                  />
+                  <input
+                    type="text"
+                    value={newItem.unit}
+                    onChange={(e) => setNewItem((p) => ({ ...p, unit: e.target.value }))}
+                    placeholder={s.menu_unit}
+                    className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                  />
+                </div>
+                <input
+                  type="text"
+                  value={newItem.description}
+                  onChange={(e) => setNewItem((p) => ({ ...p, description: e.target.value }))}
+                  placeholder={s.menu_description}
+                  className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void saveNewItem()}
+                    className="flex-1 rounded-lg bg-brand text-page-bg text-sm font-semibold py-2"
+                  >
+                    {s.menu_save}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingItem(false);
+                      setNewItem({ name: "", price: "", unit: "", description: "" });
+                    }}
+                    className="flex-1 rounded-lg border border-surface-border text-sm py-2"
+                  >
+                    {s.settings_cancel}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           <Collapsible className="mt-4 pt-4 border-t border-border">
             <CollapsibleTrigger className="w-full flex items-center justify-between gap-3 group">
