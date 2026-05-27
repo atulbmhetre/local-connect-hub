@@ -183,6 +183,23 @@ const MyOrders = () => {
   const [rows, setRows] = useState<RowWithShop[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBill>>({});
+  const [myReviews, setMyReviews] = useState<
+    Record<
+      string,
+      {
+        id: string;
+        rating: number;
+        review_text: string | null;
+        created_at: string;
+        vendor_response: string | null;
+      }
+    >
+  >({});
+  const [editingReview, setEditingReview] = useState<{
+    id: string;
+    rating: number;
+    text: string;
+  } | null>(null);
   const [myKhata, setMyKhata] = useState<
     { vendor_id: string; shop_name: string; total_outstanding: number }[]
   >([]);
@@ -275,6 +292,27 @@ const MyOrders = () => {
     setBillsByRequestId(billMap);
   };
 
+  const loadMyReviews = async () => {
+    const userPhone = getUserPhone();
+    const deviceId = getDeviceId();
+    const { data } = await supabase
+      .from("vendor_reviews")
+      .select("id, request_id, rating, review_text, created_at, vendor_response")
+      .or(`user_phone.eq.${userPhone},device_id.eq.${deviceId}`);
+    const map: Record<
+      string,
+      {
+        id: string;
+        rating: number;
+        review_text: string | null;
+        created_at: string;
+        vendor_response: string | null;
+      }
+    > = {};
+    for (const r of data ?? []) map[r.request_id] = r;
+    setMyReviews(map);
+  };
+
   const loadMyKhata = async () => {
     const userPhone = getUserPhone();
     if (!userPhone) return;
@@ -316,6 +354,7 @@ const MyOrders = () => {
     const list = (data ?? []) as unknown as RowWithShop[];
     setRows([...list]);
     void loadBills(list.map((r) => r.id));
+    void loadMyReviews();
     void loadMyKhata();
     if (!opts?.silent) setLoading(false);
   }, []);
@@ -916,6 +955,49 @@ const MyOrders = () => {
                     </div>
                   );
                 })()}
+              {(r.status === "fulfilled" || r.status === "done") &&
+                myReviews[r.id] &&
+                (() => {
+                  const review = myReviews[r.id];
+                  const canEdit =
+                    Date.now() - new Date(review.created_at).getTime() < 7 * 24 * 60 * 60 * 1000;
+                  return (
+                    <div className="rounded-xl border border-surface-border bg-surface/50 px-3 py-2 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs">
+                          {"⭐".repeat(review.rating)}
+                          {"☆".repeat(5 - review.rating)}
+                        </span>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingReview({
+                                id: review.id,
+                                rating: review.rating,
+                                text: review.review_text ?? "",
+                              })
+                            }
+                            className="text-xs text-brand font-semibold"
+                          >
+                            {s.review_edit}
+                          </button>
+                        )}
+                      </div>
+                      {review.review_text && (
+                        <p className="text-xs text-muted-foreground">
+                          &quot;{review.review_text}&quot;
+                        </p>
+                      )}
+                      {review.vendor_response && (
+                        <div className="rounded-lg bg-brand/5 border border-brand-border px-2 py-1.5">
+                          <p className="text-[10px] text-brand font-semibold">{s.review_vendorSays}</p>
+                          <p className="text-xs text-foreground">{review.vendor_response}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               {r.status === "accepted" &&
                 r.vendors?.service_mode === "help" &&
                 (() => {
@@ -1259,11 +1341,70 @@ const MyOrders = () => {
         </SheetContent>
       </Sheet>
 
+      <Sheet open={editingReview !== null} onOpenChange={(open) => !open && setEditingReview(null)}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader>
+            <SheetTitle>{s.review_editTitle}</SheetTitle>
+          </SheetHeader>
+          {editingReview && (
+            <div className="mt-4 space-y-3">
+              <div className="flex gap-2 justify-center">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() =>
+                      setEditingReview((p) => (p ? { ...p, rating: n } : null))
+                    }
+                    className={`text-2xl transition-transform ${
+                      n <= editingReview.rating ? "opacity-100" : "opacity-30"
+                    }`}
+                  >
+                    ⭐
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={editingReview.text}
+                onChange={(e) =>
+                  setEditingReview((p) =>
+                    p ? { ...p, text: e.target.value.slice(0, 200) } : null,
+                  )
+                }
+                rows={2}
+                placeholder={s.review_placeholder}
+                className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand resize-none"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!editingReview) return;
+                  await supabase
+                    .from("vendor_reviews")
+                    .update({
+                      rating: editingReview.rating,
+                      review_text: editingReview.text.trim() || null,
+                    })
+                    .eq("id", editingReview.id);
+                  toast.success(s.review_updated);
+                  setEditingReview(null);
+                  void loadMyReviews();
+                }}
+                className="w-full rounded-xl bg-brand text-page-bg py-3 font-semibold"
+              >
+                {s.review_saveEdit}
+              </button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
       <RatingSheet
         isOpen={ratingSheetOpen}
         shopName={ratingVendor?.shopName ?? ""}
         serviceMode={ratingVendor?.serviceMode ?? "delivery"}
         vendorId={ratingVendor?.vendorId ?? ""}
+        requestId={pendingDismissId ?? ""}
         onDismiss={async () => {
           setRatingSheetOpen(false);
           const id = pendingDismissId;

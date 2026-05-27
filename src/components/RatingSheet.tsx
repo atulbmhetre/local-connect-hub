@@ -1,97 +1,365 @@
 import { useCallback, useEffect, useState } from "react";
+
 import {
+
   Sheet,
+
   SheetContent,
+
   SheetDescription,
+
   SheetHeader,
+
   SheetTitle,
+
 } from "@/components/ui/sheet";
-import { supabase } from "@/lib/supabase";
+
+import { supabase, invokeNotifyVendor } from "@/lib/supabase";
+
 import { useLanguage } from "@/lib/language";
+
+import { getDeviceId } from "@/lib/deviceId";
+
+import { getUserPhone } from "@/lib/userIdentity";
+
 import { Loader2 } from "lucide-react";
+
 import { toast } from "sonner";
 
+
+
 type Props = {
+
   isOpen: boolean;
+
   shopName: string;
+
   serviceMode: string;
+
   vendorId: string;
+
+  requestId: string;
+
   onDismiss: () => void;
+
 };
 
-export function RatingSheet({ isOpen, shopName, serviceMode, vendorId, onDismiss }: Props) {
+
+
+export function RatingSheet({
+
+  isOpen,
+
+  shopName,
+
+  serviceMode,
+
+  vendorId,
+
+  requestId,
+
+  onDismiss,
+
+}: Props) {
+
   const { s } = useLanguage();
+
   const [loading, setLoading] = useState<false | "rate" | "issue">(false);
 
+  const [stars, setStars] = useState<number>(0);
+
+  const [reviewText, setReviewText] = useState("");
+
+
+
   useEffect(() => {
-    if (!isOpen) setLoading(false);
+
+    if (!isOpen) {
+
+      setLoading(false);
+
+      setStars(0);
+
+      setReviewText("");
+
+    }
+
   }, [isOpen]);
 
+
+
   const mode = serviceMode.trim().toLowerCase();
+
   const isDelivery = mode === "delivery";
+
   const busy = loading !== false;
 
+
+
   const handleRate = useCallback(async () => {
+
     setLoading("rate");
+
     const rpc = isDelivery ? "increment_vendor_delivered" : "increment_vendor_helped";
+
     const { error } = await supabase.rpc(rpc, { p_vendor_id: vendorId });
-    setLoading(false);
-    if (error) {
-      toast.error(s.rating_errCouldNotSave);
+
+    if (!error && stars > 0) {
+
+      const deviceId = getDeviceId();
+
+      const userPhone = getUserPhone();
+
+      await supabase.from("vendor_reviews").insert({
+
+        vendor_id: vendorId,
+
+        request_id: requestId,
+
+        user_phone: userPhone,
+
+        device_id: deviceId,
+
+        rating: stars,
+
+        review_text: reviewText.trim() || null,
+
+        service_mode: serviceMode,
+
+      });
+
+      const { data: reviews } = await supabase
+
+        .from("vendor_reviews")
+
+        .select("rating")
+
+        .eq("vendor_id", vendorId);
+
+      if (reviews?.length) {
+
+        const avg = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+
+        await supabase
+
+          .from("vendors")
+
+          .update({
+
+            avg_rating: Math.round(avg * 10) / 10,
+
+            review_count: reviews.length,
+
+          })
+
+          .eq("id", vendorId);
+
+      }
+
+      if (stars <= 2) {
+        void invokeNotifyVendor({
+          vendor_id: vendorId,
+          notification_title: s.review_lowRatingNotifTitle,
+          message: s.review_lowRatingNotifBody,
+        });
+      }
+
     }
+
+    setLoading(false);
+
+    if (error) {
+
+      toast.error(s.rating_errCouldNotSave);
+
+    }
+
     onDismiss();
-  }, [isDelivery, vendorId, onDismiss, s.rating_errCouldNotSave]);
+
+  }, [
+
+    isDelivery,
+
+    vendorId,
+
+    requestId,
+
+    stars,
+
+    reviewText,
+
+    serviceMode,
+
+    onDismiss,
+
+    s.rating_errCouldNotSave,
+    s.review_lowRatingNotifTitle,
+    s.review_lowRatingNotifBody,
+
+  ]);
+
+
 
   const handleIssue = useCallback(async () => {
+
     setLoading("issue");
+
     const { error } = await supabase.rpc("increment_vendor_issues", { p_vendor_id: vendorId });
+
     setLoading(false);
+
     if (error) {
+
       toast.error(s.rating_errCouldNotSaveFeedback);
+
     }
+
     onDismiss();
+
   }, [vendorId, onDismiss, s.rating_errCouldNotSaveFeedback]);
 
+
+
   return (
+
     <Sheet
+
       open={isOpen}
+
       onOpenChange={(open) => {
+
         if (!open && !busy) return;
+
       }}
+
     >
+
       <SheetContent
+
         side="bottom"
+
         className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
+
       >
+
         <SheetHeader className="text-left space-y-1 pr-8">
+
           <SheetTitle className="text-white font-display">{s.rating_heading}</SheetTitle>
+
           <SheetDescription className="text-gray-400">{shopName}</SheetDescription>
+
         </SheetHeader>
 
+
+
         <div className="mt-6 flex flex-col gap-2">
+
+          <div className="space-y-2">
+
+            <p className="text-xs text-muted-foreground">{s.review_rateExperience}</p>
+
+            <div className="flex gap-2 justify-center">
+
+              {[1, 2, 3, 4, 5].map((n) => (
+
+                <button
+
+                  key={n}
+
+                  type="button"
+
+                  onClick={() => setStars(n)}
+
+                  className={`text-2xl transition-transform active:scale-110 ${
+
+                    n <= stars ? "opacity-100" : "opacity-30"
+
+                  }`}
+
+                >
+
+                  ⭐
+
+                </button>
+
+              ))}
+
+            </div>
+
+          </div>
+
+
+
+          {stars > 0 && (
+
+            <textarea
+
+              value={reviewText}
+
+              onChange={(e) => setReviewText(e.target.value.slice(0, 200))}
+
+              rows={2}
+
+              placeholder={s.review_placeholder}
+
+              className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand resize-none"
+
+            />
+
+          )}
+
+
+
           <button
+
             type="button"
+
             disabled={busy}
+
             onClick={() => void handleRate()}
+
             className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
+
           >
+
             {loading === "rate" ? <Loader2 className="h-5 w-5 animate-spin shrink-0" /> : null}
+
             {isDelivery ? s.rating_btnDelivered : s.rating_btnHelped}
+
           </button>
+
           <button
+
             type="button"
+
             disabled={busy}
+
             onClick={() => void handleIssue()}
+
             className="w-full rounded-xl border border-destructive/50 text-destructive bg-transparent py-3 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
+
           >
+
             {loading === "issue" ? <Loader2 className="h-5 w-5 animate-spin shrink-0" /> : null}
+
             {s.rating_btnIssue}
+
           </button>
+
           <p className="text-[11px] text-gray-500 text-center pt-1">
+
             {s.rating_helperText}
+
           </p>
+
         </div>
+
       </SheetContent>
+
     </Sheet>
+
   );
+
 }
+
+

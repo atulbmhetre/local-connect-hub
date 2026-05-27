@@ -414,7 +414,7 @@ export function RadarVendorCard({
             {vendor.name} · {getLabel(vendor.category)}
           </p>
           <VerificationBadge vendor={vendor} showLabel className="mt-1" />
-          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
             {dist != null ? (
               <span className="inline-flex items-center gap-1">
                 <MapPin className="h-3 w-3" />
@@ -423,6 +423,11 @@ export function RadarVendorCard({
             ) : (
               <span>{s.radar_location_unknown}</span>
             )}
+            {vendor.avg_rating && vendor.review_count ? (
+              <span className="text-xs text-muted-foreground">
+                ⭐ {vendor.avg_rating.toFixed(1)} ({vendor.review_count} {s.review_reviews})
+              </span>
+            ) : null}
           </div>
           {serviceMode === "help" && dist != null && (
             <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-brand-muted ring-1 ring-brand/30 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:text-brand">

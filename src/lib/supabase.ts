@@ -195,6 +195,8 @@ export type Vendor = {
   total_delivered?: number;
   /** 0–100, delivery on-time rate */
   on_time_rate?: number;
+  avg_rating?: number | null;
+  review_count?: number | null;
 };
 
 export type RequestRow = {
