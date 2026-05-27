@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Store, BarChart2, Bell, ChevronDown, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
+import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
@@ -82,6 +83,26 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
   const [showReviews, setShowReviews] = useState(false);
   const [respondingReviewId, setRespondingReviewId] = useState<string | null>(null);
   const [responseText, setResponseText] = useState("");
+  const [callReview, setCallReview] = useState<{
+    callerPhone: string;
+    serviceMode: string;
+  } | null>(null);
+
+  const aiBridgeVendor: AiBridgeVendor = {
+    id: vendor.id,
+    name: vendor.name,
+    shop_name: vendor.shop_name,
+    category: vendor.category,
+    vendor_note: vendor.vendor_note ?? null,
+    phone: vendor.phone,
+    service_mode: vendor.service_mode ?? "help",
+    verification_status: vendor.verification_status,
+    is_manual_verified: vendor.is_manual_verified,
+    total_helped: vendor.total_helped,
+    on_time_rate: vendor.on_time_rate,
+    shop_photo_url: vendor.shop_photo_url,
+    upi_verified: vendor.upi_verified,
+  };
 
   const loadReviews = async () => {
     setReviewsLoading(true);
@@ -400,6 +421,20 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
                         : s.review_anonymous}
                       {r.service_mode && ` · ${r.service_mode}`}
                     </p>
+                    {r.rating <= 2 && r.user_phone && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCallReview({
+                            callerPhone: r.user_phone!,
+                            serviceMode: r.service_mode ?? vendor.service_mode ?? "help",
+                          })
+                        }
+                        className="text-[10px] text-muted-foreground mt-1 hover:text-foreground"
+                      >
+                        📞 Call customer
+                      </button>
+                    )}
                     {r.vendor_response ? (
                       <div className="rounded-lg bg-brand/5 border border-brand-border px-2 py-1.5 mt-1">
                         <p className="text-[10px] text-brand font-semibold">{s.review_yourResponse}</p>
@@ -737,6 +772,17 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
           {s.vendor_referUserCredit(config.referralUserCredit)}
         </p>
       </section>
+
+      {callReview && (
+        <AiBridgeSheet
+          open={callReview !== null}
+          onClose={() => setCallReview(null)}
+          vendor={aiBridgeVendor}
+          callerPhone={callReview.callerPhone}
+          userNeed=""
+          distanceKm={null}
+        />
+      )}
     </>
   );
 }

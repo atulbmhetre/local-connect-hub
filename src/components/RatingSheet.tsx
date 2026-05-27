@@ -22,7 +22,7 @@ import { getDeviceId } from "@/lib/deviceId";
 
 import { getUserPhone } from "@/lib/userIdentity";
 
-import { Loader2 } from "lucide-react";
+import { Loader2, Mic, Square } from "lucide-react";
 
 import { toast } from "sonner";
 
@@ -62,13 +62,14 @@ export function RatingSheet({
 
 }: Props) {
 
-  const { s } = useLanguage();
+  const { s, lang } = useLanguage();
 
   const [loading, setLoading] = useState<false | "rate" | "issue">(false);
 
   const [stars, setStars] = useState<number>(0);
 
   const [reviewText, setReviewText] = useState("");
+  const [isListeningReview, setIsListeningReview] = useState(false);
 
 
 
@@ -81,6 +82,7 @@ export function RatingSheet({
       setStars(0);
 
       setReviewText("");
+      setIsListeningReview(false);
 
     }
 
@@ -93,6 +95,51 @@ export function RatingSheet({
   const isDelivery = mode === "delivery";
 
   const busy = loading !== false;
+  const speechRecognitionSupported =
+    typeof window !== "undefined" &&
+    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  const startReviewVoice = () => {
+    if (!speechRecognitionSupported || isListeningReview) return;
+    try {
+      const SpeechRecognitionCtor = (
+        window as typeof window & {
+          SpeechRecognition?: new () => any;
+          webkitSpeechRecognition?: new () => any;
+        }
+      ).SpeechRecognition ??
+        (
+          window as typeof window & {
+            SpeechRecognition?: new () => any;
+            webkitSpeechRecognition?: new () => any;
+          }
+        ).webkitSpeechRecognition;
+      if (!SpeechRecognitionCtor) return;
+
+      const recognition = new SpeechRecognitionCtor();
+      recognition.lang = lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.continuous = false;
+
+      recognition.onresult = (event: any) => {
+        const text = event.results?.[0]?.[0]?.transcript?.trim();
+        if (!text) return;
+        setReviewText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+      };
+      recognition.onerror = () => {
+        /* silently ignore */
+      };
+      recognition.onend = () => {
+        setIsListeningReview(false);
+      };
+
+      setIsListeningReview(true);
+      recognition.start();
+    } catch {
+      setIsListeningReview(false);
+    }
+  };
 
 
 
@@ -291,21 +338,32 @@ export function RatingSheet({
 
 
           {stars > 0 && (
-
-            <textarea
-
-              value={reviewText}
-
-              onChange={(e) => setReviewText(e.target.value.slice(0, 200))}
-
-              rows={2}
-
-              placeholder={s.review_placeholder}
-
-              className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand resize-none"
-
-            />
-
+            <div className="relative">
+              <textarea
+                value={reviewText}
+                onChange={(e) => setReviewText(e.target.value.slice(0, 200))}
+                rows={2}
+                placeholder={s.review_placeholder}
+                className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand resize-none"
+              />
+              {speechRecognitionSupported && (
+                <button
+                  type="button"
+                  onClick={startReviewVoice}
+                  className={`absolute right-2 bottom-2 p-1.5 rounded-lg border transition-colors ${
+                    isListeningReview
+                      ? "border-danger bg-danger/10 text-danger animate-pulse"
+                      : "border-surface-border bg-surface text-gray-400 hover:text-brand"
+                  }`}
+                >
+                  {isListeningReview ? (
+                    <Square className="h-3.5 w-3.5" />
+                  ) : (
+                    <Mic className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              )}
+            </div>
           )}
 
 
