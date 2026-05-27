@@ -15,6 +15,7 @@ import { getUserPhone, migrateUserPhone } from "@/lib/userIdentity";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { VerificationBadge, vendorTier, verificationCopy } from "@/components/VerificationBadge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -198,6 +199,11 @@ export function RadarVendorCard({
   const [menuItems, setMenuItems] = useState<
     { name: string; price: number; unit: string | null; is_available: boolean }[]
   >([]);
+  const [rateCardOpen, setRateCardOpen] = useState(false);
+  const [rateCardLoading, setRateCardLoading] = useState(false);
+  const [rateCardItems, setRateCardItems] = useState<
+    { name: string; price: number; unit: string | null }[]
+  >([]);
 
   useEffect(() => {
     void supabase
@@ -209,6 +215,20 @@ export function RadarVendorCard({
       .limit(5)
       .then(({ data }) => setMenuItems(data ?? []));
   }, [vendor.id]);
+
+  const openRateCard = useCallback(async () => {
+    setRateCardOpen(true);
+    if (rateCardItems.length > 0 || rateCardLoading) return;
+    setRateCardLoading(true);
+    const { data } = await supabase
+      .from("vendor_menu_items")
+      .select("name, price, unit")
+      .eq("vendor_id", vendor.id)
+      .eq("is_available", true)
+      .order("sort_order", { ascending: true });
+    setRateCardItems(data ?? []);
+    setRateCardLoading(false);
+  }, [rateCardItems.length, rateCardLoading, serviceMode, vendor.id]);
 
   useEffect(() => {
     setHelpCount(vendor.total_helped ?? 0);
@@ -482,6 +502,15 @@ export function RadarVendorCard({
               </span>
             </div>
           ))}
+          {(serviceMode === "appointment" || serviceMode === "delivery") && menuItems.length > 3 && (
+            <button
+              type="button"
+              onClick={() => void openRateCard()}
+              className="text-[11px] text-muted-foreground hover:text-foreground text-left pt-1"
+            >
+              {serviceMode === "delivery" ? "View full menu →" : "View full rate card →"}
+            </button>
+          )}
           {menuItems.length > 3 && (
             <p className="text-[10px] text-muted-foreground">
               +{menuItems.length - 3} {s.menu_moreItems}
@@ -489,6 +518,60 @@ export function RadarVendorCard({
           )}
         </div>
       )}
+
+      <Sheet open={rateCardOpen} onOpenChange={setRateCardOpen}>
+        <SheetContent side="bottom" className="rounded-t-2xl max-h-[80vh] overflow-y-auto">
+          <SheetHeader className="text-left">
+            <SheetTitle>
+              {serviceMode === "delivery"
+                ? `Menu — ${vendor.shop_name}`
+                : `Rate Card — ${vendor.shop_name}`}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="mt-4">
+            {rateCardLoading ? (
+              <p className="text-sm text-muted-foreground">{s.settings_loading}</p>
+            ) : (
+              <div className="rounded-xl border border-border overflow-hidden">
+                {rateCardItems.map((item, idx) => (
+                  <div
+                    key={`${item.name}-${idx}`}
+                    className={cn(
+                      "flex items-center justify-between px-3 py-2 text-sm",
+                      idx !== 0 && "border-t border-border",
+                    )}
+                  >
+                    <span className="text-foreground">{item.name}</span>
+                    <span className="text-brand font-semibold tabular-nums">
+                      ₹{item.price}
+                      {item.unit ? `/${item.unit}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {vendor.vendor_note && (
+            <div className="mt-4 text-xs text-muted-foreground">
+              <span className="font-semibold">About</span>
+              <span className="text-muted-foreground"> · </span>
+              <span>{vendor.vendor_note}</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setRateCardOpen(false);
+              openParchi();
+            }}
+            className="mt-5 w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform"
+          >
+            Connect
+          </button>
+        </SheetContent>
+      </Sheet>
 
       <button
         type="button"
