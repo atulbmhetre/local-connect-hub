@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/language";
@@ -99,8 +100,11 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
       onAction: async () => {
         setBusy(true);
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          stream.getTracks().forEach((track) => track.stop());
+          await Camera.getPhoto({
+            resultType: CameraResultType.DataUrl,
+            source: CameraSource.Camera,
+            quality: 50,
+          });
         } catch {
           /* permission prompt best-effort */
         } finally {

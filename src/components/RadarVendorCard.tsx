@@ -494,9 +494,9 @@ export function RadarVendorCard({
             {s.menu_preview}
           </p>
           {menuItems.slice(0, 3).map((item, i) => (
-            <div key={i} className="flex justify-between text-xs">
-              <span className="text-foreground">{item.name}</span>
-              <span className="text-brand font-semibold">
+            <div key={i} className="flex justify-between items-center gap-2">
+              <span className="text-foreground text-sm flex-1 truncate">{item.name}</span>
+              <span className="text-sm shrink-0 text-muted-foreground">
                 ₹{item.price}
                 {item.unit ? `/${item.unit}` : ""}
               </span>

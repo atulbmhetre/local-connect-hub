@@ -20,6 +20,7 @@ import {
   useCategoryLabel,
   useServiceModeLabel,
   invokeNotifyUser,
+  invokeNotifyAdmin,
 } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
@@ -307,10 +308,14 @@ const VendorMode = () => {
   }, [vendorId, vendor?.id]);
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    if (!vendorId || !vendor) return;
-    if (isVendorOnboardingComplete()) return;
-    setShowOnboarding(true);
+    if (
+      Capacitor.isNativePlatform() &&
+      vendorId &&
+      vendor &&
+      !isVendorOnboardingComplete()
+    ) {
+      setShowOnboarding(true);
+    }
   }, [vendorId, vendor]);
 
   const detectLocation = (): Promise<{ lat: number; lng: number } | null> => {
@@ -500,6 +505,11 @@ const VendorMode = () => {
     notifyVendorIdChanged();
     setVendorId(newVendorId);
     setVendor(data as Vendor);
+    void invokeNotifyAdmin(
+      "🏪 New vendor registered",
+      `${name.trim()} — ${effectiveCategory} (${serviceMode})`,
+      { vendor_id: newVendorId },
+    );
     if (referralCodeInput.trim()) {
       void fetch(`${SUPABASE_URL}/functions/v1/process-vendor-referral`, {
         method: "POST",
@@ -747,21 +757,18 @@ const VendorMode = () => {
     setCameraOpen(false);
 
     // 1. GPS match check vs the recorded shop coords.
-    if (vendor.latitude == null || vendor.longitude == null) {
-      toast.error(s.vendor_set_location_first, {
-        description: s.vendor_set_location_first_body,
-      });
-      return;
-    }
-    const meters = distanceMeters(
-      { lat: vendor.latitude, lng: vendor.longitude },
-      shot.coords,
-    );
-    if (meters > GPS_MATCH_TOLERANCE_M) {
-      toast.error(s.vendor_mismatch_title, {
-        description: `Photo was taken ${Math.round(meters)} m from your shop. Must be within ${GPS_MATCH_TOLERANCE_M} m.`,
-      });
-      return;
+    const hasShopLocation = vendor.latitude != null && vendor.longitude != null;
+    if (hasShopLocation) {
+      const meters = distanceMeters(
+        { lat: vendor.latitude, lng: vendor.longitude },
+        shot.coords,
+      );
+      if (meters > GPS_MATCH_TOLERANCE_M) {
+        toast.error(s.vendor_mismatch_title, {
+          description: `Photo was taken ${Math.round(meters)} m from your shop. Must be within ${GPS_MATCH_TOLERANCE_M} m.`,
+        });
+        return;
+      }
     }
 
     // 2. Upload to Storage.
@@ -784,10 +791,20 @@ const VendorMode = () => {
       .update({
         shop_photo_url: pub.publicUrl,
         verification_status: "business_verified" as VerificationStatus,
+        ...(hasShopLocation
+          ? {}
+          : {
+              latitude: shot.coords.lat,
+              longitude: shot.coords.lng,
+            }),
       })
       .eq("id", vendor.id);
     if (updErr) {
       toast.error(s.vendor_save_verification_failed, { description: updErr.message });
+      return;
+    }
+    if (!hasShopLocation) {
+      toast.success("Shop photo saved and location set ✓");
       return;
     }
     toast.success(s.vendor_photo_verified, {
@@ -1327,6 +1344,24 @@ const VendorMode = () => {
                   )}
                 </div>
 
+                {(vendor.latitude == null || vendor.longitude == null) && (
+                  <div className="rounded-xl border border-amber-500/60 bg-amber-500/10 p-3">
+                    <p className="text-sm font-semibold text-amber-200">No shop location set</p>
+                    <p className="mt-1 text-xs text-amber-100/90">
+                      Your shop location is needed before capturing your verification photo.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={updateShopLocation}
+                      disabled={updatingLocation}
+                      className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-400/60 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-60"
+                    >
+                      {updatingLocation ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPin className="h-3.5 w-3.5" />}
+                      Set Shop Location
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-start justify-between gap-3">
                   <Step
                     done={!!vendor.shop_photo_url}
@@ -1334,12 +1369,16 @@ const VendorMode = () => {
                     sub={
                       vendor.shop_photo_url
                         ? s.vendor_photo_captured
-                        : s.vendor_photo_hint
+                        : vendor.latitude == null || vendor.longitude == null
+                          ? "Set shop location first"
+                          : s.vendor_photo_hint
                     }
                   />
                   <button
                     onClick={() => setCameraOpen(true)}
-                    className="text-xs font-semibold rounded-lg bg-foreground text-background px-3 py-2 shrink-0 inline-flex items-center gap-1"
+                    disabled={vendor.latitude == null || vendor.longitude == null}
+                    title={vendor.latitude == null || vendor.longitude == null ? "Set shop location first" : undefined}
+                    className="text-xs font-semibold rounded-lg bg-foreground text-background px-3 py-2 shrink-0 inline-flex items-center gap-1 disabled:opacity-50"
                   >
                     <Camera className="h-3.5 w-3.5" />
                     {vendor.shop_photo_url ? s.vendor_reshoot : s.vendor_capture}
@@ -1374,18 +1413,20 @@ const VendorMode = () => {
                     </p>
                   )}
                 </div>
-                <button
-                  onClick={updateShopLocation}
-                  disabled={updatingLocation}
-                  className="w-full rounded-xl border-2 border-border py-2.5 text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
-                >
-                  {updatingLocation ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <MapPin className="h-4 w-4" />
-                  )}
-                  {s.vendor_update_location}
-                </button>
+                {vendor.latitude != null && vendor.longitude != null && (
+                  <button
+                    onClick={updateShopLocation}
+                    disabled={updatingLocation}
+                    className="w-full rounded-xl border-2 border-border py-2.5 text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {updatingLocation ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MapPin className="h-4 w-4" />
+                    )}
+                    {s.vendor_update_location}
+                  </button>
+                )}
                 {vendor.verification_status === "business_verified" && (
                   <p className="text-[11px] text-muted-foreground inline-flex items-start gap-1">
                     <AlertTriangle className="h-3 w-3 text-accent mt-0.5 shrink-0" />

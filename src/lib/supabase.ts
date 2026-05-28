@@ -159,6 +159,12 @@ export async function invokeNotifyUser(payload: {
   }
 }
 
+export async function invokeNotifyAdmin(title: string, body: string, data?: object) {
+  return supabase.functions.invoke("notify-admin", {
+    body: { title, body, data },
+  });
+}
+
 export type VerificationStatus =
   | "unverified"
   | "identity_linked"

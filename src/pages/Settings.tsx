@@ -6,7 +6,11 @@ import {
   Trash2,
   Wrench,
   CheckCircle2,
+  Bell,
   Phone,
+  MapPin,
+  Camera,
+  Zap,
   Globe,
   Moon,
   Sun,
@@ -18,6 +22,8 @@ import {
   Store,
   Tag,
 } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
+import { App } from "@capacitor/app";
 import { toast } from "sonner";
 import {
   supabase,
@@ -82,6 +88,7 @@ const Settings = () => {
   const [devPhone, setDevPhone] = useState(userPhone ?? "");
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
+  const identityPhone = (vendor?.phone ?? "").trim() || (userPhone ?? "").trim() || null;
 
   const [adminStats, setAdminStats] = useState({
     totalOrders: 0,
@@ -619,9 +626,9 @@ const Settings = () => {
           <Phone className="h-5 w-5 text-secondary" />
           <p className="font-display font-bold">{s.settings_myIdentity}</p>
         </div>
-        {userPhone != null ? (
+        {identityPhone != null ? (
           <div>
-            <p className="text-sm font-semibold text-foreground">{s.settings_phonePrefix}{userPhone}</p>
+            <p className="text-sm font-semibold text-foreground">{s.settings_phonePrefix}{identityPhone}</p>
             <p className="text-xs text-brand mt-1">{s.settings_registered}</p>
           </div>
         ) : (
@@ -1148,6 +1155,81 @@ const Settings = () => {
           </div>
         </div>
       </section>
+
+      {Capacitor.isNativePlatform() && (
+        <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+          <p className="font-display font-bold mb-3">Permissions</p>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
+              <div className="min-w-0 flex items-start gap-3">
+                <Bell className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Notifications</p>
+                  <p className="text-xs text-muted-foreground">Required for order alerts</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void App.openUrl({ url: "app-settings:" })}
+                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+              >
+                Open Settings
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
+              <div className="min-w-0 flex items-start gap-3">
+                <MapPin className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Location</p>
+                  <p className="text-xs text-muted-foreground">Required for help mode tracking</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void App.openUrl({ url: "app-settings:" })}
+                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+              >
+                Open Settings
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
+              <div className="min-w-0 flex items-start gap-3">
+                <Camera className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Camera</p>
+                  <p className="text-xs text-muted-foreground">Required for shop verification</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void App.openUrl({ url: "app-settings:" })}
+                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+              >
+                Open Settings
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
+              <div className="min-w-0 flex items-start gap-3">
+                <Zap className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Battery optimization</p>
+                  <p className="text-xs text-muted-foreground">Keep app awake for orders</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void App.openUrl({ url: "package:com.aaspaas.pro" })}
+                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+              >
+                Open Settings
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5 text-center">
         <p className="font-display font-bold text-lg">{s.settings_appName}</p>
