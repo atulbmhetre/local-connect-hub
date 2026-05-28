@@ -63,6 +63,7 @@ const Index = () => {
   const recRef = useRef<any>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pushRegisteredUserRef = useRef<string | null>(null);
+  const [userPhone, setUserPhone] = useState(() => getUserPhone());
 
   const loadSavedNeighbours = useCallback(async () => {
     const device_id = getDeviceId();
@@ -103,12 +104,17 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
-    const userPhone = getUserPhone();
+    const handler = () => setUserPhone(getUserPhone());
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
+
+  useEffect(() => {
     if (!userPhone) return;
     if (pushRegisteredUserRef.current === userPhone) return;
     pushRegisteredUserRef.current = userPhone;
     void registerUserPushToken(userPhone);
-  }, []);
+  }, [userPhone]);
 
   useEffect(() => {
     if (location.pathname !== "/") return;
