@@ -234,7 +234,7 @@ const RadarSearch = () => {
           {/* Back */}
           <button
             onClick={() => navigate("/")}
-            className="absolute top-4 left-0 h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
+            className="absolute top-4 left-0 h-10 w-10 grid place-items-center rounded-xl bg-card border border-border shadow-sm"
             aria-label={s.radar_back_home}
           >
             <ArrowLeft className="h-5 w-5" />
@@ -245,7 +245,7 @@ const RadarSearch = () => {
             <h2 className="text-brand text-sm font-bold tracking-widest uppercase mb-2">
               {expanded ? s.radar_expanding_scan : s.radar_scanning_area}
             </h2>
-            <p className="text-2xl font-semibold italic capitalize">
+            <p className="text-2xl font-semibold italic capitalize text-foreground">
               {s.radar_finding_nearby}{getCategoryLabel(headline)}…
             </p>
           </div>

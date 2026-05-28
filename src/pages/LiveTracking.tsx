@@ -50,8 +50,8 @@ const userIcon = makeIcon(
 );
 
 function helperIconHtml(stalled: boolean) {
-  const color = stalled ? "#F97316" : "#22C55E";
-  const glow = stalled ? "rgba(249,115,22,0.65)" : "rgba(34,197,94,0.7)";
+  const color = stalled ? "#F97316" : "var(--color-brand)";
+  const glow = stalled ? "rgba(249,115,22,0.65)" : "color-mix(in srgb, var(--color-brand) 70%, transparent)";
   return `<div style="position:relative;width:44px;height:44px;display:grid;place-items:center;">
     <div style="position:absolute;inset:0;border-radius:9999px;background:${color};opacity:0.25;animation:aaspaasPing 1.4s ease-out infinite;"></div>
     <div style="position:relative;width:22px;height:22px;border-radius:9999px;background:${color};border:3px solid #121212;box-shadow:0 0 14px ${glow};"></div>
@@ -443,7 +443,7 @@ const LiveTracking = () => {
             <Polyline
               positions={points}
               pathOptions={{
-                color: stalled ? "#F97316" : "#22C55E",
+                color: stalled ? "#F97316" : "var(--color-brand)",
                 weight: 4,
                 opacity: 0.85,
                 dashArray: "8 8",

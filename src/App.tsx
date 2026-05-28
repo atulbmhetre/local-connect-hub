@@ -17,6 +17,7 @@ import LiveTracking from "./pages/LiveTracking.tsx";
 import MyOrders from "./pages/MyOrders.tsx";
 import Landing from "./pages/Landing.tsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.tsx";
+import LocalFeed from "./pages/LocalFeed.tsx";
 import { ReferralRedirect } from "@/components/ReferralRedirect";
 
 const queryClient = new QueryClient();
@@ -60,6 +61,7 @@ const App = () => (
             <Route path="/r/:code" element={<ReferralRedirect />} />
             <Route path="/landing" element={<Landing />} />
             <Route path="/radar" element={<RadarSearch />} />
+            <Route path="/feed" element={<LocalFeed />} />
             <Route path="/track/:vendorId" element={<LiveTracking />} />
             <Route path="/tracking" element={<LiveTracking />} />
             <Route path="/tracking/:vendorId" element={<LiveTracking />} />

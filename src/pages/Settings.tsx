@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
   ShieldCheck,
@@ -14,6 +15,8 @@ import {
   Search,
   CheckCircle,
   XCircle,
+  Store,
+  Tag,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -54,6 +57,7 @@ import { Switch } from "@/components/ui/switch";
 const LARGE_TEXT_KEY = "aaspaas:large_text";
 
 const Settings = () => {
+  const navigate = useNavigate();
   const { lang, setLang, s } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const { config } = useAppConfig();
@@ -148,6 +152,43 @@ const Settings = () => {
       return false;
     }
   });
+  const [activeOffer, setActiveOffer] = useState<{
+    id: string;
+    content: string;
+    expires_at: string | null;
+  } | null>(null);
+  const [offerText, setOfferText] = useState("");
+  const [offerExpiry, setOfferExpiry] = useState<"today" | "tomorrow" | "3days" | "7days">("today");
+  const [offerLoading, setOfferLoading] = useState(false);
+
+  const loadActiveOffer = async () => {
+    if (!vendorId) {
+      setActiveOffer(null);
+      return;
+    }
+    const { data, error } = await supabase
+      .from("feed_posts")
+      .select("*")
+      .eq("vendor_id", vendorId)
+      .eq("type", "offer")
+      .eq("is_hidden", false)
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    if (error) {
+      console.error("loadActiveOffer", error);
+      setActiveOffer(null);
+      return;
+    }
+    setActiveOffer(
+      data
+        ? {
+            id: data.id as string,
+            content: (data.content as string) ?? "",
+            expires_at: (data.expires_at as string | null) ?? null,
+          }
+        : null,
+    );
+  };
 
   useEffect(() => {
     if (!vendorId) return;
@@ -164,6 +205,14 @@ const Settings = () => {
       if (data) setVendor(data as Vendor);
     };
     void load();
+  }, [vendorId]);
+
+  useEffect(() => {
+    if (!vendorId) {
+      setActiveOffer(null);
+      return;
+    }
+    void loadActiveOffer();
   }, [vendorId]);
 
   useEffect(() => {
@@ -466,6 +515,61 @@ const Settings = () => {
     await navigator.clipboard.writeText(shareMessage);
   };
 
+  const computeOfferExpiry = () => {
+    if (offerExpiry === "today") {
+      return new Date(new Date().setHours(23, 59, 59, 999)).toISOString();
+    }
+    if (offerExpiry === "tomorrow") {
+      return new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    }
+    if (offerExpiry === "3days") {
+      return new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    }
+    return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  };
+
+  const postOffer = async () => {
+    if (!vendorId) return;
+    const content = offerText.trim();
+    if (!content) return;
+    setOfferLoading(true);
+    const { error } = await supabase.from("feed_posts").insert({
+      type: "offer",
+      vendor_id: vendorId,
+      user_phone: getUserPhone(),
+      content,
+      is_hidden: false,
+      expires_at: computeOfferExpiry(),
+    });
+    setOfferLoading(false);
+    if (error) {
+      console.error("postOffer", error);
+      toast.error(error.message);
+      return;
+    }
+    setOfferText("");
+    setOfferExpiry("today");
+    await loadActiveOffer();
+    toast("Offer posted!");
+  };
+
+  const removeOffer = async () => {
+    if (!activeOffer) return;
+    setOfferLoading(true);
+    const { error } = await supabase
+      .from("feed_posts")
+      .update({ is_hidden: true })
+      .eq("id", activeOffer.id);
+    setOfferLoading(false);
+    if (error) {
+      console.error("removeOffer", error);
+      toast.error(error.message);
+      return;
+    }
+    setActiveOffer(null);
+    toast("Offer removed");
+  };
+
   const confirmDeleteAddress = async () => {
     if (!deleteAddressId) return;
     setDeletingAddress(true);
@@ -494,15 +598,21 @@ const Settings = () => {
         </h1>
       </header>
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
-          {s.settings_switchRole}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {s.settings_switchRoleHintPrefix}<span className="font-semibold text-foreground">{s.settings_switchRoleHome}</span>{s.settings_switchRoleForHelp}{" "}
-          <span className="font-semibold text-foreground">{s.settings_switchRoleVendor}</span>{s.settings_switchRoleToEarn}
-        </p>
-      </section>
+      {!vendorId && (
+        <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+          <button
+            type="button"
+            onClick={() => navigate("/vendor")}
+            className="w-full flex items-center gap-3 rounded-2xl border border-border bg-muted/30 px-4 py-3 text-left active:scale-[0.99] transition-transform hover:bg-muted/50"
+          >
+            <span className="h-10 w-10 shrink-0 rounded-xl bg-secondary/10 border border-secondary/30 grid place-items-center">
+              <Store className="h-5 w-5 text-secondary" />
+            </span>
+            <span className="text-sm font-semibold text-foreground">{s.settings_register_business}</span>
+          </button>
+          <p className="text-xs text-muted-foreground mt-3">{s.settings_register_business_sub}</p>
+        </section>
+      )}
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <div className="flex items-center gap-3 mb-3">
@@ -676,6 +786,74 @@ const Settings = () => {
         <p className="text-sm text-muted-foreground mb-5">{s.settings_loading}</p>
       )}
       {vendor && <VendorSettings vendor={vendor} onVendorUpdated={setVendor} />}
+      {vendorId && (
+        <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+          <div className="flex items-center gap-3 mb-3">
+            <Tag className="h-5 w-5 text-secondary" />
+            <p className="font-display font-bold">Post an Offer</p>
+          </div>
+
+          {activeOffer ? (
+            <div className="space-y-3">
+              <p className="text-sm text-foreground">{activeOffer.content}</p>
+              <p className="text-xs text-muted-foreground">
+                Expires:{" "}
+                {activeOffer.expires_at ? new Date(activeOffer.expires_at).toLocaleString() : "—"}
+              </p>
+              <button
+                type="button"
+                onClick={() => void removeOffer()}
+                disabled={offerLoading}
+                className="rounded-xl border border-destructive/40 text-destructive px-4 py-2 text-sm font-semibold disabled:opacity-50"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <input
+                type="text"
+                maxLength={100}
+                value={offerText}
+                onChange={(e) => setOfferText(e.target.value)}
+                placeholder="e.g. 20% off groceries today"
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ["today", "Today"],
+                    ["tomorrow", "Tomorrow"],
+                    ["3days", "3 days"],
+                    ["7days", "7 days"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setOfferExpiry(value)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium border transition-colors ${
+                      offerExpiry === value
+                        ? "bg-secondary text-secondary-foreground border-secondary"
+                        : "border-border text-muted-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => void postOffer()}
+                disabled={offerLoading || offerText.trim().length === 0}
+                className="rounded-xl bg-green-500 text-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
+              >
+                Post Offer
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {isAdmin && (
         <>
