@@ -14,13 +14,6 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
@@ -708,24 +701,24 @@ export default function LocalFeed() {
 
             {composeType === "offer" && (
               <div className="mb-4">
-                <label className="block text-xs font-semibold text-muted-foreground mb-2">
-                  Offer valid until
-                </label>
-                <Select
-                  value={expiryOption}
-                  onValueChange={(v) => setExpiryOption(v as ExpiryOption)}
+                <label
+                  htmlFor="offer-expiry"
+                  className="block text-xs font-semibold text-muted-foreground mb-2"
                 >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select expiry" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="today">Today</SelectItem>
-                    <SelectItem value="tomorrow">Tomorrow</SelectItem>
-                    <SelectItem value="3days">3 days</SelectItem>
-                    <SelectItem value="7days">7 days</SelectItem>
-                    <SelectItem value="custom">Custom date</SelectItem>
-                  </SelectContent>
-                </Select>
+                  Offer valid until:
+                </label>
+                <select
+                  id="offer-expiry"
+                  value={expiryOption}
+                  onChange={(e) => setExpiryOption(e.target.value as ExpiryOption)}
+                  className="w-full rounded-xl border border-border bg-background text-foreground p-3 text-sm"
+                >
+                  <option value="today">Today</option>
+                  <option value="tomorrow">Tomorrow</option>
+                  <option value="3days">3 Days</option>
+                  <option value="7days">7 Days</option>
+                  <option value="custom">Custom Date</option>
+                </select>
                 {expiryOption === "custom" && (
                   <input
                     type="date"
