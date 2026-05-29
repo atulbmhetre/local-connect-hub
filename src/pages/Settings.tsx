@@ -22,7 +22,11 @@ import {
   Store,
   Tag,
 } from "lucide-react";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, type PermissionState } from "@capacitor/core";
+import { App } from "@capacitor/app";
+import { Geolocation } from "@capacitor/geolocation";
+import { Camera as CapacitorCamera } from "@capacitor/camera";
+import { PushNotifications } from "@capacitor/push-notifications";
 import { toast } from "sonner";
 import {
   supabase,
@@ -56,10 +60,33 @@ import {
 } from "@/components/ui/alert-dialog";
 import { LANGUAGE_LABELS, type Language } from "@/lib/strings";
 import { useUserAddresses } from "@/hooks/useUserAddresses";
-import { VendorSettings } from "@/components/settings/VendorSettings";
+import {
+  VendorSettings,
+  VendorSettingsNotifications,
+  VendorSettingsReferEarn,
+} from "@/components/settings/VendorSettings";
 import { Switch } from "@/components/ui/switch";
 
 const LARGE_TEXT_KEY = "aaspaas:large_text";
+
+type NativePermissionStatuses = {
+  notifications: PermissionState;
+  location: PermissionState;
+  camera: PermissionState;
+};
+
+async function checkNativePermissionStatuses(): Promise<NativePermissionStatuses> {
+  const [push, geo, cam] = await Promise.all([
+    PushNotifications.checkPermissions(),
+    Geolocation.checkPermissions().catch(() => ({ location: "denied" as PermissionState })),
+    CapacitorCamera.checkPermissions(),
+  ]);
+  return {
+    notifications: push.receive,
+    location: geo.location,
+    camera: cam.camera,
+  };
+}
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -150,6 +177,11 @@ const Settings = () => {
   const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
   const [clearDataOpen, setClearDataOpen] = useState(false);
   const [permissionHint, setPermissionHint] = useState<string | null>(null);
+  const [permissionStatuses, setPermissionStatuses] = useState<NativePermissionStatuses>({
+    notifications: "prompt",
+    location: "prompt",
+    camera: "prompt",
+  });
   const [deletingAddress, setDeletingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [largeText, setLargeText] = useState(() => {
@@ -165,7 +197,10 @@ const Settings = () => {
     expires_at: string | null;
   } | null>(null);
   const [offerText, setOfferText] = useState("");
-  const [offerExpiry, setOfferExpiry] = useState<"today" | "tomorrow" | "3days" | "7days">("today");
+  const [offerExpiry, setOfferExpiry] = useState<
+    "today" | "tomorrow" | "3days" | "7days" | "custom"
+  >("today");
+  const [offerCustomExpiryDate, setOfferCustomExpiryDate] = useState("");
   const [offerLoading, setOfferLoading] = useState(false);
 
   const loadActiveOffer = async () => {
@@ -221,6 +256,31 @@ const Settings = () => {
     }
     void loadActiveOffer();
   }, [vendorId]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const refreshPermissions = () => {
+      void checkNativePermissionStatuses()
+        .then(setPermissionStatuses)
+        .catch(() => {
+          /* keep last known statuses */
+        });
+    };
+
+    refreshPermissions();
+
+    let listener: { remove: () => Promise<void> } | undefined;
+    void App.addListener("appStateChange", ({ isActive }) => {
+      if (isActive) refreshPermissions();
+    }).then((handle) => {
+      listener = handle;
+    });
+
+    return () => {
+      void listener?.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -470,13 +530,28 @@ const Settings = () => {
     }
   };
 
-  const reset = () => {
-    localStorage.removeItem("aaspaas:role");
-    localStorage.removeItem("aaspaas:vendor_id");
-    clearUserPhone();
-    notifyVendorIdChanged();
-    setClearDataOpen(false);
-    toast(s.settings_localDataCleared);
+  const reset = async () => {
+    const phone = localStorage.getItem("aaspaas:user_phone");
+    if (phone) {
+      await supabase.from("user_addresses").delete().eq("user_phone", phone);
+      await supabase.from("user_devices").delete().eq("user_phone", phone);
+    }
+    const keysToClear = [
+      "aaspaas:user_phone",
+      "aaspaas:vendor_id",
+      "aaspaas:vendor_active",
+      "aaspaas:vendor_live",
+      "aaspaas:theme",
+      "aaspaas:language",
+      "aaspaas:vendor_sound",
+      "aaspaas:vendor_vibrate",
+      "aaspaas:vendor_onboarded",
+      "aaspaas:device_id",
+      "aaspaas:saved_neighbours",
+      "aaspaas:verification_progress",
+    ];
+    keysToClear.forEach((key) => localStorage.removeItem(key));
+    location.reload();
   };
 
   const startEditAddress = (addr: (typeof addresses)[number]) => {
@@ -522,6 +597,12 @@ const Settings = () => {
     await navigator.clipboard.writeText(shareMessage);
   };
 
+  const offerDateInputMin = () => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+
   const computeOfferExpiry = () => {
     if (offerExpiry === "today") {
       return new Date(new Date().setHours(23, 59, 59, 999)).toISOString();
@@ -532,7 +613,16 @@ const Settings = () => {
     if (offerExpiry === "3days") {
       return new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
     }
-    return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    if (offerExpiry === "7days") {
+      return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    }
+    if (offerCustomExpiryDate) {
+      const [y, m, day] = offerCustomExpiryDate.split("-").map(Number);
+      const custom = new Date(y, m - 1, day);
+      custom.setHours(23, 59, 59, 999);
+      return custom.toISOString();
+    }
+    return new Date(new Date().setHours(23, 59, 59, 999)).toISOString();
   };
 
   const postOffer = async () => {
@@ -556,6 +646,7 @@ const Settings = () => {
     }
     setOfferText("");
     setOfferExpiry("today");
+    setOfferCustomExpiryDate("");
     await loadActiveOffer();
     toast("Offer posted!");
   };
@@ -620,6 +711,10 @@ const Settings = () => {
           <p className="text-xs text-muted-foreground mt-3">{s.settings_register_business_sub}</p>
         </section>
       )}
+
+      <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 mb-2 mt-6">
+        MY ACCOUNT
+      </p>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <div className="flex items-center gap-3 mb-3">
@@ -716,7 +811,11 @@ const Settings = () => {
         )}
       </section>
 
-      {vendor == null && (
+      {vendor && <VendorSettingsNotifications vendor={vendor} />}
+
+      {vendor ? (
+        <VendorSettingsReferEarn vendor={vendor} />
+      ) : (
         <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
           <button
             type="button"
@@ -727,6 +826,22 @@ const Settings = () => {
           </button>
         </section>
       )}
+
+      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+        <div className="flex items-center gap-3 mb-3">
+          <ShieldCheck className="h-5 w-5 text-secondary" />
+          <p className="font-display font-bold">{s.settings_trustSecurity}</p>
+        </div>
+        <div className="flex items-center gap-2 rounded-2xl bg-secondary/10 border border-secondary/30 px-4 py-3">
+          <CheckCircle2 className="h-5 w-5 text-secondary shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-secondary">{s.settings_dbConnected}</p>
+            <p className="text-xs text-muted-foreground">
+              {s.settings_tlsNote}
+            </p>
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
         <div className="flex items-center gap-3 mb-3">
@@ -789,81 +904,236 @@ const Settings = () => {
         </div>
       </section>
 
-      {vendorId && !vendor && (
-        <p className="text-sm text-muted-foreground mb-5">{s.settings_loading}</p>
-      )}
-      {vendor && <VendorSettings vendor={vendor} onVendorUpdated={setVendor} />}
       {vendorId && (
-        <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-          <div className="flex items-center gap-3 mb-3">
-            <Tag className="h-5 w-5 text-secondary" />
-            <p className="font-display font-bold">Post an Offer</p>
-          </div>
-
-          {activeOffer ? (
-            <div className="space-y-3">
-              <p className="text-sm text-foreground">{activeOffer.content}</p>
-              <p className="text-xs text-muted-foreground">
-                Expires:{" "}
-                {activeOffer.expires_at ? new Date(activeOffer.expires_at).toLocaleString() : "—"}
-              </p>
-              <button
-                type="button"
-                onClick={() => void removeOffer()}
-                disabled={offerLoading}
-                className="rounded-xl border border-destructive/40 text-destructive px-4 py-2 text-sm font-semibold disabled:opacity-50"
-              >
-                Remove
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <input
-                type="text"
-                maxLength={100}
-                value={offerText}
-                onChange={(e) => setOfferText(e.target.value)}
-                placeholder="e.g. 20% off groceries today"
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    ["today", "Today"],
-                    ["tomorrow", "Tomorrow"],
-                    ["3days", "3 days"],
-                    ["7days", "7 days"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setOfferExpiry(value)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium border transition-colors ${
-                      offerExpiry === value
-                        ? "bg-secondary text-secondary-foreground border-secondary"
-                        : "border-border text-muted-foreground"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => void postOffer()}
-                disabled={offerLoading || offerText.trim().length === 0}
-                className="rounded-xl bg-green-500 text-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
-              >
-                Post Offer
-              </button>
-            </div>
+        <>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 mb-2 mt-6">
+            MY SHOP
+          </p>
+          {vendorId && !vendor && (
+            <p className="text-sm text-muted-foreground mb-5">{s.settings_loading}</p>
           )}
-        </section>
+          {vendor && (
+            <VendorSettings
+              vendor={vendor}
+              onVendorUpdated={setVendor}
+              activeOfferSection={
+                <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <Tag className="h-5 w-5 text-secondary" />
+                    <p className="font-display font-bold">Post an Offer</p>
+                  </div>
+
+                  {activeOffer ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-foreground">{activeOffer.content}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Expires:{" "}
+                        {activeOffer.expires_at
+                          ? new Date(activeOffer.expires_at).toLocaleString()
+                          : "—"}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void removeOffer()}
+                        disabled={offerLoading}
+                        className="rounded-xl border border-destructive/40 text-destructive px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        maxLength={100}
+                        value={offerText}
+                        onChange={(e) => setOfferText(e.target.value)}
+                        placeholder="e.g. 20% off groceries today"
+                        className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                      <label
+                        htmlFor="settings-offer-expiry"
+                        className="block text-xs font-semibold text-muted-foreground mb-2"
+                      >
+                        Offer valid until:
+                      </label>
+                      <select
+                        id="settings-offer-expiry"
+                        value={offerExpiry}
+                        onChange={(e) =>
+                          setOfferExpiry(
+                            e.target.value as
+                              | "today"
+                              | "tomorrow"
+                              | "3days"
+                              | "7days"
+                              | "custom",
+                          )
+                        }
+                        className="w-full rounded-xl border border-border bg-background text-foreground p-3 text-sm"
+                      >
+                        <option value="today">Today</option>
+                        <option value="tomorrow">Tomorrow</option>
+                        <option value="3days">3 Days</option>
+                        <option value="7days">7 Days</option>
+                        <option value="custom">Custom Date</option>
+                      </select>
+                      {offerExpiry === "custom" && (
+                        <input
+                          type="date"
+                          min={offerDateInputMin()}
+                          value={offerCustomExpiryDate}
+                          onChange={(e) => setOfferCustomExpiryDate(e.target.value)}
+                          className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void postOffer()}
+                        disabled={
+                          offerLoading ||
+                          offerText.trim().length === 0 ||
+                          (offerExpiry === "custom" && !offerCustomExpiryDate)
+                        }
+                        className="rounded-xl bg-green-500 text-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                      >
+                        Post Offer
+                      </button>
+                    </div>
+                  )}
+                </section>
+              }
+            />
+          )}
+        </>
+      )}
+
+      {Capacitor.isNativePlatform() && (
+        <>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 mb-2 mt-6">
+            PERMISSIONS
+          </p>
+          <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+            <p className="font-display font-bold mb-3">Permissions</p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
+                <div className="min-w-0 flex items-start gap-3">
+                  <Bell className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Notifications</p>
+                    <p className="text-xs text-muted-foreground">Required for order alerts</p>
+                  </div>
+                </div>
+                {permissionStatuses.notifications === "granted" ? (
+                  <span className="shrink-0 text-green-500 text-lg leading-none" aria-label="Granted">
+                    ✅
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPermissionHint("Notifications")}
+                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+                  >
+                    Open Settings
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
+                <div className="min-w-0 flex items-start gap-3">
+                  <MapPin className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Location</p>
+                    <p className="text-xs text-muted-foreground">Required for help mode tracking</p>
+                  </div>
+                </div>
+                {permissionStatuses.location === "granted" ? (
+                  <span className="shrink-0 text-green-500 text-lg leading-none" aria-label="Granted">
+                    ✅
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPermissionHint("Location")}
+                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+                  >
+                    Open Settings
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
+                <div className="min-w-0 flex items-start gap-3">
+                  <Camera className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Camera</p>
+                    <p className="text-xs text-muted-foreground">Required for shop photos</p>
+                  </div>
+                </div>
+                {permissionStatuses.camera === "granted" ? (
+                  <span className="shrink-0 text-green-500 text-lg leading-none" aria-label="Granted">
+                    ✅
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPermissionHint("Camera")}
+                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+                  >
+                    Open Settings
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
+                <div className="min-w-0 flex items-start gap-3">
+                  <Zap className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Battery optimization</p>
+                    <p className="text-xs text-muted-foreground">Keep app awake for orders</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-muted-foreground">Manual</span>
+                  <button
+                    type="button"
+                    onClick={() => setPermissionHint("Battery optimization")}
+                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+                  >
+                    Open Settings
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <AlertDialog
+              open={permissionHint != null}
+              onOpenChange={(open) => {
+                if (!open) setPermissionHint(null);
+              }}
+            >
+              <AlertDialogContent className="rounded-2xl border border-border bg-card">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Open Settings</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Go to Android Settings → Apps → AasPaas Pro → Permissions and enable{" "}
+                    {permissionHint}.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogAction className="mt-0">OK</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </section>
+        </>
       )}
 
       {isAdmin && (
         <>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 mb-2 mt-6">
+            ADMIN
+          </p>
           <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">
             <div className="flex items-center gap-3 mb-1">
               <ShieldAlert className="h-5 w-5 text-secondary" />
@@ -1140,117 +1410,6 @@ const Settings = () => {
         </>
       )}
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="flex items-center gap-3 mb-3">
-          <ShieldCheck className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">{s.settings_trustSecurity}</p>
-        </div>
-        <div className="flex items-center gap-2 rounded-2xl bg-secondary/10 border border-secondary/30 px-4 py-3">
-          <CheckCircle2 className="h-5 w-5 text-secondary shrink-0" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-secondary">{s.settings_dbConnected}</p>
-            <p className="text-xs text-muted-foreground">
-              {s.settings_tlsNote}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {Capacitor.isNativePlatform() && (
-        <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-          <p className="font-display font-bold mb-3">Permissions</p>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
-              <div className="min-w-0 flex items-start gap-3">
-                <Bell className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Notifications</p>
-                  <p className="text-xs text-muted-foreground">Required for order alerts</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPermissionHint("Notifications")}
-                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
-              >
-                Open Settings
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
-              <div className="min-w-0 flex items-start gap-3">
-                <MapPin className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Location</p>
-                  <p className="text-xs text-muted-foreground">Required for help mode tracking</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPermissionHint("Location")}
-                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
-              >
-                Open Settings
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
-              <div className="min-w-0 flex items-start gap-3">
-                <Camera className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Camera</p>
-                  <p className="text-xs text-muted-foreground">Required for shop verification</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPermissionHint("Camera")}
-                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
-              >
-                Open Settings
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
-              <div className="min-w-0 flex items-start gap-3">
-                <Zap className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Battery optimization</p>
-                  <p className="text-xs text-muted-foreground">Keep app awake for orders</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPermissionHint("Battery optimization")}
-                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
-              >
-                Open Settings
-              </button>
-            </div>
-          </div>
-
-          <AlertDialog
-            open={permissionHint != null}
-            onOpenChange={(open) => {
-              if (!open) setPermissionHint(null);
-            }}
-          >
-            <AlertDialogContent className="rounded-2xl border border-border bg-card">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Open Settings</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Go to Android Settings → Apps → AasPaas Pro → Permissions and enable{" "}
-                  {permissionHint}.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogAction className="mt-0">OK</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </section>
-      )}
-
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5 text-center">
         <p className="font-display font-bold text-lg">{s.settings_appName}</p>
         <p className="text-sm text-muted-foreground mt-1">{s.settings_appTagline}</p>
@@ -1308,14 +1467,18 @@ const Settings = () => {
         <AlertDialogContent className="rounded-2xl border border-border bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle>{s.settings_clearDataTitle}</AlertDialogTitle>
-            <AlertDialogDescription>{s.settings_clearDataDescription}</AlertDialogDescription>
+            <AlertDialogDescription>
+              This will remove your phone number, saved addresses, devices, preferences, and vendor
+              session from this device and our servers. Your order history is preserved. This cannot
+              be undone.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
             <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
-                reset();
+                void reset();
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

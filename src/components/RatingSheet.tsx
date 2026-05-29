@@ -24,6 +24,10 @@ import { getUserPhone } from "@/lib/userIdentity";
 
 import { Loader2, Mic, Square } from "lucide-react";
 
+import { Capacitor } from "@capacitor/core";
+
+import { SpeechRecognition } from "@capacitor-community/speech-recognition";
+
 import { toast } from "sonner";
 
 
@@ -95,48 +99,35 @@ export function RatingSheet({
   const isDelivery = mode === "delivery";
 
   const busy = loading !== false;
-  const speechRecognitionSupported =
-    typeof window !== "undefined" &&
-    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
 
-  const startReviewVoice = () => {
-    if (!speechRecognitionSupported || isListeningReview) return;
+  const startReviewVoice = async () => {
+    if (isListeningReview) return;
     try {
-      const SpeechRecognitionCtor = (
-        window as typeof window & {
-          SpeechRecognition?: new () => any;
-          webkitSpeechRecognition?: new () => any;
+      const permission = await (
+        SpeechRecognition as unknown as {
+          requestPermission: () => Promise<{ speechRecognition: string }>;
         }
-      ).SpeechRecognition ??
-        (
-          window as typeof window & {
-            SpeechRecognition?: new () => any;
-            webkitSpeechRecognition?: new () => any;
-          }
-        ).webkitSpeechRecognition;
-      if (!SpeechRecognitionCtor) return;
-
-      const recognition = new SpeechRecognitionCtor();
-      recognition.lang = lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
-      recognition.continuous = false;
-
-      recognition.onresult = (event: any) => {
-        const text = event.results?.[0]?.[0]?.transcript?.trim();
+      ).requestPermission();
+      if (permission.speechRecognition !== "granted") {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
+      setIsListeningReview(true);
+      const speechLang = lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";
+      await SpeechRecognition.start({
+        language: speechLang,
+        maxResults: 1,
+        popup: true,
+        partialResults: false,
+      });
+      SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
+        const text = data.matches?.[0]?.trim();
         if (!text) return;
         setReviewText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
-      };
-      recognition.onerror = () => {
-        /* silently ignore */
-      };
-      recognition.onend = () => {
-        setIsListeningReview(false);
-      };
-
-      setIsListeningReview(true);
-      recognition.start();
+      });
     } catch {
+      toast.error(s.voice_failed);
+    } finally {
       setIsListeningReview(false);
     }
   };
@@ -346,10 +337,10 @@ export function RatingSheet({
                 placeholder={s.review_placeholder}
                 className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand resize-none"
               />
-              {speechRecognitionSupported && (
+              {Capacitor.isNativePlatform() && (
                 <button
                   type="button"
-                  onClick={startReviewVoice}
+                  onClick={() => void startReviewVoice()}
                   className={`absolute right-2 bottom-2 p-1.5 rounded-lg border transition-colors ${
                     isListeningReview
                       ? "border-danger bg-danger/10 text-danger animate-pulse"

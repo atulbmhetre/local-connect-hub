@@ -13,6 +13,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Loader2, Mic, Phone, Search } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
+import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
 import {
   classifySearchTermForRadar,
@@ -39,7 +41,7 @@ type SavedNeighbourTile = {
 };
 
 const Index = () => {
-  const { s } = useLanguage();
+  const { s, lang } = useLanguage();
   const getCategoryLabel = useCategoryLabel();
   const navigate = useNavigate();
   const location = useLocation();
@@ -60,7 +62,6 @@ const Index = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const recRef = useRef<any>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pushRegisteredUserRef = useRef<string | null>(null);
   const [userPhone, setUserPhone] = useState(() => getUserPhone());
@@ -282,31 +283,37 @@ const Index = () => {
     setAiSheetOpen(true);
   }, []);
 
-  const startVoice = () => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      toast.error(s.voiceNotSupported);
-      return;
-    }
-    const rec = new SpeechRecognition();
-    rec.lang = "en-IN";
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
-    rec.onstart = () => setListening(true);
-    rec.onerror = () => {
+  const startVoice = async () => {
+    try {
+      const permission = await (
+        SpeechRecognition as unknown as {
+          requestPermission: () => Promise<{ speechRecognition: string }>;
+        }
+      ).requestPermission();
+      if (permission.speechRecognition !== "granted") {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
+      setListening(true);
+      const speechLang = lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";
+      await SpeechRecognition.start({
+        language: speechLang,
+        maxResults: 1,
+        popup: true,
+        partialResults: false,
+      });
+      SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
+        const transcript = data.matches?.[0]?.trim();
+        if (!transcript) return;
+        setQuery(transcript);
+        setPickerOpen(false);
+        void runFreeTextSearch(transcript);
+      });
+    } catch {
+      toast.error(s.voice_failed);
+    } finally {
       setListening(false);
-      toast.error(s.voiceError);
-    };
-    rec.onend = () => setListening(false);
-    rec.onresult = (ev: any) => {
-      const transcript = ev.results[0][0].transcript;
-      setQuery(transcript);
-      setPickerOpen(false);
-      void runFreeTextSearch(transcript);
-    };
-    recRef.current = rec;
-    rec.start();
+    }
   };
 
   return (
@@ -336,17 +343,19 @@ const Index = () => {
             placeholder={s.searchPlaceholder}
             className="w-full bg-card border border-border rounded-2xl pl-12 pr-12 py-4 text-base shadow-card focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
           />
-          <button
-            type="button"
-            onClick={startVoice}
-            disabled={classifying}
-            aria-label="Voice search"
-            className={`absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl grid place-items-center transition-colors disabled:opacity-50 ${
-              listening ? "bg-primary text-primary-foreground animate-pulse" : "bg-muted text-foreground"
-            }`}
-          >
-            <Mic className="h-5 w-5" />
-          </button>
+          {Capacitor.isNativePlatform() && (
+            <button
+              type="button"
+              onClick={() => void startVoice()}
+              disabled={classifying}
+              aria-label="Voice search"
+              className={`absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl grid place-items-center transition-colors disabled:opacity-50 ${
+                listening ? "bg-primary text-primary-foreground animate-pulse" : "bg-muted text-foreground"
+              }`}
+            >
+              <Mic className="h-5 w-5" />
+            </button>
+          )}
         </form>
         {classifying && (
           <p className="mt-2 flex items-center justify-center gap-2 text-xs text-muted-foreground">

@@ -15,6 +15,7 @@ import NotFound from "./pages/NotFound.tsx";
 import RadarSearch from "./pages/RadarSearch.tsx";
 import LiveTracking from "./pages/LiveTracking.tsx";
 import MyOrders from "./pages/MyOrders.tsx";
+import LedgerView from "./pages/LedgerView.tsx";
 import Landing from "./pages/Landing.tsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.tsx";
 import LocalFeed from "./pages/LocalFeed.tsx";
@@ -66,6 +67,7 @@ const App = () => (
             <Route path="/tracking" element={<LiveTracking />} />
             <Route path="/tracking/:vendorId" element={<LiveTracking />} />
             <Route path="/vendor" element={<VendorMode />} />
+            <Route path="/ledger" element={<LedgerView />} />
             <Route path="/my-orders" element={<MyOrders />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />

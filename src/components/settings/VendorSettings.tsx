@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { Store, BarChart2, Bell, ChevronDown, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
+import { Store, Bell, ChevronDown, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
@@ -52,25 +53,125 @@ type VendorReview = {
 type Props = {
   vendor: Vendor;
   onVendorUpdated: (updated: Vendor) => void;
+  activeOfferSection?: ReactNode;
 };
 
-export function VendorSettings({ vendor, onVendorUpdated }: Props) {
+export function VendorSettingsNotifications({ vendor: _vendor }: { vendor: Vendor }) {
+  const { s } = useLanguage();
+  const [vendorVibrate, setVendorVibrate] = useState(() => isVendorVibrateEnabled());
+  const [vendorSound, setVendorSound] = useState(() => isVendorSoundEnabled());
+
+  if (!Capacitor.isNativePlatform()) return null;
+
+  return (
+    <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+      <div className="flex items-center gap-3 mb-3">
+        <Bell className="h-5 w-5 text-secondary" />
+        <p className="font-display font-bold">{s.settings_notifications}</p>
+      </div>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">{s.settings_vibrate}</p>
+          </div>
+          <Switch
+            checked={vendorVibrate}
+            onCheckedChange={(checked) => {
+              setVendorVibrate(checked);
+              setVendorVibrateEnabled(checked);
+            }}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">{s.settings_sound}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{s.settings_sound_body}</p>
+          </div>
+          <Switch
+            checked={vendorSound}
+            onCheckedChange={(checked) => {
+              setVendorSound(checked);
+              setVendorSoundEnabled(checked);
+            }}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function VendorSettingsReferEarn({ vendor }: { vendor: Vendor }) {
   const { s } = useLanguage();
   const { config } = useAppConfig();
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadReferral = async () => {
+      const { data } = await supabase
+        .from("vendors")
+        .select("referral_code")
+        .eq("id", vendor.id)
+        .maybeSingle();
+      setReferralCode(data?.referral_code ?? null);
+    };
+    void loadReferral();
+  }, [vendor.id]);
+
+  const referLink =
+    referralCode != null ? `${config.appBaseUrl}/r/${referralCode}` : null;
+
+  const shareReferLink = async () => {
+    if (!referLink) return;
+    const message = `Order from ${vendor.shop_name} on Aaspaas! ${referLink}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ text: message });
+        return;
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+      }
+    }
+    await navigator.clipboard.writeText(message);
+    toast.success(s.vendor_referLinkCopied);
+  };
+
+  return (
+    <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+      <p className="font-display font-bold mb-3">{s.vendor_referEarn}</p>
+      {referralCode != null ? (
+        <>
+          <div className="rounded-2xl bg-secondary/10 border border-secondary/30 px-4 py-3 mb-3">
+            <p className="text-lg font-bold font-mono tracking-wider text-secondary text-center">{referralCode}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void shareReferLink()}
+            disabled={!referLink}
+            className="w-full rounded-2xl bg-secondary text-secondary-foreground px-4 py-3 text-sm font-semibold transition-colors active:scale-[0.99] disabled:opacity-50 mb-3"
+          >
+            {s.vendor_referShare}
+          </button>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground mb-3">{s.settings_loading}</p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {s.vendor_referVendorCredit(config.referralVendorCreditTotal)}
+      </p>
+      <p className="text-xs text-muted-foreground mt-1">
+        {s.vendor_referUserCredit(config.referralUserCredit)}
+      </p>
+    </section>
+  );
+}
+
+export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: Props) {
+  const { s } = useLanguage();
   const getLabel = useCategoryLabel();
   const getMode = useServiceModeLabel();
 
-  const [vendorStats, setVendorStats] = useState({
-    total: 0,
-    fulfilled: 0,
-    declined: 0,
-    thisMonth: 0,
-  });
-  const [vendorVibrate, setVendorVibrate] = useState(() => isVendorVibrateEnabled());
-  const [vendorSound, setVendorSound] = useState(() => isVendorSoundEnabled());
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
   const [savingReasons, setSavingReasons] = useState(false);
-  const [referralCode, setReferralCode] = useState<string | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
@@ -146,42 +247,6 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
     vendor.cancel_reason_4,
   ]);
 
-  useEffect(() => {
-    const load = async () => {
-      const { data: orders } = await supabase
-        .from("requests")
-        .select("status, created_at")
-        .eq("vendor_id", vendor.id);
-      if (orders) {
-        const now = new Date();
-        const thisMonth = orders.filter(
-          (o) =>
-            new Date(o.created_at).getMonth() === now.getMonth() &&
-            new Date(o.created_at).getFullYear() === now.getFullYear(),
-        );
-        setVendorStats({
-          total: orders.length,
-          fulfilled: orders.filter((o) => o.status === "fulfilled" || o.status === "done").length,
-          declined: orders.filter((o) => o.status === "declined").length,
-          thisMonth: thisMonth.length,
-        });
-      }
-    };
-    void load();
-  }, [vendor.id]);
-
-  useEffect(() => {
-    const loadReferral = async () => {
-      const { data } = await supabase
-        .from("vendors")
-        .select("referral_code")
-        .eq("id", vendor.id)
-        .maybeSingle();
-      setReferralCode(data?.referral_code ?? null);
-    };
-    void loadReferral();
-  }, [vendor.id]);
-
   const saveCancelReasons = async () => {
     setSavingReasons(true);
     const updates = {
@@ -199,9 +264,6 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
     onVendorUpdated({ ...vendor, ...updates });
     toast.success("Saved");
   };
-
-  const referLink =
-    referralCode != null ? `${config.appBaseUrl}/r/${referralCode}` : null;
 
   const saveNewItem = async () => {
     if (!newItem.name.trim() || !newItem.price) return;
@@ -339,21 +401,6 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
     }
   };
 
-  const shareReferLink = async () => {
-    if (!referLink) return;
-    const message = `Order from ${vendor.shop_name} on Aaspaas! ${referLink}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({ text: message });
-        return;
-      } catch (e) {
-        if ((e as Error).name === "AbortError") return;
-      }
-    }
-    await navigator.clipboard.writeText(message);
-    toast.success(s.vendor_referLinkCopied);
-  };
-
   return (
     <>
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
@@ -368,131 +415,19 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
             {s.settings_dotSeparator}
             {getMode(vendor.service_mode ?? "help")}
           </p>
+        </div>
+      </section>
 
-          <div className="mt-4 pt-4 border-t border-border space-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                setShowReviews((p) => !p);
-                if (!showReviews) void loadReviews();
-              }}
-              className="w-full flex items-center justify-between text-sm font-semibold text-foreground"
-            >
-              <span>⭐ {s.review_myReviews}</span>
-              <span className="text-brand text-xs">{showReviews ? s.review_hide : s.review_show}</span>
-            </button>
+      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+        <VendorNoteEditor
+          vendorId={vendor.id}
+          initialNote={vendor.vendor_note ?? null}
+          onSaved={(newNote) => onVendorUpdated({ ...vendor, vendor_note: newNote || null })}
+        />
+      </section>
 
-            {showReviews && (
-              <div className="space-y-2">
-                {reviewsLoading && (
-                  <p className="text-xs text-muted-foreground">{s.settings_loading}</p>
-                )}
-                {!reviewsLoading && reviews.length === 0 && (
-                  <p className="text-xs text-muted-foreground">{s.review_noReviews}</p>
-                )}
-                {reviews.map((r) => (
-                  <div
-                    key={r.id}
-                    className="rounded-xl border border-surface-border bg-surface px-3 py-2.5 space-y-1"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">
-                        {"⭐".repeat(r.rating)}
-                        {"☆".repeat(5 - r.rating)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatTimeAgo(r.created_at)}
-                      </span>
-                    </div>
-                    {r.review_text && (
-                      <p className="text-xs text-foreground leading-relaxed">
-                        &quot;{r.review_text}&quot;
-                      </p>
-                    )}
-                    <p className="text-[10px] text-muted-foreground">
-                      {r.user_phone
-                        ? `+91 ${r.user_phone.slice(-4).padStart(r.user_phone.length, "•")}`
-                        : s.review_anonymous}
-                      {r.service_mode && ` · ${r.service_mode}`}
-                    </p>
-                    {r.rating <= 2 && r.user_phone && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCallReview({
-                            callerPhone: r.user_phone!,
-                            serviceMode: r.service_mode ?? vendor.service_mode ?? "help",
-                          })
-                        }
-                        className="text-[10px] text-muted-foreground mt-1 hover:text-foreground"
-                      >
-                        📞 Call customer
-                      </button>
-                    )}
-                    {r.vendor_response ? (
-                      <div className="rounded-lg bg-brand/5 border border-brand-border px-2 py-1.5 mt-1">
-                        <p className="text-[10px] text-brand font-semibold">{s.review_yourResponse}</p>
-                        <p className="text-xs text-foreground">{r.vendor_response}</p>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setRespondingReviewId(r.id)}
-                        className="text-[10px] text-brand font-semibold mt-1"
-                      >
-                        {s.review_respond}
-                      </button>
-                    )}
-                    {respondingReviewId === r.id && (
-                      <div className="mt-1 space-y-1">
-                        <textarea
-                          value={responseText}
-                          onChange={(e) => setResponseText(e.target.value.slice(0, 100))}
-                          rows={2}
-                          placeholder={s.review_responsePlaceholder}
-                          className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand resize-none"
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!responseText.trim()) return;
-                              await supabase
-                                .from("vendor_reviews")
-                                .update({
-                                  vendor_response: responseText.trim(),
-                                  vendor_responded_at: new Date().toISOString(),
-                                })
-                                .eq("id", r.id);
-                              setRespondingReviewId(null);
-                              setResponseText("");
-                              void loadReviews();
-                              toast.success(s.review_responseSent);
-                            }}
-                            className="flex-1 rounded-lg bg-brand text-page-bg text-xs font-semibold py-1.5"
-                          >
-                            {s.review_send}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRespondingReviewId(null);
-                              setResponseText("");
-                            }}
-                            className="flex-1 rounded-lg border border-surface-border text-xs py-1.5"
-                          >
-                            {s.settings_cancel}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-border space-y-3">
+      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+        <div className="space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-foreground">📋 {s.menu_title}</p>
               <div className="flex items-center gap-2">
@@ -635,136 +570,174 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
                 </div>
               </div>
             )}
-          </div>
+        </div>
+      </section>
 
-          <Collapsible className="mt-4 pt-4 border-t border-border">
-            <CollapsibleTrigger className="w-full flex items-center justify-between gap-3 group">
-              <div className="text-left min-w-0">
-                <p className="text-sm font-semibold">{s.cancelReasons}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{s.cancelReasonsSubtitle}</p>
+      {activeOfferSection}
+
+      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+        <Collapsible>
+          <CollapsibleTrigger className="w-full flex items-center justify-between gap-3 group">
+            <div className="text-left min-w-0">
+              <p className="text-sm font-semibold">{s.cancelReasons}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{s.cancelReasonsSubtitle}</p>
+            </div>
+            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-3 pt-3">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="space-y-1">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {`${s.rejectionReasonField} ${i + 1}`}
+                </label>
+                <input
+                  type="text"
+                  value={cancelReasons[i]}
+                  onChange={(e) => {
+                    const next = [...cancelReasons];
+                    next[i] = e.target.value.slice(0, 60);
+                    setCancelReasons(next);
+                  }}
+                  maxLength={60}
+                  className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
               </div>
-              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-3 pt-3">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="space-y-1">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {`${s.cancelReason} ${i + 1}`}
-                  </label>
-                  <input
-                    type="text"
-                    value={cancelReasons[i]}
-                    onChange={(e) => {
-                      const next = [...cancelReasons];
-                      next[i] = e.target.value.slice(0, 60);
-                      setCancelReasons(next);
-                    }}
-                    maxLength={60}
-                    className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
+            ))}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => void saveCancelReasons()}
+                disabled={savingReasons}
+                className="text-xs font-semibold text-brand hover:underline disabled:opacity-50"
+              >
+                {savingReasons ? s.incoming_saving : s.saveReasons}
+              </button>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </section>
+
+      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+        <button
+          type="button"
+          onClick={() => {
+            setShowReviews((p) => !p);
+            if (!showReviews) void loadReviews();
+          }}
+          className="w-full flex items-center justify-between text-sm font-semibold text-foreground"
+        >
+          <span>⭐ {s.review_myReviews}</span>
+          <span className="text-brand text-xs">{showReviews ? s.review_hide : s.review_show}</span>
+        </button>
+
+        {showReviews && (
+          <div className="space-y-2 mt-3">
+            {reviewsLoading && (
+              <p className="text-xs text-muted-foreground">{s.settings_loading}</p>
+            )}
+            {!reviewsLoading && reviews.length === 0 && (
+              <p className="text-xs text-muted-foreground">{s.review_noReviews}</p>
+            )}
+            {reviews.map((r) => (
+              <div
+                key={r.id}
+                className="rounded-xl border border-surface-border bg-surface px-3 py-2.5 space-y-1"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">
+                    {"⭐".repeat(r.rating)}
+                    {"☆".repeat(5 - r.rating)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatTimeAgo(r.created_at)}
+                  </span>
                 </div>
-              ))}
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => void saveCancelReasons()}
-                  disabled={savingReasons}
-                  className="text-xs font-semibold text-brand hover:underline disabled:opacity-50"
-                >
-                  {savingReasons ? s.incoming_saving : s.saveReasons}
-                </button>
+                {r.review_text && (
+                  <p className="text-xs text-foreground leading-relaxed">
+                    &quot;{r.review_text}&quot;
+                  </p>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  {r.user_phone
+                    ? `+91 ${r.user_phone.slice(-4).padStart(r.user_phone.length, "•")}`
+                    : s.review_anonymous}
+                  {r.service_mode && ` · ${r.service_mode}`}
+                </p>
+                {r.rating <= 2 && r.user_phone && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCallReview({
+                        callerPhone: r.user_phone!,
+                        serviceMode: r.service_mode ?? vendor.service_mode ?? "help",
+                      })
+                    }
+                    className="text-[10px] text-muted-foreground mt-1 hover:text-foreground"
+                  >
+                    📞 Call customer
+                  </button>
+                )}
+                {r.vendor_response ? (
+                  <div className="rounded-lg bg-brand/5 border border-brand-border px-2 py-1.5 mt-1">
+                    <p className="text-[10px] text-brand font-semibold">{s.review_yourResponse}</p>
+                    <p className="text-xs text-foreground">{r.vendor_response}</p>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setRespondingReviewId(r.id)}
+                    className="text-[10px] text-brand font-semibold mt-1"
+                  >
+                    {s.review_respond}
+                  </button>
+                )}
+                {respondingReviewId === r.id && (
+                  <div className="mt-1 space-y-1">
+                    <textarea
+                      value={responseText}
+                      onChange={(e) => setResponseText(e.target.value.slice(0, 100))}
+                      rows={2}
+                      placeholder={s.review_responsePlaceholder}
+                      className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand resize-none"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!responseText.trim()) return;
+                          await supabase
+                            .from("vendor_reviews")
+                            .update({
+                              vendor_response: responseText.trim(),
+                              vendor_responded_at: new Date().toISOString(),
+                            })
+                            .eq("id", r.id);
+                          setRespondingReviewId(null);
+                          setResponseText("");
+                          void loadReviews();
+                          toast.success(s.review_responseSent);
+                        }}
+                        className="flex-1 rounded-lg bg-brand text-page-bg text-xs font-semibold py-1.5"
+                      >
+                        {s.review_send}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRespondingReviewId(null);
+                          setResponseText("");
+                        }}
+                        className="flex-1 rounded-lg border border-surface-border text-xs py-1.5"
+                      >
+                        {s.settings_cancel}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
-      </section>
-
-      {Capacitor.isNativePlatform() && (
-        <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-          <div className="flex items-center gap-3 mb-3">
-            <Bell className="h-5 w-5 text-secondary" />
-            <p className="font-display font-bold">{s.settings_notifications}</p>
+            ))}
           </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold">{s.settings_vibrate}</p>
-              </div>
-              <Switch
-                checked={vendorVibrate}
-                onCheckedChange={(checked) => {
-                  setVendorVibrate(checked);
-                  setVendorVibrateEnabled(checked);
-                }}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold">{s.settings_sound}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{s.settings_sound_body}</p>
-              </div>
-              <Switch
-                checked={vendorSound}
-                onCheckedChange={(checked) => {
-                  setVendorSound(checked);
-                  setVendorSoundEnabled(checked);
-                }}
-              />
-            </div>
-          </div>
-        </section>
-      )}
-
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="flex items-center gap-3 mb-3">
-          <BarChart2 className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">{s.settings_myAnalytics}</p>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-2xl bg-secondary/10 p-3 text-center">
-            <p className="text-2xl font-bold text-secondary">{vendorStats.total}</p>
-            <p className="text-xs text-muted-foreground mt-1">{s.settings_totalOrders}</p>
-          </div>
-          <div className="rounded-2xl bg-secondary/10 p-3 text-center">
-            <p className="text-2xl font-bold text-secondary">{vendorStats.thisMonth}</p>
-            <p className="text-xs text-muted-foreground mt-1">{s.settings_thisMonth}</p>
-          </div>
-          <div className="rounded-2xl bg-green-500/10 p-3 text-center">
-            <p className="text-2xl font-bold text-green-500">{vendorStats.fulfilled}</p>
-            <p className="text-xs text-muted-foreground mt-1">{s.settings_fulfilled}</p>
-          </div>
-          <div className="rounded-2xl bg-destructive/10 p-3 text-center">
-            <p className="text-2xl font-bold text-destructive">{vendorStats.declined}</p>
-            <p className="text-xs text-muted-foreground mt-1">{s.settings_declined}</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <p className="font-display font-bold mb-3">{s.vendor_referEarn}</p>
-        {referralCode != null ? (
-          <>
-            <div className="rounded-2xl bg-secondary/10 border border-secondary/30 px-4 py-3 mb-3">
-              <p className="text-lg font-bold font-mono tracking-wider text-secondary text-center">{referralCode}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void shareReferLink()}
-              disabled={!referLink}
-              className="w-full rounded-2xl bg-secondary text-secondary-foreground px-4 py-3 text-sm font-semibold transition-colors active:scale-[0.99] disabled:opacity-50 mb-3"
-            >
-              {s.vendor_referShare}
-            </button>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground mb-3">{s.settings_loading}</p>
         )}
-        <p className="text-xs text-muted-foreground">
-          {s.vendor_referVendorCredit(config.referralVendorCreditTotal)}
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          {s.vendor_referUserCredit(config.referralUserCredit)}
-        </p>
       </section>
 
       {callReview && (

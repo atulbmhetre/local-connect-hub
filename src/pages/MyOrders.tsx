@@ -26,6 +26,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import {
+  formatKhataDate,
+  khataPaymentModeLabel,
+} from "@/lib/khataDisplay";
 
 const MAX_LEN = 200;
 
@@ -203,6 +208,21 @@ const MyOrders = () => {
   const [myKhata, setMyKhata] = useState<
     { vendor_id: string; shop_name: string; total_outstanding: number }[]
   >([]);
+  const [khataDetail, setKhataDetail] = useState<{
+    vendor_id: string;
+    shop_name: string;
+    total_outstanding: number;
+  } | null>(null);
+  const [khataTransactions, setKhataTransactions] = useState<
+    {
+      id: string;
+      amount: number;
+      note: string | null;
+      payment_mode: string;
+      created_at: string;
+    }[]
+  >([]);
+  const [khataTxLoading, setKhataTxLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [ratingSheetOpen, setRatingSheetOpen] = useState(false);
@@ -323,12 +343,41 @@ const MyOrders = () => {
       .gt("total_outstanding", 0);
 
     setMyKhata(
-      (data ?? []).map((k: any) => ({
+      (data ?? []).map((k: { vendor_id: string; total_outstanding: number; vendors: { shop_name: string } | null }) => ({
         vendor_id: k.vendor_id,
         shop_name: k.vendors?.shop_name ?? "Unknown",
         total_outstanding: k.total_outstanding,
       })),
     );
+  };
+
+  const openKhataDetail = async (entry: {
+    vendor_id: string;
+    shop_name: string;
+    total_outstanding: number;
+  }) => {
+    const userPhone = getUserPhone();
+    if (!userPhone) return;
+    setKhataDetail(entry);
+    setKhataTxLoading(true);
+    const { data, error } = await supabase
+      .from("khata_transactions")
+      .select("id, amount, note, payment_mode, created_at")
+      .eq("vendor_id", entry.vendor_id)
+      .eq("user_phone", userPhone)
+      .order("created_at", { ascending: false });
+    setKhataTxLoading(false);
+    if (error) {
+      toast.error(error.message);
+      setKhataTransactions([]);
+      return;
+    }
+    setKhataTransactions(data ?? []);
+  };
+
+  const closeKhataDetail = () => {
+    setKhataDetail(null);
+    setKhataTransactions([]);
   };
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
@@ -822,14 +871,21 @@ const MyOrders = () => {
 
       {myKhata.length > 0 && (
         <div className="rounded-2xl border border-warning/30 bg-warning/5 p-4 mb-4 space-y-2">
-          <p className="text-xs font-semibold text-warning uppercase tracking-wider">
+          <p className="text-xs font-semibold text-warning tracking-wider">
             📒 {s.khata_myTabs}
           </p>
           {myKhata.map((k) => (
-            <div key={k.vendor_id} className="flex justify-between text-sm">
+            <button
+              key={k.vendor_id}
+              type="button"
+              onClick={() => void openKhataDetail(k)}
+              className="w-full flex justify-between text-sm text-left active:opacity-80"
+            >
               <span className="text-foreground">{k.shop_name}</span>
-              <span className="font-bold text-warning">₹{k.total_outstanding.toFixed(2)}</span>
-            </div>
+              <span className="font-bold text-warning tabular-nums">
+                ₹{k.total_outstanding.toFixed(2)}
+              </span>
+            </button>
           ))}
         </div>
       )}
@@ -874,7 +930,8 @@ const MyOrders = () => {
                   {r.vendors?.shop_name ?? s.myOrders_shopFallback}
                 </p>
                 <div className="flex items-center gap-1 shrink-0">
-                  {(r.status === "sent" || r.status === "seen") && (
+                  {(r.status === "sent" || r.status === "seen") &&
+                    r.appointment_status !== "declined" && (
                     <button
                       type="button"
                       onClick={() => openEditSheet(r)}
@@ -1102,7 +1159,11 @@ const MyOrders = () => {
                           })}
                         </span>
                         <span className="ml-2 text-muted-foreground">
-                          {r.appointment_status === "confirmed" && s.myOrders_apptConfirmed}
+                          {r.appointment_status === "confirmed" &&
+                            r.status !== "cancelled" &&
+                            r.status !== "fulfilled" &&
+                            r.status !== "done" &&
+                            s.myOrders_apptConfirmed}
                           {r.appointment_status === "declined" && s.myOrders_apptDeclined}
                           {r.appointment_status === "cancelled" && s.myOrders_apptCancelled}
                           {r.appointment_status === "pending" && s.myOrders_apptAwaiting}
@@ -1115,6 +1176,7 @@ const MyOrders = () => {
               {r.appointment_time &&
                 r.status !== "fulfilled" &&
                 r.status !== "done" &&
+                r.status !== "cancelled" &&
                 (() => {
                   if (
                     r.appointment_status === "declined" ||
@@ -1186,7 +1248,7 @@ const MyOrders = () => {
                   );
                 })()}
 
-              {showCancelConfirm[r.id] && (
+              {showCancelConfirm[r.id] && r.status !== "cancelled" && (
                 <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
                   <p className="text-xs text-destructive font-semibold text-center">
                     {s.myOrders_confirmCancelQ}
@@ -1413,6 +1475,65 @@ const MyOrders = () => {
           setRatingVendor(null);
         }}
       />
+
+      <Sheet open={khataDetail != null} onOpenChange={(open) => !open && closeKhataDetail()}>
+        <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] overflow-y-auto">
+          <SheetHeader className="text-left">
+            <SheetTitle>{khataDetail?.shop_name ?? ""}</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-3">
+            {khataTxLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : khataTransactions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No transactions</p>
+            ) : (
+              <ul className="space-y-2">
+                {khataTransactions.map((tx) => (
+                  <li
+                    key={tx.id}
+                    className="rounded-xl border border-surface-border bg-surface/50 px-3 py-2.5 space-y-1"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {formatKhataDate(tx.created_at)}
+                      </p>
+                      <p className="text-sm font-bold text-foreground tabular-nums">
+                        ₹{Number(tx.amount).toFixed(2)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-foreground mb-1">Service</p>
+                      <p
+                        className={cn(
+                          "text-sm leading-snug",
+                          tx.note?.trim()
+                            ? "text-foreground font-medium"
+                            : "text-muted-foreground italic",
+                        )}
+                      >
+                        {tx.note?.trim() || "No description"}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="text-[10px] font-semibold">
+                      {khataPaymentModeLabel(tx.payment_mode, s)}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {khataDetail && (
+              <div className="border-t border-surface-border pt-4 flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Total outstanding</span>
+                <span className="text-lg font-bold text-warning tabular-nums">
+                  ₹{khataDetail.total_outstanding.toFixed(2)}
+                </span>
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={aiSheetOpen} onOpenChange={closeAiSheet}>
         <SheetContent

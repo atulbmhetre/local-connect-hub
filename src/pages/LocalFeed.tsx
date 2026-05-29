@@ -22,13 +22,13 @@ const FEED_IMAGES_BUCKET = "feed-images";
 const MAX_CONTENT = 200;
 const FLAG_HIDE_THRESHOLD = 5;
 
-type PostType = "offer" | "announcement" | "recommendation";
+type PostType = "announcement" | "recommendation";
 
 type FeedPost = {
   id: string;
   user_phone: string;
   vendor_id: string | null;
-  type: PostType;
+  type: PostType | "offer";
   content: string;
   expires_at: string | null;
   image_url: string | null;
@@ -47,8 +47,6 @@ type FeedReply = {
   content: string;
   created_at: string;
 };
-
-type ExpiryOption = "today" | "tomorrow" | "3days" | "7days" | "custom";
 
 type FeedCategory = {
   id: string;
@@ -87,48 +85,6 @@ function maskPhone(phone: string): string {
   return `••••${last4}`;
 }
 
-function endOfDay(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
-
-function computeExpiresAt(option: ExpiryOption, customDate?: string): string {
-  const now = new Date();
-  switch (option) {
-    case "today":
-      return endOfDay(now).toISOString();
-    case "tomorrow": {
-      const t = new Date(now);
-      t.setDate(t.getDate() + 1);
-      return endOfDay(t).toISOString();
-    }
-    case "3days": {
-      const t = new Date(now);
-      t.setDate(t.getDate() + 3);
-      return endOfDay(t).toISOString();
-    }
-    case "7days": {
-      const t = new Date(now);
-      t.setDate(t.getDate() + 7);
-      return endOfDay(t).toISOString();
-    }
-    case "custom": {
-      if (customDate) {
-        const [y, m, d] = customDate.split("-").map(Number);
-        return endOfDay(new Date(y, m - 1, d)).toISOString();
-      }
-      return endOfDay(now).toISOString();
-    }
-  }
-}
-
-function todayDateInputMin(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 function expiryBadgeLabel(expiresAt: string | null): string | null {
   if (!expiresAt) return null;
   const exp = new Date(expiresAt);
@@ -151,8 +107,6 @@ export default function LocalFeed() {
   const [showCompose, setShowCompose] = useState(false);
   const [composeType, setComposeType] = useState<PostType>("announcement");
   const [composeContent, setComposeContent] = useState("");
-  const [expiryOption, setExpiryOption] = useState<ExpiryOption>("today");
-  const [customExpiryDate, setCustomExpiryDate] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -161,9 +115,6 @@ export default function LocalFeed() {
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set());
   const [flaggingId, setFlaggingId] = useState<string | null>(null);
-
-  const vendorId = localStorage.getItem("aaspaas:vendor_id");
-  const hasVendorId = !!vendorId;
 
   const [categories, setCategories] = useState<FeedCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -382,12 +333,10 @@ export default function LocalFeed() {
 
   const resetCompose = () => {
     setComposeContent("");
-    setExpiryOption("today");
-    setCustomExpiryDate("");
     setImageFile(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
-    setComposeType(hasVendorId ? "offer" : "announcement");
+    setComposeType("announcement");
   };
 
   const openCompose = () => {
@@ -436,16 +385,6 @@ export default function LocalFeed() {
       return;
     }
 
-    if (composeType === "offer" && !vendorId) {
-      toast.error("Vendor account required for offers");
-      return;
-    }
-
-    if (composeType === "offer" && expiryOption === "custom" && !customExpiryDate) {
-      toast.error("Select a date");
-      return;
-    }
-
     setSubmitting(true);
 
     let imageUrl: string | null = null;
@@ -458,9 +397,7 @@ export default function LocalFeed() {
     }
 
     const expiresAt =
-      composeType === "offer"
-        ? computeExpiresAt(expiryOption, customExpiryDate)
-        : composeType === "announcement"
+      composeType === "announcement"
         ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         : null;
 
@@ -477,7 +414,7 @@ export default function LocalFeed() {
 
     const { error } = await supabase.from("feed_posts").insert({
       user_phone: phone,
-      vendor_id: composeType === "offer" ? vendorId : null,
+      vendor_id: null,
       type: composeType,
       content,
       expires_at: expiresAt,
@@ -666,14 +603,6 @@ export default function LocalFeed() {
             </div>
 
             <div className="flex flex-wrap gap-2 mb-4">
-              {hasVendorId && (
-                <TypeChip
-                  active={composeType === "offer"}
-                  onClick={() => setComposeType("offer")}
-                  label="Offer"
-                  icon={Tag}
-                />
-              )}
               <TypeChip
                 active={composeType === "announcement"}
                 onClick={() => setComposeType("announcement")}
@@ -698,38 +627,6 @@ export default function LocalFeed() {
             <p className="text-[11px] text-muted-foreground text-right mb-4">
               {composeContent.length}/{MAX_CONTENT}
             </p>
-
-            {composeType === "offer" && (
-              <div className="mb-4">
-                <label
-                  htmlFor="offer-expiry"
-                  className="block text-xs font-semibold text-muted-foreground mb-2"
-                >
-                  Offer valid until:
-                </label>
-                <select
-                  id="offer-expiry"
-                  value={expiryOption}
-                  onChange={(e) => setExpiryOption(e.target.value as ExpiryOption)}
-                  className="w-full rounded-xl border border-border bg-background text-foreground p-3 text-sm"
-                >
-                  <option value="today">Today</option>
-                  <option value="tomorrow">Tomorrow</option>
-                  <option value="3days">3 Days</option>
-                  <option value="7days">7 Days</option>
-                  <option value="custom">Custom Date</option>
-                </select>
-                {expiryOption === "custom" && (
-                  <input
-                    type="date"
-                    min={todayDateInputMin()}
-                    value={customExpiryDate}
-                    onChange={(e) => setCustomExpiryDate(e.target.value)}
-                    className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  />
-                )}
-              </div>
-            )}
 
             {composeType === "announcement" && (
               <div className="mb-4">

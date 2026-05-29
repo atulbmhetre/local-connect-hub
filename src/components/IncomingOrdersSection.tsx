@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { supabase, invokecalculateTrustScore, fetchUserTrust } from "@/lib/supabase";
+import { supabase, invokecalculateTrustScore, fetchUserTrust, invokeNotifyUser } from "@/lib/supabase";
 import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
 import { Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -84,8 +84,14 @@ function deliverySlotLabel(
   return labels[slot.trim().toLowerCase()] ?? slot;
 }
 
+function maskPhoneLast4(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return `••••${digits.slice(-4)}`;
+}
+
 export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: Props) {
   const isHelpMode = serviceMode === "help";
+  const canAddToLedger = serviceMode === "appointment" || serviceMode === "delivery";
   const { s } = useLanguage();
   const slotLabels = useMemo(
     () => ({
@@ -104,6 +110,8 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [calledUser, setCalledUser] = useState<Record<string, boolean>>({});
   const [presetReasons, setPresetReasons] = useState<string[]>([]);
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
+  const [declineOrderId, setDeclineOrderId] = useState<string | null>(null);
+  const [declining, setDeclining] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [otherReasonText, setOtherReasonText] = useState("");
   const [cancelling, setCancelling] = useState(false);
@@ -119,6 +127,13 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [flaggedOrderIds, setFlaggedOrderIds] = useState<Record<string, boolean>>({});
   const [trustMap, setTrustMap] = useState<Record<string, TrustInfo>>({});
   const [vendor, setVendor] = useState<{ id: string; shop_name: string } | null>(null);
+  const [requestIdsWithLedger, setRequestIdsWithLedger] = useState<Set<string>>(() => new Set());
+  const [ledgerOrderId, setLedgerOrderId] = useState<string | null>(null);
+  const [ledgerUserPhone, setLedgerUserPhone] = useState<string | null>(null);
+  const [ledgerAmount, setLedgerAmount] = useState("");
+  const [ledgerNote, setLedgerNote] = useState("");
+  const [ledgerPaymentMode, setLedgerPaymentMode] = useState<"cash" | "upi" | "khata">("cash");
+  const [ledgerSubmitting, setLedgerSubmitting] = useState(false);
   const mounted = useRef(true);
 
   const handleTrustLoaded = useCallback((orderId: string, trust: TrustInfo) => {
@@ -128,10 +143,57 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const selectFields =
     "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason";
 
+  const dismissFulfilledWithZeroOutstanding = useCallback(
+    async (
+      orderList: OrderRequestRow[],
+      withLedger: Set<string>,
+    ): Promise<OrderRequestRow[]> => {
+      const fulfilledWithLedger = orderList.filter(
+        (r) =>
+          r.status === "fulfilled" &&
+          withLedger.has(r.id) &&
+          r.user_phone != null &&
+          String(r.user_phone).trim() !== "",
+      );
+      if (fulfilledWithLedger.length === 0) return orderList;
+
+      const phones = [...new Set(fulfilledWithLedger.map((r) => r.user_phone as string))];
+      const { data: ledgerData } = await supabase
+        .from("khata_ledger")
+        .select("user_phone, total_outstanding")
+        .eq("vendor_id", vendorId)
+        .in("user_phone", phones);
+
+      const zeroOutstandingPhones = new Set(
+        (ledgerData ?? [])
+          .filter((row) => Number(row.total_outstanding) <= 0)
+          .map((row) => row.user_phone),
+      );
+
+      const toDismissIds = fulfilledWithLedger
+        .filter((r) => zeroOutstandingPhones.has(r.user_phone!))
+        .map((r) => r.id);
+
+      if (toDismissIds.length === 0) return orderList;
+
+      const { error } = await supabase
+        .from("requests")
+        .update({ status: "done" })
+        .eq("vendor_id", vendorId)
+        .in("id", toDismissIds);
+
+      if (error) return orderList;
+
+      const dismissSet = new Set(toDismissIds);
+      return orderList.filter((r) => !dismissSet.has(r.id));
+    },
+    [vendorId],
+  );
+
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
       if (!opts?.silent) setLoading(true);
-      const windowOr = buildRequestsActiveWindowOrFilter("vendor");
+      const windowOr = `${buildRequestsActiveWindowOrFilter("vendor")},status.eq.fulfilled`;
       const { data, error } = await supabase
         .from("requests")
         .select(selectFields)
@@ -147,11 +209,32 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         return;
       }
       const list = (data ?? []) as OrderRequestRow[];
-      setRows(list);
-      onUnreadCount?.(list.filter((r) => r.status === "sent").length);
+
+      const terminalIds = list
+        .filter((r) => r.status === "fulfilled" || r.status === "done")
+        .map((r) => r.id);
+      let withLedger = new Set<string>();
+      if (terminalIds.length > 0) {
+        const { data: ledgerRows } = await supabase
+          .from("khata_transactions")
+          .select("request_id")
+          .eq("vendor_id", vendorId)
+          .in("request_id", terminalIds);
+        withLedger = new Set(
+          (ledgerRows ?? [])
+            .map((row) => row.request_id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0),
+        );
+      }
+      setRequestIdsWithLedger(withLedger);
+
+      let activeList = await dismissFulfilledWithZeroOutstanding(list, withLedger);
+      setRows(activeList);
+      onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
+
       if (!opts?.silent) setLoading(false);
 
-      const hadSent = !isHelpMode && list.some((r) => r.status === "sent");
+      const hadSent = !isHelpMode && activeList.some((r) => r.status === "sent");
       if (hadSent) {
         const { error: upErr } = await supabase
           .from("requests")
@@ -167,12 +250,29 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
           .order("created_at", { ascending: false })
           .limit(20);
         if (!mounted.current) return;
-        const refreshedList = ((refreshed ?? []) as OrderRequestRow[]) ?? list;
-        setRows(refreshedList);
-        onUnreadCount?.(refreshedList.filter((r) => r.status === "sent").length);
+        const refreshedList = ((refreshed ?? []) as OrderRequestRow[]) ?? activeList;
+        const refreshedTerminalIds = refreshedList
+          .filter((r) => r.status === "fulfilled" || r.status === "done")
+          .map((r) => r.id);
+        if (refreshedTerminalIds.length > 0) {
+          const { data: ledgerRows } = await supabase
+            .from("khata_transactions")
+            .select("request_id")
+            .eq("vendor_id", vendorId)
+            .in("request_id", refreshedTerminalIds);
+          withLedger = new Set(
+            (ledgerRows ?? [])
+              .map((row) => row.request_id)
+              .filter((id): id is string => typeof id === "string" && id.length > 0),
+          );
+          setRequestIdsWithLedger(withLedger);
+        }
+        activeList = await dismissFulfilledWithZeroOutstanding(refreshedList, withLedger);
+        setRows(activeList);
+        onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
       }
     },
-    [vendorId, onUnreadCount, isHelpMode],
+    [vendorId, onUnreadCount, isHelpMode, dismissFulfilledWithZeroOutstanding],
   );
 
   useEffect(() => {
@@ -267,9 +367,34 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
 
   const markDone = async (id: string) => {
     setMarkingId(id);
+
+    const { data: ledgerRows } = await supabase
+      .from("khata_transactions")
+      .select("id")
+      .eq("vendor_id", vendorId)
+      .eq("request_id", id)
+      .limit(1);
+
+    const hasLedgerEntry = (ledgerRows?.length ?? 0) > 0;
+
+    if (hasLedgerEntry) {
+      const { error } = await supabase
+        .from("requests")
+        .update({ status: "fulfilled" })
+        .eq("id", id)
+        .eq("vendor_id", vendorId);
+      setMarkingId(null);
+      if (error) {
+        toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+        return;
+      }
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
+      return;
+    }
+
     const { error } = await supabase
       .from("requests")
-      .update({ status: "fulfilled" })
+      .update({ status: "done" })
       .eq("id", id)
       .eq("vendor_id", vendorId);
     setMarkingId(null);
@@ -277,10 +402,26 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
       return;
     }
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
+    setRows((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const dismissOrder = async (id: string) => {
+    setMarkingId(id);
+    const { error } = await supabase
+      .from("requests")
+      .update({ status: "done" })
+      .eq("id", id)
+      .eq("vendor_id", vendorId);
+    setMarkingId(null);
+    if (error) {
+      toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+      return;
+    }
+    setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
   const handleAppointmentAction = async (id: string, action: "confirmed" | "declined") => {
+    if (action === "declined") return;
     setMarkingId(id);
     const { error } = await supabase
       .from("requests")
@@ -289,19 +430,118 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       .eq("vendor_id", vendorId);
     setMarkingId(null);
     if (error) {
+      console.error("handleAppointmentAction", action, error);
       toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
       return;
     }
     setRows((prev) =>
       prev.map((r) => (r.id === id ? { ...r, appointment_status: action } : r)),
     );
-    toast.success(action === "confirmed" ? s.incoming_apptConfirmed : s.incoming_apptDeclined);
+    toast.success(s.incoming_apptConfirmed);
+  };
+
+  const closeDeclineSheet = () => {
+    setDeclineOrderId(null);
+    setSelectedReason(null);
+    setOtherReasonText("");
+  };
+
+  const confirmDeclineBooking = async () => {
+    if (!declineOrderId || !selectedReason) return;
+    const reasonText =
+      selectedReason === "Other" ? otherReasonText.trim() : selectedReason;
+    if (!reasonText) return;
+
+    setDeclining(true);
+    setMarkingId(declineOrderId);
+    const { error } = await supabase
+      .from("requests")
+      .update({
+        appointment_status: "declined",
+        status: "seen",
+        cancel_reason: reasonText,
+      })
+      .eq("id", declineOrderId)
+      .eq("vendor_id", vendorId);
+    setDeclining(false);
+    setMarkingId(null);
+    if (error) {
+      console.error("confirmDeclineBooking", error);
+      toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
+      return;
+    }
+    const userPhone = rows.find((r) => r.id === declineOrderId)?.user_phone?.trim();
+    if (userPhone) {
+      void invokeNotifyUser({
+        user_phone: userPhone,
+        title: "Booking declined",
+        body: `Your booking was declined. Reason: ${reasonText}`,
+      });
+    }
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === declineOrderId
+          ? {
+              ...r,
+              appointment_status: "declined",
+              status: "seen",
+              cancel_reason: reasonText,
+            }
+          : r,
+      ),
+    );
+    closeDeclineSheet();
+    toast.success(s.incoming_apptDeclined);
   };
 
   const closeCancelSheet = () => {
     setCancelOrderId(null);
     setSelectedReason(null);
     setOtherReasonText("");
+  };
+
+  const openLedgerSheet = (order: OrderRequestRow) => {
+    if (!order.user_phone) return;
+    setLedgerOrderId(order.id);
+    setLedgerUserPhone(order.user_phone);
+    setLedgerAmount("");
+    setLedgerNote(stripLocationTag(order.message ?? "").trim().slice(0, 200));
+    setLedgerPaymentMode("cash");
+  };
+
+  const closeLedgerSheet = () => {
+    setLedgerOrderId(null);
+    setLedgerUserPhone(null);
+    setLedgerAmount("");
+    setLedgerNote("");
+    setLedgerPaymentMode("cash");
+  };
+
+  const confirmLedgerEntry = async () => {
+    if (!ledgerOrderId || !ledgerUserPhone) return;
+    const amount = parseFloat(ledgerAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+
+    setLedgerSubmitting(true);
+    const { error } = await supabase.from("khata_transactions").insert({
+      vendor_id: vendorId,
+      user_phone: ledgerUserPhone,
+      amount,
+      note: ledgerNote.trim() || null,
+      payment_mode: ledgerPaymentMode,
+      request_id: ledgerOrderId,
+      created_at: new Date().toISOString(),
+    });
+    setLedgerSubmitting(false);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    setRequestIdsWithLedger((prev) => new Set(prev).add(ledgerOrderId));
+    closeLedgerSheet();
+    toast.success("Ledger entry added");
   };
 
   const openFlagSheet = (order: OrderRequestRow) => {
@@ -359,6 +599,14 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     if (error) {
       toast.error(error.message);
       return;
+    }
+    const userPhone = rows.find((r) => r.id === cancelOrderId)?.user_phone?.trim();
+    if (userPhone) {
+      void invokeNotifyUser({
+        user_phone: userPhone,
+        title: "Order cancelled",
+        body: `Your order was cancelled. Reason: ${reasonText}`,
+      });
     }
     toast.success(s.orderCancelled);
     setRows((prev) =>
@@ -437,6 +685,14 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     );
   };
 
+  const shouldShowStatusBadge = (r: OrderRequestRow) => {
+    if (r.appointment_status === "declined") return false;
+    if (r.status === "cancelled" || r.status === "fulfilled" || r.status === "done") {
+      return false;
+    }
+    return true;
+  };
+
   return (
     <div className="rounded-2xl bg-card border border-border shadow-card p-5 space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -493,7 +749,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                 <span className="text-[11px] text-muted-foreground tabular-nums">
                   {formatTimeAgo(r.created_at)}
                 </span>
-                {badge(r.status)}
+                {shouldShowStatusBadge(r) && badge(r.status)}
               </div>
               <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
                 {stripLocationTag(r.message)}
@@ -571,33 +827,77 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                   );
                 })()}
 
-              {r.appointment_time &&
-                r.appointment_status === "pending" &&
-                r.status !== "fulfilled" && (
+              {r.appointment_time && r.appointment_status === "pending" && (
                 <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={markingId === r.id}
-                      onClick={() => void handleAppointmentAction(r.id, "confirmed")}
-                      className="rounded-lg bg-brand text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {s.incoming_btnConfirm}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={markingId === r.id}
-                      onClick={() => void handleAppointmentAction(r.id, "declined")}
-                      className="rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {s.incoming_btnDecline}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    disabled={markingId === r.id}
+                    onClick={() => void handleAppointmentAction(r.id, "confirmed")}
+                    className="rounded-lg bg-brand text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {s.incoming_btnConfirm}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={markingId === r.id}
+                    onClick={() => {
+                      setDeclineOrderId(r.id);
+                      setSelectedReason(null);
+                      setOtherReasonText("");
+                    }}
+                    className="rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {s.incoming_btnDecline}
+                  </button>
+                </div>
               )}
 
-              {r.appointment_time && r.appointment_status === "confirmed" && (
-                <div className="rounded-lg border border-brand/40 bg-brand-muted px-3 py-2 text-[11px] text-green-700 dark:text-brand font-semibold text-center">
-                  {s.incoming_bannerConfirmed}
-                </div>
+              {r.appointment_time &&
+                r.appointment_status === "confirmed" &&
+                r.status !== "cancelled" && (
+                <>
+                  {r.status !== "fulfilled" && r.status !== "done" && (
+                    <div className="rounded-lg border border-brand/40 bg-brand-muted px-3 py-2 text-[11px] text-green-700 dark:text-brand font-semibold text-center">
+                      {s.incoming_bannerConfirmed}
+                    </div>
+                  )}
+                  {r.status !== "done" &&
+                    r.status !== "fulfilled" &&
+                    r.status !== "cancelled" && (
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCancelOrderId(r.id);
+                            setSelectedReason(null);
+                            setOtherReasonText("");
+                          }}
+                          className="w-full rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
+                        >
+                          {s.cancelOrder}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (r.user_phone) {
+                              window.open(`tel:+91${r.user_phone.replace(/\D/g, "")}`, "_self");
+                            }
+                          }}
+                          className="inline-flex w-full items-center justify-center rounded-lg border border-brand/40 bg-transparent text-brand text-[11px] font-semibold py-1.5 px-2 active:scale-[0.99] transition-transform hover:bg-brand/5"
+                        >
+                          {s.incoming_callBridge}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={markingId === r.id}
+                          onClick={() => void markDone(r.id)}
+                          className="w-full rounded-lg border border-brand/50 bg-brand-muted text-green-700 dark:text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                        >
+                          {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
+                        </button>
+                      </div>
+                    )}
+                </>
               )}
 
               {r.appointment_time && r.appointment_status === "declined" && (
@@ -606,66 +906,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                 </div>
               )}
 
-              {r.appointment_time &&
-                r.appointment_status === "confirmed" &&
-                r.status !== "fulfilled" &&
-                (() => {
-                  const appointmentDate = new Date(r.appointment_time);
-                  const today = new Date();
-                  const isSameDay = appointmentDate.toDateString() === today.toDateString();
-                  const isPast = appointmentDate < today;
-
-                  if (isPast) return null;
-
-                  if (!isSameDay) {
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => void cancelAppointment(r.id)}
-                        className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
-                      >
-                        {s.incoming_cancelAppt}
-                      </button>
-                    );
-                  }
-
-                  if (!calledUser[r.id]) {
-                    return (
-                      <div className="space-y-2">
-                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400 text-center">
-                          {s.incoming_sameDayWarning}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            window.open(`tel:${r.user_phone}`, "_self");
-                            setTimeout(() => setCalledUser((p) => ({ ...p, [r.id]: true })), 3000);
-                          }}
-                          className="w-full rounded-lg border border-brand/40 text-brand text-xs font-semibold py-2"
-                        >
-                          {s.incoming_callThenCancel}
-                        </button>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="space-y-2">
-                      <p className="text-[11px] text-gray-400 text-center">
-                        {s.incoming_callDone}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => void cancelAppointment(r.id)}
-                        className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
-                      >
-                        {s.incoming_cancelAppt}
-                      </button>
-                    </div>
-                  );
-                })()}
-
-              {isHelpMode && r.status === "sent" && (
+              {!r.appointment_time && isHelpMode && r.status === "sent" && (
                   <button
                     type="button"
                     disabled={markingId === r.id}
@@ -676,63 +917,91 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                   </button>
                 )}
 
-              {(r.status === "sent" || r.status === "seen") && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCancelOrderId(r.id);
-                    setSelectedReason(null);
-                    setOtherReasonText("");
-                  }}
-                  className="w-full rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
-                >
-                  {s.cancelOrder}
-                </button>
+              {!r.appointment_time && (
+                <>
+                  {(r.status === "sent" || r.status === "seen") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCancelOrderId(r.id);
+                        setSelectedReason(null);
+                        setOtherReasonText("");
+                      }}
+                      className="w-full rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
+                    >
+                      {s.cancelOrder}
+                    </button>
+                  )}
+                  {(r.status === "sent" || r.status === "seen" || r.status === "accepted") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (r.user_phone) {
+                          window.open(`tel:+91${r.user_phone.replace(/\D/g, "")}`, "_self");
+                        }
+                      }}
+                      className="inline-flex w-full items-center justify-center rounded-lg border border-brand/40 bg-transparent text-brand text-[11px] font-semibold py-1.5 px-2 active:scale-[0.99] transition-transform hover:bg-brand/5"
+                    >
+                      {s.incoming_callBridge}
+                    </button>
+                  )}
+                  {(r.status === "accepted" || r.status === "fulfilled") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBillRequestId(r.id);
+                        setBillUserPhone(r.user_phone);
+                      }}
+                      className="w-full rounded-xl border border-brand/40 text-brand text-sm font-semibold py-2.5 active:scale-[0.99]"
+                    >
+                      {s.bill_title}
+                    </button>
+                  )}
+                  {r.status === "accepted" && (
+                    <button
+                      type="button"
+                      disabled={markingId === r.id}
+                      onClick={() => void markDone(r.id)}
+                      className="w-full rounded-lg border border-brand/50 bg-brand-muted text-green-700 dark:text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                    >
+                      {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
+                    </button>
+                  )}
+                  {(r.status === "fulfilled" || r.status === "cancelled") &&
+                    r.user_phone &&
+                    !flaggedOrderIds[r.id] && (
+                      <button
+                        type="button"
+                        onClick={() => openFlagSheet(r)}
+                        className="w-full text-left text-[11px] text-muted-foreground/80 hover:text-muted-foreground py-1"
+                      >
+                        🚩 Report an issue with this order
+                      </button>
+                    )}
+                </>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  if (r.user_phone) {
-                    window.open(`tel:+91${r.user_phone.replace(/\D/g, "")}`, "_self");
-                  }
-                }}
-                className="inline-flex w-full items-center justify-center rounded-lg border border-brand/40 bg-transparent text-brand text-[11px] font-semibold py-1.5 px-2 active:scale-[0.99] transition-transform hover:bg-brand/5"
-              >
-                {s.incoming_callBridge}
-              </button>
-              {(r.status === "accepted" || r.status === "fulfilled") && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBillRequestId(r.id);
-                    setBillUserPhone(r.user_phone);
-                  }}
-                  className="w-full rounded-xl border border-brand/40 text-brand text-sm font-semibold py-2.5 active:scale-[0.99]"
-                >
-                  {s.bill_title}
-                </button>
-              )}
-              {r.status !== "done" && r.status !== "fulfilled" && r.status !== "cancelled" && (
-                <button
-                  type="button"
-                  disabled={markingId === r.id}
-                  onClick={() => void markDone(r.id)}
-                  className="w-full rounded-lg border border-brand/50 bg-brand-muted text-green-700 dark:text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                >
-                  {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
-                </button>
-              )}
-              {(r.status === "fulfilled" || r.status === "cancelled") &&
-                r.user_phone &&
-                !flaggedOrderIds[r.id] && (
+
+              {(r.status === "fulfilled" || r.status === "done") && (
+                <div className="space-y-2">
+                  {canAddToLedger && r.user_phone && !requestIdsWithLedger.has(r.id) && (
+                    <button
+                      type="button"
+                      onClick={() => openLedgerSheet(r)}
+                      className="w-full rounded-lg border border-brand/40 text-brand text-xs font-semibold py-2 active:scale-[0.99]"
+                    >
+                      📒 Add to Ledger
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => openFlagSheet(r)}
-                    className="w-full text-left text-[11px] text-muted-foreground/80 hover:text-muted-foreground py-1"
+                    disabled={markingId === r.id}
+                    onClick={() => void dismissOrder(r.id)}
+                    className="w-full rounded-lg border border-border bg-muted/40 text-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                   >
-                    🚩 Report an issue with this order
+                    {markingId === r.id ? s.incoming_saving : "✅ Dismiss"}
                   </button>
-                )}
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -853,6 +1122,150 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
             className="mt-4 w-full rounded-xl bg-destructive text-destructive-foreground py-3 font-semibold disabled:opacity-50"
           >
             {cancelling ? s.incoming_saving : s.confirmCancel}
+          </button>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={ledgerOrderId != null} onOpenChange={(open) => !open && closeLedgerSheet()}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader className="text-left">
+            <SheetTitle>Add to Ledger</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-4">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1.5">Customer phone</label>
+              <p className="text-sm font-medium tabular-nums">
+                {ledgerUserPhone ? maskPhoneLast4(ledgerUserPhone) : "—"}
+              </p>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1.5" htmlFor="ledger-amount">
+                Amount
+              </label>
+              <input
+                id="ledger-amount"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                value={ledgerAmount}
+                onChange={(e) => setLedgerAmount(e.target.value)}
+                placeholder="Amount charged ₹"
+                className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1.5" htmlFor="ledger-note">
+                Note
+              </label>
+              <input
+                id="ledger-note"
+                type="text"
+                value={ledgerNote}
+                onChange={(e) => setLedgerNote(e.target.value.slice(0, 200))}
+                placeholder="e.g. Threading + Waxing"
+                className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Payment mode</p>
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ["cash", s.bill_cash],
+                    ["upi", s.bill_upi],
+                    ["khata", "Unpaid"],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setLedgerPaymentMode(mode)}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                      ledgerPaymentMode === mode
+                        ? "border-brand bg-brand/10 text-brand"
+                        : "border-border bg-muted/40 text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={ledgerSubmitting || !ledgerAmount.trim()}
+              onClick={() => void confirmLedgerEntry()}
+              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold disabled:opacity-50"
+            >
+              {ledgerSubmitting ? s.incoming_saving : "Add Entry"}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={declineOrderId != null} onOpenChange={(open) => !open && closeDeclineSheet()}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader className="text-left">
+            <SheetTitle>Decline Booking</SheetTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Select a reason (shown to customer)
+            </p>
+          </SheetHeader>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {presetReasons.map((reason) => (
+              <button
+                key={reason}
+                type="button"
+                onClick={() => {
+                  setSelectedReason(reason);
+                  setOtherReasonText("");
+                }}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                  selectedReason === reason
+                    ? "border-destructive bg-destructive/10 text-destructive"
+                    : "border-border bg-muted/40 text-foreground",
+                )}
+              >
+                {reason}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setSelectedReason("Other")}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                selectedReason === "Other"
+                  ? "border-destructive bg-destructive/10 text-destructive"
+                  : "border-border bg-muted/40 text-foreground",
+              )}
+            >
+              {s.other}
+            </button>
+          </div>
+          {selectedReason === "Other" && (
+            <input
+              type="text"
+              value={otherReasonText}
+              onChange={(e) => setOtherReasonText(e.target.value.slice(0, 80))}
+              maxLength={80}
+              placeholder={s.cancelReasonPlaceholder}
+              className="mt-3 w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          )}
+          <button
+            type="button"
+            disabled={
+              declining ||
+              !selectedReason ||
+              (selectedReason === "Other" && !otherReasonText.trim())
+            }
+            onClick={() => void confirmDeclineBooking()}
+            className="mt-4 w-full rounded-xl bg-destructive text-destructive-foreground py-3 font-semibold disabled:opacity-50"
+          >
+            {declining ? s.incoming_saving : "Confirm Decline"}
           </button>
         </SheetContent>
       </Sheet>
