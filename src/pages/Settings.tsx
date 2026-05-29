@@ -23,7 +23,6 @@ import {
   Tag,
 } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
-import { App } from "@capacitor/app";
 import { toast } from "sonner";
 import {
   supabase,
@@ -150,6 +149,7 @@ const Settings = () => {
   const [editAddressValue, setEditAddressValue] = useState("");
   const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
   const [clearDataOpen, setClearDataOpen] = useState(false);
+  const [permissionHint, setPermissionHint] = useState<string | null>(null);
   const [deletingAddress, setDeletingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [largeText, setLargeText] = useState(() => {
@@ -1170,7 +1170,7 @@ const Settings = () => {
               </div>
               <button
                 type="button"
-                onClick={() => void App.openUrl({ url: "app-settings:" })}
+                onClick={() => setPermissionHint("Notifications")}
                 className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
               >
                 Open Settings
@@ -1187,7 +1187,7 @@ const Settings = () => {
               </div>
               <button
                 type="button"
-                onClick={() => void App.openUrl({ url: "app-settings:" })}
+                onClick={() => setPermissionHint("Location")}
                 className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
               >
                 Open Settings
@@ -1204,7 +1204,7 @@ const Settings = () => {
               </div>
               <button
                 type="button"
-                onClick={() => void App.openUrl({ url: "app-settings:" })}
+                onClick={() => setPermissionHint("Camera")}
                 className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
               >
                 Open Settings
@@ -1221,13 +1221,33 @@ const Settings = () => {
               </div>
               <button
                 type="button"
-                onClick={() => void App.openUrl({ url: "package:com.aaspaas.pro" })}
+                onClick={() => setPermissionHint("Battery optimization")}
                 className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
               >
                 Open Settings
               </button>
             </div>
           </div>
+
+          <AlertDialog
+            open={permissionHint != null}
+            onOpenChange={(open) => {
+              if (!open) setPermissionHint(null);
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Open Settings</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Go to Android Settings → Apps → AasPaas Pro → Permissions and enable{" "}
+                  {permissionHint}.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogAction className="mt-0">OK</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </section>
       )}
 

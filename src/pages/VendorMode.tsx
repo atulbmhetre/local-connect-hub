@@ -246,9 +246,9 @@ const VendorMode = () => {
   // Broadcast vendor "live" state so the BottomNav can pulse the Vendor tab.
   useEffect(() => {
     const live = !!vendor?.is_active;
-    if (live) localStorage.setItem("aaspaas:vendor_live", "1");
-    else localStorage.removeItem("aaspaas:vendor_live");
-    window.dispatchEvent(new CustomEvent("aaspaas:vendor_live", { detail: live }));
+    if (live) localStorage.setItem("aaspaas:vendor_active", "1");
+    else localStorage.removeItem("aaspaas:vendor_active");
+    window.dispatchEvent(new CustomEvent("aaspaas:vendor_active_changed", { detail: live }));
     return () => {
       // On unmount we don't clear — the flag should reflect DB state, not route.
     };

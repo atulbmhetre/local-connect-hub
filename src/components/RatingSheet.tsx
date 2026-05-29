@@ -372,11 +372,11 @@ export function RatingSheet({
 
             type="button"
 
-            disabled={busy}
+            disabled={busy || stars === 0}
 
             onClick={() => void handleRate()}
 
-            className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
+            className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
 
           >
 

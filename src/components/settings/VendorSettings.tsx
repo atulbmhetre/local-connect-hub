@@ -368,12 +368,6 @@ export function VendorSettings({ vendor, onVendorUpdated }: Props) {
             {s.settings_dotSeparator}
             {getMode(vendor.service_mode ?? "help")}
           </p>
-          {vendor.vendor_note && (
-            <p className="text-xs text-brand mt-1">
-              {s.settings_vendorNotePrefix}
-              {vendor.vendor_note}
-            </p>
-          )}
 
           <div className="mt-4 pt-4 border-t border-border space-y-2">
             <button

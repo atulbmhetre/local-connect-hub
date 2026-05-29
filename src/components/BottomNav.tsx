@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { Home, Store, Settings, Newspaper, ShoppingBag } from "lucide-react";
 import {
   readHasVendorId,
+  readIsVendorActive,
+  VENDOR_ACTIVE_CHANGED_EVENT,
   VENDOR_ID_CHANGED_EVENT,
 } from "@/lib/vendorSessionSync";
 import { useLanguage } from "@/lib/language";
@@ -10,10 +12,7 @@ import { useLanguage } from "@/lib/language";
 export const BottomNav = () => {
   const { s } = useLanguage();
   const [hasVendorId, setHasVendorId] = useState(readHasVendorId);
-  // Listen for the vendor "Ready to Help" flag so the Vendor tab can pulse.
-  const [vendorLive, setVendorLive] = useState(
-    () => localStorage.getItem("aaspaas:vendor_live") === "1",
-  );
+  const [isVendorActive, setIsVendorActive] = useState(readIsVendorActive);
 
   const baseTabs = [
     { to: "/", label: s.nav_home, Icon: Home },
@@ -28,18 +27,19 @@ export const BottomNav = () => {
   const tabs = hasVendorId
     ? [...baseTabs, vendorTab, settingsTab]
     : [...baseTabs, settingsTab];
+
   useEffect(() => {
     const syncFromStorage = () => {
       setHasVendorId(readHasVendorId());
-      setVendorLive(localStorage.getItem("aaspaas:vendor_live") === "1");
+      setIsVendorActive(readIsVendorActive());
     };
-    const onLive = (e: Event) =>
-      setVendorLive(!!(e as CustomEvent<boolean>).detail);
-    window.addEventListener("aaspaas:vendor_live", onLive as EventListener);
+    const onActive = (e: Event) =>
+      setIsVendorActive(!!(e as CustomEvent<boolean>).detail);
+    window.addEventListener(VENDOR_ACTIVE_CHANGED_EVENT, onActive as EventListener);
     window.addEventListener("storage", syncFromStorage);
     window.addEventListener(VENDOR_ID_CHANGED_EVENT, syncFromStorage);
     return () => {
-      window.removeEventListener("aaspaas:vendor_live", onLive as EventListener);
+      window.removeEventListener(VENDOR_ACTIVE_CHANGED_EVENT, onActive as EventListener);
       window.removeEventListener("storage", syncFromStorage);
       window.removeEventListener(VENDOR_ID_CHANGED_EVENT, syncFromStorage);
     };
@@ -60,27 +60,23 @@ export const BottomNav = () => {
             }
           >
             {({ isActive }) => {
-              const showLive =
-                to === "/vendor" && hasVendorId && vendorLive;
+              const showLiveDot =
+                to === "/vendor" && hasVendorId && isVendorActive;
               const vendorLabel =
                 to === "/vendor" && hasVendorId
-                  ? vendorLive
-                    ? "ME · Online"
-                    : "ME - Offline"
+                  ? isVendorActive
+                    ? "ME·Online"
+                    : "ME·Offline"
                   : label;
               return (
                 <>
                   <span className="relative">
                     <Icon
-                      className={`h-5 w-5 ${isActive ? "scale-110" : ""} ${
-                        showLive ? "text-secondary" : ""
-                      } transition-transform`}
+                      className={`h-5 w-5 ${isActive ? "scale-110" : ""} transition-transform`}
                     />
-                    {showLive && <span className="live-dot" aria-hidden />}
+                    {showLiveDot && <span className="live-dot" aria-hidden />}
                   </span>
-                  <span className={showLive ? "text-secondary" : ""}>
-                    {vendorLabel}
-                  </span>
+                  <span>{vendorLabel}</span>
                 </>
               );
             }}

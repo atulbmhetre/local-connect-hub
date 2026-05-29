@@ -334,7 +334,7 @@ const Index = () => {
             onChange={(e) => setQuery(e.target.value)}
             disabled={classifying}
             placeholder={s.searchPlaceholder}
-            className="w-full bg-card border border-border rounded-2xl pl-12 pr-14 py-4 text-base shadow-card focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
+            className="w-full bg-card border border-border rounded-2xl pl-12 pr-12 py-4 text-base shadow-card focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
           />
           <button
             type="button"

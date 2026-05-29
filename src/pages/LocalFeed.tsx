@@ -14,6 +14,13 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
@@ -48,7 +55,7 @@ type FeedReply = {
   created_at: string;
 };
 
-type ExpiryOption = "today" | "tomorrow" | "3days" | "7days";
+type ExpiryOption = "today" | "tomorrow" | "3days" | "7days" | "custom";
 
 type FeedCategory = {
   id: string;
@@ -93,7 +100,7 @@ function endOfDay(date: Date): Date {
   return d;
 }
 
-function computeExpiresAt(option: ExpiryOption): string {
+function computeExpiresAt(option: ExpiryOption, customDate?: string): string {
   const now = new Date();
   switch (option) {
     case "today":
@@ -113,7 +120,20 @@ function computeExpiresAt(option: ExpiryOption): string {
       t.setDate(t.getDate() + 7);
       return endOfDay(t).toISOString();
     }
+    case "custom": {
+      if (customDate) {
+        const [y, m, d] = customDate.split("-").map(Number);
+        return endOfDay(new Date(y, m - 1, d)).toISOString();
+      }
+      return endOfDay(now).toISOString();
+    }
   }
+}
+
+function todayDateInputMin(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function expiryBadgeLabel(expiresAt: string | null): string | null {
@@ -139,6 +159,7 @@ export default function LocalFeed() {
   const [composeType, setComposeType] = useState<PostType>("announcement");
   const [composeContent, setComposeContent] = useState("");
   const [expiryOption, setExpiryOption] = useState<ExpiryOption>("today");
+  const [customExpiryDate, setCustomExpiryDate] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -369,6 +390,7 @@ export default function LocalFeed() {
   const resetCompose = () => {
     setComposeContent("");
     setExpiryOption("today");
+    setCustomExpiryDate("");
     setImageFile(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
@@ -426,6 +448,11 @@ export default function LocalFeed() {
       return;
     }
 
+    if (composeType === "offer" && expiryOption === "custom" && !customExpiryDate) {
+      toast.error("Select a date");
+      return;
+    }
+
     setSubmitting(true);
 
     let imageUrl: string | null = null;
@@ -439,7 +466,7 @@ export default function LocalFeed() {
 
     const expiresAt =
       composeType === "offer"
-        ? computeExpiresAt(expiryOption)
+        ? computeExpiresAt(expiryOption, customExpiryDate)
         : composeType === "announcement"
         ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         : null;
@@ -681,33 +708,33 @@ export default function LocalFeed() {
 
             {composeType === "offer" && (
               <div className="mb-4">
-                <p className="text-xs font-semibold text-muted-foreground mb-2">
-                  Expires
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {(
-                    [
-                      ["today", "Today"],
-                      ["tomorrow", "Tomorrow"],
-                      ["3days", "3 days"],
-                      ["7days", "7 days"],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setExpiryOption(value)}
-                      className={cn(
-                        "rounded-full px-3 py-1.5 text-xs font-medium border transition-colors",
-                        expiryOption === value
-                          ? "bg-brand/15 border-brand text-brand"
-                          : "border-border text-muted-foreground",
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-2">
+                  Offer valid until
+                </label>
+                <Select
+                  value={expiryOption}
+                  onValueChange={(v) => setExpiryOption(v as ExpiryOption)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select expiry" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="tomorrow">Tomorrow</SelectItem>
+                    <SelectItem value="3days">3 days</SelectItem>
+                    <SelectItem value="7days">7 days</SelectItem>
+                    <SelectItem value="custom">Custom date</SelectItem>
+                  </SelectContent>
+                </Select>
+                {expiryOption === "custom" && (
+                  <input
+                    type="date"
+                    min={todayDateInputMin()}
+                    value={customExpiryDate}
+                    onChange={(e) => setCustomExpiryDate(e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  />
+                )}
               </div>
             )}
 
