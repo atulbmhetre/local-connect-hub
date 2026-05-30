@@ -28,6 +28,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import {
+  SettingsPageHeader,
+  SettingsSectionLabel,
+  SettingsCard,
+} from "@/components/settings/SettingsSection";
 import { Badge } from "@/components/ui/badge";
 import {
   currentCycleTransactions,
@@ -828,31 +833,37 @@ const MyOrders = () => {
     setRatingSheetOpen(true);
   };
 
+  const orderStatusPillClass = (r: RowWithShop) => {
+    if (r.status === "cancelled") return "bg-red-500/20 text-red-400 border-red-500/30";
+    if (r.status === "fulfilled" || r.status === "done") return "bg-green-500/20 text-green-400 border-green-500/30";
+    return "bg-brand/20 text-brand border-brand/30";
+  };
+
   return (
     <AppShell theme="dark">
-      <header className="flex items-start gap-3 mb-6">
+      <div className="space-y-3 pb-24">
+      <div className="flex items-start gap-3">
         <button
           type="button"
           onClick={() => navigate("/")}
-          className="h-10 w-10 shrink-0 grid place-items-center rounded-xl bg-card border border-border"
+          className="h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-surface-border bg-surface ml-4"
           aria-label={s.myOrders_backToHome}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">{s.myOrders_appName}</p>
-          <h1 className="font-display text-2xl font-bold mt-1">{s.myOrders_heading}</h1>
+        <div className="min-w-0 flex-1 pr-4">
+          <SettingsPageHeader title={s.myOrders_heading} subtitle={s.myOrders_appName} />
         </div>
-      </header>
+      </div>
 
-      <div className="relative mb-4">
+      <div className="relative mx-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={s.search_ordersPlaceholder}
-          className="w-full bg-surface border border-surface-border rounded-xl pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+          className="w-full bg-surface border border-surface-border rounded-2xl pl-9 pr-10 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
         />
         {searchQuery && (
           <button
@@ -866,29 +877,32 @@ const MyOrders = () => {
       </div>
 
       {myKhata.length > 0 && (
-        <div className="rounded-2xl border border-warning/30 bg-warning/5 p-4 mb-4 space-y-2">
-          <p className="text-xs font-semibold text-warning tracking-wider">
-            📒 {s.khata_myTabs}
-          </p>
-          {myKhata.map((k) => (
-            <button
-              key={k.vendor_id}
-              type="button"
-              onClick={() => void openKhataDetail(k)}
-              className="w-full flex justify-between text-sm text-left active:opacity-80"
-            >
-              <span className="text-foreground">{k.shop_name}</span>
-              <span
+        <>
+          <SettingsSectionLabel>📒 {s.khata_myTabs}</SettingsSectionLabel>
+          <SettingsCard className="border-amber-500/30 bg-amber-500/5">
+            {myKhata.map((k, idx) => (
+              <button
+                key={k.vendor_id}
+                type="button"
+                onClick={() => void openKhataDetail(k)}
                 className={cn(
-                  "font-bold tabular-nums",
-                  k.total_outstanding > 0 ? "text-warning" : "text-green-600",
+                  "w-full flex justify-between gap-3 px-4 py-3.5 text-left active:opacity-80",
+                  idx < myKhata.length - 1 && "border-b border-surface-border",
                 )}
               >
-                ₹{k.total_outstanding.toFixed(2)}
-              </span>
-            </button>
-          ))}
-        </div>
+                <span className="text-sm font-bold text-foreground">{k.shop_name}</span>
+                <span
+                  className={cn(
+                    "text-sm font-bold tabular-nums shrink-0",
+                    k.total_outstanding > 0 ? "text-amber-400" : "text-green-400",
+                  )}
+                >
+                  ₹{k.total_outstanding.toFixed(2)}
+                </span>
+              </button>
+            ))}
+          </SettingsCard>
+        </>
       )}
 
       {loading ? (
@@ -915,15 +929,15 @@ const MyOrders = () => {
           {s.search_noResults}
         </div>
       ) : (
+        <>
+        <SettingsSectionLabel>{s.myOrders_heading}</SettingsSectionLabel>
         <ul className="space-y-3 pb-4">
           {filteredRows.map((r) => (
             <li
               key={r.id}
               className={cn(
-                "rounded-2xl border p-4 space-y-2",
-                r.status === "cancelled"
-                  ? "border-destructive/50 bg-destructive/5"
-                  : "border-surface-border bg-surface",
+                "mx-4 rounded-2xl border border-surface-border bg-surface p-4 space-y-2 mb-3",
+                r.status === "cancelled" && "border-red-500/30 bg-red-500/5",
               )}
             >
               <div className="flex items-start justify-between gap-2">
@@ -947,17 +961,18 @@ const MyOrders = () => {
                   </span>
                 </div>
               </div>
-              {r.status === "cancelled" ? (
-                <span className="inline-flex rounded-full bg-destructive/15 text-destructive text-[11px] font-semibold px-2.5 py-1 border border-destructive/40">
-                  {s.myOrders_cancelledByVendor}
-                </span>
-              ) : r.status === "accepted" && r.vendors?.service_mode === "help" ? (
-                <span className="inline-flex rounded-full bg-brand/15 text-green-700 dark:text-brand text-[11px] font-semibold px-2.5 py-1 border border-brand/40">
-                  {s.status_accepted}
-                </span>
-              ) : (
-                <p className="text-xs text-muted-foreground">{userStatusLabel(r, s)}</p>
-              )}
+              <span
+                className={cn(
+                  "inline-flex rounded-full text-[11px] font-semibold px-2.5 py-1 border",
+                  orderStatusPillClass(r),
+                )}
+              >
+                {r.status === "cancelled"
+                  ? s.myOrders_cancelledByVendor
+                  : r.status === "accepted" && r.vendors?.service_mode === "help"
+                    ? s.status_accepted
+                    : userStatusLabel(r, s)}
+              </span>
               <p className="text-sm text-foreground/90 leading-snug whitespace-pre-wrap break-words">
                 {stripLocationTag(r.message)}
               </p>
@@ -1289,7 +1304,7 @@ const MyOrders = () => {
                     type="button"
                     disabled={markingId === r.id}
                     onClick={() => handleFulfilledDismiss(r)}
-                    className="w-full rounded-xl bg-brand text-[#0b1f14] text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50 shadow-[0_0_14px_rgba(34,197,94,0.35)]"
+                    className="w-full rounded-2xl bg-brand text-page-bg text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
                   >
                     {markingId === r.id ? s.myOrders_saving : s.myOrders_delivered}
                   </button>
@@ -1339,6 +1354,7 @@ const MyOrders = () => {
             </li>
           ))}
         </ul>
+        </>
       )}
 
       <Sheet open={editOrder != null} onOpenChange={(open) => !open && closeEditSheet()}>
@@ -1592,6 +1608,7 @@ const MyOrders = () => {
           </div>
         </SheetContent>
       </Sheet>
+      </div>
     </AppShell>
   );
 };

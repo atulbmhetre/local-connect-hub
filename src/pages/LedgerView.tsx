@@ -13,6 +13,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
+import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import {
   currentCycleTransactions,
   filterKhataLedgerByOutstanding,
@@ -118,6 +119,15 @@ const LedgerView = () => {
     if (vendorId) void loadTransactions(vendorId, userPhone);
   };
 
+  useEffect(() => {
+    if (!selectedPhone) return;
+    // Force repaint on Android WebView
+    requestAnimationFrame(() => {
+      window.scrollBy(0, 1);
+      window.scrollBy(0, -1);
+    });
+  }, [selectedPhone, transactions]);
+
   const closeSheet = () => {
     setSelectedPhone(null);
     setTransactions([]);
@@ -203,22 +213,20 @@ const LedgerView = () => {
 
   return (
     <AppShell>
-      <header className="flex items-center gap-3 mb-6">
+      <div className="space-y-3 pb-24">
+      <div className="flex items-start gap-3">
         <button
           type="button"
           onClick={() => navigate("/vendor")}
-          className="rounded-full border border-border p-2 text-foreground active:scale-95"
+          className="ml-4 rounded-full border border-surface-border p-2 text-foreground active:scale-95"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div>
-          <h1 className="font-display text-xl font-bold text-foreground">📒 {s.khata_book}</h1>
-          {shopName && (
-            <p className="text-xs text-muted-foreground mt-0.5">{shopName}</p>
-          )}
+        <div className="min-w-0 flex-1 pr-4">
+          <SettingsPageHeader title={`📒 ${s.khata_book}`} subtitle={shopName || " "} />
         </div>
-      </header>
+      </div>
 
       {loading ? (
         <div className="flex justify-center py-16 text-muted-foreground">
@@ -229,36 +237,38 @@ const LedgerView = () => {
       ) : (
         <div className="space-y-2">
           {visibleEntries.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">{s.khata_empty}</p>
+            <p className="text-sm text-muted-foreground text-center py-8 mx-4">{s.khata_empty}</p>
           ) : (
-            <ul className="space-y-2">
-              {visibleEntries.map((entry) => (
-                <li key={entry.user_phone}>
-                  <button
-                    type="button"
-                    onClick={() => openCustomer(entry.user_phone)}
-                    className="w-full flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-left active:scale-[0.99]"
+            <SettingsCard>
+              {visibleEntries.map((entry, idx) => (
+                <button
+                  key={entry.user_phone}
+                  type="button"
+                  onClick={() => openCustomer(entry.user_phone)}
+                  className={cn(
+                    "w-full flex items-center justify-between px-4 py-3.5 text-left active:scale-[0.99]",
+                    idx < visibleEntries.length - 1 && "border-b border-surface-border",
+                  )}
+                >
+                  <span className="text-sm font-bold text-foreground tabular-nums">
+                    {maskPhoneLast4(entry.user_phone)}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-sm font-bold tabular-nums",
+                      entry.total_outstanding > 0 ? "text-amber-400" : "text-green-400",
+                    )}
                   >
-                    <span className="text-sm font-semibold text-foreground tabular-nums">
-                      {maskPhoneLast4(entry.user_phone)}
-                    </span>
-                    <span
-                      className={cn(
-                        "text-sm font-bold tabular-nums",
-                        entry.total_outstanding > 0 ? "text-warning" : "text-green-600",
-                      )}
-                    >
-                      ₹{entry.total_outstanding.toFixed(2)}
-                    </span>
-                  </button>
-                </li>
+                    ₹{entry.total_outstanding.toFixed(2)}
+                  </span>
+                </button>
               ))}
-            </ul>
+            </SettingsCard>
           )}
           <button
             type="button"
             onClick={() => setShowFullHistory((v) => !v)}
-            className="w-full text-center text-xs text-muted-foreground hover:text-foreground pt-1"
+            className="w-full text-center text-xs text-muted-foreground underline pt-2"
           >
             {showFullHistory ? "Hide paid entries" : "Show full history"}
           </button>
@@ -266,14 +276,32 @@ const LedgerView = () => {
       )}
 
       <Sheet open={selectedPhone != null} onOpenChange={(open) => !open && closeSheet()}>
-        <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] overflow-y-auto">
-          <SheetHeader className="text-left">
-            <SheetTitle className="tabular-nums">
+        <SheetContent
+          side="bottom"
+          className="rounded-t-2xl max-h-[85vh] flex flex-col"
+          style={{
+            transform: "translateZ(0)",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <SheetHeader className="text-left pb-3 border-b border-surface-border">
+            <SheetTitle className="text-base font-bold text-foreground tabular-nums">
               {selectedPhone ? maskPhoneLast4(selectedPhone) : ""}
             </SheetTitle>
+            {selectedEntry && (
+              <p
+                className={cn(
+                  "text-2xl font-bold tabular-nums mt-2",
+                  selectedEntry.total_outstanding > 0 ? "text-amber-400" : "text-green-400",
+                )}
+              >
+                ₹{selectedEntry.total_outstanding.toFixed(2)}
+              </p>
+            )}
           </SheetHeader>
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-3 px-1">
             {txLoading ? (
               <div className="flex justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -285,28 +313,25 @@ const LedgerView = () => {
                 {transactions.map((tx) => (
                   <li
                     key={tx.id}
-                    className="rounded-xl border border-border bg-muted/20 px-3 py-2.5 space-y-1"
+                    className="rounded-xl border border-surface-border bg-surface px-3 py-2.5 space-y-1"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs text-muted-foreground">{formatKhataDate(tx.created_at)}</p>
-                      <p className="text-sm font-bold text-foreground tabular-nums">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-muted-foreground">{formatKhataDate(tx.created_at)}</p>
+                        <p
+                          className={cn(
+                            "text-sm font-medium leading-snug mt-0.5",
+                            tx.note?.trim() ? "text-foreground" : "text-muted-foreground italic",
+                          )}
+                        >
+                          {tx.note?.trim() || "No description"}
+                        </p>
+                      </div>
+                      <p className="text-sm font-bold text-foreground tabular-nums shrink-0 text-right">
                         ₹{Number(tx.amount).toFixed(2)}
                       </p>
                     </div>
-                    <div>
-                      <p className="text-xs font-semibold text-foreground mb-1">Service</p>
-                      <p
-                        className={cn(
-                          "text-sm leading-snug",
-                          tx.note?.trim()
-                            ? "text-foreground font-medium"
-                            : "text-muted-foreground italic",
-                        )}
-                      >
-                        {tx.note?.trim() || "No description"}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="text-[10px] font-semibold">
+                    <Badge variant="outline" className="text-[10px] font-semibold border-surface-border">
                       {khataPaymentModeLabel(tx.payment_mode, s)}
                     </Badge>
                   </li>
@@ -314,36 +339,28 @@ const LedgerView = () => {
               </ul>
             )}
 
-            {selectedEntry && (
-              <div className="border-t border-border pt-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Total outstanding</span>
-                  <span
-                    className={cn(
-                      "text-lg font-bold tabular-nums",
-                      selectedEntry.total_outstanding > 0 ? "text-warning" : "text-green-600",
-                    )}
-                  >
-                    ₹{selectedEntry.total_outstanding.toFixed(2)}
-                  </span>
-                </div>
-                {selectedEntry.total_outstanding > 0 && (
-                  <button
-                    type="button"
-                    onClick={openPaymentSheet}
-                    className="w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold"
-                  >
-                    {s.khata_markPaid}
-                  </button>
-                )}
+            {selectedEntry && selectedEntry.total_outstanding > 0 && (
+              <div className="border-t border-surface-border pt-4">
+                <button
+                  type="button"
+                  onClick={openPaymentSheet}
+                  className="w-full rounded-2xl bg-brand text-page-bg py-4 font-bold active:scale-[0.99]"
+                >
+                  {s.khata_markPaid}
+                </button>
               </div>
             )}
+          </div>
           </div>
         </SheetContent>
       </Sheet>
 
       <Sheet open={paymentOpen} onOpenChange={(open) => !open && closePaymentSheet()}>
-        <SheetContent side="bottom" className="rounded-t-2xl">
+        <SheetContent
+          side="bottom"
+          className="rounded-t-2xl"
+          style={{ transform: "translateZ(0)", WebkitOverflowScrolling: "touch" }}
+        >
           <SheetHeader className="text-left">
             <SheetTitle>Record Payment</SheetTitle>
           </SheetHeader>
@@ -379,6 +396,7 @@ const LedgerView = () => {
           </div>
         </SheetContent>
       </Sheet>
+      </div>
     </AppShell>
   );
 };

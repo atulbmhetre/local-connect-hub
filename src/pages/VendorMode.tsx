@@ -827,9 +827,10 @@ const VendorMode = () => {
 
     // 1. GPS match check vs the recorded shop coords.
     const hasShopLocation = vendor.latitude != null && vendor.longitude != null;
+    let gpsMatchDistance = 0;
     if (hasShopLocation) {
       const meters = distanceMeters(
-        { lat: vendor.latitude, lng: vendor.longitude },
+        { lat: vendor.latitude!, lng: vendor.longitude! },
         shot.coords,
       );
       if (meters > GPS_MATCH_TOLERANCE_M) {
@@ -838,6 +839,7 @@ const VendorMode = () => {
         });
         return;
       }
+      gpsMatchDistance = Math.round(meters);
     }
 
     // 2. Upload to Storage.
@@ -860,6 +862,7 @@ const VendorMode = () => {
       .update({
         shop_photo_url: pub.publicUrl,
         verification_status: "business_verified" as VerificationStatus,
+        gps_match_distance: gpsMatchDistance,
         ...(hasShopLocation
           ? {}
           : {
@@ -1269,7 +1272,7 @@ const VendorMode = () => {
       )}
 
       {vendor && (
-        <div className="space-y-5 animate-fade-up">
+        <div className="space-y-3 animate-fade-up pb-4">
           {isInTrial && (
             <div className="rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning text-center">
               {s.vendor_trialDaysLeft(trialDaysLeft!)}
@@ -1280,43 +1283,53 @@ const VendorMode = () => {
               {s.vendor_trialExpired}
             </div>
           )}
-          {/* Status card */}
-          <div className="rounded-3xl bg-card border border-border shadow-card p-6 text-center">
+          {/* Go Live card */}
+          <div
+            className={cn(
+              "mx-4 rounded-2xl border p-6 text-center",
+              vendor.is_active
+                ? "bg-gradient-to-r from-brand/20 to-brand/5 border-brand/30"
+                : "bg-surface border-surface-border",
+            )}
+          >
             <p
-              className={`mt-1 font-display text-xl font-semibold ${
-                vendor.is_active ? "text-brand" : "text-gray-400"
-              }`}
+              className={cn(
+                "text-lg font-bold",
+                vendor.is_active ? "text-brand" : "text-muted-foreground",
+              )}
             >
               {vendor.is_active ? s.vendor_ready : s.vendor_offline_label}
             </p>
 
             <button
+              type="button"
               onClick={() => void toggleActive()}
               disabled={checkingOffline}
               aria-pressed={vendor.is_active}
-              className={`mt-6 mx-auto rounded-full grid place-items-center transition-all active:scale-95 disabled:opacity-60 ${
+              className={cn(
+                "mt-6 mx-auto grid place-items-center rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-60",
                 vendor.is_active
-                  ? "h-11 w-11 bg-brand border-0 text-black"
-                  : "h-[72px] w-[72px] bg-green-950 dark:bg-[#1e3a1e] border-2 border-brand text-brand"
-              }`}
+                  ? "h-11 w-11 bg-brand border-0 text-page-bg"
+                  : "h-[72px] w-[72px] px-6 py-2.5 bg-brand/10 border-2 border-brand text-brand",
+              )}
             >
               <Power
-                className={vendor.is_active ? "h-[18px] w-[18px] text-black" : "h-[30px] w-[30px] text-brand"}
+                className={vendor.is_active ? "h-[18px] w-[18px] text-page-bg" : "h-[30px] w-[30px] text-brand"}
                 strokeWidth={2.5}
               />
             </button>
 
             {vendor.is_active ? (
-              <p className="mt-3 text-[11px] font-normal text-[#555]">{s.vendor_tap_offline}</p>
+              <p className="mt-3 text-xs text-muted-foreground">{s.vendor_tap_offline}</p>
             ) : (
               <>
-                <p className="mt-3 text-[13px] font-medium text-brand">{s.vendor_tap_online}</p>
-                <p className="mt-1 text-[11px] text-[#666]">{s.vendor_customers_waiting}</p>
+                <p className="mt-3 text-sm font-medium text-brand">{s.vendor_tap_online}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{s.vendor_customers_waiting}</p>
               </>
             )}
             {isMobileCategory(vendor.category) && (
               <p className="mt-2 text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1">
-                <Truck className="h-3 w-3 text-secondary" />
+                <Truck className="h-3 w-3 text-brand" />
                 {s.vendor_mobile_gps}
               </p>
             )}
@@ -1339,10 +1352,12 @@ const VendorMode = () => {
           <button
             type="button"
             onClick={() => navigate("/ledger")}
-            className="w-full rounded-xl border border-surface-border bg-surface px-4 py-3 text-sm font-semibold text-left flex items-center justify-between"
+            className="block mx-4 w-[calc(100%-2rem)] text-left active:scale-[0.99] transition-transform"
           >
-            <span>📒 {s.khata_book}</span>
-            <span className="text-brand text-xs">{s.khata_view}</span>
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm font-semibold text-amber-400">📒 {s.khata_book}</span>
+              <span className="text-xs text-amber-400/70">{s.khata_view} →</span>
+            </div>
           </button>
 
           <div ref={ordersRef}>
@@ -1356,21 +1371,15 @@ const VendorMode = () => {
           <button
             type="button"
             onClick={() => setVerificationSheetOpen(true)}
-            className="w-full rounded-2xl border border-border bg-card shadow-card px-4 py-3 flex items-center gap-3 text-left active:scale-[0.99] transition-transform"
+            className={cn(
+              "mx-4 w-[calc(100%-2rem)] rounded-2xl border px-4 py-3 flex items-center gap-3 text-left active:scale-[0.99] transition-transform",
+              !!vendor.is_manual_verified
+                ? "bg-brand/10 border-brand/30"
+                : vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== ""
+                  ? "bg-amber-500/10 border-amber-500/30"
+                  : "bg-amber-500/10 border-amber-500/30",
+            )}
           >
-            <span
-              className={cn(
-                "h-2.5 w-2.5 rounded-full shrink-0",
-                !!vendor.is_manual_verified && "bg-brand",
-                !vendor.is_manual_verified &&
-                  vendor.shop_photo_url != null &&
-                  String(vendor.shop_photo_url).trim() !== "" &&
-                  "bg-warning",
-                (!vendor.is_manual_verified &&
-                  (vendor.shop_photo_url == null || String(vendor.shop_photo_url).trim() === "")) &&
-                  "bg-destructive",
-              )}
-            />
             <span className="flex-1 min-w-0 text-sm font-semibold text-foreground">
               {!!vendor.is_manual_verified
                 ? s.vendor_verified_pro

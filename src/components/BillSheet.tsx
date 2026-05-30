@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Camera, Loader2, Mic, Trash2 } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
@@ -17,6 +17,7 @@ import {
 } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
+import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import { getVoiceLang } from "@/lib/voiceUtils";
 
 type Props = {
@@ -97,6 +98,15 @@ export function BillSheet({
     },
     [onClose],
   );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    // Force repaint on Android WebView
+    requestAnimationFrame(() => {
+      window.scrollBy(0, 1);
+      window.scrollBy(0, -1);
+    });
+  }, [isOpen, items]);
 
   const startVoiceBill = async () => {
     try {
@@ -290,17 +300,20 @@ export function BillSheet({
     <Sheet open={isOpen} onOpenChange={handleOpenChange}>
       <SheetContent
         side="bottom"
-        className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[90vh] overflow-y-auto [&>button]:text-gray-400"
+        className="bg-page-bg border-t border-surface-border rounded-t-2xl max-h-[90vh] flex flex-col [&>button]:text-muted-foreground"
+        style={{
+          transform: "translateZ(0)",
+          WebkitOverflowScrolling: "touch",
+        }}
       >
-        <SheetHeader className="text-left space-y-1 pr-8">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <SheetTitle className="text-white font-display text-lg">
-                {s.bill_title}
-              </SheetTitle>
-              <p className="text-sm text-gray-400">{shopName}</p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+        <SheetHeader className="sr-only">
+          <SheetTitle>{s.bill_title}</SheetTitle>
+        </SheetHeader>
+        <div className="px-4 pt-2 pr-2">
+          <div className="flex items-start justify-between gap-2">
+            <SettingsPageHeader title={s.bill_title} subtitle={shopName} />
+            <div className="flex items-center gap-2 shrink-0 pt-2">
               <button
                 type="button"
                 onClick={() => void startImageBill()}
@@ -333,14 +346,18 @@ export function BillSheet({
                 ))}
             </div>
           </div>
-        </SheetHeader>
 
-        <div className="mt-5 space-y-3">
-          <div className="space-y-2">
-            {items.map((item) => {
+        <SettingsCard className="mx-0 mb-3">
+            {items.map((item, idx) => {
               const lineTotal = item.quantity * item.unit_price;
               return (
-                <div key={item.id} className="flex items-center gap-2">
+                <div
+                  key={item.id}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2.5",
+                    idx < items.length - 1 && "border-b border-surface-border",
+                  )}
+                >
                   <input
                     type="text"
                     value={item.description}
@@ -348,7 +365,7 @@ export function BillSheet({
                       updateItem(item.id, { description: e.target.value })
                     }
                     placeholder={s.bill_itemName}
-                    className="flex-1 min-w-0 rounded-xl border border-surface-border bg-surface px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    className="flex-1 min-w-0 rounded-lg border border-surface-border bg-surface px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
                   />
                   <input
                     type="number"
@@ -359,11 +376,11 @@ export function BillSheet({
                         quantity: Math.max(1, Number(e.target.value) || 1),
                       })
                     }
-                    className="w-16 rounded-xl border border-surface-border bg-surface px-2 py-2 text-sm text-white text-center focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    className="w-12 rounded-lg border border-surface-border bg-surface px-1 py-1.5 text-sm text-foreground text-center focus:outline-none focus:border-brand"
                     aria-label="Quantity"
                   />
-                  <div className="relative w-20 shrink-0">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                  <div className="relative w-16 shrink-0">
+                    <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                       ₹
                     </span>
                     <input
@@ -376,54 +393,52 @@ export function BillSheet({
                           unit_price: Math.max(0, Number(e.target.value) || 0),
                         })
                       }
-                      className="w-full rounded-xl border border-surface-border bg-surface pl-6 pr-2 py-2 text-sm text-white text-right focus:outline-none focus:ring-2 focus:ring-brand/50"
+                      className="w-full rounded-lg border border-surface-border bg-surface pl-5 pr-1 py-1.5 text-sm text-foreground text-right focus:outline-none focus:border-brand"
                       aria-label="Unit price"
                     />
                   </div>
-                  <p className="w-14 shrink-0 text-right text-sm font-semibold tabular-nums text-white">
+                  <p className="w-12 shrink-0 text-right text-sm font-bold tabular-nums text-brand">
                     ₹{lineTotal.toFixed(0)}
                   </p>
                   {items.length > 1 ? (
                     <button
                       type="button"
                       onClick={() => removeItem(item.id)}
-                      className="shrink-0 p-1.5 text-gray-400 hover:text-destructive transition-colors"
+                      className="shrink-0 p-1 text-muted-foreground active:text-destructive"
                       aria-label="Remove item"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
                   ) : (
-                    <span className="w-7 shrink-0" aria-hidden />
+                    <span className="w-5 shrink-0" aria-hidden />
                   )}
                 </div>
               );
             })}
-          </div>
+        </SettingsCard>
 
           <button
             type="button"
             onClick={addItem}
-            className="w-full rounded-xl border border-dashed border-brand/40 text-brand text-sm font-semibold py-2.5 hover:bg-brand/5 transition-colors"
+            className="w-full rounded-xl border border-dashed border-brand/30 text-brand text-sm font-semibold py-2.5 active:bg-brand/5 transition-colors mb-3"
           >
             {s.bill_addItem}
           </button>
 
-          <div className="border-t border-surface-border pt-3">
-            <div className="flex items-center justify-between text-base font-semibold">
-              <span>{s.bill_total}</span>
-              <span className="tabular-nums">₹{totalAmount.toFixed(0)}</span>
-            </div>
+          <div className="border-t-2 border-surface-border mt-2 pt-3 flex items-center justify-between">
+            <span className="font-bold text-foreground">{s.bill_total}</span>
+            <span className="text-xl font-bold text-brand tabular-nums">₹{totalAmount.toFixed(0)}</span>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="flex flex-wrap gap-2 mt-3">
             <button
               type="button"
               onClick={() => setPaymentMode("cash")}
               className={cn(
-                "rounded-xl border-2 py-2.5 text-xs font-semibold transition-colors",
+                "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
                 paymentMode === "cash"
-                  ? "border-brand bg-brand/15 text-brand"
-                  : "border-surface-border bg-surface text-gray-400",
+                  ? "bg-brand text-white border-brand"
+                  : "border-surface-border text-muted-foreground bg-surface",
               )}
             >
               {s.bill_cash}
@@ -432,10 +447,10 @@ export function BillSheet({
               type="button"
               onClick={() => setPaymentMode("upi")}
               className={cn(
-                "rounded-xl border-2 py-2.5 text-xs font-semibold transition-colors",
+                "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
                 paymentMode === "upi"
-                  ? "border-brand bg-brand/15 text-brand"
-                  : "border-surface-border bg-surface text-gray-400",
+                  ? "bg-brand text-white border-brand"
+                  : "border-surface-border text-muted-foreground bg-surface",
               )}
             >
               {s.bill_upi}
@@ -444,10 +459,10 @@ export function BillSheet({
               type="button"
               onClick={() => setPaymentMode("khata")}
               className={cn(
-                "rounded-xl border-2 py-2.5 text-xs font-semibold transition-colors",
+                "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
                 paymentMode === "khata"
-                  ? "border-brand bg-brand/15 text-brand"
-                  : "border-surface-border bg-surface text-gray-400",
+                  ? "bg-brand text-white border-brand"
+                  : "border-surface-border text-muted-foreground bg-surface",
               )}
             >
               {s.bill_khata}
@@ -465,17 +480,18 @@ export function BillSheet({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder={s.bill_notes}
-            className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
+            className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
           />
 
           <button
             type="button"
             disabled={sending || validItems.length === 0}
             onClick={() => void sendBill()}
-            className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:pointer-events-none"
+            className="w-full rounded-2xl bg-brand text-white py-4 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:pointer-events-none"
           >
             {sending ? "..." : s.bill_send}
           </button>
+        </div>
         </div>
       </SheetContent>
     </Sheet>

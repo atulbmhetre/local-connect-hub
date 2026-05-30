@@ -394,9 +394,19 @@ export function RadarVendorCard({
     setParchiOpen(true);
   }, [onOrder, vendor]);
 
+  const serviceModePill =
+    serviceMode === "delivery"
+      ? "🚚 Delivery"
+      : serviceMode === "appointment"
+        ? "📅 Booking"
+        : "🚶 Help";
+
   return (
     <div
-      className={`rounded-2xl bg-card/80 backdrop-blur-xl border border-border ring-1 ${accentRing} p-4 animate-fade-up`}
+      className={cn(
+        "mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-fade-up",
+        accentRing,
+      )}
       style={{ animationDelay: `${Math.min(index * 70, 420)}ms` }}
     >
       <div className="flex items-start gap-3">
@@ -418,7 +428,7 @@ export function RadarVendorCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
-              <h3 className="font-display font-bold truncate">{vendor.shop_name}</h3>
+              <h3 className="text-base font-bold text-foreground truncate">{vendor.shop_name}</h3>
               {readIsOwnVendorCard(vendor.id) && (
                 <span className="text-[10px] font-medium text-muted-foreground shrink-0">• You</span>
               )}
@@ -430,22 +440,31 @@ export function RadarVendorCard({
               </span>
             </span>
           </div>
-          <p className="text-sm text-muted-foreground truncate">
-            {vendor.name} · {getLabel(vendor.category)}
-          </p>
+          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+            <span className="text-xs rounded-full px-2 py-0.5 border border-surface-border text-muted-foreground bg-surface">
+              {getLabel(vendor.category)}
+            </span>
+            <span className="text-xs rounded-full px-2 py-0.5 bg-brand/20 text-brand font-medium">
+              {serviceModePill}
+            </span>
+          </div>
           <VerificationBadge vendor={vendor} showLabel className="mt-1" />
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
             {dist != null ? (
-              <span className="inline-flex items-center gap-1">
+              <span className="text-xs bg-surface-border rounded-full px-2 py-0.5 inline-flex items-center gap-1 text-muted-foreground">
                 <MapPin className="h-3 w-3" />
                 {dist < 1 ? `${Math.round(dist * 1000)} mtr away` : `${dist.toFixed(1)} km away`}
               </span>
             ) : (
-              <span>{s.radar_location_unknown}</span>
+              <span className="text-xs text-muted-foreground">{s.radar_location_unknown}</span>
             )}
             {vendor.avg_rating && vendor.review_count ? (
-              <span className="text-xs text-muted-foreground">
-                ⭐ {vendor.avg_rating.toFixed(1)} ({vendor.review_count} {s.review_reviews})
+              <span className="text-xs">
+                <span className="text-brand font-bold">⭐ {vendor.avg_rating.toFixed(1)}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  ({vendor.review_count} {s.review_reviews})
+                </span>
               </span>
             ) : null}
           </div>
@@ -489,7 +508,7 @@ export function RadarVendorCard({
       />
 
       {menuItems.length > 0 && (
-        <div className="mt-3 rounded-xl border border-surface-border bg-surface/50 px-3 py-2 space-y-1">
+        <div className="mt-3 pt-3 border-t border-surface-border space-y-1">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
             {s.menu_preview}
           </p>
@@ -576,7 +595,7 @@ export function RadarVendorCard({
       <button
         type="button"
         onClick={handleConnect}
-        className="mt-4 w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
+        className="mt-3 w-full rounded-xl bg-brand text-white py-2.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
       >
         <Phone className="h-4 w-4" />
         {s.radar_connect_ai}
@@ -623,7 +642,7 @@ export function RadarVendorCard({
           <button
             type="button"
             onClick={openParchi}
-            className="mt-2 w-full rounded-xl bg-brand text-[#0b1f14] py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform shadow-sm"
+            className="mt-2 w-full rounded-xl bg-brand text-white py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform"
           >
             {serviceMode === "appointment"
               ? `📅 ${s.radar_book_service}`

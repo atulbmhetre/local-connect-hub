@@ -545,6 +545,15 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     setLedgerVendorNote("");
   };
 
+  useEffect(() => {
+    if (ledgerOrderId == null) return;
+    // Force repaint on Android WebView
+    requestAnimationFrame(() => {
+      window.scrollBy(0, 1);
+      window.scrollBy(0, -1);
+    });
+  }, [ledgerOrderId]);
+
   const confirmLedgerEntry = async () => {
     if (!ledgerOrderId || !ledgerUserPhone) return;
     const amount = parseFloat(ledgerAmount);
@@ -754,18 +763,19 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   };
 
   return (
-    <div className="rounded-2xl bg-card border border-border shadow-card p-5 space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display font-bold text-base flex items-center gap-2">
+    <div className="mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden">
+      <div className="px-4 py-3 flex items-center justify-between border-b border-surface-border">
+        <span className="text-sm font-bold uppercase tracking-wide text-foreground">
           {s.incoming_heading}
-          {unread > 0 && (
-            <span className="rounded-full bg-brand text-[#0b1f14] text-[11px] font-bold min-w-[1.25rem] h-5 px-1.5 grid place-items-center tabular-nums">
-              {unread > 99 ? s.incoming_unreadCap : unread}
-            </span>
-          )}
-        </h2>
+        </span>
+        {unread > 0 && (
+          <span className="bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full tabular-nums">
+            {unread > 99 ? s.incoming_unreadCap : unread}
+          </span>
+        )}
       </div>
 
+      <div className="p-4 space-y-4">
       {rows.length > 0 && (
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1204,7 +1214,15 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       </Sheet>
 
       <Sheet open={ledgerOrderId != null} onOpenChange={(open) => !open && closeLedgerSheet()}>
-        <SheetContent side="bottom" className="rounded-t-2xl">
+        <SheetContent
+          side="bottom"
+          className="rounded-t-2xl max-h-[90vh] flex flex-col"
+          style={{
+            transform: "translateZ(0)",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
           <SheetHeader className="text-left">
             <SheetTitle>Add to Ledger</SheetTitle>
           </SheetHeader>
@@ -1271,6 +1289,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
             >
               {ledgerSubmitting ? s.incoming_saving : "Add to Ledger (Unpaid)"}
             </button>
+          </div>
           </div>
         </SheetContent>
       </Sheet>
@@ -1353,6 +1372,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
           shopName={vendor.shop_name}
         />
       )}
+      </div>
     </div>
   );
 }

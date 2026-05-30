@@ -27,8 +27,8 @@ function StatCell({
   suffix?: string;
 }) {
   return (
-    <div className="rounded-2xl bg-secondary/10 p-3 text-center">
-      <p className="text-2xl font-bold text-secondary tabular-nums">
+    <div className="rounded-2xl bg-surface border border-surface-border p-3 text-center">
+      <p className="text-xl font-bold text-foreground tabular-nums">
         {loading ? (
           <span className="text-muted-foreground">—</span>
         ) : (
@@ -38,7 +38,7 @@ function StatCell({
           </>
         )}
       </p>
-      <p className="text-xs text-muted-foreground mt-1">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground mt-1">{label}</p>
     </div>
   );
 }
@@ -52,7 +52,7 @@ export function VendorAnalytics({ loading, stats, onTimeRate }: Props) {
       : "—";
 
   return (
-    <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+    <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4">
       <div className="flex items-center gap-3 mb-3">
         <BarChart2 className="h-5 w-5 text-secondary" />
         <p className="font-display font-bold">{s.settings_myAnalytics}</p>

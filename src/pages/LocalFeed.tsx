@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
+import { SettingsSectionLabel, SettingsCard } from "@/components/settings/SettingsSection";
 
 const FEED_IMAGES_BUCKET = "feed-images";
 const MAX_CONTENT = 200;
@@ -493,17 +494,16 @@ export default function LocalFeed() {
 
   return (
     <AppShell>
-      <header className="flex items-start justify-between gap-3 mb-6">
+      <div className="space-y-3 pb-24">
+      <header className="flex items-start justify-between gap-3 px-4 pt-2">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.35em] text-brand font-bold">
-            LOCAL FEED
-          </p>
-          <p className="text-sm text-muted-foreground mt-1">📍 Near You</p>
+          <h1 className="text-2xl font-bold text-foreground">Local Feed</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">📍 Near You</p>
         </div>
         <button
           type="button"
           onClick={openCompose}
-          className="h-10 w-10 shrink-0 grid place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm active:scale-[0.98] transition-transform"
+          className="h-12 w-12 shrink-0 grid place-items-center rounded-full bg-brand text-page-bg shadow-lg active:scale-[0.98] transition-transform"
           aria-label="New post"
         >
           <Plus className="h-5 w-5" />
@@ -511,7 +511,7 @@ export default function LocalFeed() {
       </header>
 
       {categories.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 px-4">
           {categories.map((c) => {
             const isSelected = selectedCategory === c.id;
             return (
@@ -520,10 +520,10 @@ export default function LocalFeed() {
                 type="button"
                 onClick={() => setSelectedCategory(isSelected ? null : c.id)}
                 className={cn(
-                  "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                  "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
                   isSelected
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground",
+                    ? "bg-brand text-white border-brand"
+                    : "border-surface-border text-muted-foreground bg-surface",
                 )}
               >
                 {c.emoji} {c.label}
@@ -543,7 +543,7 @@ export default function LocalFeed() {
             No posts near you yet. Be the first to post!
           </p>
         ) : (
-          <ul className="flex flex-col gap-4 pb-4">
+          <ul className="flex flex-col gap-3 pb-4">
             {posts.map((post) => (
               <li key={post.id}>
                 {post.type === "offer" && <OfferCard post={post} />}
@@ -585,7 +585,7 @@ export default function LocalFeed() {
           {categoryVendors.map((v) => (
             <article
               key={v.id}
-              className="rounded-2xl border border-border bg-card p-4 shadow-sm flex items-center justify-between gap-4"
+              className="mx-4 rounded-2xl border border-surface-border bg-surface p-4 flex items-center justify-between gap-4 mb-3"
             >
               <div className="min-w-0">
                 <h3 className="font-display font-bold truncate">
@@ -640,7 +640,8 @@ export default function LocalFeed() {
               </button>
             </div>
 
-            <div className="flex flex-wrap gap-2 mb-4">
+            <SettingsSectionLabel>Post type</SettingsSectionLabel>
+            <div className="flex flex-wrap gap-2 mb-4 px-4">
               <TypeChip
                 active={composeType === "announcement"}
                 onClick={() => setComposeType("announcement")}
@@ -655,19 +656,21 @@ export default function LocalFeed() {
               />
             </div>
 
-            <Textarea
-              value={composeContent}
-              onChange={(e) => setComposeContent(e.target.value.slice(0, MAX_CONTENT))}
-              placeholder={
-                composeType === "announcement"
-                  ? "Share something with your neighbourhood..."
-                  : composeType === "recommendation"
-                    ? "What are you recommending? e.g. 'Great chai at Sharma Tea Stall'"
-                    : "What's happening nearby?"
-              }
-              className="min-h-[100px] mb-1"
-              maxLength={MAX_CONTENT}
-            />
+            <SettingsCard className="mx-4">
+              <Textarea
+                value={composeContent}
+                onChange={(e) => setComposeContent(e.target.value.slice(0, MAX_CONTENT))}
+                placeholder={
+                  composeType === "announcement"
+                    ? "Share something with your neighbourhood..."
+                    : composeType === "recommendation"
+                      ? "What are you recommending? e.g. 'Great chai at Sharma Tea Stall'"
+                      : "What's happening nearby?"
+                }
+                className="min-h-[100px] mb-1 border-0 bg-transparent focus-visible:ring-0"
+                maxLength={MAX_CONTENT}
+              />
+            </SettingsCard>
             <p className="text-[11px] text-muted-foreground text-right mb-4">
               {composeContent.length}/{MAX_CONTENT}
             </p>
@@ -710,6 +713,7 @@ export default function LocalFeed() {
           </div>
         </div>
       )}
+      </div>
     </AppShell>
   );
 }
@@ -732,8 +736,8 @@ function TypeChip({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
         active
-          ? "bg-brand/15 border-brand text-brand"
-          : "border-border text-muted-foreground",
+          ? "bg-brand text-white border-brand"
+          : "border-surface-border text-muted-foreground bg-surface",
       )}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -745,7 +749,10 @@ function TypeChip({
 function OfferCard({ post }: { post: FeedPost }) {
   const expiry = expiryBadgeLabel(post.expires_at);
   return (
-    <article className="rounded-2xl border border-border bg-card p-4 border-l-4 border-l-brand shadow-sm">
+    <article className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4">
+      <span className="inline-block text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 px-2 py-0.5 mb-2">
+        Offer
+      </span>
       <div className="flex items-start gap-2 mb-2">
         <Tag className="h-4 w-4 text-brand shrink-0 mt-0.5" />
         <p className="font-semibold text-foreground">
@@ -774,13 +781,10 @@ function AnnouncementCard({
   flagging: boolean;
 }) {
   return (
-    <article className="rounded-2xl border border-border bg-card p-4 border-l-4 border-l-amber-500 shadow-sm relative">
-      <div className="flex items-start gap-2 mb-2 pr-10">
-        <Megaphone className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-        <p className="text-xs font-bold uppercase tracking-wide text-amber-700">
-          Announcement
-        </p>
-      </div>
+    <article className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative">
+      <span className="inline-block text-xs font-semibold rounded-full bg-blue-500/20 text-blue-400 px-2 py-0.5 mb-2">
+        Announcement
+      </span>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
         {post.content}
       </p>
@@ -828,13 +832,10 @@ function RecommendationCard({
   onSendReply: () => void;
 }) {
   return (
-    <article className="rounded-2xl border border-border bg-card p-4 border-l-4 border-l-blue-500 shadow-sm">
-      <div className="flex items-start gap-2 mb-2">
-        <HelpCircle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-        <p className="text-xs font-bold uppercase tracking-wide text-blue-700">
-          Looking for help
-        </p>
-      </div>
+    <article className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4">
+      <span className="inline-block text-xs font-semibold rounded-full bg-purple-500/20 text-purple-400 px-2 py-0.5 mb-2">
+        Recommendation
+      </span>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
         {post.content}
       </p>
@@ -850,7 +851,7 @@ function RecommendationCard({
       </div>
 
       {expanded && (
-        <div className="mt-4 pt-4 border-t border-border space-y-3">
+        <div className="mt-4 ml-4 border-l-2 border-surface-border pl-3 space-y-3">
           {loadingReplies ? (
             <div className="flex justify-center py-2">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

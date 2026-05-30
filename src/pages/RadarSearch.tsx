@@ -377,7 +377,12 @@ const RadarSearch = () => {
 
       {/* True empty state — no private responders even at 50 km. */}
       {!scanning && !error && results.length === 0 && searchRadiusKm >= MAX_RADIUS_KM && (
-        <EmptyStateFailsafe term={term} />
+        <div className="text-center py-12 px-6 mx-4">
+          <p className="text-4xl mb-2" aria-hidden>
+            🔍
+          </p>
+          <EmptyStateFailsafe term={term} />
+        </div>
       )}
     </AppShell>
   );

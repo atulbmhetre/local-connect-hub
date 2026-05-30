@@ -185,6 +185,8 @@ export type Vendor = {
   longitude: number | null;
   verification_status: VerificationStatus;
   shop_photo_url: string | null;
+  /** Meters from shop coords at photo capture; 0 = location set from photo with no prior GPS. */
+  gps_match_distance?: number | null;
   upi_verified: boolean;
   is_manual_verified: boolean;
   created_at: string;

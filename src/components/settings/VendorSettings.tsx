@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
-import { Store, Bell, ChevronDown, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
+import { Bell, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
@@ -14,14 +14,16 @@ import {
   type Vendor,
 } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
+import { cn } from "@/lib/utils";
 import { getVoiceLang } from "@/lib/voiceUtils";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { Switch } from "@/components/ui/switch";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  SettingsCard,
+  SettingsRow,
+  SettingsSectionLabel,
+  SettingsCollapsible,
+} from "@/components/settings/SettingsSection";
 import {
   isVendorSoundEnabled,
   isVendorVibrateEnabled,
@@ -53,6 +55,7 @@ type Props = {
   vendor: Vendor;
   onVendorUpdated: (updated: Vendor) => void;
   activeOfferSection?: ReactNode;
+  onEditShopDetails?: () => void;
 };
 
 export function VendorSettingsNotifications({ vendor: _vendor }: { vendor: Vendor }) {
@@ -63,15 +66,14 @@ export function VendorSettingsNotifications({ vendor: _vendor }: { vendor: Vendo
   if (!Capacitor.isNativePlatform()) return null;
 
   return (
-    <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-      <div className="flex items-center gap-3 mb-3">
-        <Bell className="h-5 w-5 text-secondary" />
-        <p className="font-display font-bold">{s.settings_notifications}</p>
+    <section className="mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden mb-3">
+      <div className="px-4 py-3 border-b border-surface-border">
+        <p className="text-sm font-medium text-foreground">{s.settings_notifications}</p>
       </div>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
+      <div>
+        <div className="flex items-center justify-between gap-3 px-4 py-3.5 border-b border-surface-border">
           <div className="min-w-0">
-            <p className="text-sm font-semibold">{s.settings_vibrate}</p>
+            <p className="text-sm font-medium text-foreground">{s.settings_vibrate}</p>
           </div>
           <Switch
             checked={vendorVibrate}
@@ -81,9 +83,9 @@ export function VendorSettingsNotifications({ vendor: _vendor }: { vendor: Vendo
             }}
           />
         </div>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 px-4 py-3.5">
           <div className="min-w-0">
-            <p className="text-sm font-semibold">{s.settings_sound}</p>
+            <p className="text-sm font-medium text-foreground">{s.settings_sound}</p>
             <p className="text-xs text-muted-foreground mt-0.5">{s.settings_sound_body}</p>
           </div>
           <Switch
@@ -135,8 +137,8 @@ export function VendorSettingsReferEarn({ vendor }: { vendor: Vendor }) {
   };
 
   return (
-    <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-      <p className="font-display font-bold mb-3">{s.vendor_referEarn}</p>
+    <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4 mb-3">
+      <p className="text-sm font-medium text-foreground mb-3">{s.vendor_referEarn}</p>
       {referralCode != null ? (
         <>
           <div className="rounded-2xl bg-secondary/10 border border-secondary/30 px-4 py-3 mb-3">
@@ -164,7 +166,12 @@ export function VendorSettingsReferEarn({ vendor }: { vendor: Vendor }) {
   );
 }
 
-export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: Props) {
+export function VendorSettings({
+  vendor,
+  onVendorUpdated,
+  activeOfferSection,
+  onEditShopDetails,
+}: Props) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
   const getMode = useServiceModeLabel();
@@ -181,6 +188,9 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
   const [reviews, setReviews] = useState<VendorReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(true);
+  const [menuDefaultApplied, setMenuDefaultApplied] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [callReview, setCallReview] = useState<{
     callerPhone: string;
     serviceMode: string;
@@ -226,7 +236,15 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
 
   useEffect(() => {
     void loadMenu();
+    setMenuDefaultApplied(false);
   }, [vendor.id]);
+
+  useEffect(() => {
+    if (!menuLoading && !menuDefaultApplied) {
+      setMenuOpen(menuItems.length <= 5);
+      setMenuDefaultApplied(true);
+    }
+  }, [menuLoading, menuItems.length, menuDefaultApplied]);
 
   useEffect(() => {
     setCancelReasons([
@@ -396,269 +414,277 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
     }
   };
 
+  const serviceModeLabel = s.settings_check7.replace(/\s*\(.*$/, "").replace(/\s+is correct$/i, "");
+
   return (
     <>
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="flex items-center gap-3 mb-3">
-          <Store className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">{s.settings_myShop}</p>
-        </div>
-        <div className="space-y-1">
-          <p className="text-sm font-semibold">{vendor.shop_name}</p>
-          <p className="text-xs text-muted-foreground">
-            {getLabel(vendor.category)}
-            {s.settings_dotSeparator}
-            {getMode(vendor.service_mode ?? "help")}
-          </p>
-        </div>
-      </section>
+      <SettingsCard>
+        <SettingsRow label={s.vendor_shop_name} sublabel={vendor.shop_name}>
+          <span aria-hidden />
+        </SettingsRow>
+        <SettingsRow label={s.vendor_category_label} sublabel={getLabel(vendor.category)}>
+          <span aria-hidden />
+        </SettingsRow>
+        <SettingsRow
+          label={serviceModeLabel}
+          sublabel={getMode(vendor.service_mode ?? "help")}
+        >
+          <span aria-hidden />
+        </SettingsRow>
+        {onEditShopDetails && (
+          <button
+            type="button"
+            onClick={onEditShopDetails}
+            className="w-full px-4 py-3.5 border-t border-surface-border text-sm font-semibold text-brand text-center active:opacity-90"
+          >
+            ✏️ Edit Shop Details
+          </button>
+        )}
+      </SettingsCard>
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+      <SettingsCard>
         <VendorNoteEditor
           vendorId={vendor.id}
           initialNote={vendor.vendor_note ?? null}
           onSaved={(newNote) => onVendorUpdated({ ...vendor, vendor_note: newNote || null })}
         />
-      </section>
+      </SettingsCard>
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-foreground">📋 {s.menu_title}</p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void startImageMenu()}
-                  disabled={isProcessingImageMenu}
-                  className="p-1.5 rounded-lg border border-surface-border bg-surface text-gray-400 hover:text-brand disabled:opacity-50"
-                >
-                  {isProcessingImageMenu ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Camera className="h-3.5 w-3.5" />
-                  )}
-                </button>
-                {Capacitor.isNativePlatform() &&
-                  (isListeningMenu ? (
-                    <div className="flex items-center gap-2 rounded-lg border border-red-500/50 bg-red-500/10 px-2.5 py-1.5 shrink-0">
-                      <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-                      <span className="text-[10px] font-semibold text-red-500 whitespace-nowrap">
-                        Listening... speak now
-                      </span>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void startVoiceMenu()}
-                      className="p-1.5 rounded-lg border border-surface-border bg-surface text-gray-400 hover:text-brand transition-colors shrink-0"
-                      aria-label={s.menu_voicePrompt}
-                    >
-                      <Mic className="h-3.5 w-3.5" />
-                    </button>
-                  ))}
-                <button
-                  type="button"
-                  onClick={() => setAddingItem(true)}
-                  className="text-xs text-brand font-semibold"
-                >
-                  + {s.menu_addItem}
-                </button>
+      <SettingsSectionLabel>{s.menu_title}</SettingsSectionLabel>
+      <SettingsCollapsible
+        label={`${menuItems.length} items`}
+        open={menuOpen}
+        onToggle={() => setMenuOpen((o) => !o)}
+      >
+        <div className="flex items-center justify-end gap-2 px-4 py-2 border-b border-surface-border">
+          <button
+            type="button"
+            onClick={() => void startImageMenu()}
+            disabled={isProcessingImageMenu}
+            className="p-1.5 rounded-lg border border-surface-border bg-surface text-muted-foreground active:text-brand disabled:opacity-50"
+          >
+            {isProcessingImageMenu ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Camera className="h-3.5 w-3.5" />
+            )}
+          </button>
+          {Capacitor.isNativePlatform() &&
+            (isListeningMenu ? (
+              <div className="flex items-center gap-2 rounded-lg border border-red-500/50 bg-red-500/10 px-2.5 py-1.5 shrink-0">
+                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                <span className="text-[10px] font-semibold text-red-500 whitespace-nowrap">
+                  Listening... speak now
+                </span>
               </div>
-            </div>
-
-            {menuLoading && (
-              <p className="text-xs text-muted-foreground">{s.settings_loading}</p>
-            )}
-
-            {!menuLoading && menuItems.length === 0 && (
-              <p className="text-xs text-muted-foreground">{s.menu_empty}</p>
-            )}
-
-            {menuItems.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between rounded-xl border border-surface-border bg-surface px-3 py-2.5"
+            ) : (
+              <button
+                type="button"
+                onClick={() => void startVoiceMenu()}
+                className="p-1.5 rounded-lg border border-surface-border bg-surface text-muted-foreground active:text-brand shrink-0"
+                aria-label={s.menu_voicePrompt}
               >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground truncate">{item.name}</p>
-                  {item.description && (
-                    <p className="text-xs text-muted-foreground truncate">{item.description}</p>
-                  )}
-                  <p className="text-xs text-brand font-semibold">
-                    ₹{item.price}
-                    {item.unit ? `/${item.unit}` : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 ml-2">
-                  <button
-                    type="button"
-                    onClick={() => void toggleAvailability(item)}
-                    className={`text-xs px-2 py-1 rounded-lg border ${
-                      item.is_available
-                        ? "border-brand/40 text-brand"
-                        : "border-surface-border text-muted-foreground"
-                    }`}
-                  >
-                    {item.is_available ? s.menu_available : s.menu_unavailable}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingMenuItem(item)}
-                    className="text-muted-foreground hover:text-brand"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void deleteMenuItem(item.id)}
-                    className="text-muted-foreground hover:text-danger"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
+                <Mic className="h-3.5 w-3.5" />
+              </button>
             ))}
-
-            {addingItem && (
-              <div className="rounded-xl border border-brand-border bg-brand/5 p-3 space-y-2">
-                <input
-                  type="text"
-                  value={newItem.name}
-                  onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
-                  placeholder={s.menu_itemName}
-                  className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    value={newItem.price}
-                    onChange={(e) => setNewItem((p) => ({ ...p, price: e.target.value }))}
-                    placeholder={s.menu_price}
-                    className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
-                  />
-                  <input
-                    type="text"
-                    value={newItem.unit}
-                    onChange={(e) => setNewItem((p) => ({ ...p, unit: e.target.value }))}
-                    placeholder={s.menu_unit}
-                    className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
-                  />
-                </div>
-                <input
-                  type="text"
-                  value={newItem.description}
-                  onChange={(e) => setNewItem((p) => ({ ...p, description: e.target.value }))}
-                  placeholder={s.menu_description}
-                  className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
-                />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void saveNewItem()}
-                    className="flex-1 rounded-lg bg-brand text-page-bg text-sm font-semibold py-2"
-                  >
-                    {s.menu_save}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddingItem(false);
-                      setNewItem({ name: "", price: "", unit: "", description: "" });
-                    }}
-                    className="flex-1 rounded-lg border border-surface-border text-sm py-2"
-                  >
-                    {s.settings_cancel}
-                  </button>
-                </div>
-              </div>
-            )}
         </div>
-      </section>
+
+        {menuLoading && (
+          <p className="text-xs text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
+        )}
+
+        {!menuLoading && menuItems.length === 0 && (
+          <p className="text-xs text-muted-foreground px-4 py-3.5">{s.menu_empty}</p>
+        )}
+
+        {menuItems.map((item) => (
+          <SettingsRow
+            key={item.id}
+            label={item.name}
+            sublabel={
+              <>
+                {item.description && (
+                  <span className="block truncate">{item.description}</span>
+                )}
+                <span className="text-brand font-semibold">
+                  ₹{item.price}
+                  {item.unit ? `/${item.unit}` : ""}
+                </span>
+              </>
+            }
+          >
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void toggleAvailability(item)}
+                className={cn(
+                  "text-xs px-2 py-1 rounded-lg border whitespace-nowrap",
+                  item.is_available
+                    ? "border-brand/40 text-brand"
+                    : "border-surface-border text-muted-foreground",
+                )}
+              >
+                {item.is_available ? s.menu_available : s.menu_unavailable}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingMenuItem(item)}
+                className="p-1.5 text-muted-foreground active:text-brand"
+                aria-label="Edit item"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteMenuItem(item.id)}
+                className="p-1.5 text-muted-foreground active:text-danger"
+                aria-label="Delete item"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </SettingsRow>
+        ))}
+
+        {addingItem && (
+          <div className="px-4 py-3 border-t border-surface-border space-y-2">
+            <input
+              type="text"
+              value={newItem.name}
+              onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
+              placeholder={s.menu_itemName}
+              className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                value={newItem.price}
+                onChange={(e) => setNewItem((p) => ({ ...p, price: e.target.value }))}
+                placeholder={s.menu_price}
+                className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+              />
+              <input
+                type="text"
+                value={newItem.unit}
+                onChange={(e) => setNewItem((p) => ({ ...p, unit: e.target.value }))}
+                placeholder={s.menu_unit}
+                className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+              />
+            </div>
+            <input
+              type="text"
+              value={newItem.description}
+              onChange={(e) => setNewItem((p) => ({ ...p, description: e.target.value }))}
+              placeholder={s.menu_description}
+              className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void saveNewItem()}
+                className="flex-1 rounded-lg bg-brand text-page-bg text-sm font-semibold py-2"
+              >
+                {s.menu_save}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddingItem(false);
+                  setNewItem({ name: "", price: "", unit: "", description: "" });
+                }}
+                className="flex-1 rounded-lg border border-surface-border text-sm py-2 text-foreground"
+              >
+                {s.settings_cancel}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setAddingItem(true)}
+          className="w-full mx-4 mb-3 mt-1 rounded-xl border border-brand/30 bg-brand/5 py-3 text-sm font-semibold text-brand active:scale-[0.99]"
+        >
+          + {s.menu_addItem}
+        </button>
+      </SettingsCollapsible>
 
       {activeOfferSection}
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <Collapsible>
-          <CollapsibleTrigger className="w-full flex items-center justify-between gap-3 group">
-            <div className="text-left min-w-0">
-              <p className="text-sm font-semibold">{s.cancelReasons}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{s.cancelReasonsSubtitle}</p>
-            </div>
-            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-3 pt-3">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="space-y-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {`${s.rejectionReasonField} ${i + 1}`}
-                </label>
-                <input
-                  type="text"
-                  value={cancelReasons[i]}
-                  onChange={(e) => {
-                    const next = [...cancelReasons];
-                    next[i] = e.target.value.slice(0, 60);
-                    setCancelReasons(next);
-                  }}
-                  maxLength={60}
-                  className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-            ))}
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => void saveCancelReasons()}
-                disabled={savingReasons}
-                className="text-xs font-semibold text-brand hover:underline disabled:opacity-50"
-              >
-                {savingReasons ? s.incoming_saving : s.saveReasons}
-              </button>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      </section>
+      <SettingsCollapsible
+        label={s.cancelReasons}
+        open={cancelOpen}
+        onToggle={() => setCancelOpen((o) => !o)}
+      >
+        <p className="text-xs text-muted-foreground px-4 pt-3 pb-2">{s.cancelReasonsSubtitle}</p>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="px-4 py-2 space-y-1 border-b border-surface-border last:border-0">
+            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {`${s.rejectionReasonField} ${i + 1}`}
+            </label>
+            <input
+              type="text"
+              value={cancelReasons[i]}
+              onChange={(e) => {
+                const next = [...cancelReasons];
+                next[i] = e.target.value.slice(0, 60);
+                setCancelReasons(next);
+              }}
+              maxLength={60}
+              className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-brand"
+            />
+          </div>
+        ))}
+        <div className="flex justify-end px-4 py-3">
+          <button
+            type="button"
+            onClick={() => void saveCancelReasons()}
+            disabled={savingReasons}
+            className="text-xs font-semibold text-brand active:opacity-80 disabled:opacity-50"
+          >
+            {savingReasons ? s.incoming_saving : s.saveReasons}
+          </button>
+        </div>
+      </SettingsCollapsible>
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <button
-          type="button"
-          onClick={() => {
-            setShowReviews((p) => !p);
-            if (!showReviews) void loadReviews();
-          }}
-          className="w-full flex items-center justify-between text-sm font-semibold text-foreground"
-        >
-          <span>⭐ {s.review_myReviews}</span>
-          <span className="text-brand text-xs">{showReviews ? s.review_hide : s.review_show}</span>
-        </button>
-
-        {showReviews && (
-          <div className="space-y-2 mt-3">
-            {reviewsLoading && (
-              <p className="text-xs text-muted-foreground">{s.settings_loading}</p>
-            )}
-            {!reviewsLoading && reviews.length === 0 && (
-              <p className="text-xs text-muted-foreground">{s.review_noReviews}</p>
-            )}
-            {reviews.map((r) => (
-              <div
-                key={r.id}
-                className="rounded-xl border border-surface-border bg-surface px-3 py-2.5 space-y-1"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">
+      <SettingsCollapsible
+        label={`⭐ ${s.review_myReviews} (${reviews.length})`}
+        open={showReviews}
+        onToggle={() => {
+          setShowReviews((p) => {
+            const next = !p;
+            if (next) void loadReviews();
+            return next;
+          });
+        }}
+      >
+        {reviewsLoading && (
+          <p className="text-xs text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
+        )}
+        {!reviewsLoading && reviews.length === 0 && (
+          <p className="text-xs text-muted-foreground px-4 py-3.5">{s.review_noReviews}</p>
+        )}
+        <div className="px-4 pb-3 space-y-2">
+          {reviews.map((r) => (
+            <div
+              key={r.id}
+              className="rounded-xl border border-surface-border bg-surface/80 px-3 py-2.5"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-foreground">
                     {"⭐".repeat(r.rating)}
                     {"☆".repeat(5 - r.rating)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatTimeAgo(r.created_at)}
-                  </span>
-                </div>
-                {r.review_text && (
-                  <p className="text-xs text-foreground leading-relaxed">
-                    &quot;{r.review_text}&quot;
                   </p>
-                )}
+                  {r.review_text && (
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      &quot;{r.review_text}&quot;
+                    </p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {formatTimeAgo(r.created_at)}
+                  </p>
+                </div>
                 {r.rating <= 2 && r.user_phone && (
                   <button
                     type="button"
@@ -668,16 +694,16 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
                         serviceMode: r.service_mode ?? vendor.service_mode ?? "help",
                       })
                     }
-                    className="text-[10px] text-muted-foreground mt-1 hover:text-foreground"
+                    className="shrink-0 text-xs font-semibold text-brand active:opacity-80"
                   >
                     📞 Call customer
                   </button>
                 )}
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+            </div>
+          ))}
+        </div>
+      </SettingsCollapsible>
 
       {callReview && (
         <AiBridgeSheet

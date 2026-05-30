@@ -20,7 +20,7 @@ import {
   CheckCircle,
   XCircle,
   Store,
-  Tag,
+  ChevronDown,
 } from "lucide-react";
 import { Capacitor, type PermissionState } from "@capacitor/core";
 import { App } from "@capacitor/app";
@@ -67,6 +67,13 @@ import {
 } from "@/components/settings/VendorSettings";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import {
+  SettingsPageHeader,
+  SettingsSectionLabel,
+  SettingsCard,
+  SettingsRow,
+  SettingsCollapsible,
+} from "@/components/settings/SettingsSection";
 
 const LARGE_TEXT_KEY = "aaspaas:large_text";
 const VOICE_LANG_KEY = "aaspaas:voice_lang";
@@ -118,6 +125,69 @@ function adminServiceModeLabel(mode: string | null | undefined): string {
   if (mode === "delivery") return "🚚 Delivery";
   if (mode === "appointment") return "📅 Appointment";
   return "🚶 Help";
+}
+
+const GPS_MATCH_TOLERANCE_M = 75;
+
+function buildVerifyAutoChecks(
+  v: {
+    shop_photo_url: string | null;
+    gps_match_distance: number | null;
+    upi_verified: boolean;
+  },
+): Record<string, boolean> {
+  const autoChecks: Record<string, boolean> = {};
+  if (
+    v.shop_photo_url?.trim() &&
+    v.gps_match_distance != null &&
+    v.gps_match_distance <= GPS_MATCH_TOLERANCE_M
+  ) {
+    autoChecks.photo_genuine = true;
+    autoChecks.shop_exists = true;
+  }
+  if (v.upi_verified) {
+    autoChecks.upi_verified = true;
+  }
+  return autoChecks;
+}
+
+function gpsMatchAdminLabel(distance: number | null | undefined): {
+  text: string;
+  className: string;
+} {
+  if (distance == null) {
+    return { text: "📍 No photo captured yet", className: "text-muted-foreground" };
+  }
+  if (distance === 0) {
+    return {
+      text: "📍 Location set from photo (no prior GPS)",
+      className: "text-amber-600",
+    };
+  }
+  if (distance <= GPS_MATCH_TOLERANCE_M) {
+    return {
+      text: `✅ GPS matched — ${distance}m from shop`,
+      className: "text-green-600",
+    };
+  }
+  return {
+    text: `❌ GPS mismatch — ${distance}m away`,
+    className: "text-red-600",
+  };
+}
+
+function formatVendorLastUpdated(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "—";
+  return d.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 type NativePermissionStatuses = {
@@ -187,6 +257,14 @@ const Settings = () => {
       phone: string;
       is_manual_verified: boolean;
       is_active: boolean;
+      shop_photo_url: string | null;
+      upi_id: string | null;
+      latitude: number | null;
+      longitude: number | null;
+      referral_code: string | null;
+      last_updated: string | null;
+      gps_match_distance: number | null;
+      upi_verified: boolean;
     }[]
   >([]);
   const [vendorSearch, setVendorSearch] = useState("");
@@ -223,6 +301,7 @@ const Settings = () => {
     vendor: (typeof vendorList)[number] | null;
   }>({ open: false, vendor: null });
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
+  const [verifyAutoTicked, setVerifyAutoTicked] = useState<Set<string>>(() => new Set());
   const { addresses, loading: addressesLoading, refresh: refreshAddresses } = useUserAddresses();
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [editAddressValue, setEditAddressValue] = useState("");
@@ -249,6 +328,10 @@ const Settings = () => {
       return false;
     }
   });
+  const [addressesOpen, setAddressesOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(isAdmin);
+  const [pendingCatOpen, setPendingCatOpen] = useState(false);
+  const [flaggedOpen, setFlaggedOpen] = useState(false);
   const [activeOffer, setActiveOffer] = useState<{
     id: string;
     content: string;
@@ -370,7 +453,9 @@ const Settings = () => {
   const loadVendorList = async () => {
     const { data } = await supabase
       .from("vendors")
-      .select("id, name, shop_name, category, service_mode, phone, is_manual_verified, is_active")
+      .select(
+        "id, name, shop_name, category, service_mode, phone, is_manual_verified, is_active, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified",
+      )
       .order("is_manual_verified", { ascending: true })
       .order("shop_name");
     if (data) setVendorList(data);
@@ -524,13 +609,19 @@ const Settings = () => {
   };
 
   const openVerifySheet = (vendor: (typeof vendorList)[number]) => {
+    const savedChecks = loadVerifyChecks(vendor.id);
+    const autoChecks = buildVerifyAutoChecks(vendor);
+    setVerifyAutoTicked(
+      new Set(Object.keys(autoChecks).filter((k) => autoChecks[k])),
+    );
     setVerifySheet({ open: true, vendor });
-    setVerifyChecks(loadVerifyChecks(vendor.id));
+    setVerifyChecks({ ...autoChecks, ...savedChecks });
   };
 
   const closeVerifySheet = () => {
     setVerifySheet({ open: false, vendor: null });
     setVerifyChecks({});
+    setVerifyAutoTicked(new Set());
   };
 
   const mandatoryDone = [...VERIFY_MANDATORY].every((k) => verifyChecks[k] === true);
@@ -756,50 +847,45 @@ const Settings = () => {
   };
 
   return (
-    <AppShell theme="light">
-      <header className="mb-6">
-        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">{s.settings_heading}</p>
-        <h1
-          onClick={tapTitle}
-          className="font-display text-3xl font-bold mt-1 select-none cursor-default"
-        >
-          {s.settings_tagline}
-        </h1>
-      </header>
+    <AppShell theme="dark">
+      <div className="pb-8">
+      <SettingsPageHeader
+        title={s.settings_tagline}
+        subtitle={s.settings_heading}
+        onTitleClick={tapTitle}
+      />
 
       {!vendorId && (
-        <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+        <SettingsCard>
           <button
             type="button"
             onClick={() => navigate("/vendor")}
-            className="w-full flex items-center gap-3 rounded-2xl border border-border bg-muted/30 px-4 py-3 text-left active:scale-[0.99] transition-transform hover:bg-muted/50"
+            className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:opacity-90"
           >
-            <span className="h-10 w-10 shrink-0 rounded-xl bg-secondary/10 border border-secondary/30 grid place-items-center">
-              <Store className="h-5 w-5 text-secondary" />
+            <span className="h-10 w-10 shrink-0 rounded-xl bg-brand/10 border border-brand/30 grid place-items-center">
+              <Store className="h-5 w-5 text-brand" />
             </span>
-            <span className="text-sm font-semibold text-foreground">{s.settings_register_business}</span>
+            <span className="text-sm font-medium text-foreground">{s.settings_register_business}</span>
           </button>
-          <p className="text-xs text-muted-foreground mt-3">{s.settings_register_business_sub}</p>
-        </section>
+          <p className="text-xs text-muted-foreground px-4 pb-3">{s.settings_register_business_sub}</p>
+        </SettingsCard>
       )}
 
-      <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 mb-2 mt-6">
-        MY ACCOUNT
-      </p>
+      <SettingsSectionLabel>MY ACCOUNT</SettingsSectionLabel>
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="flex items-center gap-3 mb-3">
-          <Phone className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">{s.settings_myIdentity}</p>
+      <SettingsCard>
+        <div className="px-4 py-3.5 border-b border-surface-border">
+          <p className="text-sm font-medium text-foreground">{s.settings_myIdentity}</p>
         </div>
+        <div className="px-4 py-3.5">
         {identityPhone != null ? (
           <div>
-            <p className="text-sm font-semibold text-foreground">{s.settings_phonePrefix}{identityPhone}</p>
+            <p className="text-sm font-medium text-foreground">{s.settings_phonePrefix}{identityPhone}</p>
             <p className="text-xs text-brand mt-1">{s.settings_registered}</p>
           </div>
         ) : (
           <div>
-            <p className="text-sm font-semibold text-foreground">{s.settings_noPhone}</p>
+            <p className="text-sm font-medium text-foreground">{s.settings_noPhone}</p>
             <p className="text-xs text-muted-foreground mt-1">
               {s.settings_noPhoneHint}
             </p>
@@ -808,20 +894,27 @@ const Settings = () => {
         <p className="text-[10px] text-muted-foreground/70 mt-3 tabular-nums">
           {s.settings_devicePrefix}{deviceId.slice(0, 8)}{s.settings_deviceEllipsis}
         </p>
-      </section>
+        </div>
+      </SettingsCard>
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <p className="font-display font-bold mb-3">{s.settings_myDeliveryAddresses}</p>
+      <SettingsCollapsible
+        label={`${s.settings_myDeliveryAddresses} (${addresses.length})`}
+        open={addressesOpen}
+        onToggle={() => setAddressesOpen((o) => !o)}
+      >
         {addressesLoading ? (
-          <p className="text-sm text-muted-foreground">{s.settings_loading}</p>
+          <p className="text-sm text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
         ) : addresses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{s.settings_noAddresses}</p>
+          <p className="text-sm text-muted-foreground px-4 py-3.5">{s.settings_noAddresses}</p>
         ) : (
-          <ul className="space-y-2">
-            {addresses.map((addr) => (
+          <ul>
+            {addresses.map((addr, idx) => (
               <li
                 key={addr.id}
-                className="rounded-2xl border border-border bg-background px-3 py-2.5"
+                className={cn(
+                  "px-4 py-3.5",
+                  idx < addresses.length - 1 && "border-b border-surface-border",
+                )}
               >
                 {editingAddressId === addr.id ? (
                   <div className="space-y-2">
@@ -829,7 +922,7 @@ const Settings = () => {
                       type="text"
                       value={editAddressValue}
                       onChange={(e) => setEditAddressValue(e.target.value)}
-                      className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:border-brand"
                       autoFocus
                     />
                     <div className="flex items-center justify-end gap-2">
@@ -861,7 +954,7 @@ const Settings = () => {
                     <button
                       type="button"
                       onClick={() => startEditAddress(addr)}
-                      className="shrink-0 h-8 w-8 rounded-lg border border-border text-sm hover:bg-card transition-colors"
+                      className="shrink-0 h-8 w-8 rounded-lg border border-surface-border text-sm active:opacity-80"
                       aria-label="Edit address"
                     >
                       ✏️
@@ -869,7 +962,7 @@ const Settings = () => {
                     <button
                       type="button"
                       onClick={() => setDeleteAddressId(addr.id)}
-                      className="shrink-0 h-8 w-8 rounded-lg border border-border text-sm hover:bg-card transition-colors"
+                      className="shrink-0 h-8 w-8 rounded-lg border border-surface-border text-sm active:opacity-80"
                       aria-label="Delete address"
                     >
                       🗑️
@@ -880,84 +973,78 @@ const Settings = () => {
             ))}
           </ul>
         )}
-      </section>
+      </SettingsCollapsible>
 
       {vendor && <VendorSettingsNotifications vendor={vendor} />}
 
       {vendor ? (
         <VendorSettingsReferEarn vendor={vendor} />
       ) : (
-        <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+        <SettingsCard>
           <button
             type="button"
             onClick={() => void inviteFriend()}
-            className="w-full rounded-2xl bg-secondary text-secondary-foreground px-4 py-3 text-sm font-semibold transition-colors active:scale-[0.99]"
+            className="w-full px-4 py-3.5 text-sm font-semibold text-brand text-left active:opacity-90"
           >
             {s.settings_shareApp}
           </button>
-        </section>
+        </SettingsCard>
       )}
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="flex items-center gap-3 mb-3">
-          <ShieldCheck className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">{s.settings_trustSecurity}</p>
+      <SettingsCard>
+        <SettingsRow label={s.settings_trustSecurity} sublabel={s.settings_tlsNote}>
+          <CheckCircle2 className="h-5 w-5 text-brand shrink-0" aria-hidden />
+        </SettingsRow>
+        <div className="px-4 pb-3.5">
+          <p className="text-xs text-brand font-medium">{s.settings_dbConnected}</p>
         </div>
-        <div className="flex items-center gap-2 rounded-2xl bg-secondary/10 border border-secondary/30 px-4 py-3">
-          <CheckCircle2 className="h-5 w-5 text-secondary shrink-0" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-secondary">{s.settings_dbConnected}</p>
-            <p className="text-xs text-muted-foreground">
-              {s.settings_tlsNote}
-            </p>
-          </div>
-        </div>
-      </section>
+      </SettingsCard>
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <div className="flex items-center gap-3 mb-3">
-          <Globe className="h-5 w-5 text-secondary" />
-          <p className="font-display font-bold">{s.settings_language}</p>
-        </div>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border border-border bg-background text-left mb-2 transition-colors active:scale-[0.99]"
+      <SettingsCard>
+        <SettingsRow
+          label={s.theme}
+          sublabel={theme === "dark" ? s.dark : s.light}
         >
-          <div>
-            <p className="font-semibold text-sm text-foreground">{s.theme}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {theme === "dark" ? s.dark : s.light}
-            </p>
-          </div>
-          <span className="h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-border bg-card text-secondary">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-surface-border bg-surface text-brand active:opacity-90"
+            aria-label={s.theme}
+          >
             {theme === "dark" ? (
               <Moon className="h-5 w-5" aria-hidden />
             ) : (
               <Sun className="h-5 w-5" aria-hidden />
             )}
-          </span>
-        </button>
-        <Select value={lang} onValueChange={(value) => setLang(value as Language)}>
-          <SelectTrigger className="w-full rounded-2xl border-border bg-background h-auto px-4 py-3 font-semibold text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {languageOptions.map(([code, label]) => (
-              <SelectItem key={code} value={code}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </section>
+          </button>
+        </SettingsRow>
+        <div className="px-4 pb-3.5 border-t border-surface-border pt-3">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+            {s.settings_language}
+          </p>
+          <Select value={lang} onValueChange={(value) => setLang(value as Language)}>
+            <SelectTrigger className="w-full rounded-xl border-surface-border bg-surface h-auto px-3 py-2.5 font-medium text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {languageOptions.map(([code, label]) => (
+                <SelectItem key={code} value={code}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </SettingsCard>
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <p className="font-display font-bold mb-1">🎤 Voice input language</p>
-        <p className="text-xs text-muted-foreground mb-3">
-          Language used when speaking to the app
-        </p>
-        <div className="flex gap-2">
+      <SettingsCard>
+        <div className="px-4 py-3.5 border-b border-surface-border">
+          <p className="text-sm font-medium text-foreground">🎤 Voice input language</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Language used when speaking to the app
+          </p>
+        </div>
+        <div className="px-4 py-3.5 flex gap-2">
           {VOICE_INPUT_OPTIONS.map(({ code, label }) => (
             <button
               key={code}
@@ -970,25 +1057,20 @@ const Settings = () => {
                 "flex-1 rounded-xl border py-2.5 text-sm font-bold transition-colors active:scale-[0.98]",
                 voiceInputLang === code
                   ? "border-brand bg-brand/15 text-brand"
-                  : "border-border bg-background text-muted-foreground hover:bg-muted/40",
+                  : "border-surface-border bg-surface text-muted-foreground",
               )}
             >
               {label}
             </button>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground mt-3">
+        <p className="text-xs text-muted-foreground px-4 pb-3.5">
           Auto detects language. For best results, select your language.
         </p>
-      </section>
+      </SettingsCard>
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-        <p className="font-display font-bold mb-3">{s.settings_accessibility}</p>
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold">{s.settings_largeText}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{s.settings_largeTextHint}</p>
-          </div>
+      <SettingsCard>
+        <SettingsRow label={s.settings_largeText} sublabel={s.settings_largeTextHint}>
           <Switch
             className="data-[state=checked]:bg-brand"
             checked={largeText}
@@ -1002,14 +1084,12 @@ const Settings = () => {
               document.documentElement.classList.toggle("large-text", checked);
             }}
           />
-        </div>
-      </section>
+        </SettingsRow>
+      </SettingsCard>
 
       {vendorId && (
         <>
-          <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 mb-2 mt-6">
-            MY SHOP
-          </p>
+          <SettingsSectionLabel>MY SHOP</SettingsSectionLabel>
           {vendorId && !vendor && (
             <p className="text-sm text-muted-foreground mb-5">{s.settings_loading}</p>
           )}
@@ -1017,92 +1097,91 @@ const Settings = () => {
             <VendorSettings
               vendor={vendor}
               onVendorUpdated={setVendor}
+              onEditShopDetails={() => navigate("/vendor")}
               activeOfferSection={
-                <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Tag className="h-5 w-5 text-secondary" />
-                    <p className="font-display font-bold">Post an Offer</p>
-                  </div>
-
-                  {activeOffer ? (
-                    <div className="space-y-3">
-                      <p className="text-sm text-foreground">{activeOffer.content}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Expires:{" "}
-                        {activeOffer.expires_at
-                          ? new Date(activeOffer.expires_at).toLocaleString()
-                          : "—"}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => void removeOffer()}
-                        disabled={offerLoading}
-                        className="rounded-xl border border-destructive/40 text-destructive px-4 py-2 text-sm font-semibold disabled:opacity-50"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <input
-                        type="text"
-                        maxLength={100}
-                        value={offerText}
-                        onChange={(e) => setOfferText(e.target.value)}
-                        placeholder="e.g. 20% off groceries today"
-                        className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                      />
-                      <label
-                        htmlFor="settings-offer-expiry"
-                        className="block text-xs font-semibold text-muted-foreground mb-2"
-                      >
-                        Offer valid until:
-                      </label>
-                      <select
-                        id="settings-offer-expiry"
-                        value={offerExpiry}
-                        onChange={(e) =>
-                          setOfferExpiry(
-                            e.target.value as
-                              | "today"
-                              | "tomorrow"
-                              | "3days"
-                              | "7days"
-                              | "custom",
-                          )
-                        }
-                        className="w-full rounded-xl border border-border bg-background text-foreground p-3 text-sm"
-                      >
-                        <option value="today">Today</option>
-                        <option value="tomorrow">Tomorrow</option>
-                        <option value="3days">3 Days</option>
-                        <option value="7days">7 Days</option>
-                        <option value="custom">Custom Date</option>
-                      </select>
-                      {offerExpiry === "custom" && (
+                <>
+                  <SettingsSectionLabel>Offers</SettingsSectionLabel>
+                  <SettingsCard>
+                    {activeOffer ? (
+                      <div className="px-4 py-3.5 space-y-3">
+                        <p className="text-sm text-foreground">{activeOffer.content}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Expires:{" "}
+                          {activeOffer.expires_at
+                            ? new Date(activeOffer.expires_at).toLocaleString()
+                            : "—"}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void removeOffer()}
+                          disabled={offerLoading}
+                          className="w-full rounded-xl border border-destructive/40 text-destructive py-2.5 text-sm font-semibold disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="px-4 py-3.5 space-y-3">
                         <input
-                          type="date"
-                          min={offerDateInputMin()}
-                          value={offerCustomExpiryDate}
-                          onChange={(e) => setOfferCustomExpiryDate(e.target.value)}
-                          className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                          type="text"
+                          maxLength={100}
+                          value={offerText}
+                          onChange={(e) => setOfferText(e.target.value)}
+                          placeholder="e.g. 20% off groceries today"
+                          className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:border-brand"
                         />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void postOffer()}
-                        disabled={
-                          offerLoading ||
-                          offerText.trim().length === 0 ||
-                          (offerExpiry === "custom" && !offerCustomExpiryDate)
-                        }
-                        className="rounded-xl bg-green-500 text-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
-                      >
-                        Post Offer
-                      </button>
-                    </div>
-                  )}
-                </section>
+                        <label
+                          htmlFor="settings-offer-expiry"
+                          className="block text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                        >
+                          Offer valid until:
+                        </label>
+                        <select
+                          id="settings-offer-expiry"
+                          value={offerExpiry}
+                          onChange={(e) =>
+                            setOfferExpiry(
+                              e.target.value as
+                                | "today"
+                                | "tomorrow"
+                                | "3days"
+                                | "7days"
+                                | "custom",
+                            )
+                          }
+                          className="w-full rounded-xl border border-surface-border bg-surface text-foreground p-3 text-sm focus:outline-none focus:border-brand"
+                        >
+                          <option value="today">Today</option>
+                          <option value="tomorrow">Tomorrow</option>
+                          <option value="3days">3 Days</option>
+                          <option value="7days">7 Days</option>
+                          <option value="custom">Custom Date</option>
+                        </select>
+                        {offerExpiry === "custom" && (
+                          <input
+                            type="date"
+                            min={offerDateInputMin()}
+                            value={offerCustomExpiryDate}
+                            onChange={(e) => setOfferCustomExpiryDate(e.target.value)}
+                            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm focus:outline-none focus:border-brand"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void postOffer()}
+                          disabled={
+                            offerLoading ||
+                            offerText.trim().length === 0 ||
+                            (offerExpiry === "custom" && !offerCustomExpiryDate)
+                          }
+                          className="w-full rounded-xl bg-brand text-page-bg py-3 text-sm font-bold disabled:opacity-50 active:scale-[0.99]"
+                        >
+                          Post Offer
+                        </button>
+                      </div>
+                    )}
+                  </SettingsCard>
+                </>
               }
             />
           )}
@@ -1111,101 +1190,66 @@ const Settings = () => {
 
       {Capacitor.isNativePlatform() && (
         <>
-          <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 mb-2 mt-6">
-            PERMISSIONS
-          </p>
-          <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
-            <p className="font-display font-bold mb-3">Permissions</p>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
-                <div className="min-w-0 flex items-start gap-3">
-                  <Bell className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Notifications</p>
-                    <p className="text-xs text-muted-foreground">Required for order alerts</p>
-                  </div>
-                </div>
+          <SettingsSectionLabel>PERMISSIONS</SettingsSectionLabel>
+          <SettingsCard>
+              <SettingsRow label="Notifications" sublabel="Required for order alerts">
                 {permissionStatuses.notifications === "granted" ? (
-                  <span className="shrink-0 text-green-500 text-lg leading-none" aria-label="Granted">
+                  <span className="shrink-0 text-lg leading-none" aria-label="Granted">
                     ✅
                   </span>
                 ) : (
                   <button
                     type="button"
                     onClick={() => setPermissionHint("Notifications")}
-                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+                    className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
                   >
                     Open Settings
                   </button>
                 )}
-              </div>
-
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
-                <div className="min-w-0 flex items-start gap-3">
-                  <MapPin className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Location</p>
-                    <p className="text-xs text-muted-foreground">Required for help mode tracking</p>
-                  </div>
-                </div>
+              </SettingsRow>
+              <SettingsRow label="Location" sublabel="Required for help mode tracking">
                 {permissionStatuses.location === "granted" ? (
-                  <span className="shrink-0 text-green-500 text-lg leading-none" aria-label="Granted">
+                  <span className="shrink-0 text-lg leading-none" aria-label="Granted">
                     ✅
                   </span>
                 ) : (
                   <button
                     type="button"
                     onClick={() => setPermissionHint("Location")}
-                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+                    className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
                   >
                     Open Settings
                   </button>
                 )}
-              </div>
-
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
-                <div className="min-w-0 flex items-start gap-3">
-                  <Camera className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Camera</p>
-                    <p className="text-xs text-muted-foreground">Required for shop photos</p>
-                  </div>
-                </div>
+              </SettingsRow>
+              <SettingsRow label="Camera" sublabel="Required for shop photos">
                 {permissionStatuses.camera === "granted" ? (
-                  <span className="shrink-0 text-green-500 text-lg leading-none" aria-label="Granted">
+                  <span className="shrink-0 text-lg leading-none" aria-label="Granted">
                     ✅
                   </span>
                 ) : (
                   <button
                     type="button"
                     onClick={() => setPermissionHint("Camera")}
-                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+                    className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
                   >
                     Open Settings
                   </button>
                 )}
-              </div>
-
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background px-3 py-3">
-                <div className="min-w-0 flex items-start gap-3">
-                  <Zap className="h-4 w-4 text-secondary mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Battery optimization</p>
-                    <p className="text-xs text-muted-foreground">Keep app awake for orders</p>
-                  </div>
-                </div>
+              </SettingsRow>
+              <SettingsRow label="Battery optimization" sublabel="Keep app awake for orders">
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-xs text-muted-foreground">Manual</span>
                   <button
                     type="button"
                     onClick={() => setPermissionHint("Battery optimization")}
-                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+                    className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
                   >
                     Open Settings
                   </button>
                 </div>
-              </div>
-            </div>
+              </SettingsRow>
+          </SettingsCard>
 
             <AlertDialog
               open={permissionHint != null}
@@ -1226,21 +1270,34 @@ const Settings = () => {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          </section>
         </>
       )}
 
       {isAdmin && (
         <>
-          <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 mb-2 mt-6">
-            ADMIN
-          </p>
-          <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">
-            <div className="flex items-center gap-3 mb-1">
-              <ShieldAlert className="h-5 w-5 text-secondary" />
-              <p className="font-display font-bold">{s.settings_adminHealth}</p>
+          <div className="flex items-center justify-between px-4 pt-6 pb-2">
+            <button
+              type="button"
+              onClick={() => setAdminOpen((o) => !o)}
+              className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-brand active:opacity-90"
+            >
+              ADMIN
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                  adminOpen && "rotate-180",
+                )}
+              />
+            </button>
+          </div>
+          {adminOpen && (
+          <>
+          <SettingsCard className="border-brand/20">
+            <div className="px-4 py-3 border-b border-surface-border">
+              <p className="text-sm font-medium text-foreground">{s.settings_adminHealth}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{s.settings_adminOnly}</p>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">{s.settings_adminOnly}</p>
+            <div className="px-4 py-3">
 
             <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">{s.settings_orders}</p>
             <div className="grid grid-cols-3 gap-2 mb-4">
@@ -1277,12 +1334,14 @@ const Settings = () => {
                 <p className="text-[10px] text-muted-foreground mt-1">{s.settings_unverified}</p>
               </div>
             </div>
-          </section>
+            </div>
+          </SettingsCard>
 
-          <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">
-            <p className="font-display font-bold mb-4">
-              {s.admin_pendingCategories} ({pendingCategories.length})
-            </p>
+          <SettingsCollapsible
+            label={`${s.admin_pendingCategories} (${pendingCategories.length})`}
+            open={pendingCatOpen}
+            onToggle={() => setPendingCatOpen((o) => !o)}
+          >
             {pendingCategories.length === 0 ? (
               <p className="text-sm text-muted-foreground">{s.admin_noPendingCategories}</p>
             ) : (
@@ -1330,13 +1389,13 @@ const Settings = () => {
                 ))}
               </div>
             )}
-          </section>
+          </SettingsCollapsible>
 
-          <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">
-            <div className="flex items-center gap-3 mb-1">
-              <Users className="h-5 w-5 text-secondary" />
-              <p className="font-display font-bold">{s.settings_vendorVerification}</p>
+          <SettingsCard className="border-brand/20">
+            <div className="px-4 py-3 border-b border-surface-border">
+              <p className="text-sm font-medium text-foreground">{s.settings_vendorVerification}</p>
             </div>
+            <div className="px-4 py-3">
             <p className="text-xs text-muted-foreground mb-4">{s.settings_unverifiedFirst}</p>
 
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 mb-4">
@@ -1400,15 +1459,21 @@ const Settings = () => {
                 </div>
               ))}
             </div>
-          </section>
-
-          <section className="rounded-3xl bg-card border-2 border-secondary/40 shadow-card p-5 mb-5">
-            <div className="flex items-center gap-3 mb-1">
-              <ShieldAlert className="h-5 w-5 text-secondary" />
-              <p className="font-display font-bold">Flagged Users</p>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">{s.settings_adminOnly}</p>
+          </SettingsCard>
 
+          <SettingsCollapsible
+            label={`Flagged Users (${flaggedUsers.length})`}
+            open={flaggedOpen}
+            onToggle={() => setFlaggedOpen((o) => !o)}
+            badge={
+              flaggedUsers.length > 0 ? (
+                <span className="bg-destructive/20 text-destructive text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  {flaggedUsers.length}
+                </span>
+              ) : undefined
+            }
+          >
             {flaggedUsers.length === 0 ? (
               <p className="text-sm text-muted-foreground">✅ No flagged users at this time</p>
             ) : (
@@ -1475,7 +1540,7 @@ const Settings = () => {
                 ))}
               </div>
             )}
-          </section>
+          </SettingsCollapsible>
 
           <AlertDialog
             open={banDialog.open}
@@ -1515,15 +1580,26 @@ const Settings = () => {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+          </>
+          )}
         </>
       )}
 
-      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5 text-center">
-        <p className="font-display font-bold text-lg">{s.settings_appName}</p>
-        <p className="text-sm text-muted-foreground mt-1">{s.settings_appTagline}</p>
-        <p className="text-xs text-muted-foreground mt-3">{s.settings_version}</p>
-        <p className="text-xs text-muted-foreground mt-1">{s.settings_copyright}</p>
-      </section>
+      <div className="mt-8 pt-4 border-t border-surface-border/50">
+      <button
+        type="button"
+        onClick={() => setClearDataOpen(true)}
+        className="mx-4 w-[calc(100%-2rem)] rounded-xl border border-destructive/40 text-destructive bg-transparent py-2.5 text-sm font-medium flex items-center justify-center gap-2 active:opacity-90"
+      >
+        <Trash2 className="h-4 w-4" /> {s.settings_clearMyData}
+      </button>
+
+      <p className="text-xs text-muted-foreground text-center py-4 mt-2">
+        {s.settings_appName} · {s.settings_version}
+        <br />
+        {s.settings_copyright}
+      </p>
+      </div>
 
       {devOpen && (
         <section className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 mb-5 animate-fade-up">
@@ -1562,14 +1638,6 @@ const Settings = () => {
           </button>
         </section>
       )}
-
-      <button
-        type="button"
-        onClick={() => setClearDataOpen(true)}
-        className="w-full rounded-2xl border border-destructive/50 text-destructive bg-transparent py-4 font-semibold flex items-center justify-center gap-2"
-      >
-        <Trash2 className="h-4 w-4" /> {s.settings_clearMyData}
-      </button>
 
       <AlertDialog open={clearDataOpen} onOpenChange={setClearDataOpen}>
         <AlertDialogContent className="rounded-2xl border border-border bg-card">
@@ -1639,14 +1707,105 @@ const Settings = () => {
             </div>
             <p className="text-sm text-muted-foreground mb-1">{verifySheet.vendor.shop_name}</p>
             <p className="text-xs text-muted-foreground mb-1">
-              {verifySheet.vendor.name}{s.settings_dotSeparator}{verifySheet.vendor.phone}
+              {verifySheet.vendor.name}
+              {s.settings_dotSeparator}
+              <a
+                href={`tel:${verifySheet.vendor.phone.replace(/\s/g, "")}`}
+                className="text-brand font-semibold hover:underline"
+              >
+                {verifySheet.vendor.phone}
+              </a>
             </p>
             <p className="text-xs text-muted-foreground mb-1">
               Category: {verifySheet.vendor.category}
             </p>
-            <p className="text-xs text-muted-foreground mb-5">
+            <p className="text-xs text-muted-foreground mb-4">
               Service mode: {adminServiceModeLabel(verifySheet.vendor.service_mode)}
             </p>
+
+            <div className="rounded-2xl border border-border bg-muted/30 p-4 mb-5 space-y-3 text-sm">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Shop photo
+                </p>
+                {verifySheet.vendor.shop_photo_url?.trim() ? (
+                  <img
+                    src={verifySheet.vendor.shop_photo_url}
+                    alt="Shop verification"
+                    className="w-full h-[100px] object-cover rounded-xl border border-border"
+                  />
+                ) : (
+                  <p className="text-xs text-muted-foreground rounded-xl border border-dashed border-border bg-muted/50 px-3 py-6 text-center">
+                    No photo uploaded
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  GPS
+                </p>
+                {verifySheet.vendor.latitude != null &&
+                verifySheet.vendor.longitude != null ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-foreground">
+                      📍 {verifySheet.vendor.latitude.toFixed(5)},{" "}
+                      {verifySheet.vendor.longitude.toFixed(5)}
+                    </p>
+                    <a
+                      href={`https://maps.google.com/?q=${verifySheet.vendor.latitude},${verifySheet.vendor.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-semibold text-brand hover:underline"
+                    >
+                      View on Map
+                    </a>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No location set</p>
+                )}
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  GPS match
+                </p>
+                {(() => {
+                  const { text, className } = gpsMatchAdminLabel(
+                    verifySheet.vendor.gps_match_distance,
+                  );
+                  return <p className={cn("text-xs font-medium", className)}>{text}</p>;
+                })()}
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  UPI ID
+                </p>
+                {verifySheet.vendor.upi_id?.trim() ? (
+                  <p className="text-xs text-foreground">💳 {verifySheet.vendor.upi_id}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No UPI added</p>
+                )}
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  Registered
+                </p>
+                <p className="text-xs text-foreground">
+                  {formatVendorLastUpdated(verifySheet.vendor.last_updated)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  Referred by
+                </p>
+                {verifySheet.vendor.referral_code?.trim() ? (
+                  <p className="text-xs text-foreground font-mono">
+                    {verifySheet.vendor.referral_code}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No referral</p>
+                )}
+              </div>
+            </div>
 
             {[
               { id: "phone_called", label: s.settings_check1 },
@@ -1700,6 +1859,11 @@ const Settings = () => {
                       </>
                     )}
                   </p>
+                  {verifyAutoTicked.has(item.id) && verifyChecks[item.id] && (
+                    <p className="text-[10px] text-green-600/80 mt-0.5">
+                      ✅ Auto-verified by app
+                    </p>
+                  )}
                 </div>
               </label>
             ))}
@@ -1740,6 +1904,7 @@ const Settings = () => {
           </div>
         </div>
       )}
+      </div>
     </AppShell>
   );
 };

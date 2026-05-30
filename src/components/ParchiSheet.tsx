@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, ChevronDown, ChevronUp, Loader2, MapPin, Mic } from "lucide-react";
+import { Camera, ChevronDown, Loader2, MapPin, Mic } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getVoiceLang } from "@/lib/voiceUtils";
@@ -126,6 +126,15 @@ export function ParchiSheet({
       cancelled = true;
     };
   }, [isOpen, resolvedVendorId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    // Force repaint on Android WebView
+    requestAnimationFrame(() => {
+      window.scrollBy(0, 1);
+      window.scrollBy(0, -1);
+    });
+  }, [isOpen, menuItems]);
 
   const buildMenuMessage = () => {
     return Object.entries(selectedMenuItems)
@@ -487,15 +496,35 @@ export function ParchiSheet({
       <Sheet open={isOpen} onOpenChange={handleOpenChange}>
         <SheetContent
           side="bottom"
-          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[90vh] overflow-y-auto [&>button]:text-gray-400"
+          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[90vh] flex flex-col [&>button]:text-gray-400"
+          style={{
+            transform: "translateZ(0)",
+            WebkitOverflowScrolling: "touch",
+          }}
         >
-          <SheetHeader className="text-left space-y-2 pr-8">
-            <SheetTitle className="text-white font-display text-lg">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <SheetHeader className="sr-only">
+            <SheetTitle>
               {effectiveVendor?.service_mode === "appointment"
-                ? `${s.parchi_titleBook}${effectiveVendor.shop_name}`
-                : `${s.parchi_titleOrder}${effectiveVendor.shop_name}`}
+                ? `${s.parchi_titleBook}${effectiveVendor?.shop_name ?? ""}`
+                : `${s.parchi_titleOrder}${effectiveVendor?.shop_name ?? ""}`}
             </SheetTitle>
-            <SheetDescription className="text-sm text-gray-400 text-left">
+            <SheetDescription>{s.parchi_orderLabel}</SheetDescription>
+          </SheetHeader>
+          <div className="px-4 pt-4 pb-3 border-b border-surface-border">
+            <div className="flex items-center justify-between gap-2 pr-8">
+              <h2 className="text-lg font-bold text-foreground truncate">
+                {effectiveVendor?.shop_name}
+              </h2>
+              <span className="text-xs px-2 py-1 rounded-full bg-brand/20 text-brand font-medium shrink-0">
+                {resolvedServiceMode === "delivery"
+                  ? "🚚 Delivery"
+                  : resolvedServiceMode === "appointment"
+                    ? "📅 Booking"
+                    : "🚶 Help"}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1.5">
               {effectiveVendor?.service_mode === "appointment" ? (
                 online ? (
                   <>{s.parchi_onlineBooking}</>
@@ -507,13 +536,14 @@ export function ParchiSheet({
               ) : (
                 <>{s.parchi_offlineOrder}</>
               )}
-            </SheetDescription>
+            </p>
             {effectiveVendor?.vendor_note && (
-              <div className="mt-2 rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-green-700 dark:text-brand">
-                {s.parchi_vendorNotePrefix}{effectiveVendor.vendor_note}
-              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {s.parchi_vendorNotePrefix}
+                {effectiveVendor.vendor_note}
+              </p>
             )}
-          </SheetHeader>
+          </div>
 
           <div className="mt-5 space-y-3">
             {trustBlock === "banned" && (
@@ -679,23 +709,24 @@ export function ParchiSheet({
             )}
 
             {menuItems.length > 0 && (
-              <div className="rounded-xl border border-surface-border overflow-hidden">
+              <div className="border border-surface-border rounded-2xl mx-4 overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setMenuExpanded((v) => !v)}
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left bg-surface hover:bg-surface-raised transition-colors"
+                  className="w-full flex items-center justify-between px-4 py-3 bg-surface text-left active:opacity-90"
                 >
-                  <span className="text-sm font-semibold text-white">
-                    📋 Menu — tap to add
+                  <span className="text-sm font-semibold text-foreground">
+                    📋 Menu ({menuItems.length} items)
                   </span>
-                  {menuExpanded ? (
-                    <ChevronUp className="h-4 w-4 text-gray-400 shrink-0" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
-                  )}
+                  <ChevronDown
+                    className={cn(
+                      "w-4 h-4 text-muted-foreground shrink-0 transition-transform duration-200",
+                      menuExpanded && "rotate-180",
+                    )}
+                  />
                 </button>
                 {menuExpanded && (
-                  <div className="border-t border-surface-border px-2 py-2 space-y-1.5">
+                  <div className="divide-y divide-surface-border px-2 py-2 space-y-0">
                     {menuItems.map((item) => {
                       const qty = selectedMenuItems[item.id] ?? 0;
                       const selected = qty > 0;
@@ -808,9 +839,15 @@ export function ParchiSheet({
               </div>
             )}
 
-            <label className="sr-only" htmlFor="parchi-message">
-              {s.parchi_orderLabel}
-            </label>
+            <div className="mx-4">
+              <label
+                htmlFor="parchi-message"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5 block"
+              >
+                {effectiveVendor?.service_mode === "appointment"
+                  ? s.parchi_whenAppt
+                  : s.parchi_orderLabel}
+              </label>
             <div className="relative">
               <textarea
                 id="parchi-message"
@@ -822,7 +859,7 @@ export function ParchiSheet({
                     ? s.parchi_placeholderAppt
                     : s.parchi_placeholderOrder
                 }
-                className="w-full resize-none rounded-xl border border-surface-border bg-surface px-3 py-3 pr-20 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                className="w-full bg-surface border border-surface-border rounded-xl px-3 py-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:border-brand"
               />
               <button
                 type="button"
@@ -852,8 +889,9 @@ export function ParchiSheet({
                 </button>
               )}
             </div>
-            <div className="flex justify-end text-xs text-gray-500 tabular-nums">
+            <div className="flex justify-end text-xs text-muted-foreground tabular-nums mt-1">
               {len}{s.parchi_charSeparator}{config.maxOrderMessageChars}
+            </div>
             </div>
 
             {effectiveVendor?.service_mode === "appointment" ? (
@@ -870,7 +908,7 @@ export function ParchiSheet({
               type="button"
               disabled={sending}
               onClick={() => void send()}
-              className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+              className="mx-4 w-[calc(100%-2rem)] bg-brand text-white font-bold py-4 rounded-2xl text-base active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
             >
               {sending
                 ? "..."
@@ -888,6 +926,7 @@ export function ParchiSheet({
             </button>
             </>
             )}
+          </div>
           </div>
         </SheetContent>
       </Sheet>

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
-import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
@@ -32,6 +31,8 @@ import { getUserPhone } from "@/lib/userIdentity";
 import { registerUserPushToken } from "@/lib/pushNotifications";
 import { buildRequestsActiveWindowOrFilter } from "@/lib/orders";
 import { useLanguage } from "@/lib/language";
+import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/SettingsSection";
+import { cn } from "@/lib/utils";
 
 type SavedNeighbourTile = {
   savedId: string;
@@ -310,19 +311,14 @@ const Index = () => {
 
   return (
     <AppShell theme="light">
-      <header className="text-center mb-6 animate-fade-up">
-        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">{s.appName}</p>
-        <h1 className="font-display text-3xl font-bold mt-1">{s.tagline}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {s.taglineSub}
-        </p>
-      </header>
+      <div className="space-y-3 pb-24">
+      <SettingsPageHeader title={s.appName} subtitle={s.taglineSub} />
 
-      <div className="mb-8">
-        <form onSubmit={handleSubmit} className="relative">
+      <div>
+        <form onSubmit={handleSubmit} className="relative mx-4">
           <div className="absolute -top-2.5 left-4 z-10 px-2 bg-background">
-            <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-primary inline-flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+            <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-brand inline-flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulse" />
               {s.aiSearch}
             </span>
           </div>
@@ -333,7 +329,7 @@ const Index = () => {
             onChange={(e) => setQuery(e.target.value)}
             disabled={classifying}
             placeholder={s.searchPlaceholder}
-            className="w-full bg-card border border-border rounded-2xl pl-12 pr-12 py-4 text-base shadow-card focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
+            className="w-full bg-surface border border-surface-border rounded-2xl pl-12 pr-12 py-4 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand disabled:opacity-70"
           />
           {Capacitor.isNativePlatform() && (
             <button
@@ -341,9 +337,10 @@ const Index = () => {
               onClick={() => void startVoice()}
               disabled={classifying}
               aria-label="Voice search"
-              className={`absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl grid place-items-center transition-colors disabled:opacity-50 ${
-                listening ? "bg-primary text-primary-foreground animate-pulse" : "bg-muted text-foreground"
-              }`}
+              className={cn(
+                "absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl grid place-items-center transition-colors disabled:opacity-50",
+                listening ? "bg-brand text-page-bg animate-pulse" : "bg-surface border border-surface-border text-muted-foreground",
+              )}
             >
               <Mic className="h-5 w-5" />
             </button>
@@ -357,16 +354,24 @@ const Index = () => {
         )}
       </div>
 
-      <div className="flex justify-center mb-8">
-        <SOSButton onClick={handleSOS} />
+      <div className="mx-4">
+        <button
+          type="button"
+          onClick={() => void handleSOS()}
+          aria-label="Emergency SOS"
+          className="w-full rounded-2xl py-4 font-bold text-lg bg-gradient-to-r from-brand/30 to-brand/10 border border-brand/30 text-foreground active:scale-[0.98] transition-transform"
+        >
+          {s.sos_title}
+          <span className="block text-xs font-semibold uppercase tracking-widest text-muted-foreground mt-0.5">
+            {s.sos_subtitle}
+          </span>
+        </button>
       </div>
 
       {savedNeighbours.length > 0 && (
-        <section className="mb-8 animate-fade-up">
-          <p className="text-xs uppercase tracking-[0.25em] text-green-700 dark:text-brand text-center mb-3 font-semibold">
-            {s.myNeighbourhood}
-          </p>
-          <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+        <section className="animate-fade-up">
+          <SettingsSectionLabel>{s.myNeighbourhood}</SettingsSectionLabel>
+          <div className="flex gap-3 overflow-x-auto pb-1 px-4 scrollbar-hide">
             {savedNeighbours.map(({ savedId, vendor, nickname, category }) => (
               <button
                 key={savedId}
@@ -375,7 +380,7 @@ const Index = () => {
                   setNeighbourSheetVendor(vendor);
                   setNeighbourSheetOpen(true);
                 }}
-                className="flex-shrink-0 w-40 rounded-2xl bg-card border border-border shadow-card text-left p-3 flex gap-3 active:scale-[0.98] transition-transform hover:bg-muted/50"
+                className="flex-shrink-0 w-44 rounded-2xl border border-surface-border bg-surface text-left px-4 py-3 flex gap-3 active:scale-[0.98] transition-transform"
               >
                 <div className="relative h-14 w-14 rounded-xl overflow-hidden bg-muted shrink-0 grid place-items-center">
                   {vendor.shop_photo_url ? (
@@ -694,24 +699,22 @@ const Index = () => {
         }}
       />
 
-      <section id="category-grid" className="mb-4 animate-fade-up">
+      <section id="category-grid" className="animate-fade-up">
         {categoriesLoading ? (
           <div className="flex justify-center py-6">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-3">
             {categoryGroups.map((group) => (
               <div key={group.service_mode}>
-                <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground mb-2 font-semibold">
-                  {group.label}
-                </p>
-                <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+                <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
+                <div className="flex gap-3 overflow-x-auto pb-1 px-4 scrollbar-hide">
                   {group.categories.map((cat) => (
                     <button
                       key={cat.id}
                       onClick={() => goToRadar(cat.label)}
-                      className="flex-shrink-0 w-20 rounded-2xl bg-card hover:bg-muted active:scale-95 transition-all flex flex-col items-center justify-center gap-1.5 border border-border shadow-card py-3 px-2"
+                      className="flex-shrink-0 w-20 rounded-2xl bg-surface active:scale-95 transition-all flex flex-col items-center justify-center gap-1.5 border border-surface-border py-3 px-2"
                     >
                       <span className="text-3xl">{cat.emoji}</span>
                       <span className="font-semibold text-[10px] text-center leading-tight">
@@ -736,6 +739,7 @@ const Index = () => {
         onMic={startVoice}
         categories={categories}
       />
+      </div>
     </AppShell>
   );
 };

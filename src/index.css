@@ -121,6 +121,23 @@
 }
 
 @layer components {
+  /* Settings / vendor polish — reference utilities (Tailwind: text-xs font-bold uppercase tracking-widest text-brand) */
+  .aas-section-label {
+    @apply px-4 pt-6 pb-2 text-xs font-bold uppercase tracking-widest text-brand;
+  }
+  .aas-section-card {
+    @apply mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden;
+  }
+  .aas-settings-row {
+    @apply flex items-center justify-between px-4 py-3.5 border-b border-surface-border last:border-0;
+  }
+  .aas-chevron-collapsible {
+    @apply transition-transform duration-200;
+  }
+  .aas-chevron-collapsible[data-open="true"] {
+    @apply rotate-180;
+  }
+
   .radar-ring {
     @apply absolute inset-0 rounded-full border-2;
     border-color: hsl(var(--primary) / 0.5);
