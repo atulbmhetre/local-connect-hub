@@ -27,6 +27,7 @@ import { Loader2, Mic, Square } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
+import { getVoiceLang } from "@/lib/voiceUtils";
 
 import { toast } from "sonner";
 
@@ -108,14 +109,10 @@ export function RatingSheet({
         toast.error("Voice not available on this device");
         return;
       }
-      await (
-        SpeechRecognition as unknown as {
-          requestPermission: () => Promise<{ speechRecognition: string }>;
-        }
-      ).requestPermission();
+      await SpeechRecognition.requestPermissions();
       setIsListeningReview(true);
       const result = await SpeechRecognition.start({
-        language: "en-IN",
+        language: getVoiceLang(),
         maxResults: 1,
         popup: false,
         partialResults: false,

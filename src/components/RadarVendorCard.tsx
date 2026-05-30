@@ -665,6 +665,8 @@ export function RadarVendorCard({
       )}
       <ParchiSheet
         vendor={vendor}
+        vendorId={vendor.id}
+        serviceMode={vendor.service_mode}
         isOpen={parchiOpen}
         onClose={() => setParchiOpen(false)}
         onOrderSent={() => setResolutionSessionTick((n) => n + 1)}

@@ -11,6 +11,7 @@ import {
 } from "@/lib/supabase";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
+import { getVoiceLang } from "@/lib/voiceUtils";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
@@ -713,14 +714,10 @@ const MyOrders = () => {
         toast.error("Voice not available");
         return;
       }
-      await (
-        SpeechRecognition as unknown as {
-          requestPermission: () => Promise<{ speechRecognition: string }>;
-        }
-      ).requestPermission();
+      await SpeechRecognition.requestPermissions();
       setIsListeningEdit(true);
       const result = await SpeechRecognition.start({
-        language: "hi-IN",
+        language: getVoiceLang(),
         maxResults: 1,
         popup: false,
         partialResults: false,

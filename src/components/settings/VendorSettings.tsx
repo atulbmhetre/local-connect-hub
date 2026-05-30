@@ -14,6 +14,21 @@ import {
   type Vendor,
 } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
+import { getVoiceLang } from "@/lib/voiceUtils";
+
+const VOICE_LANG_OPTIONS = ["en-IN", "hi-IN", "mr-IN"] as const;
+
+function voiceLangShort(code: string): string {
+  if (code === "hi-IN") return "HI";
+  if (code === "mr-IN") return "MR";
+  return "EN";
+}
+
+function nextVoiceLang(current: string): (typeof VOICE_LANG_OPTIONS)[number] {
+  const idx = VOICE_LANG_OPTIONS.indexOf(current as (typeof VOICE_LANG_OPTIONS)[number]);
+  const nextIdx = idx < 0 ? 0 : (idx + 1) % VOICE_LANG_OPTIONS.length;
+  return VOICE_LANG_OPTIONS[nextIdx];
+}
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -177,6 +192,8 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
   const [addingItem, setAddingItem] = useState(false);
   const [isListeningMenu, setIsListeningMenu] = useState(false);
   const [isProcessingImageMenu, setIsProcessingImageMenu] = useState(false);
+  const [voiceLangOverride, setVoiceLangOverride] = useState<string | null>(null);
+  const activeVoiceLang = voiceLangOverride ?? getVoiceLang();
   const [reviews, setReviews] = useState<VendorReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
@@ -294,14 +311,10 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
         toast.error("Voice not available");
         return;
       }
-      await (
-        SpeechRecognition as unknown as {
-          requestPermission: () => Promise<{ speechRecognition: string }>;
-        }
-      ).requestPermission();
+      await SpeechRecognition.requestPermissions();
       setIsListeningMenu(true);
       const speechResult = await SpeechRecognition.start({
-        language: "hi-IN",
+        language: activeVoiceLang,
         maxResults: 1,
         popup: false,
         partialResults: false,
@@ -441,19 +454,47 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
                     <Camera className="h-3.5 w-3.5" />
                   )}
                 </button>
-                {Capacitor.isNativePlatform() && (
-                  <button
-                    type="button"
-                    onClick={() => void startVoiceMenu()}
-                    className={`p-1.5 rounded-lg border transition-colors ${
-                      isListeningMenu
-                        ? "border-danger bg-danger/10 text-danger animate-pulse"
-                        : "border-surface-border bg-surface text-gray-400 hover:text-brand"
-                    }`}
-                  >
-                    <Mic className="h-3.5 w-3.5" />
-                  </button>
-                )}
+                {Capacitor.isNativePlatform() &&
+                  (isListeningMenu ? (
+                    <div className="flex items-center gap-2 rounded-lg border border-red-500/50 bg-red-500/10 px-2.5 py-1.5 shrink-0">
+                      <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                      <span className="text-[10px] font-semibold text-red-500 whitespace-nowrap">
+                        Listening... speak now
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => void startVoiceMenu()}
+                        className="p-1.5 rounded-lg border border-surface-border bg-surface text-gray-400 hover:text-brand transition-colors"
+                        aria-label={s.menu_voicePrompt}
+                      >
+                        <Mic className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVoiceLangOverride(nextVoiceLang(activeVoiceLang))}
+                        className="flex items-center gap-0.5 rounded-lg border border-surface-border bg-surface px-1.5 py-1 text-[10px] font-bold"
+                        aria-label="Voice language"
+                      >
+                        {VOICE_LANG_OPTIONS.map((code, i) => (
+                          <span key={code} className="flex items-center gap-0.5">
+                            {i > 0 && (
+                              <span className="text-muted-foreground font-normal">|</span>
+                            )}
+                            <span
+                              className={
+                                activeVoiceLang === code ? "text-brand" : "text-muted-foreground"
+                              }
+                            >
+                              {voiceLangShort(code)}
+                            </span>
+                          </span>
+                        ))}
+                      </button>
+                    </div>
+                  ))}
                 <button
                   type="button"
                   onClick={() => setAddingItem(true)}

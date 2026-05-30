@@ -290,11 +290,7 @@ const Index = () => {
         toast.error("Voice not available on this device");
         return;
       }
-      await (
-        SpeechRecognition as unknown as {
-          requestPermission: () => Promise<{ speechRecognition: string }>;
-        }
-      ).requestPermission();
+      await SpeechRecognition.requestPermissions();
       setListening(true);
       const result = await SpeechRecognition.start({
         language: "en-IN",
@@ -305,8 +301,8 @@ const Index = () => {
       if (result?.matches?.length > 0) {
         setQuery(result.matches[0]);
       }
-    } catch {
-      // user cancelled or denied — silent
+    } catch (e) {
+      console.error("Voice error:", e);
     } finally {
       setListening(false);
     }
@@ -688,6 +684,8 @@ const Index = () => {
 
       <ParchiSheet
         vendor={parchiVendor}
+        vendorId={parchiVendor?.id}
+        serviceMode={parchiVendor?.service_mode}
         isOpen={parchiOpen}
         onClose={() => {
           setParchiOpen(false);

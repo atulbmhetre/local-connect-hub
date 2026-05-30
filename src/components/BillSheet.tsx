@@ -17,6 +17,21 @@ import {
 } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
+import { getVoiceLang } from "@/lib/voiceUtils";
+
+const VOICE_LANG_OPTIONS = ["en-IN", "hi-IN", "mr-IN"] as const;
+
+function voiceLangShort(code: string): string {
+  if (code === "hi-IN") return "HI";
+  if (code === "mr-IN") return "MR";
+  return "EN";
+}
+
+function nextVoiceLang(current: string): (typeof VOICE_LANG_OPTIONS)[number] {
+  const idx = VOICE_LANG_OPTIONS.indexOf(current as (typeof VOICE_LANG_OPTIONS)[number]);
+  const nextIdx = idx < 0 ? 0 : (idx + 1) % VOICE_LANG_OPTIONS.length;
+  return VOICE_LANG_OPTIONS[nextIdx];
+}
 
 type Props = {
   isOpen: boolean;
@@ -60,6 +75,8 @@ export function BillSheet({
   const [notes, setNotes] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [voiceLangOverride, setVoiceLangOverride] = useState<string | null>(null);
+  const activeVoiceLang = voiceLangOverride ?? getVoiceLang();
 
   const validItems = useMemo(
     () => items.filter((i) => i.description.trim() && i.unit_price > 0),
@@ -92,6 +109,7 @@ export function BillSheet({
         setSending(false);
         setIsListening(false);
         setIsProcessingImage(false);
+        setVoiceLangOverride(null);
         onClose();
       }
     },
@@ -105,14 +123,10 @@ export function BillSheet({
         toast.error("Voice not available");
         return;
       }
-      await (
-        SpeechRecognition as unknown as {
-          requestPermission: () => Promise<{ speechRecognition: string }>;
-        }
-      ).requestPermission();
+      await SpeechRecognition.requestPermissions();
       setIsListening(true);
       const speechResult = await SpeechRecognition.start({
-        language: "hi-IN",
+        language: activeVoiceLang,
         maxResults: 1,
         popup: false,
         partialResults: false,
@@ -317,19 +331,45 @@ export function BillSheet({
                   <Camera className="h-4 w-4" />
                 )}
               </button>
-              {Capacitor.isNativePlatform() && (
-                <button
-                  type="button"
-                  onClick={() => void startVoiceBill()}
-                  className={`p-2 rounded-xl border transition-colors ${
-                    isListening
-                      ? "border-danger bg-danger/10 text-danger animate-pulse"
-                      : "border-surface-border bg-surface text-gray-400 hover:text-brand"
-                  }`}
-                >
-                  <Mic className="h-4 w-4" />
-                </button>
-              )}
+              {Capacitor.isNativePlatform() &&
+                (isListening ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-red-500/50 bg-red-500/10 px-3 py-2 shrink-0">
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                    <span className="text-xs font-semibold text-red-500 whitespace-nowrap">
+                      Listening... speak now
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void startVoiceBill()}
+                      className="p-2 rounded-xl border border-surface-border bg-surface text-gray-400 hover:text-brand transition-colors"
+                      aria-label={s.bill_voicePrompt}
+                    >
+                      <Mic className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVoiceLangOverride(nextVoiceLang(activeVoiceLang))}
+                      className="flex items-center gap-0.5 rounded-lg border border-surface-border bg-surface px-2 py-1.5 text-[10px] font-bold"
+                      aria-label="Voice language"
+                    >
+                      {VOICE_LANG_OPTIONS.map((code, i) => (
+                        <span key={code} className="flex items-center gap-0.5">
+                          {i > 0 && <span className="text-muted-foreground font-normal">|</span>}
+                          <span
+                            className={
+                              activeVoiceLang === code ? "text-brand" : "text-muted-foreground"
+                            }
+                          >
+                            {voiceLangShort(code)}
+                          </span>
+                        </span>
+                      ))}
+                    </button>
+                  </div>
+                ))}
             </div>
           </div>
         </SheetHeader>

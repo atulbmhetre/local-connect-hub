@@ -103,6 +103,12 @@ function hasVerifyInProgress(vendorId: string): boolean {
   return Object.values(loadVerifyChecks(vendorId)).some(Boolean);
 }
 
+function adminServiceModeLabel(mode: string | null | undefined): string {
+  if (mode === "delivery") return "🚚 Delivery";
+  if (mode === "appointment") return "📅 Appointment";
+  return "🚶 Help";
+}
+
 type NativePermissionStatuses = {
   notifications: PermissionState;
   location: PermissionState;
@@ -166,6 +172,7 @@ const Settings = () => {
       name: string;
       shop_name: string;
       category: string;
+      service_mode: string | null;
       phone: string;
       is_manual_verified: boolean;
       is_active: boolean;
@@ -346,7 +353,7 @@ const Settings = () => {
   const loadVendorList = async () => {
     const { data } = await supabase
       .from("vendors")
-      .select("id, name, shop_name, category, phone, is_manual_verified, is_active")
+      .select("id, name, shop_name, category, service_mode, phone, is_manual_verified, is_active")
       .order("is_manual_verified", { ascending: true })
       .order("shop_name");
     if (data) setVendorList(data);
@@ -1583,8 +1590,14 @@ const Settings = () => {
               <p className="font-display font-bold text-lg">{s.settings_verifyVendor}</p>
             </div>
             <p className="text-sm text-muted-foreground mb-1">{verifySheet.vendor.shop_name}</p>
+            <p className="text-xs text-muted-foreground mb-1">
+              {verifySheet.vendor.name}{s.settings_dotSeparator}{verifySheet.vendor.phone}
+            </p>
+            <p className="text-xs text-muted-foreground mb-1">
+              Category: {verifySheet.vendor.category}
+            </p>
             <p className="text-xs text-muted-foreground mb-5">
-              {verifySheet.vendor.name}{s.settings_dotSeparator}{getLabel(verifySheet.vendor.category)}{s.settings_dotSeparator}{verifySheet.vendor.phone}
+              Service mode: {adminServiceModeLabel(verifySheet.vendor.service_mode)}
             </p>
 
             {[

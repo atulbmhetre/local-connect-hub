@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Loader2, MapPin, Mic } from "lucide-react";
+import { Camera, ChevronDown, ChevronUp, Loader2, MapPin, Mic } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
+import { getVoiceLang } from "@/lib/voiceUtils";
 import {
   Sheet,
   SheetContent,
@@ -36,16 +37,33 @@ import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useUserAddresses, type SavedAddress } from "@/hooks/useUserAddresses";
+import { cn } from "@/lib/utils";
+
+type VendorMenuItem = {
+  id: string;
+  name: string;
+  price: number;
+  is_available: boolean;
+};
 
 type Props = {
   vendor: Vendor | null;
+  vendorId?: string | null;
+  serviceMode?: string | null;
   isOpen: boolean;
   onClose: () => void;
   /** After successful order send; e.g. refresh radar resolution button visibility. */
   onOrderSent?: () => void;
 };
 
-export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
+export function ParchiSheet({
+  vendor,
+  vendorId: vendorIdProp,
+  serviceMode: serviceModeProp,
+  isOpen,
+  onClose,
+  onOrderSent,
+}: Props) {
   const { s } = useLanguage();
   const { config } = useAppConfig();
   const SLOT_LABELS: Record<string, string> = useMemo(() => ({
@@ -73,21 +91,73 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
   const [lowTrustConfirmed, setLowTrustConfirmed] = useState(false);
   const [mediumTrustDialogOpen, setMediumTrustDialogOpen] = useState(false);
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
+  const [menuItems, setMenuItems] = useState<VendorMenuItem[]>([]);
+  const [selectedMenuItems, setSelectedMenuItems] = useState<Record<string, number>>({});
+  const [menuExpanded, setMenuExpanded] = useState(true);
   const lastVendor = useRef<Vendor | null>(null);
   useEffect(() => {
     if (vendor) lastVendor.current = vendor;
   }, [vendor]);
   const effectiveVendor = vendor ?? lastVendor.current;
+  const resolvedVendorId = vendorIdProp ?? effectiveVendor?.id ?? null;
+  const resolvedServiceMode =
+    serviceModeProp ?? effectiveVendor?.service_mode ?? "help";
+  const isDeliveryMode = resolvedServiceMode === "delivery";
+
+  useEffect(() => {
+    if (!isOpen || !resolvedVendorId) return;
+    setMenuExpanded(message.trim().length === 0);
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("vendor_menu_items")
+        .select("id, name, price, is_available")
+        .eq("vendor_id", resolvedVendorId)
+        .eq("is_available", true)
+        .order("name", { ascending: true });
+      if (cancelled) return;
+      if (error || !data?.length) {
+        setMenuItems([]);
+        return;
+      }
+      setMenuItems(data as VendorMenuItem[]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, resolvedVendorId]);
+
+  const buildMenuMessage = () => {
+    return Object.entries(selectedMenuItems)
+      .filter(([, qty]) => qty > 0)
+      .map(([id, qty]) => {
+        const item = menuItems.find((m) => m.id === id);
+        if (!item) return null;
+        return `${qty}x ${item.name} ₹${item.price}`;
+      })
+      .filter(Boolean)
+      .join("\n");
+  };
+
+  const addMenuToOrder = () => {
+    const result = buildMenuMessage();
+    if (!result) return;
+    setMessage((prev) => (prev.trim() ? `${prev.trim()}\n${result}` : result));
+    setMenuExpanded(false);
+    setSelectedMenuItems({});
+  };
+
+  const selectedMenuCount = Object.values(selectedMenuItems).filter((q) => q > 0).length;
 
   useEffect(() => {
     if (!isOpen) return;
-    const mode = effectiveVendor?.service_mode;
+    const mode = resolvedServiceMode;
     const loadForAddress =
       mode === "delivery" || (mode === "appointment" && appointmentLocation === "home");
     if (!loadForAddress || addressLoading) return;
     const defaultAddr = addresses.find((a) => a.is_default);
     setSelectedAddressId(defaultAddr?.id ?? null);
-  }, [isOpen, effectiveVendor?.service_mode, effectiveVendor?.id, appointmentLocation, addresses, addressLoading]);
+  }, [isOpen, resolvedServiceMode, resolvedVendorId, appointmentLocation, addresses, addressLoading]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -106,6 +176,9 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
         setLowTrustConfirmed(false);
         setMediumTrustDialogOpen(false);
         setPendingPhone(null);
+        setMenuItems([]);
+        setSelectedMenuItems({});
+        setMenuExpanded(true);
         onClose();
       }
     },
@@ -116,17 +189,13 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
     try {
       const available = await SpeechRecognition.available();
       if (!available.available) {
-        toast.error("Voice not available");
+        toast.error("Voice not available on this device");
         return;
       }
-      await (
-        SpeechRecognition as unknown as {
-          requestPermission: () => Promise<{ speechRecognition: string }>;
-        }
-      ).requestPermission();
+      await SpeechRecognition.requestPermissions();
       setIsListening(true);
       const result = await SpeechRecognition.start({
-        language: "hi-IN",
+        language: getVoiceLang(),
         maxResults: 1,
         popup: false,
         partialResults: false,
@@ -135,8 +204,8 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
       if (text) {
         setMessage((prev) => (prev ? `${prev} ${text}` : text));
       }
-    } catch {
-      // user cancelled or denied — silent
+    } catch (e) {
+      console.error("Voice error:", e);
     } finally {
       setIsListening(false);
     }
@@ -606,6 +675,136 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                     </option>
                   ))}
                 </select>
+              </div>
+            )}
+
+            {menuItems.length > 0 && (
+              <div className="rounded-xl border border-surface-border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setMenuExpanded((v) => !v)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left bg-surface hover:bg-surface-raised transition-colors"
+                >
+                  <span className="text-sm font-semibold text-white">
+                    📋 Menu — tap to add
+                  </span>
+                  {menuExpanded ? (
+                    <ChevronUp className="h-4 w-4 text-gray-400 shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
+                  )}
+                </button>
+                {menuExpanded && (
+                  <div className="border-t border-surface-border px-2 py-2 space-y-1.5">
+                    {menuItems.map((item) => {
+                      const qty = selectedMenuItems[item.id] ?? 0;
+                      const selected = qty > 0;
+                      if (isDeliveryMode) {
+                        return (
+                          <div
+                            key={item.id}
+                            className={cn(
+                              "flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 transition-colors",
+                              selected
+                                ? "border-brand bg-brand/10"
+                                : "border-surface-border bg-surface/50",
+                            )}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-white truncate">
+                                {item.name}
+                              </p>
+                              <p className="text-xs text-gray-400">₹{item.price}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedMenuItems((prev) => {
+                                    const next = Math.max(0, (prev[item.id] ?? 0) - 1);
+                                    if (next === 0) {
+                                      const copy = { ...prev };
+                                      delete copy[item.id];
+                                      return copy;
+                                    }
+                                    return { ...prev, [item.id]: next };
+                                  })
+                                }
+                                className="h-8 w-8 rounded-lg border border-surface-border text-gray-300 font-bold disabled:opacity-40"
+                                aria-label={`Decrease ${item.name}`}
+                              >
+                                −
+                              </button>
+                              <span className="w-6 text-center text-sm font-semibold tabular-nums text-white">
+                                {qty}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedMenuItems((prev) => ({
+                                    ...prev,
+                                    [item.id]: Math.min(99, (prev[item.id] ?? 0) + 1),
+                                  }))
+                                }
+                                disabled={qty >= 99}
+                                className="h-8 w-8 rounded-lg border border-surface-border text-gray-300 font-bold disabled:opacity-40"
+                                aria-label={`Increase ${item.name}`}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() =>
+                            setSelectedMenuItems((prev) => {
+                              if ((prev[item.id] ?? 0) > 0) {
+                                const copy = { ...prev };
+                                delete copy[item.id];
+                                return copy;
+                              }
+                              return { ...prev, [item.id]: 1 };
+                            })
+                          }
+                          className={cn(
+                            "w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+                            selected
+                              ? "border-brand bg-brand/10"
+                              : "border-surface-border bg-surface/50",
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            readOnly
+                            checked={selected}
+                            className="accent-brand shrink-0 pointer-events-none"
+                            tabIndex={-1}
+                            aria-hidden
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-white truncate">
+                              {item.name}
+                            </p>
+                            <p className="text-xs text-gray-400">₹{item.price}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {selectedMenuCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={addMenuToOrder}
+                        className="w-full mt-1 rounded-xl bg-brand/20 border border-brand text-brand py-2.5 text-sm font-semibold active:scale-[0.98]"
+                      >
+                        Add to order
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

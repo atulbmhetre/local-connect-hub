@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
@@ -36,6 +36,7 @@ import {
   AlertTriangle,
   Truck,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { VerificationBadge } from "@/components/VerificationBadge";
@@ -47,6 +48,7 @@ import {
 } from "@/components/vendor/VendorAnalytics";
 import { cn } from "@/lib/utils";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
+import { suggestServiceMode } from "@/lib/vendorUtils";
 import { useLanguage } from '@/lib/language';
 import { registerPushToken } from "../lib/pushNotifications";
 import { Capacitor } from "@capacitor/core";
@@ -73,17 +75,7 @@ import {
 
 const STORAGE_KEY = "aaspaas:vendor_id";
 
-/** Categories that default to delivery mode (matches DB seed / radar behaviour). */
-const DELIVERY_CATEGORIES = new Set([
-  "Pharmacy",
-  "Grocery Store",
-  "Medicine Delivery",
-  "Beautician",
-]);
-
-function defaultServiceModeForCategory(category: string): "help" | "delivery" {
-  return DELIVERY_CATEGORIES.has(category.trim()) ? "delivery" : "help";
-}
+type ServiceModeValue = "" | "help" | "delivery" | "appointment";
 
 function isAppointmentToday(iso: string): boolean {
   const d = new Date(iso);
@@ -212,8 +204,8 @@ const VendorMode = () => {
     useState<CategoryClassification | null>(null);
   const [classifyingCategory, setClassifyingCategory] = useState(false);
   const [confirmedCategory, setConfirmedCategory] = useState<string | null>(null);
-  /** help | delivery | appointment — set after category step; required before register. */
-  const [serviceMode, setServiceMode] = useState<"help" | "delivery" | "appointment" | null>(null);
+  /** help | delivery | appointment — empty until selected or suggested. */
+  const [serviceMode, setServiceMode] = useState<ServiceModeValue>("");
   const [vendorNote, setVendorNote] = useState("");
   const [referralCodeInput, setReferralCodeInput] = useState("");
   const [upi, setUpi] = useState("");
@@ -237,6 +229,14 @@ const VendorMode = () => {
   const [offlineConfirmOpen, setOfflineConfirmOpen] = useState(false);
   const [checkingOffline, setCheckingOffline] = useState(false);
   const [offlineBlockingOrders, setOfflineBlockingOrders] = useState<BlockingOfflineOrder[]>([]);
+
+  const [editShopOpen, setEditShopOpen] = useState(false);
+  const [editShopName, setEditShopName] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editServiceMode, setEditServiceMode] = useState<ServiceModeValue>("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editUpiId, setEditUpiId] = useState("");
+  const [savingShopDetails, setSavingShopDetails] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("aaspaas:role", "vendor");
@@ -407,7 +407,7 @@ const VendorMode = () => {
     nameOk &&
     shopOk &&
     categoryOk &&
-    serviceMode !== null &&
+    serviceMode !== "" &&
     phoneOk &&
     upiFmtOk &&
     !loading;
@@ -449,22 +449,91 @@ const VendorMode = () => {
     };
   }, [isOther, customCategory]);
 
-  const suggestedServiceMode = useMemo((): "help" | "delivery" | "appointment" | null => {
-    if (!categoryConfirmedForFlow) return null;
-    const fromCategory = defaultServiceModeForCategory(effectiveCategory);
-    const aiMode = categorySuggestion?.mode;
-    if (aiMode === "delivery" || aiMode === "help") return aiMode;
-    return fromCategory;
-  }, [categoryConfirmedForFlow, effectiveCategory, categorySuggestion?.mode]);
+  const registrationModeSuggestion = categoryConfirmedForFlow
+    ? suggestServiceMode(effectiveCategory)
+    : null;
 
-  // Apply AI / category default when the suggestion changes; manual taps persist until then.
   useEffect(() => {
-    if (suggestedServiceMode == null) {
-      setServiceMode(null);
+    if (!(category !== "Other" || confirmedCategory)) return;
+    const suggested = suggestServiceMode(effectiveCategory);
+    setServiceMode(suggested ?? "");
+  }, [effectiveCategory, category, confirmedCategory]);
+
+  const openEditShop = () => {
+    if (!vendor) return;
+    const mode = vendor.service_mode;
+    const hasMode =
+      mode === "help" || mode === "delivery" || mode === "appointment";
+    setEditShopName(vendor.shop_name ?? "");
+    setEditCategory(vendor.category ?? "");
+    setEditServiceMode(
+      hasMode ? mode : suggestServiceMode(vendor.category ?? "") ?? "",
+    );
+    setEditPhone(vendor.phone ?? "");
+    setEditUpiId(vendor.upi_id ?? "");
+    setEditShopOpen(true);
+  };
+
+  const saveShopDetails = async () => {
+    if (!vendor) return;
+    if (
+      !editShopName.trim() ||
+      !editCategory ||
+      !editServiceMode ||
+      !editPhone.trim()
+    ) {
       return;
     }
-    setServiceMode(suggestedServiceMode);
-  }, [suggestedServiceMode]);
+    setSavingShopDetails(true);
+    const { error } = await supabase
+      .from("vendors")
+      .update({
+        shop_name: editShopName.trim(),
+        category: editCategory,
+        service_mode: editServiceMode,
+        phone: editPhone.trim(),
+        upi_id: editUpiId.trim() || null,
+        is_manual_verified: false,
+        verification_status: "identity_linked",
+        shop_photo_url: null,
+        upi_verified: false,
+      })
+      .eq("id", vendor.id);
+    setSavingShopDetails(false);
+    if (error) {
+      toast.error("Failed to update shop details");
+      return;
+    }
+    setVendor((prev) =>
+      prev
+        ? {
+            ...prev,
+            shop_name: editShopName.trim(),
+            category: editCategory,
+            service_mode: editServiceMode,
+            phone: editPhone.trim(),
+            upi_id: editUpiId.trim() || null,
+            is_manual_verified: false,
+            verification_status: "identity_linked",
+            shop_photo_url: null,
+            upi_verified: false,
+          }
+        : prev,
+    );
+    void invokeNotifyAdmin(
+      "✏️ Vendor edited shop details",
+      `${editShopName.trim()} — ${editCategory} (${editServiceMode})`,
+      { vendor_id: vendor.id },
+    );
+    setEditShopOpen(false);
+    toast.success("Shop details updated. Admin will re-verify your account.");
+  };
+
+  const editShopSaveReady =
+    editShopName.trim().length > 0 &&
+    Boolean(editCategory) &&
+    editServiceMode !== "" &&
+    editPhone.trim().length > 0;
 
   const register = async (e: FormEvent) => {
     e.preventDefault();
@@ -487,7 +556,7 @@ const VendorMode = () => {
       });
       return;
     }
-    if (!serviceMode) {
+    if (serviceMode === "") {
       toast.error(s.vendor_choose_service, {
         description: s.vendor_choose_service_body,
       });
@@ -1028,6 +1097,15 @@ const VendorMode = () => {
                   </p>
                 </button>
               </div>
+              {registrationModeSuggestion != null ? (
+                <p className="text-xs text-muted-foreground">
+                  💡 Suggested for {effectiveCategory}
+                </p>
+              ) : (
+                <p className="text-xs text-amber-400">
+                  Please select how you serve customers
+                </p>
+              )}
             </div>
           )}
 
@@ -1438,6 +1516,14 @@ const VendorMode = () => {
                     {s.vendor_location_reset_warning}
                   </p>
                 )}
+                <button
+                  type="button"
+                  onClick={openEditShop}
+                  className="w-full rounded-xl border border-border py-2.5 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-card transition-colors"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Edit Shop Details
+                </button>
               </div>
 
               <VendorNoteEditor
@@ -1447,6 +1533,156 @@ const VendorMode = () => {
                   setVendor({ ...vendor, vendor_note: newNote || null })
                 }
               />
+            </SheetContent>
+          </Sheet>
+
+          <Sheet open={editShopOpen} onOpenChange={setEditShopOpen}>
+            <SheetContent
+              side="bottom"
+              className="bg-background border-t border-border rounded-t-2xl max-h-[90vh] overflow-y-auto [&>button]:hidden"
+            >
+              <SheetHeader className="border-b border-border pb-3 mb-4">
+                <SheetTitle className="text-left font-display">Edit Shop Details</SheetTitle>
+              </SheetHeader>
+
+              <div className="space-y-4">
+                <Field
+                  label={s.vendor_shop_name}
+                  value={editShopName}
+                  onChange={setEditShopName}
+                  placeholder={s.vendor_shop_placeholder}
+                  required
+                />
+
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {s.vendor_category_label}
+                  </label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => {
+                      const cat = e.target.value;
+                      setEditCategory(cat);
+                      const suggested = suggestServiceMode(cat);
+                      setEditServiceMode(suggested ?? "");
+                    }}
+                    className="mt-1 w-full bg-surface text-foreground border-surface-border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 focus:ring-primary vendor-select"
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c.id} value={c.label}>
+                        {c.emoji} {c.label}
+                      </option>
+                    ))}
+                    {editCategory &&
+                      !CATEGORIES.some((c) => c.label === editCategory) && (
+                        <option value={editCategory}>{editCategory}</option>
+                      )}
+                  </select>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {s.vendor_how_serve}
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditServiceMode("help")}
+                      className={cn(
+                        "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
+                        "bg-surface border-surface-border",
+                        editServiceMode === "help" &&
+                          "border-brand bg-brand/15 ring-1 ring-brand/30",
+                      )}
+                    >
+                      <p className="text-base font-display font-bold text-foreground leading-tight">
+                        {s.vendor_mode_visit}
+                      </p>
+                      <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
+                        {s.vendor_mode_visit_eg}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditServiceMode("delivery")}
+                      className={cn(
+                        "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
+                        "bg-surface border-surface-border",
+                        editServiceMode === "delivery" &&
+                          "border-brand bg-brand/15 ring-1 ring-brand/30",
+                      )}
+                    >
+                      <p className="text-base font-display font-bold text-foreground leading-tight">
+                        {s.vendor_mode_deliver}
+                      </p>
+                      <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
+                        {s.vendor_mode_deliver_eg}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditServiceMode("appointment")}
+                      className={cn(
+                        "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
+                        "bg-surface border-surface-border",
+                        editServiceMode === "appointment" &&
+                          "border-brand bg-brand/15 ring-1 ring-brand/30",
+                      )}
+                    >
+                      <p className="text-base font-display font-bold text-foreground leading-tight">
+                        {s.vendor_mode_booking}
+                      </p>
+                      <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
+                        {s.vendor_mode_booking_eg}
+                      </p>
+                    </button>
+                  </div>
+                  {suggestServiceMode(editCategory) != null ? (
+                    <p className="text-xs text-muted-foreground">
+                      💡 Suggested for {editCategory}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-amber-400">
+                      Please select how you serve customers
+                    </p>
+                  )}
+                </div>
+
+                <Field
+                  label={s.vendor_phone_label}
+                  value={editPhone}
+                  onChange={setEditPhone}
+                  placeholder={s.vendor_phone_placeholder}
+                  required
+                />
+                <Field
+                  label={s.vendor_upi_label}
+                  value={editUpiId}
+                  onChange={setEditUpiId}
+                  placeholder={s.vendor_upi_placeholder}
+                />
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditShopOpen(false)}
+                    className="flex-1 rounded-2xl border border-border py-3.5 text-sm font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveShopDetails()}
+                    disabled={!editShopSaveReady || savingShopDetails}
+                    className="flex-1 rounded-2xl bg-gradient-vendor text-white py-3.5 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {savingShopDetails ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    Save
+                  </button>
+                </div>
+              </div>
             </SheetContent>
           </Sheet>
         </div>
