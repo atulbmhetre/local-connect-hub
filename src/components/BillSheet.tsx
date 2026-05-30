@@ -19,20 +19,6 @@ import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { getVoiceLang } from "@/lib/voiceUtils";
 
-const VOICE_LANG_OPTIONS = ["en-IN", "hi-IN", "mr-IN"] as const;
-
-function voiceLangShort(code: string): string {
-  if (code === "hi-IN") return "HI";
-  if (code === "mr-IN") return "MR";
-  return "EN";
-}
-
-function nextVoiceLang(current: string): (typeof VOICE_LANG_OPTIONS)[number] {
-  const idx = VOICE_LANG_OPTIONS.indexOf(current as (typeof VOICE_LANG_OPTIONS)[number]);
-  const nextIdx = idx < 0 ? 0 : (idx + 1) % VOICE_LANG_OPTIONS.length;
-  return VOICE_LANG_OPTIONS[nextIdx];
-}
-
 type Props = {
   isOpen: boolean;
   onClose: () => void;
@@ -75,9 +61,6 @@ export function BillSheet({
   const [notes, setNotes] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
-  const [voiceLangOverride, setVoiceLangOverride] = useState<string | null>(null);
-  const activeVoiceLang = voiceLangOverride ?? getVoiceLang();
-
   const validItems = useMemo(
     () => items.filter((i) => i.description.trim() && i.unit_price > 0),
     [items],
@@ -109,7 +92,6 @@ export function BillSheet({
         setSending(false);
         setIsListening(false);
         setIsProcessingImage(false);
-        setVoiceLangOverride(null);
         onClose();
       }
     },
@@ -126,7 +108,7 @@ export function BillSheet({
       await SpeechRecognition.requestPermissions();
       setIsListening(true);
       const speechResult = await SpeechRecognition.start({
-        language: activeVoiceLang,
+        language: getVoiceLang(),
         maxResults: 1,
         popup: false,
         partialResults: false,
@@ -340,35 +322,14 @@ export function BillSheet({
                     </span>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => void startVoiceBill()}
-                      className="p-2 rounded-xl border border-surface-border bg-surface text-gray-400 hover:text-brand transition-colors"
-                      aria-label={s.bill_voicePrompt}
-                    >
-                      <Mic className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVoiceLangOverride(nextVoiceLang(activeVoiceLang))}
-                      className="flex items-center gap-0.5 rounded-lg border border-surface-border bg-surface px-2 py-1.5 text-[10px] font-bold"
-                      aria-label="Voice language"
-                    >
-                      {VOICE_LANG_OPTIONS.map((code, i) => (
-                        <span key={code} className="flex items-center gap-0.5">
-                          {i > 0 && <span className="text-muted-foreground font-normal">|</span>}
-                          <span
-                            className={
-                              activeVoiceLang === code ? "text-brand" : "text-muted-foreground"
-                            }
-                          >
-                            {voiceLangShort(code)}
-                          </span>
-                        </span>
-                      ))}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void startVoiceBill()}
+                    className="p-2 rounded-xl border border-surface-border bg-surface text-gray-400 hover:text-brand transition-colors shrink-0"
+                    aria-label={s.bill_voicePrompt}
+                  >
+                    <Mic className="h-4 w-4" />
+                  </button>
                 ))}
             </div>
           </div>

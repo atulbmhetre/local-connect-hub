@@ -66,8 +66,19 @@ import {
   VendorSettingsReferEarn,
 } from "@/components/settings/VendorSettings";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 
 const LARGE_TEXT_KEY = "aaspaas:large_text";
+const VOICE_LANG_KEY = "aaspaas:voice_lang";
+
+type VoiceInputLang = "auto" | "en-IN" | "hi-IN" | "mr-IN";
+
+const VOICE_INPUT_OPTIONS: { code: VoiceInputLang; label: string }[] = [
+  { code: "auto", label: "Auto" },
+  { code: "en-IN", label: "EN" },
+  { code: "hi-IN", label: "HI" },
+  { code: "mr-IN", label: "MR" },
+];
 
 const VERIFY_MANDATORY = new Set([
   "phone_called",
@@ -225,6 +236,12 @@ const Settings = () => {
   });
   const [deletingAddress, setDeletingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [voiceInputLang, setVoiceInputLang] = useState<VoiceInputLang>(() => {
+    const stored = localStorage.getItem(VOICE_LANG_KEY);
+    if (stored === "auto") return "auto";
+    if (stored === "en-IN" || stored === "hi-IN" || stored === "mr-IN") return stored;
+    return "auto";
+  });
   const [largeText, setLargeText] = useState(() => {
     try {
       return localStorage.getItem(LARGE_TEXT_KEY) === "true";
@@ -597,6 +614,7 @@ const Settings = () => {
       "aaspaas:device_id",
       "aaspaas:saved_neighbours",
       "aaspaas:verification_progress",
+      "aaspaas:voice_lang",
     ];
     keysToClear.forEach((key) => localStorage.removeItem(key));
     location.reload();
@@ -932,6 +950,36 @@ const Settings = () => {
             ))}
           </SelectContent>
         </Select>
+      </section>
+
+      <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">
+        <p className="font-display font-bold mb-1">🎤 Voice input language</p>
+        <p className="text-xs text-muted-foreground mb-3">
+          Language used when speaking to the app
+        </p>
+        <div className="flex gap-2">
+          {VOICE_INPUT_OPTIONS.map(({ code, label }) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => {
+                localStorage.setItem(VOICE_LANG_KEY, code);
+                setVoiceInputLang(code);
+              }}
+              className={cn(
+                "flex-1 rounded-xl border py-2.5 text-sm font-bold transition-colors active:scale-[0.98]",
+                voiceInputLang === code
+                  ? "border-brand bg-brand/15 text-brand"
+                  : "border-border bg-background text-muted-foreground hover:bg-muted/40",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-3">
+          Auto detects language. For best results, select your language.
+        </p>
       </section>
 
       <section className="rounded-3xl bg-card border border-border shadow-card p-5 mb-5">

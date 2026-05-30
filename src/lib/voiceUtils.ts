@@ -1,9 +1,8 @@
 export function getVoiceLang(): string {
-  const lang = localStorage.getItem("aaspaas:lang") ?? "en";
-  const map: Record<string, string> = {
-    en: "en-IN",
-    hi: "hi-IN",
-    mr: "mr-IN",
-  };
-  return map[lang] ?? "en-IN";
+  const voiceLang = localStorage.getItem("aaspaas:voice_lang");
+  if (!voiceLang || voiceLang === "auto") return "en-IN";
+  if (voiceLang === "en-IN" || voiceLang === "hi-IN" || voiceLang === "mr-IN") {
+    return voiceLang;
+  }
+  return "en-IN";
 }
