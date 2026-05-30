@@ -120,8 +120,15 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
+  let body: Record<string, unknown> = {};
   try {
-    const body = await req.json();
+    const text = await req.text();
+    if (text?.trim()) body = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return jsonResponse({ error: "invalid_json" }, 400);
+  }
+
+  try {
     const action = body?.action as GatewayAction | undefined;
 
     if (!action) {

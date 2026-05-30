@@ -3,11 +3,24 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 
 serve(async (req) => {
+  let body: Record<string, unknown> = {};
   try {
-    const payload = await req.json();
-    const record = payload.record ?? payload;
-    const vendorId = record?.vendor_id;
-    const message = (record?.message ?? "").substring(0, 100);
+    const text = await req.text();
+    if (text && text.trim()) {
+      body = JSON.parse(text) as Record<string, unknown>;
+    }
+  } catch {
+    return new Response(JSON.stringify({ error: "invalid_json" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const payload = body;
+    const record = (payload.record ?? payload) as Record<string, unknown>;
+    const vendorId = record?.vendor_id as string | undefined;
+    const message = String(record?.message ?? "").substring(0, 100);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,

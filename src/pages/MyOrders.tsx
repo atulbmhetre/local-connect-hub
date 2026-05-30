@@ -791,7 +791,6 @@ const MyOrders = () => {
     if (trimmed === originalStripped) return;
 
     const newMessage = buildMessageWithTags(trimmed, editOrder.message);
-    const wasSeen = editOrder.status === "seen";
 
     setSavingEdit(true);
     const device_id = getDeviceId();
@@ -811,13 +810,33 @@ const MyOrders = () => {
       prev.map((r) => (r.id === editOrder.id ? { ...r, message: newMessage } : r)),
     );
 
-    if (wasSeen) {
-      void invokeNotifyVendor({
-        vendor_id: editOrder.vendor_id,
-        message: stripLocationTag(newMessage),
-        notification_title: "Order updated by user",
-      });
-    }
+    const hasAppointment =
+      editOrder.appointment_time != null && String(editOrder.appointment_time).trim() !== "";
+    const appointmentDate = hasAppointment
+      ? new Date(editOrder.appointment_time!).toDateString()
+      : null;
+    const today = new Date().toDateString();
+    const isSameDay = hasAppointment && appointmentDate === today;
+    const customerName = userPhone ?? "Customer";
+
+    void invokeNotifyVendor({
+      vendor_id: editOrder.vendor_id,
+      notification_title: hasAppointment
+        ? isSameDay
+          ? "⚠️ Customer edited today's booking!"
+          : "✏️ Booking edited"
+        : isSameDay
+          ? "⚠️ Customer edited today's order!"
+          : "✏️ Order edited",
+      message: hasAppointment
+        ? isSameDay
+          ? `${customerName} changed their order — check details now`
+          : `${customerName} updated their booking details`
+        : isSameDay
+          ? `${customerName} changed their order — check details now`
+          : `${customerName} updated their order details`,
+      request_id: editOrder.id,
+    });
 
     toast.success(s.orderUpdated);
     closeEditSheet();

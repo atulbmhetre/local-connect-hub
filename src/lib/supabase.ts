@@ -10,8 +10,6 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 const AI_GATEWAY_URL = `${SUPABASE_URL}/functions/v1/ai-gateway`;
-export const NOTIFY_VENDOR_URL = `${SUPABASE_URL}/functions/v1/notify-vendor`;
-export const NOTIFY_USER_URL = `${SUPABASE_URL}/functions/v1/notify-user`;
 export const INITIATE_CALL_URL = `${SUPABASE_URL}/functions/v1/initiate-call`;
 
 export async function invokeInitiateCall(body: {
@@ -124,15 +122,11 @@ export async function invokeNotifyVendor(record: {
   category?: string;
   message?: string;
   notification_title?: string;
+  request_id?: string;
 }): Promise<void> {
   try {
-    await fetch(NOTIFY_VENDOR_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({ record }),
+    await supabase.functions.invoke("notify-vendor", {
+      body: { record },
     });
   } catch {
     /* ignore */
@@ -146,23 +140,27 @@ export async function invokeNotifyUser(payload: {
   body: string;
 }): Promise<void> {
   try {
-    await fetch(NOTIFY_USER_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify(payload),
+    await supabase.functions.invoke("notify-user", {
+      body: payload,
     });
   } catch {
     /* ignore */
   }
 }
 
-export async function invokeNotifyAdmin(title: string, body: string, data?: object) {
-  return supabase.functions.invoke("notify-admin", {
-    body: { title, body, data },
-  });
+/** Best-effort push to admin; never throws. */
+export async function invokeNotifyAdmin(
+  title: string,
+  body: string,
+  data?: object,
+): Promise<void> {
+  try {
+    await supabase.functions.invoke("notify-admin", {
+      body: { title, body, data },
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 export type VerificationStatus =

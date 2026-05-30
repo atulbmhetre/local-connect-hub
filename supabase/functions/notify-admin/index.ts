@@ -3,8 +3,21 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 
 serve(async (req) => {
+  let parsed: Record<string, unknown> = {};
   try {
-    const payload = await req.json();
+    const text = await req.text();
+    if (text && text.trim()) {
+      parsed = JSON.parse(text) as Record<string, unknown>;
+    }
+  } catch {
+    return new Response(JSON.stringify({ error: "invalid_json" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const payload = parsed;
     const title = String(payload?.title ?? "").substring(0, 100);
     const body = String(payload?.body ?? "").substring(0, 100);
     const data =
