@@ -528,6 +528,7 @@ const VendorMode = () => {
         upi_verified: false,
         is_manual_verified: false,
         shop_photo_url: null,
+        referral_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
       })
       .select()
       .single();

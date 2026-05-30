@@ -289,53 +289,57 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
 
   const startVoiceMenu = async () => {
     try {
-      const permission = await SpeechRecognition.requestPermission();
-      if (permission.speechRecognition !== "granted") {
-        toast.error(s.voice_permissionDenied);
+      const available = await SpeechRecognition.available();
+      if (!available.available) {
+        toast.error("Voice not available");
         return;
       }
+      await (
+        SpeechRecognition as unknown as {
+          requestPermission: () => Promise<{ speechRecognition: string }>;
+        }
+      ).requestPermission();
       setIsListeningMenu(true);
-      await SpeechRecognition.start({
+      const speechResult = await SpeechRecognition.start({
         language: "hi-IN",
         maxResults: 1,
-        prompt: s.menu_voicePrompt,
+        popup: false,
         partialResults: false,
-        popup: true,
       });
-      SpeechRecognition.addListener("partialResults", async (data: { matches?: string[] }) => {
-        if (!data.matches?.[0]) return;
-        const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-voice-bill`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({ text: data.matches[0] }),
-        });
-        const result = await resp.json();
-        if (result.success && result.items?.length) {
-          await supabase.from("vendor_menu_items").insert(
-            result.items.map(
-              (
-                item: { description?: string; unit_price?: number; unit?: string },
-                idx: number,
-              ) => ({
-                vendor_id: vendor.id,
-                name: item.description ?? "",
-                price: item.unit_price ?? 0,
-                unit: item.unit || null,
-                sort_order: menuItems.length + idx,
-              }),
-            ),
-          );
-          void loadMenu();
-          toast.success(s.menu_voiceAdded);
-        } else {
-          toast.error(s.voice_failed);
-        }
+      const text = speechResult?.matches?.[0]?.trim();
+      if (!text) return;
+
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-voice-bill`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ text }),
       });
+      const result = await resp.json();
+      if (result.success && result.items?.length) {
+        await supabase.from("vendor_menu_items").insert(
+          result.items.map(
+            (
+              item: { description?: string; unit_price?: number; unit?: string },
+              idx: number,
+            ) => ({
+              vendor_id: vendor.id,
+              name: item.description ?? "",
+              price: item.unit_price ?? 0,
+              unit: item.unit || null,
+              sort_order: menuItems.length + idx,
+            }),
+          ),
+        );
+        void loadMenu();
+        toast.success(s.menu_voiceAdded);
+      } else {
+        toast.error(s.voice_failed);
+      }
     } catch {
-      toast.error(s.voice_failed);
+      // user cancelled or denied — silent
     } finally {
       setIsListeningMenu(false);
     }
@@ -437,17 +441,19 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
                     <Camera className="h-3.5 w-3.5" />
                   )}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void startVoiceMenu()}
-                  className={`p-1.5 rounded-lg border transition-colors ${
-                    isListeningMenu
-                      ? "border-danger bg-danger/10 text-danger animate-pulse"
-                      : "border-surface-border bg-surface text-gray-400 hover:text-brand"
-                  }`}
-                >
-                  <Mic className="h-3.5 w-3.5" />
-                </button>
+                {Capacitor.isNativePlatform() && (
+                  <button
+                    type="button"
+                    onClick={() => void startVoiceMenu()}
+                    className={`p-1.5 rounded-lg border transition-colors ${
+                      isListeningMenu
+                        ? "border-danger bg-danger/10 text-danger animate-pulse"
+                        : "border-surface-border bg-surface text-gray-400 hover:text-brand"
+                    }`}
+                  >
+                    <Mic className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setAddingItem(true)}

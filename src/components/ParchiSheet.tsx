@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Camera, Loader2, MapPin, Mic } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import {
   Sheet,
@@ -113,28 +114,29 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
 
   const startVoiceInput = async () => {
     try {
-      const permission = await SpeechRecognition.requestPermission();
-      if (permission.speechRecognition !== "granted") {
-        toast.error(s.voice_permissionDenied);
+      const available = await SpeechRecognition.available();
+      if (!available.available) {
+        toast.error("Voice not available");
         return;
       }
+      await (
+        SpeechRecognition as unknown as {
+          requestPermission: () => Promise<{ speechRecognition: string }>;
+        }
+      ).requestPermission();
       setIsListening(true);
-      await SpeechRecognition.start({
+      const result = await SpeechRecognition.start({
         language: "hi-IN",
         maxResults: 1,
-        prompt: s.voice_prompt,
+        popup: false,
         partialResults: false,
-        popup: true,
       });
-      SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
-        if (data.matches && data.matches[0]) {
-          setMessage((prev) =>
-            prev ? `${prev} ${data.matches[0]}` : data.matches[0],
-          );
-        }
-      });
-    } catch (e) {
-      toast.error(s.voice_failed);
+      const text = result?.matches?.[0]?.trim();
+      if (text) {
+        setMessage((prev) => (prev ? `${prev} ${text}` : text));
+      }
+    } catch {
+      // user cancelled or denied — silent
     } finally {
       setIsListening(false);
     }
@@ -636,18 +638,20 @@ export function ParchiSheet({ vendor, isOpen, onClose, onOrderSent }: Props) {
                   <Camera className="h-4 w-4" />
                 )}
               </button>
-              <button
-                type="button"
-                onClick={() => void startVoiceInput()}
-                className={`absolute bottom-3 right-3 p-1.5 rounded-full transition-colors ${
-                  isListening
-                    ? "bg-danger text-white animate-pulse"
-                    : "bg-surface-raised text-gray-400 hover:text-brand"
-                }`}
-                aria-label={isListening ? s.voice_listening : s.voice_prompt}
-              >
-                <Mic className="h-4 w-4" />
-              </button>
+              {Capacitor.isNativePlatform() && (
+                <button
+                  type="button"
+                  onClick={() => void startVoiceInput()}
+                  className={`absolute bottom-3 right-3 p-1.5 rounded-full transition-colors ${
+                    isListening
+                      ? "bg-danger text-white animate-pulse"
+                      : "bg-surface-raised text-gray-400 hover:text-brand"
+                  }`}
+                  aria-label={isListening ? s.voice_listening : s.voice_prompt}
+                >
+                  <Mic className="h-4 w-4" />
+                </button>
+              )}
             </div>
             <div className="flex justify-end text-xs text-gray-500 tabular-nums">
               {len}{s.parchi_charSeparator}{config.maxOrderMessageChars}

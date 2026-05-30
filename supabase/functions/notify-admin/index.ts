@@ -86,8 +86,20 @@ serve(async (req) => {
               body,
             },
             android: {
+              priority: "high",
               notification: {
-                channel_id: "default",
+                channel_id: "order_alert",
+                sound: "default",
+                notification_priority: "PRIORITY_MAX",
+                visibility: "PUBLIC",
+              },
+            },
+            apns: {
+              payload: {
+                aps: {
+                  sound: "default",
+                  badge: 1,
+                },
               },
             },
           },

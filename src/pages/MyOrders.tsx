@@ -9,6 +9,7 @@ import {
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
 } from "@/lib/supabase";
+import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
@@ -707,32 +708,29 @@ const MyOrders = () => {
 
   const startVoiceEdit = async () => {
     try {
-      const permission = await (
+      const available = await SpeechRecognition.available();
+      if (!available.available) {
+        toast.error("Voice not available");
+        return;
+      }
+      await (
         SpeechRecognition as unknown as {
           requestPermission: () => Promise<{ speechRecognition: string }>;
         }
       ).requestPermission();
-      if (permission.speechRecognition !== "granted") {
-        toast.error(s.voice_permissionDenied);
-        return;
-      }
       setIsListeningEdit(true);
-      await SpeechRecognition.start({
+      const result = await SpeechRecognition.start({
         language: "hi-IN",
         maxResults: 1,
-        prompt: s.voice_prompt,
+        popup: false,
         partialResults: false,
-        popup: true,
       });
-      SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
-        if (data.matches?.[0]) {
-          setEditMessage((prev) =>
-            prev ? `${prev} ${data.matches![0]}` : data.matches![0],
-          );
-        }
-      });
+      const text = result?.matches?.[0]?.trim();
+      if (text) {
+        setEditMessage((prev) => (prev ? `${prev} ${text}` : text));
+      }
     } catch {
-      toast.error(s.voice_failed);
+      // user cancelled or denied — silent
     } finally {
       setIsListeningEdit(false);
     }
@@ -1376,17 +1374,19 @@ const MyOrders = () => {
                 <Camera className="h-4 w-4" />
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => void startVoiceEdit()}
-              className={`absolute bottom-3 right-3 p-1.5 rounded-full transition-colors ${
-                isListeningEdit
-                  ? "bg-danger text-white animate-pulse"
-                  : "bg-surface-raised text-gray-400 hover:text-brand"
-              }`}
-            >
-              <Mic className="h-4 w-4" />
-            </button>
+            {Capacitor.isNativePlatform() && (
+              <button
+                type="button"
+                onClick={() => void startVoiceEdit()}
+                className={`absolute bottom-3 right-3 p-1.5 rounded-full transition-colors ${
+                  isListeningEdit
+                    ? "bg-danger text-white animate-pulse"
+                    : "bg-surface-raised text-gray-400 hover:text-brand"
+                }`}
+              >
+                <Mic className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <p className="text-[10px] text-muted-foreground text-right mt-1">
             {editMessage.length}/{MAX_LEN}

@@ -69,6 +69,40 @@ import { Switch } from "@/components/ui/switch";
 
 const LARGE_TEXT_KEY = "aaspaas:large_text";
 
+const VERIFY_MANDATORY = new Set([
+  "phone_called",
+  "aware",
+  "shop_exists",
+  "no_duplicate",
+]);
+const VERIFY_IMPORTANT = new Set([
+  "name_match",
+  "shop_name_match",
+  "category_match",
+  "service_mode_correct",
+  "photo_genuine",
+]);
+const VERIFY_CHECK_COUNT = 12;
+
+function verifyProgressKey(vendorId: string) {
+  return `aaspaas:verify_progress:${vendorId}`;
+}
+
+function loadVerifyChecks(vendorId: string): Record<string, boolean> {
+  try {
+    const saved = localStorage.getItem(verifyProgressKey(vendorId));
+    if (!saved) return {};
+    const parsed = JSON.parse(saved) as Record<string, boolean>;
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function hasVerifyInProgress(vendorId: string): boolean {
+  return Object.values(loadVerifyChecks(vendorId)).some(Boolean);
+}
+
 type NativePermissionStatuses = {
   notifications: PermissionState;
   location: PermissionState;
@@ -467,7 +501,7 @@ const Settings = () => {
 
   const openVerifySheet = (vendor: (typeof vendorList)[number]) => {
     setVerifySheet({ open: true, vendor });
-    setVerifyChecks({});
+    setVerifyChecks(loadVerifyChecks(vendor.id));
   };
 
   const closeVerifySheet = () => {
@@ -475,7 +509,13 @@ const Settings = () => {
     setVerifyChecks({});
   };
 
-  const allChecked = Object.keys(verifyChecks).length === 12 && Object.values(verifyChecks).every(Boolean);
+  const mandatoryDone = [...VERIFY_MANDATORY].every((k) => verifyChecks[k] === true);
+  const mandatoryCompleteCount = [...VERIFY_MANDATORY].filter((k) => verifyChecks[k] === true).length;
+  const mandatoryPendingCount = VERIFY_MANDATORY.size - mandatoryCompleteCount;
+  const totalCheckedCount = Object.values(verifyChecks).filter(Boolean).length;
+  const allChecked =
+    Object.keys(verifyChecks).length === VERIFY_CHECK_COUNT &&
+    Object.values(verifyChecks).every(Boolean);
 
   const confirmVerify = async () => {
     if (!verifySheet.vendor || !allChecked) return;
@@ -489,6 +529,7 @@ const Settings = () => {
       toast.error("Update failed: " + error.message);
       return;
     }
+    localStorage.removeItem(verifyProgressKey(verifySheet.vendor.id));
     await loadVendorList();
     setVerifying(null);
     closeVerifySheet();
@@ -1270,30 +1311,37 @@ const Settings = () => {
                     </p>
                     <p className="text-xs text-muted-foreground">{v.phone}</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      v.is_manual_verified ? void confirmUnverify(v.id) : openVerifySheet(v)
-                    }
-                    disabled={verifying === v.id}
-                    className={`shrink-0 flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      v.is_manual_verified
-                        ? "bg-green-500/10 text-green-500 border border-green-500/30"
-                        : "bg-destructive/10 text-destructive border border-destructive/30"
-                    }`}
-                  >
-                    {verifying === v.id ? (
-                      s.settings_btnLoading
-                    ) : v.is_manual_verified ? (
-                      <>
-                        <CheckCircle className="h-3 w-3" /> {s.settings_verified}
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="h-3 w-3" /> {s.settings_unverified}
-                      </>
+                  <div className="shrink-0 flex flex-col items-end gap-1.5">
+                    {!v.is_manual_verified && hasVerifyInProgress(v.id) && (
+                      <span className="rounded-full bg-amber-500/10 text-amber-600 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
+                        In progress
+                      </span>
                     )}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        v.is_manual_verified ? void confirmUnverify(v.id) : openVerifySheet(v)
+                      }
+                      disabled={verifying === v.id}
+                      className={`flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        v.is_manual_verified
+                          ? "bg-green-500/10 text-green-500 border border-green-500/30"
+                          : "bg-destructive/10 text-destructive border border-destructive/30"
+                      }`}
+                    >
+                      {verifying === v.id ? (
+                        s.settings_btnLoading
+                      ) : v.is_manual_verified ? (
+                        <>
+                          <CheckCircle className="h-3 w-3" /> {s.settings_verified}
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="h-3 w-3" /> {s.settings_unverified}
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1557,14 +1605,58 @@ const Settings = () => {
                 <input
                   type="checkbox"
                   checked={!!verifyChecks[item.id]}
-                  onChange={(e) =>
-                    setVerifyChecks((prev) => ({ ...prev, [item.id]: e.target.checked }))
-                  }
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    if (!verifySheet.vendor) return;
+                    setVerifyChecks((prev) => {
+                      const updated = { ...prev, [item.id]: checked };
+                      localStorage.setItem(
+                        verifyProgressKey(verifySheet.vendor!.id),
+                        JSON.stringify(updated),
+                      );
+                      return updated;
+                    });
+                  }}
                   className="mt-0.5 h-4 w-4 accent-green-500 shrink-0"
                 />
-                <span className="text-sm text-foreground leading-snug">{item.label}</span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-foreground leading-snug">{item.label}</span>
+                  <p className="mt-0.5 text-[10px] font-semibold flex items-center gap-1">
+                    {VERIFY_MANDATORY.has(item.id) ? (
+                      <>
+                        <span aria-hidden>🔴</span>
+                        <span className="text-red-500">Required</span>
+                      </>
+                    ) : VERIFY_IMPORTANT.has(item.id) ? (
+                      <>
+                        <span aria-hidden>🟡</span>
+                        <span className="text-amber-600">Important</span>
+                      </>
+                    ) : (
+                      <>
+                        <span aria-hidden>⚪</span>
+                        <span className="text-muted-foreground">Optional</span>
+                      </>
+                    )}
+                  </p>
+                </div>
               </label>
             ))}
+
+            <div className="mt-2 mb-3 space-y-1">
+              <p
+                className={`text-xs font-semibold ${
+                  mandatoryDone ? "text-green-600" : "text-destructive"
+                }`}
+              >
+                {mandatoryDone
+                  ? "4/4 required checks done ✅"
+                  : `${mandatoryPendingCount}/4 required checks pending 🔴`}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {totalCheckedCount}/{VERIFY_CHECK_COUNT} total
+              </p>
+            </div>
 
             <button
               type="button"

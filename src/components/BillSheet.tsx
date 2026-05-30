@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Camera, Loader2, Mic, Trash2 } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
 import {
@@ -99,60 +100,60 @@ export function BillSheet({
 
   const startVoiceBill = async () => {
     try {
-      const permission = await (
+      const available = await SpeechRecognition.available();
+      if (!available.available) {
+        toast.error("Voice not available");
+        return;
+      }
+      await (
         SpeechRecognition as unknown as {
           requestPermission: () => Promise<{ speechRecognition: string }>;
         }
       ).requestPermission();
-      if (permission.speechRecognition !== "granted") {
-        toast.error(s.voice_permissionDenied);
-        return;
-      }
       setIsListening(true);
-      await SpeechRecognition.start({
+      const speechResult = await SpeechRecognition.start({
         language: "hi-IN",
         maxResults: 1,
-        prompt: s.bill_voicePrompt,
+        popup: false,
         partialResults: false,
-        popup: true,
       });
-      SpeechRecognition.addListener("partialResults", async (data: { matches?: string[] }) => {
-        if (!data.matches?.[0]) return;
-        const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-voice-bill`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({ text: data.matches[0] }),
+      const text = speechResult?.matches?.[0]?.trim();
+      if (!text) return;
+
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-voice-bill`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ text }),
+      });
+      const result = await resp.json();
+      if (result.success && result.items?.length) {
+        setItems((prev) => {
+          const hasEmpty = prev.length === 1 && !prev[0].description;
+          const newItems = result.items.map(
+            (i: {
+              description?: string;
+              quantity?: number;
+              unit?: string;
+              unit_price?: number;
+            }) => ({
+              id: crypto.randomUUID(),
+              description: i.description ?? "",
+              quantity: i.quantity ?? 1,
+              unit: i.unit ?? "",
+              unit_price: i.unit_price ?? 0,
+            }),
+          );
+          return hasEmpty ? newItems : [...prev, ...newItems];
         });
-        const result = await resp.json();
-        if (result.success && result.items?.length) {
-          setItems((prev) => {
-            const hasEmpty = prev.length === 1 && !prev[0].description;
-            const newItems = result.items.map(
-              (i: {
-                description?: string;
-                quantity?: number;
-                unit?: string;
-                unit_price?: number;
-              }) => ({
-                id: crypto.randomUUID(),
-                description: i.description ?? "",
-                quantity: i.quantity ?? 1,
-                unit: i.unit ?? "",
-                unit_price: i.unit_price ?? 0,
-              }),
-            );
-            return hasEmpty ? newItems : [...prev, ...newItems];
-          });
-          toast.success(s.bill_voiceParsed);
-        } else {
-          toast.error(s.voice_failed);
-        }
-      });
+        toast.success(s.bill_voiceParsed);
+      } else {
+        toast.error(s.voice_failed);
+      }
     } catch {
-      toast.error(s.voice_failed);
+      // user cancelled or denied — silent
     } finally {
       setIsListening(false);
     }
@@ -316,17 +317,19 @@ export function BillSheet({
                   <Camera className="h-4 w-4" />
                 )}
               </button>
-              <button
-                type="button"
-                onClick={() => void startVoiceBill()}
-                className={`p-2 rounded-xl border transition-colors ${
-                  isListening
-                    ? "border-danger bg-danger/10 text-danger animate-pulse"
-                    : "border-surface-border bg-surface text-gray-400 hover:text-brand"
-                }`}
-              >
-                <Mic className="h-4 w-4" />
-              </button>
+              {Capacitor.isNativePlatform() && (
+                <button
+                  type="button"
+                  onClick={() => void startVoiceBill()}
+                  className={`p-2 rounded-xl border transition-colors ${
+                    isListening
+                      ? "border-danger bg-danger/10 text-danger animate-pulse"
+                      : "border-surface-border bg-surface text-gray-400 hover:text-brand"
+                  }`}
+                >
+                  <Mic className="h-4 w-4" />
+                </button>
+              )}
             </div>
           </div>
         </SheetHeader>
