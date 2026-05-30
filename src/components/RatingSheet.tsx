@@ -103,30 +103,31 @@ export function RatingSheet({
   const startReviewVoice = async () => {
     if (isListeningReview) return;
     try {
-      const permission = await (
+      const available = await SpeechRecognition.available();
+      if (!available.available) {
+        toast.error("Voice not available on this device");
+        return;
+      }
+      await (
         SpeechRecognition as unknown as {
           requestPermission: () => Promise<{ speechRecognition: string }>;
         }
       ).requestPermission();
-      if (permission.speechRecognition !== "granted") {
-        toast.error(s.voice_permissionDenied);
-        return;
-      }
       setIsListeningReview(true);
-      const speechLang = lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";
-      await SpeechRecognition.start({
-        language: speechLang,
+      const result = await SpeechRecognition.start({
+        language: "en-IN",
         maxResults: 1,
-        popup: true,
+        popup: false,
         partialResults: false,
       });
-      SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
-        const text = data.matches?.[0]?.trim();
-        if (!text) return;
-        setReviewText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
-      });
+      if (result?.matches?.length > 0) {
+        const text = result.matches[0]?.trim();
+        if (text) {
+          setReviewText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+        }
+      }
     } catch {
-      toast.error(s.voice_failed);
+      // user cancelled or denied — silent
     } finally {
       setIsListeningReview(false);
     }

@@ -285,32 +285,28 @@ const Index = () => {
 
   const startVoice = async () => {
     try {
-      const permission = await (
+      const available = await SpeechRecognition.available();
+      if (!available.available) {
+        toast.error("Voice not available on this device");
+        return;
+      }
+      await (
         SpeechRecognition as unknown as {
           requestPermission: () => Promise<{ speechRecognition: string }>;
         }
       ).requestPermission();
-      if (permission.speechRecognition !== "granted") {
-        toast.error(s.voice_permissionDenied);
-        return;
-      }
       setListening(true);
-      const speechLang = lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";
-      await SpeechRecognition.start({
-        language: speechLang,
+      const result = await SpeechRecognition.start({
+        language: "en-IN",
         maxResults: 1,
-        popup: true,
+        popup: false,
         partialResults: false,
       });
-      SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
-        const transcript = data.matches?.[0]?.trim();
-        if (!transcript) return;
-        setQuery(transcript);
-        setPickerOpen(false);
-        void runFreeTextSearch(transcript);
-      });
+      if (result?.matches?.length > 0) {
+        setQuery(result.matches[0]);
+      }
     } catch {
-      toast.error(s.voice_failed);
+      // user cancelled or denied — silent
     } finally {
       setListening(false);
     }

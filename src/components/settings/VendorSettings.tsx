@@ -46,8 +46,6 @@ type VendorReview = {
   service_mode: string | null;
   created_at: string;
   user_phone: string | null;
-  vendor_response: string | null;
-  vendor_responded_at: string | null;
 };
 
 type Props = {
@@ -182,8 +180,6 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
   const [reviews, setReviews] = useState<VendorReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
-  const [respondingReviewId, setRespondingReviewId] = useState<string | null>(null);
-  const [responseText, setResponseText] = useState("");
   const [callReview, setCallReview] = useState<{
     callerPhone: string;
     serviceMode: string;
@@ -209,9 +205,7 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
     setReviewsLoading(true);
     const { data } = await supabase
       .from("vendor_reviews")
-      .select(
-        "id, rating, review_text, service_mode, created_at, user_phone, vendor_response, vendor_responded_at",
-      )
+      .select("id, rating, review_text, service_mode, created_at, user_phone")
       .eq("vendor_id", vendor.id)
       .order("created_at", { ascending: false });
     setReviews(data ?? []);
@@ -657,12 +651,6 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
                     &quot;{r.review_text}&quot;
                   </p>
                 )}
-                <p className="text-[10px] text-muted-foreground">
-                  {r.user_phone
-                    ? `+91 ${r.user_phone.slice(-4).padStart(r.user_phone.length, "•")}`
-                    : s.review_anonymous}
-                  {r.service_mode && ` · ${r.service_mode}`}
-                </p>
                 {r.rating <= 2 && r.user_phone && (
                   <button
                     type="button"
@@ -676,63 +664,6 @@ export function VendorSettings({ vendor, onVendorUpdated, activeOfferSection }: 
                   >
                     📞 Call customer
                   </button>
-                )}
-                {r.vendor_response ? (
-                  <div className="rounded-lg bg-brand/5 border border-brand-border px-2 py-1.5 mt-1">
-                    <p className="text-[10px] text-brand font-semibold">{s.review_yourResponse}</p>
-                    <p className="text-xs text-foreground">{r.vendor_response}</p>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setRespondingReviewId(r.id)}
-                    className="text-[10px] text-brand font-semibold mt-1"
-                  >
-                    {s.review_respond}
-                  </button>
-                )}
-                {respondingReviewId === r.id && (
-                  <div className="mt-1 space-y-1">
-                    <textarea
-                      value={responseText}
-                      onChange={(e) => setResponseText(e.target.value.slice(0, 100))}
-                      rows={2}
-                      placeholder={s.review_responsePlaceholder}
-                      className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand resize-none"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!responseText.trim()) return;
-                          await supabase
-                            .from("vendor_reviews")
-                            .update({
-                              vendor_response: responseText.trim(),
-                              vendor_responded_at: new Date().toISOString(),
-                            })
-                            .eq("id", r.id);
-                          setRespondingReviewId(null);
-                          setResponseText("");
-                          void loadReviews();
-                          toast.success(s.review_responseSent);
-                        }}
-                        className="flex-1 rounded-lg bg-brand text-page-bg text-xs font-semibold py-1.5"
-                      >
-                        {s.review_send}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRespondingReviewId(null);
-                          setResponseText("");
-                        }}
-                        className="flex-1 rounded-lg border border-surface-border text-xs py-1.5"
-                      >
-                        {s.settings_cancel}
-                      </button>
-                    </div>
-                  </div>
                 )}
               </div>
             ))}

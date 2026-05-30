@@ -14,6 +14,8 @@ import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import {
+  currentCycleTransactions,
+  filterKhataLedgerByOutstanding,
   formatKhataDate,
   khataPaymentModeLabel,
   maskPhoneLast4,
@@ -48,8 +50,10 @@ const LedgerView = () => {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [savingPayment, setSavingPayment] = useState(false);
+  const [showFullHistory, setShowFullHistory] = useState(false);
 
   const selectedEntry = entries.find((e) => e.user_phone === selectedPhone) ?? null;
+  const visibleEntries = filterKhataLedgerByOutstanding(entries, showFullHistory);
   const parsedPaymentAmount = parseFloat(paymentAmount);
   const paymentValid =
     selectedEntry != null &&
@@ -80,12 +84,13 @@ const LedgerView = () => {
       .select("id, amount, note, payment_mode, created_at")
       .eq("vendor_id", id)
       .eq("user_phone", userPhone)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
     if (error) {
       toast.error(error.message);
       setTransactions([]);
     } else {
-      setTransactions((data ?? []) as KhataTransaction[]);
+      const chronological = (data ?? []) as KhataTransaction[];
+      setTransactions(currentCycleTransactions(chronological));
     }
     setTxLoading(false);
   }, []);
@@ -134,11 +139,7 @@ const LedgerView = () => {
   const savePayment = async () => {
     if (!vendorId || !selectedPhone || !selectedEntry || !paymentValid) return;
 
-    const amountReceived = parsedPaymentAmount;
-    const remaining = Math.max(
-      0,
-      Math.round((selectedEntry.total_outstanding - amountReceived) * 100) / 100,
-    );
+    const amountPaid = parsedPaymentAmount;
     const now = new Date().toISOString();
 
     setSavingPayment(true);
@@ -146,7 +147,7 @@ const LedgerView = () => {
     const { error: txError } = await supabase.from("khata_transactions").insert({
       vendor_id: vendorId,
       user_phone: selectedPhone,
-      amount: amountReceived,
+      amount: amountPaid,
       note: "Payment received",
       payment_mode: "paid",
       created_at: now,
@@ -158,9 +159,25 @@ const LedgerView = () => {
       return;
     }
 
+    const { data: ledgerRow, error: readError } = await supabase
+      .from("khata_ledger")
+      .select("total_outstanding")
+      .eq("vendor_id", vendorId)
+      .eq("user_phone", selectedPhone)
+      .maybeSingle();
+
+    if (readError) {
+      setSavingPayment(false);
+      toast.error(readError.message);
+      return;
+    }
+
+    const freshValue = Number(ledgerRow?.total_outstanding ?? 0);
+    const newOutstanding = Math.max(0, freshValue - amountPaid);
+
     const { error: ledgerError } = await supabase
       .from("khata_ledger")
-      .update({ total_outstanding: remaining, last_updated: now })
+      .update({ total_outstanding: newOutstanding, last_updated: now })
       .eq("vendor_id", vendorId)
       .eq("user_phone", selectedPhone);
 
@@ -170,23 +187,18 @@ const LedgerView = () => {
       return;
     }
 
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.user_phone === selectedPhone
+          ? { ...e, total_outstanding: newOutstanding, last_updated: now }
+          : e,
+      ),
+    );
+
     setSavingPayment(false);
     toast.success(s.khata_markedPaid);
     closePaymentSheet();
-
-    if (remaining <= 0) {
-      setEntries((prev) => prev.filter((e) => e.user_phone !== selectedPhone));
-      closeSheet();
-    } else {
-      setEntries((prev) =>
-        prev.map((e) =>
-          e.user_phone === selectedPhone
-            ? { ...e, total_outstanding: remaining, last_updated: now }
-            : e,
-        ),
-      );
-      void loadTransactions(vendorId, selectedPhone);
-    }
+    void loadTransactions(vendorId, selectedPhone);
   };
 
   return (
@@ -215,29 +227,42 @@ const LedgerView = () => {
       ) : entries.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-12">{s.khata_empty}</p>
       ) : (
-        <ul className="space-y-2">
-          {entries.map((entry) => (
-            <li key={entry.user_phone}>
-              <button
-                type="button"
-                onClick={() => openCustomer(entry.user_phone)}
-                className="w-full flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-left active:scale-[0.99]"
-              >
-                <span className="text-sm font-semibold text-foreground tabular-nums">
-                  {maskPhoneLast4(entry.user_phone)}
-                </span>
-                <span
-                  className={cn(
-                    "text-sm font-bold tabular-nums",
-                    entry.total_outstanding > 0 ? "text-warning" : "text-green-600",
-                  )}
-                >
-                  ₹{entry.total_outstanding.toFixed(2)}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="space-y-2">
+          {visibleEntries.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">{s.khata_empty}</p>
+          ) : (
+            <ul className="space-y-2">
+              {visibleEntries.map((entry) => (
+                <li key={entry.user_phone}>
+                  <button
+                    type="button"
+                    onClick={() => openCustomer(entry.user_phone)}
+                    className="w-full flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-left active:scale-[0.99]"
+                  >
+                    <span className="text-sm font-semibold text-foreground tabular-nums">
+                      {maskPhoneLast4(entry.user_phone)}
+                    </span>
+                    <span
+                      className={cn(
+                        "text-sm font-bold tabular-nums",
+                        entry.total_outstanding > 0 ? "text-warning" : "text-green-600",
+                      )}
+                    >
+                      ₹{entry.total_outstanding.toFixed(2)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowFullHistory((v) => !v)}
+            className="w-full text-center text-xs text-muted-foreground hover:text-foreground pt-1"
+          >
+            {showFullHistory ? "Hide paid entries" : "Show full history"}
+          </button>
+        </div>
       )}
 
       <Sheet open={selectedPhone != null} onOpenChange={(open) => !open && closeSheet()}>

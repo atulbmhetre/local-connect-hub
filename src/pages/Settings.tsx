@@ -629,11 +629,16 @@ const Settings = () => {
     if (!vendorId) return;
     const content = offerText.trim();
     if (!content) return;
+    const phone = getUserPhone();
+    if (!phone) {
+      toast.error("Add your phone in Settings first");
+      return;
+    }
     setOfferLoading(true);
     const { error } = await supabase.from("feed_posts").insert({
       type: "offer",
       vendor_id: vendorId,
-      user_phone: getUserPhone(),
+      user_phone: phone,
       content,
       is_hidden: false,
       expires_at: computeOfferExpiry(),

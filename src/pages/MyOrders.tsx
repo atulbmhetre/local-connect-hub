@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import {
+  currentCycleTransactions,
   formatKhataDate,
   khataPaymentModeLabel,
 } from "@/lib/khataDisplay";
@@ -338,9 +339,9 @@ const MyOrders = () => {
     if (!userPhone) return;
     const { data } = await supabase
       .from("khata_ledger")
-      .select("vendor_id, total_outstanding, vendors(shop_name)")
+      .select("vendor_id, total_outstanding, last_updated, vendors(shop_name)")
       .eq("user_phone", userPhone)
-      .gt("total_outstanding", 0);
+      .order("last_updated", { ascending: false });
 
     setMyKhata(
       (data ?? []).map((k: { vendor_id: string; total_outstanding: number; vendors: { shop_name: string } | null }) => ({
@@ -365,14 +366,14 @@ const MyOrders = () => {
       .select("id, amount, note, payment_mode, created_at")
       .eq("vendor_id", entry.vendor_id)
       .eq("user_phone", userPhone)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
     setKhataTxLoading(false);
     if (error) {
       toast.error(error.message);
       setKhataTransactions([]);
       return;
     }
-    setKhataTransactions(data ?? []);
+    setKhataTransactions(currentCycleTransactions(data ?? []));
   };
 
   const closeKhataDetail = () => {
@@ -882,7 +883,12 @@ const MyOrders = () => {
               className="w-full flex justify-between text-sm text-left active:opacity-80"
             >
               <span className="text-foreground">{k.shop_name}</span>
-              <span className="font-bold text-warning tabular-nums">
+              <span
+                className={cn(
+                  "font-bold tabular-nums",
+                  k.total_outstanding > 0 ? "text-warning" : "text-green-600",
+                )}
+              >
                 ₹{k.total_outstanding.toFixed(2)}
               </span>
             </button>

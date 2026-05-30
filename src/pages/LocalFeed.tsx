@@ -22,6 +22,17 @@ const FEED_IMAGES_BUCKET = "feed-images";
 const MAX_CONTENT = 200;
 const FLAG_HIDE_THRESHOLD = 5;
 
+const CATEGORY_ALIASES: Record<string, string> = {
+  "Grocery Store": "Kirana Store",
+  "Kirana Store": "Grocery Store",
+};
+
+function categoryHasActiveVendor(label: string, activeLabels: Set<string>): boolean {
+  if (activeLabels.has(label)) return true;
+  const alias = CATEGORY_ALIASES[label];
+  return alias != null && activeLabels.has(alias);
+}
+
 type PostType = "announcement" | "recommendation";
 
 type FeedPost = {
@@ -120,6 +131,20 @@ export default function LocalFeed() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categoryVendors, setCategoryVendors] = useState<VendorCard[]>([]);
   const [loadingVendors, setLoadingVendors] = useState(false);
+  const [vendor, setVendor] = useState<{ phone: string | null } | null>(null);
+
+  useEffect(() => {
+    const vendorId = localStorage.getItem("aaspaas:vendor_id");
+    if (!vendorId?.trim()) return;
+    void supabase
+      .from("vendors")
+      .select("phone")
+      .eq("id", vendorId)
+      .maybeSingle()
+      .then(({ data }) => {
+        setVendor(data ?? null);
+      });
+  }, []);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -168,17 +193,29 @@ export default function LocalFeed() {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      const { data, error } = await supabase
-        .from("categories")
-        .select("id, label, emoji")
-        .order("sort_order", { ascending: true });
+      const [catsRes, vendorsRes] = await Promise.all([
+        supabase.from("categories").select("id, label, emoji").order("sort_order", { ascending: true }),
+        supabase
+          .from("vendors")
+          .select("category")
+          .eq("is_active", true)
+          .or("is_live.eq.true,is_live.is.null"),
+      ]);
       if (cancelled) return;
-      if (error) {
-        console.error("fetch categories", error);
+      if (catsRes.error) {
+        console.error("fetch categories", catsRes.error);
         setCategories([]);
         return;
       }
-      setCategories((data ?? []) as FeedCategory[]);
+      const activeLabels = new Set(
+        (vendorsRes.data ?? [])
+          .map((v) => v.category)
+          .filter((c): c is string => typeof c === "string" && c.length > 0),
+      );
+      const filtered = ((catsRes.data ?? []) as FeedCategory[]).filter((c) =>
+        categoryHasActiveVendor(c.label, activeLabels),
+      );
+      setCategories(filtered);
     };
     void run();
     return () => {
@@ -189,12 +226,17 @@ export default function LocalFeed() {
   const fetchVendorsForCategory = useCallback(
     async (categoryLabel: string) => {
       setLoadingVendors(true);
+      const alias = CATEGORY_ALIASES[categoryLabel];
+      const categoryOr = alias
+        ? `category.eq.${categoryLabel},category.eq.${alias}`
+        : `category.eq.${categoryLabel}`;
+
       const { data, error } = await supabase
         .from("vendors")
         .select("id, shop_name, category, avg_rating, review_count")
-        .eq("category", categoryLabel)
+        .or(categoryOr)
         .eq("is_active", true)
-        .eq("is_live", true)
+        .or("is_live.eq.true,is_live.is.null")
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -209,6 +251,12 @@ export default function LocalFeed() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (selectedCategory != null && !categories.some((c) => c.id === selectedCategory)) {
+      setSelectedCategory(null);
+    }
+  }, [categories, selectedCategory]);
 
   useEffect(() => {
     if (selectedCategory === null) {
@@ -364,7 +412,7 @@ export default function LocalFeed() {
   };
 
   const submitPost = async () => {
-    const phone = getUserPhone();
+    const phone = getUserPhone() || vendor?.phone || null;
     if (!phone) {
       toast.error("Add your phone in Settings first");
       return;
@@ -462,38 +510,28 @@ export default function LocalFeed() {
         </button>
       </header>
 
-      <div className="flex overflow-x-auto gap-2 pb-2 no-scrollbar mb-4">
-        <button
-          type="button"
-          onClick={() => setSelectedCategory(null)}
-          className={cn(
-            "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
-            selectedCategory === null
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          All
-        </button>
-        {categories.map((c) => {
-          const isSelected = selectedCategory === c.id;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => setSelectedCategory(c.id)}
-              className={cn(
-                "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
-                isSelected
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground",
-              )}
-            >
-              {c.emoji} {c.label}
-            </button>
-          );
-        })}
-      </div>
+      {categories.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {categories.map((c) => {
+            const isSelected = selectedCategory === c.id;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setSelectedCategory(isSelected ? null : c.id)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                  isSelected
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                {c.emoji} {c.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {selectedCategory === null ? (
         loading ? (
@@ -620,7 +658,13 @@ export default function LocalFeed() {
             <Textarea
               value={composeContent}
               onChange={(e) => setComposeContent(e.target.value.slice(0, MAX_CONTENT))}
-              placeholder="What's happening nearby?"
+              placeholder={
+                composeType === "announcement"
+                  ? "Share something with your neighbourhood..."
+                  : composeType === "recommendation"
+                    ? "What are you recommending? e.g. 'Great chai at Sharma Tea Stall'"
+                    : "What's happening nearby?"
+              }
               className="min-h-[100px] mb-1"
               maxLength={MAX_CONTENT}
             />

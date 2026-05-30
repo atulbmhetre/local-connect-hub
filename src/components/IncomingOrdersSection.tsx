@@ -128,11 +128,14 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [trustMap, setTrustMap] = useState<Record<string, TrustInfo>>({});
   const [vendor, setVendor] = useState<{ id: string; shop_name: string } | null>(null);
   const [requestIdsWithLedger, setRequestIdsWithLedger] = useState<Set<string>>(() => new Set());
+  const [requestIdsDismissBlockedByKhata, setRequestIdsDismissBlockedByKhata] = useState<
+    Set<string>
+  >(() => new Set());
   const [ledgerOrderId, setLedgerOrderId] = useState<string | null>(null);
   const [ledgerUserPhone, setLedgerUserPhone] = useState<string | null>(null);
   const [ledgerAmount, setLedgerAmount] = useState("");
-  const [ledgerNote, setLedgerNote] = useState("");
-  const [ledgerPaymentMode, setLedgerPaymentMode] = useState<"cash" | "upi" | "khata">("cash");
+  const [ledgerOrderNote, setLedgerOrderNote] = useState("");
+  const [ledgerVendorNote, setLedgerVendorNote] = useState("");
   const [ledgerSubmitting, setLedgerSubmitting] = useState(false);
   const mounted = useRef(true);
 
@@ -143,39 +146,85 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const selectFields =
     "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason";
 
-  const dismissFulfilledWithZeroOutstanding = useCallback(
-    async (
-      orderList: OrderRequestRow[],
-      withLedger: Set<string>,
-    ): Promise<OrderRequestRow[]> => {
-      const fulfilledWithLedger = orderList.filter(
-        (r) =>
-          r.status === "fulfilled" &&
-          withLedger.has(r.id) &&
-          r.user_phone != null &&
-          String(r.user_phone).trim() !== "",
-      );
-      if (fulfilledWithLedger.length === 0) return orderList;
+  const FULFILLED_STALE_MS = 60 * 60 * 1000;
 
-      const phones = [...new Set(fulfilledWithLedger.map((r) => r.user_phone as string))];
-      const { data: ledgerData } = await supabase
+  const refreshUnpaidKhataDismissBlocks = useCallback(
+    async (terminalIds: string[]) => {
+      if (terminalIds.length === 0) {
+        setRequestIdsDismissBlockedByKhata(new Set());
+        return;
+      }
+
+      const { data: khataTxs } = await supabase
+        .from("khata_transactions")
+        .select("request_id, user_phone")
+        .eq("vendor_id", vendorId)
+        .eq("payment_mode", "khata")
+        .in("request_id", terminalIds);
+
+      if (!khataTxs?.length) {
+        setRequestIdsDismissBlockedByKhata(new Set());
+        return;
+      }
+
+      const phones = [
+        ...new Set(
+          khataTxs
+            .map((t) => t.user_phone)
+            .filter((p): p is string => typeof p === "string" && p.length > 0),
+        ),
+      ];
+
+      if (phones.length === 0) {
+        setRequestIdsDismissBlockedByKhata(new Set());
+        return;
+      }
+
+      const { data: ledgerRows } = await supabase
         .from("khata_ledger")
         .select("user_phone, total_outstanding")
         .eq("vendor_id", vendorId)
         .in("user_phone", phones);
 
-      const zeroOutstandingPhones = new Set(
-        (ledgerData ?? [])
-          .filter((row) => Number(row.total_outstanding) <= 0)
+      const unpaidPhones = new Set(
+        (ledgerRows ?? [])
+          .filter((row) => Number(row.total_outstanding) > 0)
           .map((row) => row.user_phone),
       );
 
-      const toDismissIds = fulfilledWithLedger
-        .filter((r) => zeroOutstandingPhones.has(r.user_phone!))
-        .map((r) => r.id);
+      const blocked = new Set(
+        khataTxs
+          .filter(
+            (t) =>
+              typeof t.request_id === "string" &&
+              t.request_id.length > 0 &&
+              t.user_phone != null &&
+              unpaidPhones.has(t.user_phone),
+          )
+          .map((t) => t.request_id as string),
+      );
 
-      if (toDismissIds.length === 0) return orderList;
+      setRequestIdsDismissBlockedByKhata(blocked);
+    },
+    [vendorId],
+  );
 
+  const autoDismissStaleFulfilledOnLoad = useCallback(
+    async (
+      orderList: OrderRequestRow[],
+      withLedger: Set<string>,
+    ): Promise<OrderRequestRow[]> => {
+      const now = Date.now();
+      const staleFulfilled = orderList.filter((r) => {
+        if (r.status !== "fulfilled" || withLedger.has(r.id)) return false;
+        const t = new Date(r.created_at).getTime();
+        if (!Number.isFinite(t)) return false;
+        return now - t > FULFILLED_STALE_MS;
+      });
+
+      if (staleFulfilled.length === 0) return orderList;
+
+      const toDismissIds = staleFulfilled.map((r) => r.id);
       const { error } = await supabase
         .from("requests")
         .update({ status: "done" })
@@ -227,8 +276,9 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         );
       }
       setRequestIdsWithLedger(withLedger);
+      await refreshUnpaidKhataDismissBlocks(terminalIds);
 
-      let activeList = await dismissFulfilledWithZeroOutstanding(list, withLedger);
+      let activeList = await autoDismissStaleFulfilledOnLoad(list, withLedger);
       setRows(activeList);
       onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
 
@@ -266,13 +316,16 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               .filter((id): id is string => typeof id === "string" && id.length > 0),
           );
           setRequestIdsWithLedger(withLedger);
+        } else {
+          setRequestIdsWithLedger(new Set());
         }
-        activeList = await dismissFulfilledWithZeroOutstanding(refreshedList, withLedger);
+        await refreshUnpaidKhataDismissBlocks(refreshedTerminalIds);
+        activeList = await autoDismissStaleFulfilledOnLoad(refreshedList, withLedger);
         setRows(activeList);
         onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
       }
     },
-    [vendorId, onUnreadCount, isHelpMode, dismissFulfilledWithZeroOutstanding],
+    [vendorId, onUnreadCount, isHelpMode, autoDismissStaleFulfilledOnLoad, refreshUnpaidKhataDismissBlocks],
   );
 
   useEffect(() => {
@@ -367,34 +420,9 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
 
   const markDone = async (id: string) => {
     setMarkingId(id);
-
-    const { data: ledgerRows } = await supabase
-      .from("khata_transactions")
-      .select("id")
-      .eq("vendor_id", vendorId)
-      .eq("request_id", id)
-      .limit(1);
-
-    const hasLedgerEntry = (ledgerRows?.length ?? 0) > 0;
-
-    if (hasLedgerEntry) {
-      const { error } = await supabase
-        .from("requests")
-        .update({ status: "fulfilled" })
-        .eq("id", id)
-        .eq("vendor_id", vendorId);
-      setMarkingId(null);
-      if (error) {
-        toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
-        return;
-      }
-      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
-      return;
-    }
-
     const { error } = await supabase
       .from("requests")
-      .update({ status: "done" })
+      .update({ status: "fulfilled" })
       .eq("id", id)
       .eq("vendor_id", vendorId);
     setMarkingId(null);
@@ -402,7 +430,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
       return;
     }
-    setRows((prev) => prev.filter((r) => r.id !== id));
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
   };
 
   const dismissOrder = async (id: string) => {
@@ -505,16 +533,16 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     setLedgerOrderId(order.id);
     setLedgerUserPhone(order.user_phone);
     setLedgerAmount("");
-    setLedgerNote(stripLocationTag(order.message ?? "").trim().slice(0, 200));
-    setLedgerPaymentMode("cash");
+    setLedgerOrderNote(stripLocationTag(order.message ?? "").trim());
+    setLedgerVendorNote("");
   };
 
   const closeLedgerSheet = () => {
     setLedgerOrderId(null);
     setLedgerUserPhone(null);
     setLedgerAmount("");
-    setLedgerNote("");
-    setLedgerPaymentMode("cash");
+    setLedgerOrderNote("");
+    setLedgerVendorNote("");
   };
 
   const confirmLedgerEntry = async () => {
@@ -522,26 +550,58 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     const amount = parseFloat(ledgerAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
 
-    setLedgerSubmitting(true);
-    const { error } = await supabase.from("khata_transactions").insert({
-      vendor_id: vendorId,
-      user_phone: ledgerUserPhone,
-      amount,
-      note: ledgerNote.trim() || null,
-      payment_mode: ledgerPaymentMode,
-      request_id: ledgerOrderId,
-      created_at: new Date().toISOString(),
-    });
-    setLedgerSubmitting(false);
+    try {
+      setLedgerSubmitting(true);
+      const vendorPart = ledgerVendorNote.trim();
+      const combinedNote = ledgerOrderNote
+        ? `${ledgerOrderNote}${vendorPart ? ` — ${vendorPart}` : ""}`
+        : vendorPart || null;
 
-    if (error) {
-      toast.error(error.message);
-      return;
+      const { error } = await supabase.from("khata_transactions").insert({
+        vendor_id: vendorId,
+        user_phone: ledgerUserPhone,
+        amount,
+        note: combinedNote,
+        payment_mode: "khata",
+        request_id: ledgerOrderId,
+        created_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      const { data: existing } = await supabase
+        .from("khata_ledger")
+        .select("total_outstanding")
+        .eq("vendor_id", vendorId)
+        .eq("user_phone", ledgerUserPhone)
+        .single();
+
+      const currentOutstanding = existing?.total_outstanding ?? 0;
+
+      await supabase.from("khata_ledger").upsert(
+        {
+          vendor_id: vendorId,
+          user_phone: ledgerUserPhone,
+          total_outstanding: currentOutstanding + amount,
+          last_updated: new Date().toISOString(),
+        },
+        { onConflict: "vendor_id,user_phone" },
+      );
+
+      const terminalIds = rows
+        .filter((r) => r.status === "fulfilled" || r.status === "done")
+        .map((r) => r.id);
+      await refreshUnpaidKhataDismissBlocks(terminalIds);
+
+      setRequestIdsWithLedger((prev) => new Set(prev).add(ledgerOrderId));
+      closeLedgerSheet();
+      toast.success("Ledger entry added");
+    } finally {
+      setLedgerSubmitting(false);
     }
-
-    setRequestIdsWithLedger((prev) => new Set(prev).add(ledgerOrderId));
-    closeLedgerSheet();
-    toast.success("Ledger entry added");
   };
 
   const openFlagSheet = (order: OrderRequestRow) => {
@@ -992,14 +1052,31 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                       📒 Add to Ledger
                     </button>
                   )}
-                  <button
-                    type="button"
-                    disabled={markingId === r.id}
-                    onClick={() => void dismissOrder(r.id)}
-                    className="w-full rounded-lg border border-border bg-muted/40 text-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {markingId === r.id ? s.incoming_saving : "✅ Dismiss"}
-                  </button>
+                  {(() => {
+                    const dismissBlockedByKhata = requestIdsDismissBlockedByKhata.has(r.id);
+                    return (
+                      <div>
+                        <button
+                          type="button"
+                          disabled={markingId === r.id || dismissBlockedByKhata}
+                          onClick={() => {
+                            if (!dismissBlockedByKhata) void dismissOrder(r.id);
+                          }}
+                          className={cn(
+                            "w-full rounded-lg border border-border bg-muted/40 text-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50",
+                            dismissBlockedByKhata && "opacity-50 cursor-not-allowed",
+                          )}
+                        >
+                          {markingId === r.id ? s.incoming_saving : "✅ Dismiss"}
+                        </button>
+                        {dismissBlockedByKhata && (
+                          <p className="text-[10px] text-muted-foreground text-center mt-1">
+                            Settle ledger dues first
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </li>
@@ -1155,43 +1232,36 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground block mb-1.5" htmlFor="ledger-note">
-                Note
-              </label>
-              <input
-                id="ledger-note"
-                type="text"
-                value={ledgerNote}
-                onChange={(e) => setLedgerNote(e.target.value.slice(0, 200))}
-                placeholder="e.g. Threading + Waxing"
-                className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+              <p className="text-xs text-muted-foreground mb-1.5">Service</p>
+              <div className="rounded-xl border border-border bg-muted/40 px-3 py-2.5">
+                <p
+                  className={cn(
+                    "text-sm leading-snug whitespace-pre-wrap break-words",
+                    ledgerOrderNote.trim()
+                      ? "text-foreground"
+                      : "text-muted-foreground italic",
+                  )}
+                >
+                  {ledgerOrderNote.trim() || "No description"}
+                </p>
+              </div>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-2">Payment mode</p>
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    ["cash", s.bill_cash],
-                    ["upi", s.bill_upi],
-                    ["khata", "Unpaid"],
-                  ] as const
-                ).map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setLedgerPaymentMode(mode)}
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
-                      ledgerPaymentMode === mode
-                        ? "border-brand bg-brand/10 text-brand"
-                        : "border-border bg-muted/40 text-foreground",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <label
+                className="text-xs text-muted-foreground block mb-1.5"
+                htmlFor="ledger-vendor-note"
+              >
+                Additional note (optional)
+              </label>
+              <textarea
+                id="ledger-vendor-note"
+                value={ledgerVendorNote}
+                onChange={(e) => setLedgerVendorNote(e.target.value.slice(0, 100))}
+                maxLength={100}
+                rows={2}
+                placeholder="Add a note..."
+                className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+              />
             </div>
             <button
               type="button"
@@ -1199,7 +1269,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               onClick={() => void confirmLedgerEntry()}
               className="w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold disabled:opacity-50"
             >
-              {ledgerSubmitting ? s.incoming_saving : "Add Entry"}
+              {ledgerSubmitting ? s.incoming_saving : "Add to Ledger (Unpaid)"}
             </button>
           </div>
         </SheetContent>
