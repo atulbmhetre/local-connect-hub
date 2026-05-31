@@ -33,12 +33,14 @@ import {
   SettingsSectionLabel,
   SettingsCard,
 } from "@/components/settings/SettingsSection";
+import { NotificationBell } from "@/components/NotificationBell";
 import { Badge } from "@/components/ui/badge";
 import {
   currentCycleTransactions,
   formatKhataDate,
   khataPaymentModeLabel,
 } from "@/lib/khataDisplay";
+import { saveNotification } from "@/lib/notifications";
 
 const MAX_LEN = 200;
 
@@ -127,11 +129,13 @@ function orderCreatedWithinLast24h(created_at: string): boolean {
 }
 
 const userStatusLabel = (
-  r: Pick<OrderRequestRow, "status" | "created_at"> & {
+  r: Pick<OrderRequestRow, "status" | "created_at" | "appointment_status"> & {
     vendors?: { service_mode: string | null } | null;
   },
   s: ReturnType<typeof useLanguage>["s"],
 ) => {
+  if (r.appointment_status === "confirmed") return s.myOrders_apptConfirmed;
+  if (r.appointment_status === "declined") return s.myOrders_apptDeclined;
   if (r.status === "accepted" && r.vendors?.service_mode === "help") {
     return s.status_accepted;
   }
@@ -238,6 +242,7 @@ const MyOrders = () => {
     vendorId: string;
     shopName: string;
     serviceMode: string;
+    vendorPhone: string | null;
   } | null>(null);
   const [pendingDismissId, setPendingDismissId] = useState<string | null>(null);
   const [calledVendor, setCalledVendor] = useState<Record<string, boolean>>({});
@@ -683,21 +688,67 @@ const MyOrders = () => {
     setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const handleRemoveOrder = (id: string) => {
-    void markDone(id);
+  const handleRemoveOrder = async (r: RowWithShop) => {
+    const vendorPhone = r.vendors?.phone?.trim();
+    setMarkingId(r.id);
+    const device_id = getDeviceId();
+    const userPhone = getUserPhone();
+    let updateQuery = supabase.from("requests").update({ status: "cancelled" }).eq("id", r.id);
+    updateQuery =
+      userPhone != null ? updateQuery.eq("user_phone", userPhone) : updateQuery.eq("device_id", device_id);
+    const { error } = await updateQuery;
+    setMarkingId(null);
+    if (error) {
+      toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
+      return;
+    }
+    if (vendorPhone) {
+      void invokeNotifyVendor({
+        vendor_id: r.vendor_id,
+        notification_title: s.myOrders_userCancelledNotifyTitle,
+        message: s.myOrders_userCancelledNotifyBody,
+        request_id: r.id,
+      });
+      saveNotification({
+        userPhone: vendorPhone,
+        type: "order_update",
+        title: s.myOrders_userCancelledNotifyTitle,
+        body: s.myOrders_userCancelledNotifyBody,
+        route: "vendor",
+        isInformational: false,
+      });
+    }
+    setRows((prev) => prev.filter((row) => row.id !== r.id));
   };
 
-  const cancelAppointment = async (id: string) => {
+  const cancelAppointment = async (r: RowWithShop) => {
+    const vendorPhone = r.vendors?.phone?.trim();
     const { error } = await supabase
       .from("requests")
       .update({ status: "done", appointment_status: "cancelled" })
-      .eq("id", id);
+      .eq("id", r.id);
     if (error) {
       toast.error(s.myOrders_errCouldNotCancel, { description: error.message });
       return;
     }
+    if (vendorPhone) {
+      void invokeNotifyVendor({
+        vendor_id: r.vendor_id,
+        notification_title: s.myOrders_userCancelledNotifyTitle,
+        message: s.myOrders_userCancelledNotifyBody,
+        request_id: r.id,
+      });
+      saveNotification({
+        userPhone: vendorPhone,
+        type: "order_update",
+        title: s.myOrders_userCancelledNotifyTitle,
+        body: s.myOrders_userCancelledNotifyBody,
+        route: "vendor",
+        isInformational: false,
+      });
+    }
     toast.success(s.myOrders_bookingCancelled);
-    setRows((prev) => prev.filter((r) => r.id !== id));
+    setRows((prev) => prev.filter((row) => row.id !== r.id));
   };
 
   const openEditSheet = (r: RowWithShop) => {
@@ -819,24 +870,37 @@ const MyOrders = () => {
     const isSameDay = hasAppointment && appointmentDate === today;
     const customerName = userPhone ?? "Customer";
 
+    const notificationTitle = hasAppointment
+      ? isSameDay
+        ? "⚠️ Customer edited today's booking!"
+        : "✏️ Booking edited"
+      : isSameDay
+        ? "⚠️ Customer edited today's order!"
+        : "✏️ Order edited";
+    const notificationBody = hasAppointment
+      ? isSameDay
+        ? `${customerName} changed their order — check details now`
+        : `${customerName} updated their booking details`
+      : isSameDay
+        ? `${customerName} changed their order — check details now`
+        : `${customerName} updated their order details`;
     void invokeNotifyVendor({
       vendor_id: editOrder.vendor_id,
-      notification_title: hasAppointment
-        ? isSameDay
-          ? "⚠️ Customer edited today's booking!"
-          : "✏️ Booking edited"
-        : isSameDay
-          ? "⚠️ Customer edited today's order!"
-          : "✏️ Order edited",
-      message: hasAppointment
-        ? isSameDay
-          ? `${customerName} changed their order — check details now`
-          : `${customerName} updated their booking details`
-        : isSameDay
-          ? `${customerName} changed their order — check details now`
-          : `${customerName} updated their order details`,
+      notification_title: notificationTitle,
+      message: notificationBody,
       request_id: editOrder.id,
     });
+    const vendorPhone = editOrder.vendors?.phone?.trim();
+    if (vendorPhone) {
+      saveNotification({
+        userPhone: vendorPhone,
+        type: "order_update",
+        title: notificationTitle,
+        body: notificationBody,
+        route: "vendor",
+        isInformational: false,
+      });
+    }
 
     toast.success(s.orderUpdated);
     closeEditSheet();
@@ -848,6 +912,7 @@ const MyOrders = () => {
       vendorId: r.vendor_id,
       shopName: r.vendors?.shop_name ?? s.myOrders_shopFallback,
       serviceMode: r.vendors?.service_mode ?? "delivery",
+      vendorPhone: r.vendors?.phone ?? null,
     });
     setRatingSheetOpen(true);
   };
@@ -861,7 +926,7 @@ const MyOrders = () => {
   return (
     <AppShell theme="dark">
       <div className="space-y-3 pb-24">
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 pr-4">
         <button
           type="button"
           onClick={() => navigate("/")}
@@ -870,9 +935,10 @@ const MyOrders = () => {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="min-w-0 flex-1 pr-4">
+        <div className="min-w-0 flex-1">
           <SettingsPageHeader title={s.myOrders_heading} subtitle={s.myOrders_appName} />
         </div>
+        <NotificationBell className="mt-6 shrink-0" />
       </div>
 
       <div className="relative mx-4">
@@ -1220,7 +1286,7 @@ const MyOrders = () => {
                     return (
                       <button
                         type="button"
-                        onClick={() => void cancelAppointment(r.id)}
+                        onClick={() => void cancelAppointment(r)}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                       >
                         {s.myOrders_dismiss}
@@ -1274,7 +1340,7 @@ const MyOrders = () => {
                       </p>
                       <button
                         type="button"
-                        onClick={() => void cancelAppointment(r.id)}
+                        onClick={() => void cancelAppointment(r)}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                       >
                         {s.myOrders_cancelBooking}
@@ -1291,7 +1357,7 @@ const MyOrders = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => void cancelAppointment(r.id)}
+                      onClick={() => void cancelAppointment(r)}
                       className="rounded-lg bg-destructive text-white text-xs font-semibold py-2"
                     >
                       {s.myOrders_yesCancel}
@@ -1349,7 +1415,7 @@ const MyOrders = () => {
                           <button
                             type="button"
                             disabled={markingId === r.id}
-                            onClick={() => void handleRemoveOrder(r.id)}
+                            onClick={() => void handleRemoveOrder(r)}
                             className="rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
                           >
                             {s.myOrders_yesCancel}
@@ -1504,6 +1570,7 @@ const MyOrders = () => {
         shopName={ratingVendor?.shopName ?? ""}
         serviceMode={ratingVendor?.serviceMode ?? "delivery"}
         vendorId={ratingVendor?.vendorId ?? ""}
+        vendorPhone={ratingVendor?.vendorPhone}
         requestId={pendingDismissId ?? ""}
         onDismiss={async () => {
           setRatingSheetOpen(false);
@@ -1515,37 +1582,36 @@ const MyOrders = () => {
       />
 
       <Sheet open={khataDetail != null} onOpenChange={(open) => !open && closeKhataDetail()}>
-        <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] overflow-y-auto">
-          <SheetHeader className="text-left">
+        <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] flex flex-col">
+          <SheetHeader className="text-left shrink-0">
             <SheetTitle>{khataDetail?.shop_name ?? ""}</SheetTitle>
           </SheetHeader>
-          <div className="mt-4 space-y-3">
-            {khataTxLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : khataTransactions.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No transactions</p>
-            ) : (
-              <ul className="space-y-2">
-                {khataTransactions.map((tx) => (
-                  <li
-                    key={tx.id}
-                    className="rounded-xl border border-surface-border bg-surface/50 px-3 py-2.5 space-y-1"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs text-muted-foreground">
-                        {formatKhataDate(tx.created_at)}
-                      </p>
-                      <p className="text-sm font-bold text-foreground tabular-nums">
-                        ₹{Number(tx.amount).toFixed(2)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-foreground mb-1">Service</p>
+          <div className="mt-4 flex flex-col min-h-0 flex-1 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
+              {khataTxLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : khataTransactions.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No transactions</p>
+              ) : (
+                <ul className="space-y-2">
+                  {khataTransactions.map((tx) => (
+                    <li
+                      key={tx.id}
+                      className="rounded-xl border border-surface-border bg-surface/50 px-3 py-2.5 space-y-1"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">
+                          {formatKhataDate(tx.created_at)}
+                        </p>
+                        <p className="text-sm font-bold text-foreground tabular-nums">
+                          ₹{Number(tx.amount).toFixed(2)}
+                        </p>
+                      </div>
                       <p
                         className={cn(
-                          "text-sm leading-snug",
+                          "text-sm leading-snug whitespace-pre-wrap break-words",
                           tx.note?.trim()
                             ? "text-foreground font-medium"
                             : "text-muted-foreground italic",
@@ -1553,16 +1619,16 @@ const MyOrders = () => {
                       >
                         {tx.note?.trim() || "No description"}
                       </p>
-                    </div>
-                    <Badge variant="outline" className="text-[10px] font-semibold">
-                      {khataPaymentModeLabel(tx.payment_mode, s)}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
+                      <Badge variant="outline" className="text-[10px] font-semibold">
+                        {khataPaymentModeLabel(tx.payment_mode, s)}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             {khataDetail && (
-              <div className="border-t border-surface-border pt-4 flex items-center justify-between">
+              <div className="border-t border-surface-border pt-4 mt-4 shrink-0 flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Total outstanding</span>
                 <span className="text-lg font-bold text-warning tabular-nums">
                   ₹{khataDetail.total_outstanding.toFixed(2)}

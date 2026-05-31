@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState, type ComponentType } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
 import {
   Tag,
   Megaphone,
@@ -17,9 +16,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
+import { feedAuthorLabel } from "@/lib/khataDisplay";
+import { uploadFeedImage } from "@/lib/imageUpload";
+import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
 import { SettingsSectionLabel, SettingsCard } from "@/components/settings/SettingsSection";
-
-const FEED_IMAGES_BUCKET = "feed-images";
+import { NotificationBell } from "@/components/NotificationBell";
 const MAX_CONTENT = 200;
 const FLAG_HIDE_THRESHOLD = 5;
 
@@ -32,6 +33,13 @@ function categoryHasActiveVendor(label: string, activeLabels: Set<string>): bool
   if (activeLabels.has(label)) return true;
   const alias = CATEGORY_ALIASES[label];
   return alias != null && activeLabels.has(alias);
+}
+
+function offerMatchesCategory(vendorCategory: string | null | undefined, chipLabel: string): boolean {
+  if (!vendorCategory) return false;
+  if (vendorCategory === chipLabel) return true;
+  const alias = CATEGORY_ALIASES[chipLabel];
+  return alias != null && vendorCategory === alias;
 }
 
 type PostType = "announcement" | "recommendation";
@@ -66,36 +74,10 @@ type FeedCategory = {
   emoji: string;
 };
 
-type VendorCard = {
-  id: string;
-  shop_name: string;
-  category: string;
-  avg_rating: number | null;
-  review_count: number | null;
-};
-
 const getPosition = () =>
   new Promise<GeolocationPosition>((resolve, reject) =>
     navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }),
   );
-
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.asin(Math.sqrt(a));
-}
-
-function maskPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  const last4 = digits.slice(-4);
-  return `••••${last4}`;
-}
 
 function expiryBadgeLabel(expiresAt: string | null): string | null {
   if (!expiresAt) return null;
@@ -112,8 +94,6 @@ function expiryBadgeLabel(expiresAt: string | null): string | null {
 }
 
 export default function LocalFeed() {
-  const navigate = useNavigate();
-
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCompose, setShowCompose] = useState(false);
@@ -130,9 +110,8 @@ export default function LocalFeed() {
 
   const [categories, setCategories] = useState<FeedCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [categoryVendors, setCategoryVendors] = useState<VendorCard[]>([]);
-  const [loadingVendors, setLoadingVendors] = useState(false);
   const [vendor, setVendor] = useState<{ phone: string | null } | null>(null);
+  const viewerPhone = getUserPhone();
 
   useEffect(() => {
     const vendorId = localStorage.getItem("aaspaas:vendor_id");
@@ -160,29 +139,31 @@ export default function LocalFeed() {
       userLng = null;
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("feed_posts")
       .select("*, vendors(shop_name, category)")
       .eq("is_hidden", false)
       .or("expires_at.is.null,expires_at.gt.now()")
+      .or("starts_at.is.null,starts_at.lte.now()")
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(50);
+
+    if (userLat != null && userLng != null) {
+      query = query
+        .gte("lat", userLat - 0.45)
+        .lte("lat", userLat + 0.45)
+        .gte("lng", userLng - 0.45)
+        .lte("lng", userLng + 0.45);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error("fetchPosts", error);
       toast.error("Could not load feed");
       setPosts([]);
     } else {
-      const rows = (data ?? []) as FeedPost[];
-      if (userLat == null || userLng == null) {
-        setPosts(rows.slice(0, 50));
-      } else {
-        const filtered = rows.filter((post) => {
-          if (post.lat == null || post.lng == null) return true;
-          return haversineKm(userLat, userLng, post.lat, post.lng) <= 50;
-        });
-        setPosts(filtered.slice(0, 50));
-      }
+      setPosts((data ?? []) as FeedPost[]);
     }
     setLoading(false);
   }, []);
@@ -196,11 +177,7 @@ export default function LocalFeed() {
     const run = async () => {
       const [catsRes, vendorsRes] = await Promise.all([
         supabase.from("categories").select("id, label, emoji").order("sort_order", { ascending: true }),
-        supabase
-          .from("vendors")
-          .select("category")
-          .eq("is_active", true)
-          .or("is_live.eq.true,is_live.is.null"),
+        supabase.from("vendors").select("category").eq("is_active", true),
       ]);
       if (cancelled) return;
       if (catsRes.error) {
@@ -224,54 +201,27 @@ export default function LocalFeed() {
     };
   }, []);
 
-  const fetchVendorsForCategory = useCallback(
-    async (categoryLabel: string) => {
-      setLoadingVendors(true);
-      const alias = CATEGORY_ALIASES[categoryLabel];
-      const categoryOr = alias
-        ? `category.eq.${categoryLabel},category.eq.${alias}`
-        : `category.eq.${categoryLabel}`;
-
-      const { data, error } = await supabase
-        .from("vendors")
-        .select("id, shop_name, category, avg_rating, review_count")
-        .or(categoryOr)
-        .eq("is_active", true)
-        .or("is_live.eq.true,is_live.is.null")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("fetchVendorsForCategory", error);
-        setCategoryVendors([]);
-        setLoadingVendors(false);
-        return;
-      }
-
-      setCategoryVendors((data ?? []) as VendorCard[]);
-      setLoadingVendors(false);
-    },
-    [],
-  );
-
   useEffect(() => {
     if (selectedCategory != null && !categories.some((c) => c.id === selectedCategory)) {
       setSelectedCategory(null);
     }
   }, [categories, selectedCategory]);
 
-  useEffect(() => {
-    if (selectedCategory === null) {
-      setCategoryVendors([]);
-      return;
-    }
-    const meta = categories.find((c) => c.id === selectedCategory);
-    if (!meta) return;
-    void fetchVendorsForCategory(meta.label);
-  }, [categories, fetchVendorsForCategory, selectedCategory]);
-
   const selectedCategoryMeta = selectedCategory
     ? categories.find((c) => c.id === selectedCategory) ?? null
     : null;
+
+  const visiblePosts = useMemo(() => {
+    if (!selectedCategoryMeta) return posts;
+    const chipLabel = selectedCategoryMeta.label;
+    return posts.filter((post) => {
+      if (post.type === "announcement" || post.type === "recommendation") return true;
+      if (post.type === "offer") {
+        return offerMatchesCategory(post.vendors?.category, chipLabel);
+      }
+      return true;
+    });
+  }, [posts, selectedCategoryMeta]);
 
   const loadReplies = async (postId: string) => {
     setLoadingReplies((prev) => new Set(prev).add(postId));
@@ -398,20 +348,6 @@ export default function LocalFeed() {
     resetCompose();
   };
 
-  const uploadFeedImage = async (file: File): Promise<string | null> => {
-    const path = `announcements/${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
-    const { error } = await supabase.storage
-      .from(FEED_IMAGES_BUCKET)
-      .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
-    if (error) {
-      console.error("uploadFeedImage", error);
-      toast.error("Image upload failed");
-      return null;
-    }
-    const { data } = supabase.storage.from(FEED_IMAGES_BUCKET).getPublicUrl(path);
-    return data.publicUrl;
-  };
-
   const submitPost = async () => {
     const phone = getUserPhone() || vendor?.phone || null;
     if (!phone) {
@@ -438,8 +374,11 @@ export default function LocalFeed() {
 
     let imageUrl: string | null = null;
     if (composeType === "announcement" && imageFile) {
-      imageUrl = await uploadFeedImage(imageFile);
-      if (!imageUrl) {
+      try {
+        imageUrl = await uploadFeedImage(imageFile, "announcements");
+      } catch (err) {
+        console.error("uploadFeedImage", err);
+        toast.error("Image upload failed");
         setSubmitting(false);
         return;
       }
@@ -447,7 +386,7 @@ export default function LocalFeed() {
 
     const expiresAt =
       composeType === "announcement"
-        ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
         : null;
 
     let lat: number | null = null;
@@ -461,16 +400,20 @@ export default function LocalFeed() {
       lng = null;
     }
 
-    const { error } = await supabase.from("feed_posts").insert({
-      user_phone: phone,
-      vendor_id: null,
-      type: composeType,
-      content,
-      expires_at: expiresAt,
-      image_url: imageUrl,
-      lat,
-      lng,
-    });
+    const { data: newPost, error } = await supabase
+      .from("feed_posts")
+      .insert({
+        user_phone: phone,
+        vendor_id: null,
+        type: composeType,
+        content,
+        expires_at: expiresAt,
+        image_url: imageUrl,
+        lat,
+        lng,
+      })
+      .select("id")
+      .single();
 
     setSubmitting(false);
 
@@ -478,6 +421,29 @@ export default function LocalFeed() {
       console.error("submitPost", error);
       toast.error("Could not post");
       return;
+    }
+
+    if (lat != null && lng != null) {
+      const authorPhone = getUserPhone();
+      if (authorPhone && newPost?.id) {
+        const notifyTitle =
+          composeType === "announcement"
+            ? "📢 Announcement near you"
+            : "💬 Recommendation near you";
+        void supabase.functions
+          .invoke("notify-feed-post", {
+            body: {
+              post_id: newPost.id,
+              post_type: composeType,
+              title: notifyTitle,
+              body: content.substring(0, 100),
+              lat,
+              lng,
+              author_phone: authorPhone,
+            },
+          })
+          .catch(() => {});
+      }
     }
 
     closeCompose();
@@ -500,123 +466,90 @@ export default function LocalFeed() {
           <h1 className="text-2xl font-bold text-foreground">Local Feed</h1>
           <p className="text-xs text-muted-foreground mt-0.5">📍 Near You</p>
         </div>
-        <button
-          type="button"
-          onClick={openCompose}
-          className="h-12 w-12 shrink-0 grid place-items-center rounded-full bg-brand text-page-bg shadow-lg active:scale-[0.98] transition-transform"
-          aria-label="New post"
-        >
-          <Plus className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <NotificationBell />
+          <button
+            type="button"
+            onClick={openCompose}
+            className="h-12 w-12 shrink-0 grid place-items-center rounded-full bg-brand text-page-bg shadow-lg active:scale-[0.98] transition-transform"
+            aria-label="New post"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+        </div>
       </header>
 
       {categories.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-4">
-          {categories.map((c) => {
-            const isSelected = selectedCategory === c.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setSelectedCategory(isSelected ? null : c.id)}
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
-                  isSelected
-                    ? "bg-brand text-white border-brand"
-                    : "border-surface-border text-muted-foreground bg-surface",
-                )}
-              >
-                {c.emoji} {c.label}
-              </button>
-            );
-          })}
+        <div className="px-4 space-y-2">
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            {categories.map((c) => {
+              const isSelected = selectedCategory === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setSelectedCategory(isSelected ? null : c.id)}
+                  className={cn(
+                    "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
+                    isSelected
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-surface-border text-muted-foreground bg-muted",
+                  )}
+                >
+                  {c.emoji} {c.label}
+                </button>
+              );
+            })}
+          </div>
+          {selectedCategoryMeta && (
+            <p className="text-xs text-muted-foreground">
+              Showing {selectedCategoryMeta.label} offers · All announcements & recommendations
+            </p>
+          )}
         </div>
       )}
 
-      {selectedCategory === null ? (
-        loading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : posts.length === 0 ? (
-          <p className="text-center text-muted-foreground py-12 px-4">
-            No posts near you yet. Be the first to post!
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3 pb-4">
-            {posts.map((post) => (
-              <li key={post.id}>
-                {post.type === "offer" && <OfferCard post={post} />}
-                {post.type === "announcement" && (
-                  <AnnouncementCard
-                    post={post}
-                    onFlag={() => void flagPost(post.id)}
-                    flagging={flaggingId === post.id}
-                  />
-                )}
-                {post.type === "recommendation" && (
-                  <RecommendationCard
-                    post={post}
-                    expanded={expandedReplies.has(post.id)}
-                    replies={replies[post.id] ?? []}
-                    loadingReplies={loadingReplies.has(post.id)}
-                    replyDraft={replyDrafts[post.id] ?? ""}
-                    onReplyDraftChange={(v) =>
-                      setReplyDrafts((prev) => ({ ...prev, [post.id]: v }))
-                    }
-                    onToggleReplies={() => void toggleReplies(post.id)}
-                    onSendReply={() => void submitReply(post.id)}
-                  />
-                )}
-              </li>
-            ))}
-          </ul>
-        )
-      ) : loadingVendors ? (
+      {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : categoryVendors.length === 0 ? (
+      ) : visiblePosts.length === 0 ? (
         <p className="text-center text-muted-foreground py-12 px-4">
-          No active vendors in this category right now
+          No posts near you yet. Be the first to post!
         </p>
       ) : (
-        <div className="flex flex-col gap-4 pb-4">
-          {categoryVendors.map((v) => (
-            <article
-              key={v.id}
-              className="mx-4 rounded-2xl border border-surface-border bg-surface p-4 flex items-center justify-between gap-4 mb-3"
-            >
-              <div className="min-w-0">
-                <h3 className="font-display font-bold truncate">
-                  {v.shop_name}
-                </h3>
-                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
-                  <span aria-hidden>{selectedCategoryMeta?.emoji ?? "✨"}</span>
-                  <span>Nearby</span>
-                </p>
-                {v.avg_rating && v.review_count ? (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    ⭐ {v.avg_rating.toFixed(1)} ({v.review_count})
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground mt-2">⭐ —</p>
-                )}
-              </div>
-
-              <Button
-                className="shrink-0"
-                onClick={() =>
-                  navigate(
-                    `/radar?category=${encodeURIComponent(selectedCategory ?? "")}`,
-                  )
-                }
-              >
-                Connect
-              </Button>
-            </article>
+        <ul className="flex flex-col gap-3 pb-4">
+          {visiblePosts.map((post) => (
+            <li key={post.id}>
+              {post.type === "offer" && (
+                <OfferCard post={post} viewerPhone={viewerPhone} />
+              )}
+              {post.type === "announcement" && (
+                <AnnouncementCard
+                  post={post}
+                  viewerPhone={viewerPhone}
+                  onFlag={() => void flagPost(post.id)}
+                  flagging={flaggingId === post.id}
+                />
+              )}
+              {post.type === "recommendation" && (
+                <RecommendationCard
+                  post={post}
+                  viewerPhone={viewerPhone}
+                  expanded={expandedReplies.has(post.id)}
+                  replies={replies[post.id] ?? []}
+                  loadingReplies={loadingReplies.has(post.id)}
+                  replyDraft={replyDrafts[post.id] ?? ""}
+                  onReplyDraftChange={(v) =>
+                    setReplyDrafts((prev) => ({ ...prev, [post.id]: v }))
+                  }
+                  onToggleReplies={() => void toggleReplies(post.id)}
+                  onSendReply={() => void submitReply(post.id)}
+                />
+              )}
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       {showCompose && (
@@ -677,22 +610,11 @@ export default function LocalFeed() {
 
             {composeType === "announcement" && (
               <div className="mb-4">
-                <label className="block text-xs font-semibold text-muted-foreground mb-2">
-                  Photo (required)
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="text-sm w-full"
-                  onChange={(e) => onImagePick(e.target.files?.[0])}
+                <FeedImagePicker
+                  label="Photo (required)"
+                  previewUrl={imagePreview}
+                  onPick={(file) => onImagePick(file)}
                 />
-                {imagePreview && (
-                  <img
-                    src={imagePreview}
-                    alt=""
-                    className="mt-3 w-full rounded-xl border border-border object-cover max-h-48"
-                  />
-                )}
               </div>
             )}
 
@@ -746,22 +668,38 @@ function TypeChip({
   );
 }
 
-function OfferCard({ post }: { post: FeedPost }) {
+function OfferCard({
+  post,
+  viewerPhone,
+}: {
+  post: FeedPost;
+  viewerPhone: string | null;
+}) {
   const expiry = expiryBadgeLabel(post.expires_at);
   return (
     <article className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4">
       <span className="inline-block text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 px-2 py-0.5 mb-2">
         Offer
       </span>
+      <p className="text-[10px] text-muted-foreground font-medium mb-2">
+        {feedAuthorLabel(post.user_phone, viewerPhone)}
+      </p>
       <div className="flex items-start gap-2 mb-2">
         <Tag className="h-4 w-4 text-brand shrink-0 mt-0.5" />
         <p className="font-semibold text-foreground">
           {post.vendors?.shop_name ?? "Local vendor"}
         </p>
       </div>
-      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
         {post.content}
       </p>
+      {post.image_url && (
+        <img
+          src={post.image_url}
+          alt=""
+          className="w-full rounded-xl border border-border object-cover max-h-56 mb-3"
+        />
+      )}
       {expiry && (
         <span className="inline-block mt-3 text-[11px] font-medium rounded-full bg-brand/10 text-brand px-2.5 py-0.5">
           {expiry}
@@ -773,10 +711,12 @@ function OfferCard({ post }: { post: FeedPost }) {
 
 function AnnouncementCard({
   post,
+  viewerPhone,
   onFlag,
   flagging,
 }: {
   post: FeedPost;
+  viewerPhone: string | null;
   onFlag: () => void;
   flagging: boolean;
 }) {
@@ -785,6 +725,9 @@ function AnnouncementCard({
       <span className="inline-block text-xs font-semibold rounded-full bg-blue-500/20 text-blue-400 px-2 py-0.5 mb-2">
         Announcement
       </span>
+      <p className="text-[10px] text-muted-foreground font-medium mb-2">
+        {feedAuthorLabel(post.user_phone, viewerPhone)}
+      </p>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
         {post.content}
       </p>
@@ -814,6 +757,7 @@ function AnnouncementCard({
 
 function RecommendationCard({
   post,
+  viewerPhone,
   expanded,
   replies,
   loadingReplies,
@@ -823,6 +767,7 @@ function RecommendationCard({
   onSendReply,
 }: {
   post: FeedPost;
+  viewerPhone: string | null;
   expanded: boolean;
   replies: FeedReply[];
   loadingReplies: boolean;
@@ -836,6 +781,9 @@ function RecommendationCard({
       <span className="inline-block text-xs font-semibold rounded-full bg-purple-500/20 text-purple-400 px-2 py-0.5 mb-2">
         Recommendation
       </span>
+      <p className="text-[10px] text-muted-foreground font-medium mb-2">
+        {feedAuthorLabel(post.user_phone, viewerPhone)}
+      </p>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
         {post.content}
       </p>
@@ -866,7 +814,7 @@ function RecommendationCard({
                   className="rounded-xl bg-muted/60 px-3 py-2 text-sm"
                 >
                   <p className="text-[10px] text-muted-foreground font-medium mb-0.5">
-                    {maskPhone(r.user_phone)}
+                    {feedAuthorLabel(r.user_phone, viewerPhone)}
                   </p>
                   <p className="text-foreground">{r.content}</p>
                 </li>

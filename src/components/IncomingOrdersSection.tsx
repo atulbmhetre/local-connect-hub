@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, invokecalculateTrustScore, fetchUserTrust, invokeNotifyUser } from "@/lib/supabase";
+import { saveNotification } from "@/lib/notifications";
 import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
 import { Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -111,6 +112,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [presetReasons, setPresetReasons] = useState<string[]>([]);
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [declineOrderId, setDeclineOrderId] = useState<string | null>(null);
+  const [declineUserPhone, setDeclineUserPhone] = useState<string | null>(null);
   const [declining, setDeclining] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [otherReasonText, setOtherReasonText] = useState("");
@@ -418,7 +420,45 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     });
   };
 
+  const acceptDeliveryOrder = async (id: string, userPhone: string | null) => {
+    setMarkingId(id);
+    const { data, error } = await supabase
+      .from("requests")
+      .update({ status: "accepted" })
+      .eq("id", id)
+      .eq("status", "seen")
+      .select("id");
+    setMarkingId(null);
+    if (error) {
+      toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+      return;
+    }
+    if (!data?.length) {
+      toast.error(s.order_already_taken);
+      void load({ silent: true });
+      return;
+    }
+    const phone = userPhone?.trim();
+    if (phone) {
+      void invokeNotifyUser({
+        user_phone: phone,
+        title: s.incoming_orderAcceptedTitle,
+        body: s.incoming_orderAcceptedBody,
+      });
+      saveNotification({
+        userPhone: phone,
+        type: "order_update",
+        title: s.incoming_orderAcceptedTitle,
+        body: s.incoming_orderAcceptedBody,
+        route: "my-orders",
+        isInformational: false,
+      });
+    }
+    void load({ silent: true });
+  };
+
   const markDone = async (id: string) => {
+    const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     setMarkingId(id);
     const { error } = await supabase
       .from("requests")
@@ -429,6 +469,21 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     if (error) {
       toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
       return;
+    }
+    if (userPhone) {
+      void invokeNotifyUser({
+        user_phone: userPhone,
+        title: s.incoming_orderFulfilledNotifyTitle,
+        body: s.incoming_orderFulfilledNotifyBody,
+      });
+      saveNotification({
+        userPhone,
+        type: "order_update",
+        title: s.incoming_orderFulfilledNotifyTitle,
+        body: s.incoming_orderFulfilledNotifyBody,
+        route: "my-orders",
+        isInformational: false,
+      });
     }
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
   };
@@ -450,6 +505,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
 
   const handleAppointmentAction = async (id: string, action: "confirmed" | "declined") => {
     if (action === "declined") return;
+    const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     setMarkingId(id);
     const { error } = await supabase
       .from("requests")
@@ -462,6 +518,21 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
       return;
     }
+    if (userPhone) {
+      void invokeNotifyUser({
+        user_phone: userPhone,
+        title: s.incoming_bookingConfirmedNotifyTitle,
+        body: s.incoming_bookingConfirmedNotifyBody,
+      });
+      saveNotification({
+        userPhone,
+        type: "order_update",
+        title: s.incoming_bookingConfirmedNotifyTitle,
+        body: s.incoming_bookingConfirmedNotifyBody,
+        route: "my-orders",
+        isInformational: false,
+      });
+    }
     setRows((prev) =>
       prev.map((r) => (r.id === id ? { ...r, appointment_status: action } : r)),
     );
@@ -470,6 +541,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
 
   const closeDeclineSheet = () => {
     setDeclineOrderId(null);
+    setDeclineUserPhone(null);
     setSelectedReason(null);
     setOtherReasonText("");
   };
@@ -479,6 +551,11 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     const reasonText =
       selectedReason === "Other" ? otherReasonText.trim() : selectedReason;
     if (!reasonText) return;
+
+    const userPhone =
+      declineUserPhone?.trim() ||
+      rows.find((r) => r.id === declineOrderId)?.user_phone?.trim() ||
+      "";
 
     setDeclining(true);
     setMarkingId(declineOrderId);
@@ -498,12 +575,21 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
       return;
     }
-    const userPhone = rows.find((r) => r.id === declineOrderId)?.user_phone?.trim();
     if (userPhone) {
+      const title = s.incoming_bookingDeclinedNotifyTitle;
+      const body = s.incoming_bookingDeclinedNotifyBody(reasonText);
       void invokeNotifyUser({
         user_phone: userPhone,
-        title: "Booking declined",
-        body: `Your booking was declined. Reason: ${reasonText}`,
+        title,
+        body,
+      });
+      saveNotification({
+        userPhone,
+        type: "order_update",
+        title,
+        body,
+        route: "my-orders",
+        isInformational: false,
       });
     }
     setRows((prev) =>
@@ -658,10 +744,22 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       selectedReason === "Other" ? otherReasonText.trim() : selectedReason;
     if (!reasonText) return;
 
+    const order = rows.find((r) => r.id === cancelOrderId);
+    const isAppointmentOrder =
+      order?.appointment_status === "confirmed" || !!order?.appointment_time;
+    const updatePayload: {
+      status: "cancelled";
+      cancel_reason: string;
+      appointment_status?: "cancelled";
+    } = { status: "cancelled", cancel_reason: reasonText };
+    if (isAppointmentOrder) {
+      updatePayload.appointment_status = "cancelled";
+    }
+
     setCancelling(true);
     const { error } = await supabase
       .from("requests")
-      .update({ status: "cancelled", cancel_reason: reasonText })
+      .update(updatePayload)
       .eq("id", cancelOrderId)
       .eq("vendor_id", vendorId);
     setCancelling(false);
@@ -671,16 +769,33 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     }
     const userPhone = rows.find((r) => r.id === cancelOrderId)?.user_phone?.trim();
     if (userPhone) {
+      const title = s.incoming_orderCancelledNotifyTitle;
+      const body = s.incoming_orderCancelledNotifyBody(reasonText);
       void invokeNotifyUser({
         user_phone: userPhone,
-        title: "Order cancelled",
-        body: `Your order was cancelled. Reason: ${reasonText}`,
+        title,
+        body,
+      });
+      saveNotification({
+        userPhone,
+        type: "order_update",
+        title,
+        body,
+        route: "my-orders",
+        isInformational: false,
       });
     }
     toast.success(s.orderCancelled);
     setRows((prev) =>
       prev.map((r) =>
-        r.id === cancelOrderId ? { ...r, status: "cancelled", cancel_reason: reasonText } : r,
+        r.id === cancelOrderId
+          ? {
+              ...r,
+              status: "cancelled",
+              cancel_reason: reasonText,
+              ...(isAppointmentOrder ? { appointment_status: "cancelled" as const } : {}),
+            }
+          : r,
       ),
     );
     closeCancelSheet();
@@ -903,7 +1018,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                     type="button"
                     disabled={markingId === r.id}
                     onClick={() => void handleAppointmentAction(r.id, "confirmed")}
-                    className="rounded-lg bg-brand text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                    className="rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                   >
                     {s.incoming_btnConfirm}
                   </button>
@@ -912,6 +1027,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                     disabled={markingId === r.id}
                     onClick={() => {
                       setDeclineOrderId(r.id);
+                      setDeclineUserPhone(r.user_phone?.trim() || null);
                       setSelectedReason(null);
                       setOtherReasonText("");
                     }}
@@ -927,9 +1043,9 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                 r.status !== "cancelled" && (
                 <>
                   {r.status !== "fulfilled" && r.status !== "done" && (
-                    <div className="rounded-lg border border-brand/40 bg-brand-muted px-3 py-2 text-[11px] text-green-700 dark:text-brand font-semibold text-center">
-                      {s.incoming_bannerConfirmed}
-                    </div>
+                    <span className="inline-flex rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40">
+                      {s.incoming_bookingConfirmed}
+                    </span>
                   )}
                   {r.status !== "done" &&
                     r.status !== "fulfilled" &&
@@ -944,24 +1060,13 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                           }}
                           className="w-full rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                         >
-                          {s.cancelOrder}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (r.user_phone) {
-                              window.open(`tel:+91${r.user_phone.replace(/\D/g, "")}`, "_self");
-                            }
-                          }}
-                          className="inline-flex w-full items-center justify-center rounded-lg border border-brand/40 bg-transparent text-brand text-[11px] font-semibold py-1.5 px-2 active:scale-[0.99] transition-transform hover:bg-brand/5"
-                        >
-                          {s.incoming_callBridge}
+                          {s.incoming_cancelBooking}
                         </button>
                         <button
                           type="button"
                           disabled={markingId === r.id}
                           onClick={() => void markDone(r.id)}
-                          className="w-full rounded-lg border border-brand/50 bg-brand-muted text-green-700 dark:text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                          className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                         >
                           {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
                         </button>
@@ -981,11 +1086,22 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                     type="button"
                     disabled={markingId === r.id}
                     onClick={() => void acceptHelpOrder(r.id)}
-                    className="w-full rounded-lg bg-brand text-[#0b1f14] text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                    className="w-full rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                   >
                     {markingId === r.id ? s.incoming_saving : s.incoming_btnAccept}
                   </button>
                 )}
+
+              {!r.appointment_time && !isHelpMode && r.status === "seen" && (
+                <button
+                  type="button"
+                  disabled={markingId === r.id}
+                  onClick={() => void acceptDeliveryOrder(r.id, r.user_phone ?? null)}
+                  className="w-full rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                >
+                  {markingId === r.id ? s.incoming_saving : s.incoming_acceptOrder}
+                </button>
+              )}
 
               {!r.appointment_time && (
                 <>
@@ -1002,19 +1118,6 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                       {s.cancelOrder}
                     </button>
                   )}
-                  {(r.status === "sent" || r.status === "seen" || r.status === "accepted") && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (r.user_phone) {
-                          window.open(`tel:+91${r.user_phone.replace(/\D/g, "")}`, "_self");
-                        }
-                      }}
-                      className="inline-flex w-full items-center justify-center rounded-lg border border-brand/40 bg-transparent text-brand text-[11px] font-semibold py-1.5 px-2 active:scale-[0.99] transition-transform hover:bg-brand/5"
-                    >
-                      {s.incoming_callBridge}
-                    </button>
-                  )}
                   {(r.status === "accepted" || r.status === "fulfilled") && (
                     <button
                       type="button"
@@ -1022,7 +1125,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                         setBillRequestId(r.id);
                         setBillUserPhone(r.user_phone);
                       }}
-                      className="w-full rounded-xl border border-brand/40 text-brand text-sm font-semibold py-2.5 active:scale-[0.99]"
+                      className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold py-2.5 active:scale-[0.99]"
                     >
                       {s.bill_title}
                     </button>
@@ -1032,7 +1135,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                       type="button"
                       disabled={markingId === r.id}
                       onClick={() => void markDone(r.id)}
-                      className="w-full rounded-lg border border-brand/50 bg-brand-muted text-green-700 dark:text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                     >
                       {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
                     </button>
@@ -1057,7 +1160,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                     <button
                       type="button"
                       onClick={() => openLedgerSheet(r)}
-                      className="w-full rounded-lg border border-brand/40 text-brand text-xs font-semibold py-2 active:scale-[0.99]"
+                      className="w-full rounded-lg border border-primary/50 text-primary text-xs font-semibold py-2 active:scale-[0.99]"
                     >
                       📒 Add to Ledger
                     </button>
@@ -1143,7 +1246,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               type="button"
               disabled={flagSubmitting || !selectedFlagType}
               onClick={() => void submitFlagReport()}
-              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold disabled:opacity-50"
+              className="w-full rounded-xl bg-primary text-primary-foreground py-3 font-semibold disabled:opacity-50"
             >
               {flagSubmitting ? s.incoming_saving : "Submit Report"}
             </button>
@@ -1285,7 +1388,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               type="button"
               disabled={ledgerSubmitting || !ledgerAmount.trim()}
               onClick={() => void confirmLedgerEntry()}
-              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold disabled:opacity-50"
+              className="w-full rounded-xl bg-primary text-primary-foreground py-3 font-semibold disabled:opacity-50"
             >
               {ledgerSubmitting ? s.incoming_saving : "Add to Ledger (Unpaid)"}
             </button>

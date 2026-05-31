@@ -77,10 +77,17 @@ function writeSessionSaved(vendorId: string) {
   }
 }
 
-function readIsOwnVendorCard(vendorId: string): boolean {
+function readIsOwnVendorCard(vendorId: string, vendorPhone: string | null | undefined): boolean {
   try {
     const mine = localStorage.getItem(VENDOR_SELF_STORAGE_KEY);
-    return mine != null && mine === vendorId;
+    if (mine == null || mine !== vendorId) return false;
+    const userPhone = localStorage.getItem("aaspaas:user_phone");
+    if (!userPhone?.trim() || !vendorPhone?.trim()) return false;
+    const digits = (p: string) => {
+      const cleaned = p.replace(/\D/g, "");
+      return cleaned.length === 12 && cleaned.startsWith("91") ? cleaned.slice(2) : cleaned;
+    };
+    return digits(userPhone) === digits(vendorPhone);
   } catch {
     return false;
   }
@@ -179,7 +186,7 @@ export function RadarVendorCard({
   const serviceMode = String(vendor.service_mode ?? "")
     .trim()
     .toLowerCase();
-  const isOwnVendor = readIsOwnVendorCard(vendor.id);
+  const isOwnVendor = readIsOwnVendorCard(vendor.id, vendor.phone);
 
   const [helpCount, setHelpCount] = useState(() => vendor.total_helped ?? 0);
   const [deliveredCount, setDeliveredCount] = useState(() => vendor.total_delivered ?? 0);
@@ -325,6 +332,9 @@ export function RadarVendorCard({
 
   const deliveryOrderSent = hasOrdered || deliveryActiveFromDb;
 
+  const showConnectAiBridge =
+    serviceMode === "help" || deliveryOrderSent;
+
   const showSaveRow = !isOwnVendor && !isSaved && !savedVendorLocked;
 
   const accentRing =
@@ -419,18 +429,17 @@ export function RadarVendorCard({
               loading="lazy"
             />
           ) : (
-            <span className="inline-flex items-center gap-1">
-              <Store className="h-6 w-6 text-primary-foreground" />
-              <span className="text-[10px] font-semibold text-primary-foreground">Shop</span>
-            </span>
+            <Store className="h-6 w-6 text-primary-foreground" aria-hidden />
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-              <h3 className="text-base font-bold text-foreground truncate">{vendor.shop_name}</h3>
-              {readIsOwnVendorCard(vendor.id) && (
-                <span className="text-[10px] font-medium text-muted-foreground shrink-0">• You</span>
+          <div className="flex items-start gap-1.5 min-w-0">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-base font-bold text-foreground break-words leading-snug">
+                {vendor.shop_name}
+              </h3>
+              {readIsOwnVendorCard(vendor.id, vendor.phone) && (
+                <span className="text-[10px] font-medium text-muted-foreground">• You</span>
               )}
             </div>
             <span className="inline-flex items-center gap-1 shrink-0">
@@ -448,7 +457,6 @@ export function RadarVendorCard({
               {serviceModePill}
             </span>
           </div>
-          <VerificationBadge vendor={vendor} showLabel className="mt-1" />
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
             {dist != null ? (
               <span className="text-xs bg-surface-border rounded-full px-2 py-0.5 inline-flex items-center gap-1 text-muted-foreground">
@@ -493,11 +501,10 @@ export function RadarVendorCard({
       )}
       {tier === "red" && (
         <div className="mt-3 rounded-xl bg-amber-950/40 border border-amber-800/50 px-3 py-2 flex items-start gap-2">
-          <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
-            <AlertTriangle className="h-4 w-4 text-amber-400" />
-            <span className="text-xs text-amber-400 font-semibold">{s.settings_unverified}</span>
-          </span>
-          <p className="text-xs text-amber-400 font-semibold">{s.radar_not_verified}</p>
+          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" aria-hidden />
+          <p className="min-w-0 flex-1 text-xs text-amber-400 font-semibold leading-relaxed">
+            {s.radar_not_verified}
+          </p>
         </div>
       )}
 
@@ -592,14 +599,16 @@ export function RadarVendorCard({
         </SheetContent>
       </Sheet>
 
-      <button
-        type="button"
-        onClick={handleConnect}
-        className="mt-3 w-full rounded-xl bg-brand text-white py-2.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
-      >
-        <Phone className="h-4 w-4" />
-        {s.radar_connect_ai}
-      </button>
+      {showConnectAiBridge && (
+        <button
+          type="button"
+          onClick={handleConnect}
+          className="mt-3 w-full rounded-xl bg-brand text-white py-2.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
+        >
+          <Phone className="h-4 w-4" />
+          {s.radar_connect_ai}
+        </button>
+      )}
 
       <AiBridgeSheet
         open={aiSheetOpen}

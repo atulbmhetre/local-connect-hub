@@ -203,6 +203,8 @@ export type Vendor = {
   on_time_rate?: number;
   avg_rating?: number | null;
   review_count?: number | null;
+  /** First day of current ledger/financial year (date). */
+  ledger_cycle_start?: string | null;
 };
 
 export type RequestRow = {

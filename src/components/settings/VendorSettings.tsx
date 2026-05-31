@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
 import { Bell, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
@@ -23,7 +23,15 @@ import {
   SettingsRow,
   SettingsSectionLabel,
   SettingsCollapsible,
+  SettingsParentCollapsible,
+  type SettingsActiveGroup,
 } from "@/components/settings/SettingsSection";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   isVendorSoundEnabled,
   isVendorVibrateEnabled,
@@ -31,6 +39,15 @@ import {
   setVendorVibrateEnabled,
 } from "@/lib/pushNotifications";
 import { formatTimeAgo } from "@/lib/orders";
+import { ledgerCycleStartInputValue } from "@/lib/khataDisplay";
+import {
+  generateUserReferralCode,
+  referralCodeFromPhone,
+} from "@/lib/referral";
+import { getUserPhone } from "@/lib/userIdentity";
+import { uploadFeedImage } from "@/lib/imageUpload";
+import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
+import { useFeedNotificationsEnabled } from "@/hooks/useFeedNotificationsEnabled";
 
 type MenuItem = {
   id: string;
@@ -54,16 +71,281 @@ type VendorReview = {
 type Props = {
   vendor: Vendor;
   onVendorUpdated: (updated: Vendor) => void;
-  activeOfferSection?: ReactNode;
   onEditShopDetails?: () => void;
+  activeGroup: SettingsActiveGroup;
+  onActiveGroupChange: (group: SettingsActiveGroup) => void;
 };
+
+function offerDateInputMin() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function offerDateToStartIso(dateStr: string) {
+  const [y, m, day] = dateStr.split("-").map(Number);
+  const d = new Date(y, m - 1, day);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+function offerDateToEndIso(dateStr: string) {
+  const [y, m, day] = dateStr.split("-").map(Number);
+  const d = new Date(y, m - 1, day);
+  d.setHours(23, 59, 59, 999);
+  return d.toISOString();
+}
+
+export function VendorSettingsOffers({ vendorId }: { vendorId: string }) {
+  const [activeOffer, setActiveOffer] = useState<{
+    id: string;
+    content: string;
+    expires_at: string | null;
+  } | null>(null);
+  const [offerText, setOfferText] = useState("");
+  const [offerStartsAt, setOfferStartsAt] = useState("");
+  const [offerEndsAt, setOfferEndsAt] = useState("");
+  const [offerStartError, setOfferStartError] = useState("");
+  const [offerEndError, setOfferEndError] = useState("");
+  const [offerLoading, setOfferLoading] = useState(false);
+  const [offerImageFile, setOfferImageFile] = useState<File | null>(null);
+  const [offerImagePreview, setOfferImagePreview] = useState<string | null>(null);
+  const [offersOpen, setOffersOpen] = useState(false);
+
+  const loadActiveOffer = async () => {
+    const { data, error } = await supabase
+      .from("feed_posts")
+      .select("*")
+      .eq("vendor_id", vendorId)
+      .eq("type", "offer")
+      .eq("is_hidden", false)
+      .gt("expires_at", new Date().toISOString())
+      .or("starts_at.is.null,starts_at.lte.now()")
+      .maybeSingle();
+    if (error) {
+      console.error("loadActiveOffer", error);
+      setActiveOffer(null);
+      return;
+    }
+    setActiveOffer(
+      data
+        ? {
+            id: data.id as string,
+            content: (data.content as string) ?? "",
+            expires_at: (data.expires_at as string | null) ?? null,
+          }
+        : null,
+    );
+  };
+
+  useEffect(() => {
+    void loadActiveOffer();
+  }, [vendorId]);
+
+  const resetOfferImage = () => {
+    setOfferImageFile(null);
+    if (offerImagePreview) URL.revokeObjectURL(offerImagePreview);
+    setOfferImagePreview(null);
+  };
+
+  const onOfferImagePick = (file: File) => {
+    setOfferImageFile(file);
+    if (offerImagePreview) URL.revokeObjectURL(offerImagePreview);
+    setOfferImagePreview(URL.createObjectURL(file));
+  };
+
+  const validateOfferDates = (): boolean => {
+    const minDate = offerDateInputMin();
+    let ok = true;
+
+    if (!offerStartsAt || offerStartsAt < minDate) {
+      setOfferStartError("Please set offer start date");
+      ok = false;
+    } else {
+      setOfferStartError("");
+    }
+
+    if (!offerEndsAt || (offerStartsAt && offerEndsAt <= offerStartsAt)) {
+      setOfferEndError("Please set offer end date");
+      ok = false;
+    } else {
+      setOfferEndError("");
+    }
+
+    return ok;
+  };
+
+  const postOffer = async () => {
+    const content = offerText.trim();
+    if (!content) return;
+    if (!validateOfferDates()) return;
+    const phone = getUserPhone();
+    if (!phone) {
+      toast.error("Add your phone in Settings first");
+      return;
+    }
+    setOfferLoading(true);
+    let imageUrl: string | null = null;
+    if (offerImageFile) {
+      try {
+        imageUrl = await uploadFeedImage(offerImageFile, "offers");
+      } catch (err) {
+        console.error("postOffer upload", err);
+        toast.error("Image upload failed");
+        setOfferLoading(false);
+        return;
+      }
+    }
+    const { error } = await supabase.from("feed_posts").insert({
+      type: "offer",
+      vendor_id: vendorId,
+      user_phone: phone,
+      content,
+      is_hidden: false,
+      starts_at: offerDateToStartIso(offerStartsAt),
+      expires_at: offerDateToEndIso(offerEndsAt),
+      image_url: imageUrl,
+    });
+    setOfferLoading(false);
+    if (error) {
+      console.error("postOffer", error);
+      toast.error(error.message);
+      return;
+    }
+    setOfferText("");
+    setOfferStartsAt("");
+    setOfferEndsAt("");
+    setOfferStartError("");
+    setOfferEndError("");
+    resetOfferImage();
+    await loadActiveOffer();
+    toast("Offer posted!");
+  };
+
+  const removeOffer = async () => {
+    if (!activeOffer) return;
+    setOfferLoading(true);
+    const { error } = await supabase
+      .from("feed_posts")
+      .update({ is_hidden: true })
+      .eq("id", activeOffer.id);
+    setOfferLoading(false);
+    if (error) {
+      console.error("removeOffer", error);
+      toast.error(error.message);
+      return;
+    }
+    setActiveOffer(null);
+    toast("Offer removed");
+  };
+
+  return (
+    <SettingsCollapsible
+      label="Offers"
+      open={offersOpen}
+      onToggle={() => setOffersOpen((o) => !o)}
+      nested
+    >
+      {activeOffer ? (
+          <div className="px-4 py-3.5 space-y-3">
+            <p className="text-sm text-foreground">{activeOffer.content}</p>
+            <p className="text-xs text-muted-foreground">
+              Expires:{" "}
+              {activeOffer.expires_at
+                ? new Date(activeOffer.expires_at).toLocaleString()
+                : "—"}
+            </p>
+            <button
+              type="button"
+              onClick={() => void removeOffer()}
+              disabled={offerLoading}
+              className="w-full rounded-xl border border-destructive/40 text-destructive py-2.5 text-sm font-semibold disabled:opacity-50"
+            >
+              Remove
+            </button>
+          </div>
+        ) : (
+          <div className="px-4 py-3.5 space-y-3">
+            <input
+              type="text"
+              maxLength={100}
+              value={offerText}
+              onChange={(e) => setOfferText(e.target.value)}
+              placeholder="e.g. 20% off groceries today"
+              className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:border-brand"
+            />
+            <FeedImagePicker
+              label="Add photo (optional)"
+              previewUrl={offerImagePreview}
+              onPick={onOfferImagePick}
+            />
+            <div>
+              <label
+                htmlFor="vendor-offer-starts"
+                className="block text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5"
+              >
+                Offer starts
+              </label>
+              <input
+                id="vendor-offer-starts"
+                type="date"
+                min={offerDateInputMin()}
+                value={offerStartsAt}
+                onChange={(e) => {
+                  setOfferStartsAt(e.target.value);
+                  if (offerStartError) setOfferStartError("");
+                }}
+                className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {offerStartError && (
+                <p className="text-xs text-destructive mt-1">{offerStartError}</p>
+              )}
+            </div>
+            <div>
+              <label
+                htmlFor="vendor-offer-ends"
+                className="block text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5"
+              >
+                Offer ends
+              </label>
+              <input
+                id="vendor-offer-ends"
+                type="date"
+                min={offerStartsAt || offerDateInputMin()}
+                value={offerEndsAt}
+                onChange={(e) => {
+                  setOfferEndsAt(e.target.value);
+                  if (offerEndError) setOfferEndError("");
+                }}
+                className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {offerEndError && (
+                <p className="text-xs text-destructive mt-1">{offerEndError}</p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => void postOffer()}
+              disabled={offerLoading || offerText.trim().length === 0}
+              className="w-full rounded-xl bg-brand text-page-bg py-3 text-sm font-bold disabled:opacity-50 active:scale-[0.99]"
+            >
+              Post Offer
+            </button>
+          </div>
+        )}
+    </SettingsCollapsible>
+  );
+}
 
 export function VendorSettingsNotifications({ vendor: _vendor }: { vendor: Vendor }) {
   const { s } = useLanguage();
   const [vendorVibrate, setVendorVibrate] = useState(() => isVendorVibrateEnabled());
   const [vendorSound, setVendorSound] = useState(() => isVendorSoundEnabled());
+  const { enabled: feedNotificationsEnabled, onCheckedChange: onFeedNotificationsChange } =
+    useFeedNotificationsEnabled();
+  const native = Capacitor.isNativePlatform();
 
-  if (!Capacitor.isNativePlatform()) return null;
+  if (!native) return null;
 
   return (
     <section className="mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden mb-3">
@@ -83,7 +365,7 @@ export function VendorSettingsNotifications({ vendor: _vendor }: { vendor: Vendo
             }}
           />
         </div>
-        <div className="flex items-center justify-between gap-3 px-4 py-3.5">
+        <div className="flex items-center justify-between gap-3 px-4 py-3.5 border-b border-surface-border">
           <div className="min-w-0">
             <p className="text-sm font-medium text-foreground">{s.settings_sound}</p>
             <p className="text-xs text-muted-foreground mt-0.5">{s.settings_sound_body}</p>
@@ -96,34 +378,105 @@ export function VendorSettingsNotifications({ vendor: _vendor }: { vendor: Vendo
             }}
           />
         </div>
+        <div className="flex items-center justify-between gap-3 px-4 py-3.5">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">{s.settings_feedNotifications}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {s.settings_feedNotificationsHint}
+            </p>
+          </div>
+          <Switch
+            checked={feedNotificationsEnabled}
+            onCheckedChange={onFeedNotificationsChange}
+          />
+        </div>
       </div>
     </section>
   );
 }
 
-export function VendorSettingsReferEarn({ vendor }: { vendor: Vendor }) {
+export function VendorSettingsReferEarn({
+  vendor,
+  userPhone,
+}: {
+  vendor?: Vendor | null;
+  userPhone?: string | null;
+}) {
   const { s } = useLanguage();
   const { config } = useAppConfig();
-  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const initialVendorCode = vendor?.referral_code?.trim() || null;
+  const [referralCode, setReferralCode] = useState<string | null>(initialVendorCode);
+  const [referralLoading, setReferralLoading] = useState(!initialVendorCode);
 
   useEffect(() => {
-    const loadReferral = async () => {
-      const { data } = await supabase
-        .from("vendors")
-        .select("referral_code")
-        .eq("id", vendor.id)
-        .maybeSingle();
-      setReferralCode(data?.referral_code ?? null);
+    let cancelled = false;
+
+    const resolveFallback = (): string => {
+      const phone = (vendor?.phone ?? userPhone ?? "").trim();
+      if (vendor?.id) return referralCodeFromPhone(phone);
+      return generateUserReferralCode(phone || undefined);
     };
+
+    const loadReferral = async () => {
+      setReferralLoading(true);
+      try {
+        if (vendor?.id) {
+          const { data } = await supabase
+            .from("vendors")
+            .select("referral_code")
+            .eq("id", vendor.id)
+            .maybeSingle();
+          if (cancelled) return;
+          const fromDb = data?.referral_code?.trim() || null;
+          setReferralCode(fromDb ?? vendor?.referral_code?.trim() ?? resolveFallback());
+          return;
+        }
+
+        const phone = (userPhone ?? "").trim();
+        if (phone) {
+          const { data } = await supabase
+            .from("app_users")
+            .select("referral_code")
+            .eq("phone", phone)
+            .maybeSingle();
+          if (cancelled) return;
+          const fromDb = data?.referral_code?.trim() || null;
+          setReferralCode(fromDb ?? resolveFallback());
+          return;
+        }
+
+        if (!cancelled) setReferralCode(resolveFallback());
+      } catch {
+        if (!cancelled) setReferralCode(resolveFallback());
+      } finally {
+        if (!cancelled) setReferralLoading(false);
+      }
+    };
+
     void loadReferral();
-  }, [vendor.id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [vendor?.id, vendor?.phone, vendor?.referral_code, userPhone]);
 
   const referLink =
     referralCode != null ? `${config.appBaseUrl}/r/${referralCode}` : null;
 
+  const copyReferralCode = async () => {
+    if (!referralCode) return;
+    try {
+      await navigator.clipboard.writeText(referralCode);
+      toast.success(s.vendor_referCodeCopied);
+    } catch {
+      toast.error("Could not copy");
+    }
+  };
+
   const shareReferLink = async () => {
     if (!referLink) return;
-    const message = `Order from ${vendor.shop_name} on Aaspaas! ${referLink}`;
+    const message = vendor?.shop_name
+      ? `Order from ${vendor.shop_name} on Aaspaas! ${referLink}`
+      : `Get help around you, now! Download Aaspaas: ${referLink}`;
     if (navigator.share) {
       try {
         await navigator.share({ text: message });
@@ -137,50 +490,69 @@ export function VendorSettingsReferEarn({ vendor }: { vendor: Vendor }) {
   };
 
   return (
-    <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4 mb-3">
-      <p className="text-sm font-medium text-foreground mb-3">{s.vendor_referEarn}</p>
-      {referralCode != null ? (
-        <>
-          <div className="rounded-2xl bg-secondary/10 border border-secondary/30 px-4 py-3 mb-3">
-            <p className="text-lg font-bold font-mono tracking-wider text-secondary text-center">{referralCode}</p>
-          </div>
+    <>
+      {referralLoading ? (
+        <p className="text-sm text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
+      ) : referralCode != null ? (
+        <div className="px-4 py-3.5 space-y-3">
+          <button
+            type="button"
+            onClick={() => void copyReferralCode()}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-muted/60 px-4 py-3 text-left transition-colors active:bg-muted"
+            aria-label={s.vendor_referCopyCode}
+          >
+            <span className="font-mono text-base font-semibold tracking-widest text-foreground">
+              {referralCode}
+            </span>
+            <span className="shrink-0 text-base leading-none opacity-70" aria-hidden>
+              📋
+            </span>
+          </button>
           <button
             type="button"
             onClick={() => void shareReferLink()}
             disabled={!referLink}
-            className="w-full rounded-2xl bg-secondary text-secondary-foreground px-4 py-3 text-sm font-semibold transition-colors active:scale-[0.99] disabled:opacity-50 mb-3"
+            className="w-full rounded-2xl bg-secondary text-secondary-foreground px-4 py-3 text-sm font-semibold transition-colors active:scale-[0.99] disabled:opacity-50"
           >
             {s.vendor_referShare}
           </button>
-        </>
-      ) : (
-        <p className="text-sm text-muted-foreground mb-3">{s.settings_loading}</p>
-      )}
-      <p className="text-xs text-muted-foreground">
-        {s.vendor_referVendorCredit(config.referralVendorCreditTotal)}
-      </p>
-      <p className="text-xs text-muted-foreground mt-1">
-        {s.vendor_referUserCredit(config.referralUserCredit)}
-      </p>
-    </section>
+        </div>
+      ) : null}
+      <div className="px-4 pb-3.5">
+        <p className="text-xs text-muted-foreground">
+          {s.vendor_referVendorCredit(config.referralVendorCreditTotal)}
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          {s.vendor_referUserCredit(config.referralUserCredit)}
+        </p>
+      </div>
+    </>
   );
 }
 
 export function VendorSettings({
   vendor,
   onVendorUpdated,
-  activeOfferSection,
   onEditShopDetails,
+  activeGroup,
+  onActiveGroupChange,
 }: Props) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
   const getMode = useServiceModeLabel();
 
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
+  const [cancelReasonsChanged, setCancelReasonsChanged] = useState(false);
   const [savingReasons, setSavingReasons] = useState(false);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
+  const [editDraft, setEditDraft] = useState({
+    name: "",
+    price: "",
+    unit: "",
+    description: "",
+  });
   const [newItem, setNewItem] = useState({ name: "", price: "", unit: "", description: "" });
   const [addingItem, setAddingItem] = useState(false);
   const [isListeningMenu, setIsListeningMenu] = useState(false);
@@ -188,13 +560,19 @@ export function VendorSettings({
   const [reviews, setReviews] = useState<VendorReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(true);
-  const [menuDefaultApplied, setMenuDefaultApplied] = useState(false);
+  const [shopOpen, setShopOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [callReview, setCallReview] = useState<{
     callerPhone: string;
     serviceMode: string;
   } | null>(null);
+  const [ledgerCycleStart, setLedgerCycleStart] = useState(() =>
+    ledgerCycleStartInputValue(vendor.ledger_cycle_start),
+  );
+  const [savingLedgerCycleStart, setSavingLedgerCycleStart] = useState(false);
 
   const aiBridgeVendor: AiBridgeVendor = {
     id: vendor.id,
@@ -236,15 +614,7 @@ export function VendorSettings({
 
   useEffect(() => {
     void loadMenu();
-    setMenuDefaultApplied(false);
   }, [vendor.id]);
-
-  useEffect(() => {
-    if (!menuLoading && !menuDefaultApplied) {
-      setMenuOpen(menuItems.length <= 5);
-      setMenuDefaultApplied(true);
-    }
-  }, [menuLoading, menuItems.length, menuDefaultApplied]);
 
   useEffect(() => {
     setCancelReasons([
@@ -253,12 +623,33 @@ export function VendorSettings({
       vendor.cancel_reason_3 ?? "",
       vendor.cancel_reason_4 ?? "",
     ]);
+    setCancelReasonsChanged(false);
   }, [
     vendor.cancel_reason_1,
     vendor.cancel_reason_2,
     vendor.cancel_reason_3,
     vendor.cancel_reason_4,
   ]);
+
+  useEffect(() => {
+    setLedgerCycleStart(ledgerCycleStartInputValue(vendor.ledger_cycle_start));
+  }, [vendor.ledger_cycle_start]);
+
+  const saveLedgerCycleStart = async (date: string) => {
+    if (!date || savingLedgerCycleStart) return;
+    setSavingLedgerCycleStart(true);
+    const { error } = await supabase
+      .from("vendors")
+      .update({ ledger_cycle_start: date })
+      .eq("id", vendor.id);
+    setSavingLedgerCycleStart(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    onVendorUpdated({ ...vendor, ledger_cycle_start: date });
+    toast.success("Ledger cycle start updated.");
+  };
 
   const saveCancelReasons = async () => {
     setSavingReasons(true);
@@ -275,6 +666,7 @@ export function VendorSettings({
       return;
     }
     onVendorUpdated({ ...vendor, ...updates });
+    setCancelReasonsChanged(false);
     toast.success("Saved");
   };
 
@@ -290,6 +682,21 @@ export function VendorSettings({
     });
     setNewItem({ name: "", price: "", unit: "", description: "" });
     setAddingItem(false);
+    void loadMenu();
+  };
+
+  const saveEditedMenuItem = async () => {
+    if (!editingMenuItem || !editDraft.name.trim() || !editDraft.price) return;
+    await supabase
+      .from("vendor_menu_items")
+      .update({
+        name: editDraft.name.trim(),
+        price: parseFloat(editDraft.price),
+        unit: editDraft.unit.trim() || null,
+        description: editDraft.description.trim() || null,
+      })
+      .eq("id", editingMenuItem.id);
+    setEditingMenuItem(null);
     void loadMenu();
   };
 
@@ -417,8 +824,17 @@ export function VendorSettings({
   const serviceModeLabel = s.settings_check7.replace(/\s*\(.*$/, "").replace(/\s+is correct$/i, "");
 
   return (
-    <>
-      <SettingsCard>
+    <SettingsParentCollapsible
+      label="MY SHOP"
+      open={activeGroup === "shop"}
+      onToggle={() => onActiveGroupChange("shop")}
+    >
+      <SettingsCollapsible
+        label="Shop Info"
+        open={shopOpen}
+        onToggle={() => setShopOpen((o) => !o)}
+        nested
+      >
         <SettingsRow label={s.vendor_shop_name} sublabel={vendor.shop_name}>
           <span aria-hidden />
         </SettingsRow>
@@ -440,21 +856,35 @@ export function VendorSettings({
             ✏️ Edit Shop Details
           </button>
         )}
-      </SettingsCard>
+      </SettingsCollapsible>
 
-      <SettingsCard>
-        <VendorNoteEditor
-          vendorId={vendor.id}
-          initialNote={vendor.vendor_note ?? null}
-          onSaved={(newNote) => onVendorUpdated({ ...vendor, vendor_note: newNote || null })}
-        />
-      </SettingsCard>
-
-      <SettingsSectionLabel>{s.menu_title}</SettingsSectionLabel>
       <SettingsCollapsible
-        label={`${menuItems.length} items`}
+        label={s.vendor_note_customers}
+        open={noteOpen}
+        onToggle={() => setNoteOpen((o) => !o)}
+        nested
+      >
+        <div className="p-4">
+          <VendorNoteEditor
+            vendorId={vendor.id}
+            initialNote={vendor.vendor_note ?? null}
+            onSaved={(newNote) => onVendorUpdated({ ...vendor, vendor_note: newNote || null })}
+            showLabel={false}
+            className="mt-0"
+          />
+        </div>
+      </SettingsCollapsible>
+
+      <SettingsCollapsible
+        label={s.menu_title}
+        badge={
+          <span className="text-[10px] font-semibold text-muted-foreground normal-case tracking-normal">
+            {menuItems.length} items
+          </span>
+        }
         open={menuOpen}
         onToggle={() => setMenuOpen((o) => !o)}
+        nested
       >
         <div className="flex items-center justify-end gap-2 px-4 py-2 border-b border-surface-border">
           <button
@@ -528,7 +958,15 @@ export function VendorSettings({
               </button>
               <button
                 type="button"
-                onClick={() => setEditingMenuItem(item)}
+                onClick={() => {
+                  setEditingMenuItem(item);
+                  setEditDraft({
+                    name: item.name,
+                    price: String(item.price),
+                    unit: item.unit ?? "",
+                    description: item.description ?? "",
+                  });
+                }}
                 className="p-1.5 text-muted-foreground active:text-brand"
                 aria-label="Edit item"
               >
@@ -609,12 +1047,101 @@ export function VendorSettings({
         </button>
       </SettingsCollapsible>
 
-      {activeOfferSection}
+      <Sheet
+        open={editingMenuItem !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingMenuItem(null);
+        }}
+      >
+        <SheetContent className="bg-page-bg border-surface-border">
+          <SheetHeader>
+            <SheetTitle className="text-foreground">{s.menu_itemName}</SheetTitle>
+          </SheetHeader>
+          {editingMenuItem && (
+            <div className="mt-4 space-y-2">
+              <input
+                type="text"
+                value={editDraft.name}
+                onChange={(e) => setEditDraft((p) => ({ ...p, name: e.target.value }))}
+                placeholder={s.menu_itemName}
+                className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  value={editDraft.price}
+                  onChange={(e) => setEditDraft((p) => ({ ...p, price: e.target.value }))}
+                  placeholder={s.menu_price}
+                  className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+                />
+                <input
+                  type="text"
+                  value={editDraft.unit}
+                  onChange={(e) => setEditDraft((p) => ({ ...p, unit: e.target.value }))}
+                  placeholder={s.menu_unit}
+                  className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+                />
+              </div>
+              <input
+                type="text"
+                value={editDraft.description}
+                onChange={(e) => setEditDraft((p) => ({ ...p, description: e.target.value }))}
+                placeholder={s.menu_description}
+                className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+              />
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => void saveEditedMenuItem()}
+                  className="flex-1 rounded-lg bg-brand text-page-bg text-sm font-semibold py-2"
+                >
+                  {s.menu_save}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingMenuItem(null)}
+                  className="flex-1 rounded-lg border border-surface-border text-sm py-2 text-foreground"
+                >
+                  {s.settings_cancel}
+                </button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      <VendorSettingsOffers vendorId={vendor.id} />
+
+      <SettingsCollapsible
+        label={s.vendor_ledgerCycleStart}
+        open={ledgerOpen}
+        onToggle={() => setLedgerOpen((o) => !o)}
+        nested
+      >
+        <div className="px-4 py-3.5 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {s.vendor_ledgerCycleStartHint}
+          </p>
+          <input
+            id="ledger-cycle-start"
+            type="date"
+            value={ledgerCycleStart}
+            disabled={savingLedgerCycleStart}
+            onChange={(e) => {
+              const next = e.target.value;
+              setLedgerCycleStart(next);
+              void saveLedgerCycleStart(next);
+            }}
+            className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+          />
+        </div>
+      </SettingsCollapsible>
 
       <SettingsCollapsible
         label={s.cancelReasons}
         open={cancelOpen}
         onToggle={() => setCancelOpen((o) => !o)}
+        nested
       >
         <p className="text-xs text-muted-foreground px-4 pt-3 pb-2">{s.cancelReasonsSubtitle}</p>
         {[0, 1, 2, 3].map((i) => (
@@ -629,6 +1156,7 @@ export function VendorSettings({
                 const next = [...cancelReasons];
                 next[i] = e.target.value.slice(0, 60);
                 setCancelReasons(next);
+                setCancelReasonsChanged(true);
               }}
               maxLength={60}
               className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-brand"
@@ -639,7 +1167,7 @@ export function VendorSettings({
           <button
             type="button"
             onClick={() => void saveCancelReasons()}
-            disabled={savingReasons}
+            disabled={savingReasons || !cancelReasonsChanged}
             className="text-xs font-semibold text-brand active:opacity-80 disabled:opacity-50"
           >
             {savingReasons ? s.incoming_saving : s.saveReasons}
@@ -657,6 +1185,7 @@ export function VendorSettings({
             return next;
           });
         }}
+        nested
       >
         {reviewsLoading && (
           <p className="text-xs text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
@@ -715,6 +1244,6 @@ export function VendorSettings({
           distanceKm={null}
         />
       )}
-    </>
+    </SettingsParentCollapsible>
   );
 }

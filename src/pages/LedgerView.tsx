@@ -18,7 +18,9 @@ import {
   currentCycleTransactions,
   filterKhataLedgerByOutstanding,
   formatKhataDate,
+  formatLedgerCycleStartLabel,
   khataPaymentModeLabel,
+  ledgerCycleStartIso,
   maskPhoneLast4,
 } from "@/lib/khataDisplay";
 
@@ -43,6 +45,7 @@ const LedgerView = () => {
   const { s } = useLanguage();
   const [vendorId, setVendorId] = useState<string | null>(null);
   const [shopName, setShopName] = useState("");
+  const [ledgerCycleStart, setLedgerCycleStart] = useState<string | null>(null);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
@@ -51,10 +54,12 @@ const LedgerView = () => {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [savingPayment, setSavingPayment] = useState(false);
-  const [showFullHistory, setShowFullHistory] = useState(false);
+  const [sheetShowFullHistory, setSheetShowFullHistory] = useState(false);
+  const [fullHistoryTransactions, setFullHistoryTransactions] = useState<KhataTransaction[]>([]);
+  const [fullHistoryLoading, setFullHistoryLoading] = useState(false);
 
   const selectedEntry = entries.find((e) => e.user_phone === selectedPhone) ?? null;
-  const visibleEntries = filterKhataLedgerByOutstanding(entries, showFullHistory);
+  const visibleEntries = filterKhataLedgerByOutstanding(entries, false);
   const parsedPaymentAmount = parseFloat(paymentAmount);
   const paymentValid =
     selectedEntry != null &&
@@ -106,18 +111,51 @@ const LedgerView = () => {
     void (async () => {
       const { data: vendor } = await supabase
         .from("vendors")
-        .select("shop_name")
+        .select("shop_name, ledger_cycle_start")
         .eq("id", id)
         .maybeSingle();
       setShopName(vendor?.shop_name ?? "");
+      setLedgerCycleStart(vendor?.ledger_cycle_start ?? null);
       await loadEntries(id);
     })();
   }, [navigate, loadEntries]);
 
+  const loadFullHistory = useCallback(
+    async (id: string, userPhone: string, cycleStart: string | null) => {
+      setFullHistoryLoading(true);
+      const since = ledgerCycleStartIso(cycleStart);
+      const { data, error } = await supabase
+        .from("khata_transactions")
+        .select("id, amount, note, payment_mode, created_at")
+        .eq("vendor_id", id)
+        .eq("user_phone", userPhone)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false });
+      if (error) {
+        toast.error(error.message);
+        setFullHistoryTransactions([]);
+      } else {
+        setFullHistoryTransactions((data ?? []) as KhataTransaction[]);
+      }
+      setFullHistoryLoading(false);
+    },
+    [],
+  );
+
   const openCustomer = (userPhone: string) => {
     setSelectedPhone(userPhone);
-    if (vendorId) void loadTransactions(vendorId, userPhone);
+    setSheetShowFullHistory(false);
+    setFullHistoryTransactions([]);
+    if (vendorId) {
+      void loadTransactions(vendorId, userPhone);
+      void loadFullHistory(vendorId, userPhone, ledgerCycleStart);
+    }
   };
+
+  const hasAdditionalHistory =
+    !txLoading &&
+    !fullHistoryLoading &&
+    fullHistoryTransactions.length > transactions.length;
 
   useEffect(() => {
     if (!selectedPhone) return;
@@ -131,9 +169,21 @@ const LedgerView = () => {
   const closeSheet = () => {
     setSelectedPhone(null);
     setTransactions([]);
+    setSheetShowFullHistory(false);
+    setFullHistoryTransactions([]);
     setPaymentOpen(false);
     setPaymentAmount("");
   };
+
+  const toggleSheetFullHistory = () => {
+    if (!hasAdditionalHistory) return;
+    setSheetShowFullHistory((v) => !v);
+  };
+
+  useEffect(() => {
+    if (!hasAdditionalHistory) setSheetShowFullHistory(false);
+  }, [hasAdditionalHistory]);
+
 
   const openPaymentSheet = () => {
     if (!selectedEntry || selectedEntry.total_outstanding <= 0) return;
@@ -209,6 +259,7 @@ const LedgerView = () => {
     toast.success(s.khata_markedPaid);
     closePaymentSheet();
     void loadTransactions(vendorId, selectedPhone);
+    void loadFullHistory(vendorId, selectedPhone, ledgerCycleStart);
   };
 
   return (
@@ -265,13 +316,6 @@ const LedgerView = () => {
               ))}
             </SettingsCard>
           )}
-          <button
-            type="button"
-            onClick={() => setShowFullHistory((v) => !v)}
-            className="w-full text-center text-xs text-muted-foreground underline pt-2"
-          >
-            {showFullHistory ? "Hide paid entries" : "Show full history"}
-          </button>
         </div>
       )}
 
@@ -320,7 +364,7 @@ const LedgerView = () => {
                         <p className="text-xs text-muted-foreground">{formatKhataDate(tx.created_at)}</p>
                         <p
                           className={cn(
-                            "text-sm font-medium leading-snug mt-0.5",
+                            "text-sm font-medium leading-snug mt-0.5 whitespace-pre-wrap break-words",
                             tx.note?.trim() ? "text-foreground" : "text-muted-foreground italic",
                           )}
                         >
@@ -337,6 +381,62 @@ const LedgerView = () => {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {hasAdditionalHistory && (
+              <button
+                type="button"
+                onClick={toggleSheetFullHistory}
+                className="w-full text-center text-xs text-muted-foreground underline pt-1"
+              >
+                {sheetShowFullHistory ? "Hide full history" : "Show full history"}
+              </button>
+            )}
+
+            {hasAdditionalHistory && sheetShowFullHistory && !fullHistoryLoading && (
+              <>
+                <div className="border-t border-surface-border pt-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Full History (since {formatLedgerCycleStartLabel(ledgerCycleStart ?? "")})
+                  </p>
+                </div>
+                {fullHistoryTransactions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No transactions in this period
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {fullHistoryTransactions.map((tx) => (
+                      <li
+                        key={tx.id}
+                        className="rounded-xl border border-surface-border bg-surface px-3 py-2.5 space-y-1"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-muted-foreground">
+                              {formatKhataDate(tx.created_at)}
+                            </p>
+                            <p
+                              className={cn(
+                                "text-sm font-medium leading-snug mt-0.5 whitespace-pre-wrap break-words",
+                                tx.note?.trim() ? "text-foreground" : "text-muted-foreground italic",
+                              )}
+                            >
+                              {tx.note?.trim() || "No description"}
+                            </p>
+                          </div>
+                          <p className="text-sm font-bold text-foreground tabular-nums shrink-0 text-right">
+                            ₹{Number(tx.amount).toFixed(2)}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] font-semibold border-surface-border">
+                          {khataPaymentModeLabel(tx.payment_mode, s)}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
 
             {selectedEntry && selectedEntry.total_outstanding > 0 && (

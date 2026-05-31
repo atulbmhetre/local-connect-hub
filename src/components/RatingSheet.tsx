@@ -32,6 +32,7 @@ import { getVoiceLang } from "@/lib/voiceUtils";
 import { toast } from "sonner";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import { cn } from "@/lib/utils";
+import { saveNotification } from "@/lib/notifications";
 
 
 
@@ -44,6 +45,8 @@ type Props = {
   serviceMode: string;
 
   vendorId: string;
+
+  vendorPhone?: string | null;
 
   requestId: string;
 
@@ -62,6 +65,8 @@ export function RatingSheet({
   serviceMode,
 
   vendorId,
+
+  vendorPhone,
 
   requestId,
 
@@ -200,6 +205,17 @@ export function RatingSheet({
           notification_title: s.review_lowRatingNotifTitle,
           message: s.review_lowRatingNotifBody,
         });
+        const phone = vendorPhone?.trim();
+        if (phone) {
+          saveNotification({
+            userPhone: phone,
+            type: "order_update",
+            title: s.review_lowRatingNotifTitle,
+            body: s.review_lowRatingNotifBody,
+            route: "vendor",
+            isInformational: false,
+          });
+        }
       }
 
     }

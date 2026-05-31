@@ -13,6 +13,8 @@ type Props = {
   loading: boolean;
   stats: VendorOrderStats | null;
   onTimeRate: number | null;
+  /** When true, render only the stat grid (parent supplies section chrome/header). */
+  hideHeader?: boolean;
 };
 
 function StatCell({
@@ -43,7 +45,7 @@ function StatCell({
   );
 }
 
-export function VendorAnalytics({ loading, stats, onTimeRate }: Props) {
+export function VendorAnalytics({ loading, stats, onTimeRate, hideHeader }: Props) {
   const { s } = useLanguage();
 
   const onTimeDisplay =
@@ -51,12 +53,7 @@ export function VendorAnalytics({ loading, stats, onTimeRate }: Props) {
       ? Math.round(onTimeRate)
       : "—";
 
-  return (
-    <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4">
-      <div className="flex items-center gap-3 mb-3">
-        <BarChart2 className="h-5 w-5 text-secondary" />
-        <p className="font-display font-bold">{s.settings_myAnalytics}</p>
-      </div>
+  const grid = (
       <div className="grid grid-cols-2 gap-3">
         <StatCell
           value={stats?.total ?? 0}
@@ -90,6 +87,17 @@ export function VendorAnalytics({ loading, stats, onTimeRate }: Props) {
           suffix={!loading && onTimeRate !== null ? s.radar_on_time : undefined}
         />
       </div>
+  );
+
+  if (hideHeader) return grid;
+
+  return (
+    <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4">
+      <div className="flex items-center gap-3 mb-3">
+        <BarChart2 className="h-5 w-5 text-secondary" />
+        <p className="font-display font-bold">{s.settings_myAnalytics}</p>
+      </div>
+      {grid}
     </section>
   );
 }

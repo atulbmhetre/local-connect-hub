@@ -3,15 +3,26 @@ import { supabase } from "@/lib/supabase";
 const REFERRAL_STORAGE_KEY = "aaspaas:referral_code";
 const REFERRAL_PATH_RE = /\/r\/([^/?#]+)/;
 
-/** Random 8-char alphanumeric code for the user's own referral code (Phase 3). */
-function generateUserCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
-  let code = "";
-  for (let i = 0; i < 8; i++) {
-    code += chars[bytes[i]! % chars.length];
-  }
-  return code;
+function lastFourPhoneDigits(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 4) return null;
+  return digits.slice(-4);
+}
+
+/** Stable user referral code: USER + last 4 phone digits (e.g. USER2707). */
+export function generateUserReferralCode(phone?: string): string {
+  const tail = phone ? lastFourPhoneDigits(phone) : null;
+  if (tail) return `USER${tail}`;
+  const n = String(1000 + (crypto.getRandomValues(new Uint32Array(1))[0]! % 9000));
+  return `USER${n}`;
+}
+
+/** Stable vendor referral code from phone when DB has no referral_code yet: AASP + last 4 digits. */
+export function referralCodeFromPhone(phone: string): string {
+  const tail = lastFourPhoneDigits(phone);
+  if (tail) return `AASP${tail}`;
+  const n = String(1000 + (crypto.getRandomValues(new Uint32Array(1))[0]! % 9000));
+  return `AASP${n}`;
 }
 
 function extractReferralCodeFromUrl(): string | null {
@@ -56,7 +67,7 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
     const { error: userError } = await supabase.from("app_users").insert({
       phone,
       device_id: deviceId,
-      referral_code: generateUserCode(),
+      referral_code: generateUserReferralCode(phone),
       referred_by_vendor_id: vendor.id,
     });
 

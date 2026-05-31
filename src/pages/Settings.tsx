@@ -35,12 +35,15 @@ import {
   useServiceModeLabel,
   type Vendor,
 } from "@/lib/supabase";
+import { saveNotification } from "@/lib/notifications";
+import { NotificationBell } from "@/components/NotificationBell";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
 import { useAppConfig } from "@/hooks/useAppConfig";
+import { useFeedNotificationsEnabled } from "@/hooks/useFeedNotificationsEnabled";
 import {
   Select,
   SelectContent,
@@ -73,6 +76,9 @@ import {
   SettingsCard,
   SettingsRow,
   SettingsCollapsible,
+  SettingsParentCollapsible,
+  defaultSettingsActiveGroup,
+  type SettingsActiveGroup,
 } from "@/components/settings/SettingsSection";
 
 const LARGE_TEXT_KEY = "aaspaas:large_text";
@@ -329,50 +335,18 @@ const Settings = () => {
     }
   });
   const [addressesOpen, setAddressesOpen] = useState(false);
+  const [identityOpen, setIdentityOpen] = useState(false);
+  const [activeGroup, setActiveGroup] = useState<SettingsActiveGroup>(() =>
+    defaultSettingsActiveGroup(vendorId),
+  );
+  const [referOpen, setReferOpen] = useState(false);
+  const [trustOpen, setTrustOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const { enabled: feedNotificationsEnabled, onCheckedChange: onFeedNotificationsChange } =
+    useFeedNotificationsEnabled();
   const [adminOpen, setAdminOpen] = useState(isAdmin);
   const [pendingCatOpen, setPendingCatOpen] = useState(false);
   const [flaggedOpen, setFlaggedOpen] = useState(false);
-  const [activeOffer, setActiveOffer] = useState<{
-    id: string;
-    content: string;
-    expires_at: string | null;
-  } | null>(null);
-  const [offerText, setOfferText] = useState("");
-  const [offerExpiry, setOfferExpiry] = useState<
-    "today" | "tomorrow" | "3days" | "7days" | "custom"
-  >("today");
-  const [offerCustomExpiryDate, setOfferCustomExpiryDate] = useState("");
-  const [offerLoading, setOfferLoading] = useState(false);
-
-  const loadActiveOffer = async () => {
-    if (!vendorId) {
-      setActiveOffer(null);
-      return;
-    }
-    const { data, error } = await supabase
-      .from("feed_posts")
-      .select("*")
-      .eq("vendor_id", vendorId)
-      .eq("type", "offer")
-      .eq("is_hidden", false)
-      .gt("expires_at", new Date().toISOString())
-      .maybeSingle();
-    if (error) {
-      console.error("loadActiveOffer", error);
-      setActiveOffer(null);
-      return;
-    }
-    setActiveOffer(
-      data
-        ? {
-            id: data.id as string,
-            content: (data.content as string) ?? "",
-            expires_at: (data.expires_at as string | null) ?? null,
-          }
-        : null,
-    );
-  };
-
   useEffect(() => {
     if (!vendorId) return;
     const load = async () => {
@@ -388,14 +362,6 @@ const Settings = () => {
       if (data) setVendor(data as Vendor);
     };
     void load();
-  }, [vendorId]);
-
-  useEffect(() => {
-    if (!vendorId) {
-      setActiveOffer(null);
-      return;
-    }
-    void loadActiveOffer();
   }, [vendorId]);
 
   useEffect(() => {
@@ -508,10 +474,21 @@ const Settings = () => {
 
   const warnFlaggedUser = async (phone: string) => {
     setFlaggedAction(phone);
+    const title = "⚠️ Account Warning";
+    const body =
+      "Your account has received complaints from vendors. Further issues may result in suspension.";
     await invokeNotifyUser({
       user_phone: phone,
-      title: "⚠️ Account Warning",
-      body: "Your account has received complaints from vendors. Further issues may result in suspension.",
+      title,
+      body,
+    });
+    saveNotification({
+      userPhone: phone,
+      type: "order_update",
+      title,
+      body,
+      route: "my-orders",
+      isInformational: false,
     });
     setFlaggedAction(null);
     toast.success("Warning sent");
@@ -741,95 +718,6 @@ const Settings = () => {
     await refreshAddresses();
   };
 
-  const inviteFriend = async () => {
-    const shareMessage = `Get help around you, now! Download Aaspaas: ${config.appBaseUrl}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({ text: shareMessage });
-        return;
-      } catch (e) {
-        if ((e as Error).name === "AbortError") return;
-      }
-    }
-    await navigator.clipboard.writeText(shareMessage);
-  };
-
-  const offerDateInputMin = () => {
-    const d = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  };
-
-  const computeOfferExpiry = () => {
-    if (offerExpiry === "today") {
-      return new Date(new Date().setHours(23, 59, 59, 999)).toISOString();
-    }
-    if (offerExpiry === "tomorrow") {
-      return new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-    }
-    if (offerExpiry === "3days") {
-      return new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
-    }
-    if (offerExpiry === "7days") {
-      return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    }
-    if (offerCustomExpiryDate) {
-      const [y, m, day] = offerCustomExpiryDate.split("-").map(Number);
-      const custom = new Date(y, m - 1, day);
-      custom.setHours(23, 59, 59, 999);
-      return custom.toISOString();
-    }
-    return new Date(new Date().setHours(23, 59, 59, 999)).toISOString();
-  };
-
-  const postOffer = async () => {
-    if (!vendorId) return;
-    const content = offerText.trim();
-    if (!content) return;
-    const phone = getUserPhone();
-    if (!phone) {
-      toast.error("Add your phone in Settings first");
-      return;
-    }
-    setOfferLoading(true);
-    const { error } = await supabase.from("feed_posts").insert({
-      type: "offer",
-      vendor_id: vendorId,
-      user_phone: phone,
-      content,
-      is_hidden: false,
-      expires_at: computeOfferExpiry(),
-    });
-    setOfferLoading(false);
-    if (error) {
-      console.error("postOffer", error);
-      toast.error(error.message);
-      return;
-    }
-    setOfferText("");
-    setOfferExpiry("today");
-    setOfferCustomExpiryDate("");
-    await loadActiveOffer();
-    toast("Offer posted!");
-  };
-
-  const removeOffer = async () => {
-    if (!activeOffer) return;
-    setOfferLoading(true);
-    const { error } = await supabase
-      .from("feed_posts")
-      .update({ is_hidden: true })
-      .eq("id", activeOffer.id);
-    setOfferLoading(false);
-    if (error) {
-      console.error("removeOffer", error);
-      toast.error(error.message);
-      return;
-    }
-    setActiveOffer(null);
-    toast("Offer removed");
-  };
-
   const confirmDeleteAddress = async () => {
     if (!deleteAddressId) return;
     setDeletingAddress(true);
@@ -849,11 +737,16 @@ const Settings = () => {
   return (
     <AppShell theme="dark">
       <div className="pb-8">
-      <SettingsPageHeader
-        title={s.settings_tagline}
-        subtitle={s.settings_heading}
-        onTitleClick={tapTitle}
-      />
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <SettingsPageHeader
+            title={s.settings_tagline}
+            subtitle={s.settings_heading}
+            onTitleClick={tapTitle}
+          />
+        </div>
+        <NotificationBell className="mt-6 mr-4 shrink-0" />
+      </div>
 
       {!vendorId && (
         <SettingsCard>
@@ -871,37 +764,46 @@ const Settings = () => {
         </SettingsCard>
       )}
 
-      <SettingsSectionLabel>MY ACCOUNT</SettingsSectionLabel>
-
-      <SettingsCard>
-        <div className="px-4 py-3.5 border-b border-surface-border">
-          <p className="text-sm font-medium text-foreground">{s.settings_myIdentity}</p>
-        </div>
-        <div className="px-4 py-3.5">
-        {identityPhone != null ? (
-          <div>
-            <p className="text-sm font-medium text-foreground">{s.settings_phonePrefix}{identityPhone}</p>
-            <p className="text-xs text-brand mt-1">{s.settings_registered}</p>
-          </div>
-        ) : (
-          <div>
-            <p className="text-sm font-medium text-foreground">{s.settings_noPhone}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {s.settings_noPhoneHint}
+      <SettingsParentCollapsible
+        label="MY ACCOUNT"
+        open={activeGroup === "account"}
+        onToggle={() => setActiveGroup("account")}
+      >
+        <SettingsCollapsible
+          label={s.settings_myIdentity}
+          open={identityOpen}
+          onToggle={() => setIdentityOpen((o) => !o)}
+          nested
+        >
+          <div className="px-4 py-3.5">
+            {identityPhone != null ? (
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {s.settings_phonePrefix}
+                  {identityPhone}
+                </p>
+                <p className="text-xs text-brand mt-1">{s.settings_registered}</p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm font-medium text-foreground">{s.settings_noPhone}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_noPhoneHint}</p>
+              </div>
+            )}
+            <p className="text-[10px] text-muted-foreground/70 mt-3 tabular-nums">
+              {s.settings_devicePrefix}
+              {deviceId.slice(0, 8)}
+              {s.settings_deviceEllipsis}
             </p>
           </div>
-        )}
-        <p className="text-[10px] text-muted-foreground/70 mt-3 tabular-nums">
-          {s.settings_devicePrefix}{deviceId.slice(0, 8)}{s.settings_deviceEllipsis}
-        </p>
-        </div>
-      </SettingsCard>
+        </SettingsCollapsible>
 
-      <SettingsCollapsible
-        label={`${s.settings_myDeliveryAddresses} (${addresses.length})`}
-        open={addressesOpen}
-        onToggle={() => setAddressesOpen((o) => !o)}
-      >
+        <SettingsCollapsible
+          label={`${s.settings_myDeliveryAddresses} (${addresses.length})`}
+          open={addressesOpen}
+          onToggle={() => setAddressesOpen((o) => !o)}
+          nested
+        >
         {addressesLoading ? (
           <p className="text-sm text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
         ) : addresses.length === 0 ? (
@@ -973,34 +875,37 @@ const Settings = () => {
             ))}
           </ul>
         )}
-      </SettingsCollapsible>
+        </SettingsCollapsible>
 
-      {vendor && <VendorSettingsNotifications vendor={vendor} />}
+        <SettingsCollapsible
+          label={s.vendor_referEarn}
+          open={referOpen}
+          onToggle={() => setReferOpen((o) => !o)}
+          nested
+        >
+          <VendorSettingsReferEarn vendor={vendor} userPhone={userPhone} />
+        </SettingsCollapsible>
 
-      {vendor ? (
-        <VendorSettingsReferEarn vendor={vendor} />
-      ) : (
-        <SettingsCard>
-          <button
-            type="button"
-            onClick={() => void inviteFriend()}
-            className="w-full px-4 py-3.5 text-sm font-semibold text-brand text-left active:opacity-90"
-          >
-            {s.settings_shareApp}
-          </button>
-        </SettingsCard>
-      )}
-
-      <SettingsCard>
+        <SettingsCollapsible
+          label={s.settings_trustSecurity}
+          open={trustOpen}
+          onToggle={() => setTrustOpen((o) => !o)}
+          nested
+        >
         <SettingsRow label={s.settings_trustSecurity} sublabel={s.settings_tlsNote}>
           <CheckCircle2 className="h-5 w-5 text-brand shrink-0" aria-hidden />
         </SettingsRow>
         <div className="px-4 pb-3.5">
           <p className="text-xs text-brand font-medium">{s.settings_dbConnected}</p>
         </div>
-      </SettingsCard>
+        </SettingsCollapsible>
 
-      <SettingsCard>
+        <SettingsCollapsible
+          label={s.settings_preferences}
+          open={preferencesOpen}
+          onToggle={() => setPreferencesOpen((o) => !o)}
+          nested
+        >
         <SettingsRow
           label={s.theme}
           sublabel={theme === "dark" ? s.dark : s.light}
@@ -1035,16 +940,13 @@ const Settings = () => {
             </SelectContent>
           </Select>
         </div>
-      </SettingsCard>
-
-      <SettingsCard>
-        <div className="px-4 py-3.5 border-b border-surface-border">
+        <div className="px-4 py-3.5 border-t border-surface-border">
           <p className="text-sm font-medium text-foreground">🎤 Voice input language</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Language used when speaking to the app
           </p>
         </div>
-        <div className="px-4 py-3.5 flex gap-2">
+        <div className="px-4 pb-2 flex gap-2">
           {VOICE_INPUT_OPTIONS.map(({ code, label }) => (
             <button
               key={code}
@@ -1064,12 +966,9 @@ const Settings = () => {
             </button>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground px-4 pb-3.5">
+        <p className="text-xs text-muted-foreground px-4 pb-3.5 border-b border-surface-border">
           Auto detects language. For best results, select your language.
         </p>
-      </SettingsCard>
-
-      <SettingsCard>
         <SettingsRow label={s.settings_largeText} sublabel={s.settings_largeTextHint}>
           <Switch
             className="data-[state=checked]:bg-brand"
@@ -1085,104 +984,33 @@ const Settings = () => {
             }}
           />
         </SettingsRow>
-      </SettingsCard>
+        <SettingsRow
+          label={s.settings_feedNotifications}
+          sublabel={s.settings_feedNotificationsHint}
+        >
+          <Switch
+            className="data-[state=checked]:bg-brand"
+            checked={feedNotificationsEnabled}
+            onCheckedChange={onFeedNotificationsChange}
+          />
+        </SettingsRow>
+        </SettingsCollapsible>
+      </SettingsParentCollapsible>
+
+      {vendor && <VendorSettingsNotifications vendor={vendor} />}
 
       {vendorId && (
         <>
-          <SettingsSectionLabel>MY SHOP</SettingsSectionLabel>
           {vendorId && !vendor && (
-            <p className="text-sm text-muted-foreground mb-5">{s.settings_loading}</p>
+            <p className="text-sm text-muted-foreground px-4 mb-5">{s.settings_loading}</p>
           )}
           {vendor && (
             <VendorSettings
               vendor={vendor}
               onVendorUpdated={setVendor}
               onEditShopDetails={() => navigate("/vendor")}
-              activeOfferSection={
-                <>
-                  <SettingsSectionLabel>Offers</SettingsSectionLabel>
-                  <SettingsCard>
-                    {activeOffer ? (
-                      <div className="px-4 py-3.5 space-y-3">
-                        <p className="text-sm text-foreground">{activeOffer.content}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Expires:{" "}
-                          {activeOffer.expires_at
-                            ? new Date(activeOffer.expires_at).toLocaleString()
-                            : "—"}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => void removeOffer()}
-                          disabled={offerLoading}
-                          className="w-full rounded-xl border border-destructive/40 text-destructive py-2.5 text-sm font-semibold disabled:opacity-50"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="px-4 py-3.5 space-y-3">
-                        <input
-                          type="text"
-                          maxLength={100}
-                          value={offerText}
-                          onChange={(e) => setOfferText(e.target.value)}
-                          placeholder="e.g. 20% off groceries today"
-                          className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:border-brand"
-                        />
-                        <label
-                          htmlFor="settings-offer-expiry"
-                          className="block text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                        >
-                          Offer valid until:
-                        </label>
-                        <select
-                          id="settings-offer-expiry"
-                          value={offerExpiry}
-                          onChange={(e) =>
-                            setOfferExpiry(
-                              e.target.value as
-                                | "today"
-                                | "tomorrow"
-                                | "3days"
-                                | "7days"
-                                | "custom",
-                            )
-                          }
-                          className="w-full rounded-xl border border-surface-border bg-surface text-foreground p-3 text-sm focus:outline-none focus:border-brand"
-                        >
-                          <option value="today">Today</option>
-                          <option value="tomorrow">Tomorrow</option>
-                          <option value="3days">3 Days</option>
-                          <option value="7days">7 Days</option>
-                          <option value="custom">Custom Date</option>
-                        </select>
-                        {offerExpiry === "custom" && (
-                          <input
-                            type="date"
-                            min={offerDateInputMin()}
-                            value={offerCustomExpiryDate}
-                            onChange={(e) => setOfferCustomExpiryDate(e.target.value)}
-                            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm focus:outline-none focus:border-brand"
-                          />
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => void postOffer()}
-                          disabled={
-                            offerLoading ||
-                            offerText.trim().length === 0 ||
-                            (offerExpiry === "custom" && !offerCustomExpiryDate)
-                          }
-                          className="w-full rounded-xl bg-brand text-page-bg py-3 text-sm font-bold disabled:opacity-50 active:scale-[0.99]"
-                        >
-                          Post Offer
-                        </button>
-                      </div>
-                    )}
-                  </SettingsCard>
-                </>
-              }
+              activeGroup={activeGroup}
+              onActiveGroupChange={setActiveGroup}
             />
           )}
         </>

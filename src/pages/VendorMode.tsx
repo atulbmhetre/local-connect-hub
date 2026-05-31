@@ -25,7 +25,6 @@ import {
 import { toast } from "sonner";
 import {
   ArrowLeft,
-  Bell,
   CheckCircle2,
   Loader2,
   Power,
@@ -36,6 +35,8 @@ import {
   AlertTriangle,
   Truck,
   ChevronRight,
+  ChevronDown,
+  BarChart2,
   Pencil,
 } from "lucide-react";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
@@ -51,6 +52,10 @@ import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { suggestServiceMode } from "@/lib/vendorUtils";
 import { useLanguage } from '@/lib/language';
 import { registerPushToken } from "../lib/pushNotifications";
+import { saveNotification } from "@/lib/notifications";
+import { NotificationBell } from "@/components/NotificationBell";
+
+const ADMIN_NOTIFY_PHONE = "8888169446";
 import { Capacitor } from "@capacitor/core";
 import {
   VendorOnboarding,
@@ -218,12 +223,12 @@ const VendorMode = () => {
   const [verifyingUpi, setVerifyingUpi] = useState(false);
   const [updatingLocation, setUpdatingLocation] = useState(false);
   const [verificationSheetOpen, setVerificationSheetOpen] = useState(false);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const [lookupPhone, setLookupPhone] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
 
-  const ordersRef = useRef<HTMLDivElement>(null);
   const pushRegisteredVendorRef = useRef<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [offlineConfirmOpen, setOfflineConfirmOpen] = useState(false);
@@ -611,11 +616,17 @@ const VendorMode = () => {
     notifyVendorIdChanged();
     setVendorId(newVendorId);
     setVendor(data as Vendor);
-    void invokeNotifyAdmin(
-      "🏪 New vendor registered",
-      `${name.trim()} — ${effectiveCategory} (${serviceMode})`,
-      { vendor_id: newVendorId },
-    );
+    const adminTitle = "🏪 New vendor registered";
+    const adminBody = `${name.trim()} — ${effectiveCategory} (${serviceMode})`;
+    void invokeNotifyAdmin(adminTitle, adminBody, { vendor_id: newVendorId });
+    saveNotification({
+      userPhone: ADMIN_NOTIFY_PHONE,
+      type: "verification_update",
+      title: adminTitle,
+      body: adminBody,
+      route: "vendor",
+      isInformational: true,
+    });
     if (referralCodeInput.trim()) {
       void fetch(`${SUPABASE_URL}/functions/v1/process-vendor-referral`, {
         method: "POST",
@@ -757,10 +768,20 @@ const VendorMode = () => {
       ),
     ];
     for (const userPhone of phones) {
+      const title = s.user_vendor_offline_title;
+      const body = s.user_vendor_offline_body;
       void invokeNotifyUser({
         user_phone: userPhone,
-        title: s.user_vendor_offline_title,
-        body: s.user_vendor_offline_body,
+        title,
+        body,
+      });
+      saveNotification({
+        userPhone,
+        type: "order_update",
+        title,
+        body,
+        route: "my-orders",
+        isInformational: false,
       });
     }
   };
@@ -948,23 +969,7 @@ const VendorMode = () => {
             <h1 className="font-display text-3xl font-bold mt-1">{s.vendor_tagline}</h1>
           </div>
         </div>
-        {vendor != null && (
-          <div className="relative shrink-0 ml-3">
-            <button
-              type="button"
-              onClick={() => ordersRef.current?.scrollIntoView({ behavior: "smooth" })}
-              className="h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
-              aria-label={s.vendor_view_orders}
-            >
-              <Bell className="h-5 w-5" />
-            </button>
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 rounded-full bg-brand text-[#0b1f14] text-[10px] font-bold min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center tabular-nums">
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </span>
-            )}
-          </div>
-        )}
+        <NotificationBell extraCount={unreadCount} className="shrink-0 ml-3" />
       </header>
 
       {error && (
@@ -1027,7 +1032,7 @@ const VendorMode = () => {
                     <button
                       type="button"
                       onClick={() => setConfirmedCategory(categorySuggestion.canonical!)}
-                      className="mt-2 rounded-lg bg-brand text-[#0b1f14] px-3 py-1.5 text-xs font-semibold"
+                      className="mt-2 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-xs font-semibold"
                     >
                       {s.vendor_confirm}
                     </button>
@@ -1055,7 +1060,7 @@ const VendorMode = () => {
                     "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
                     "bg-surface border-surface-border",
                     serviceMode === "help" &&
-                      "border-brand bg-brand/15 ring-1 ring-brand/30",
+                      "border-primary bg-primary/15 ring-1 ring-primary/30",
                   )}
                 >
                   <p className="text-base font-display font-bold text-foreground leading-tight">
@@ -1072,7 +1077,7 @@ const VendorMode = () => {
                     "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
                     "bg-surface border-surface-border",
                     serviceMode === "delivery" &&
-                      "border-brand bg-brand/15 ring-1 ring-brand/30",
+                      "border-primary bg-primary/15 ring-1 ring-primary/30",
                   )}
                 >
                   <p className="text-base font-display font-bold text-foreground leading-tight">
@@ -1089,7 +1094,7 @@ const VendorMode = () => {
                     "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
                     "bg-surface border-surface-border",
                     serviceMode === "appointment" &&
-                      "border-brand bg-brand/15 ring-1 ring-brand/30",
+                      "border-primary bg-primary/15 ring-1 ring-primary/30",
                   )}
                 >
                   <p className="text-base font-display font-bold text-foreground leading-tight">
@@ -1176,7 +1181,7 @@ const VendorMode = () => {
 
           <button
             disabled={!canRegister}
-            className="w-full mt-2 rounded-2xl bg-gradient-vendor text-white py-4 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full mt-2 rounded-2xl bg-primary text-primary-foreground py-4 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
             {s.vendor_register_btn}
@@ -1203,7 +1208,7 @@ const VendorMode = () => {
               setAlreadyRegistered(true);
               setLookupError(null);
             }}
-            className="w-full text-center text-sm font-semibold text-brand hover:underline py-2 animate-fade-up"
+            className="w-full text-center text-sm font-semibold text-primary hover:underline py-2 animate-fade-up"
           >
             {s.vendor_already_registered}
           </button>
@@ -1245,7 +1250,7 @@ const VendorMode = () => {
           <button
             type="submit"
             disabled={lookupLoading}
-            className="w-full rounded-2xl bg-gradient-vendor text-secondary-foreground py-3.5 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full rounded-2xl bg-primary text-primary-foreground py-3.5 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {lookupLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
             {s.vendor_find_btn}
@@ -1309,12 +1314,12 @@ const VendorMode = () => {
               className={cn(
                 "mt-6 mx-auto grid place-items-center rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-60",
                 vendor.is_active
-                  ? "h-11 w-11 bg-brand border-0 text-page-bg"
-                  : "h-[72px] w-[72px] px-6 py-2.5 bg-brand/10 border-2 border-brand text-brand",
+                  ? "h-11 w-11 bg-primary border-0 text-primary-foreground"
+                  : "h-[72px] w-[72px] px-6 py-2.5 bg-primary/10 border-2 border-primary text-primary",
               )}
             >
               <Power
-                className={vendor.is_active ? "h-[18px] w-[18px] text-page-bg" : "h-[30px] w-[30px] text-brand"}
+                className={vendor.is_active ? "h-[18px] w-[18px] text-primary-foreground" : "h-[30px] w-[30px] text-primary"}
                 strokeWidth={2.5}
               />
             </button>
@@ -1327,6 +1332,25 @@ const VendorMode = () => {
                 <p className="mt-1 text-xs text-muted-foreground">{s.vendor_customers_waiting}</p>
               </>
             )}
+            <div className="mt-4 flex justify-center">
+              <VerificationBadge vendor={vendor} showLabel />
+            </div>
+
+            {!vendor.is_manual_verified && (
+              <button
+                type="button"
+                onClick={() => setVerificationSheetOpen(true)}
+                className="mt-3 w-full rounded-xl border border-border bg-muted/40 px-4 py-3 flex items-center gap-3 text-left active:scale-[0.99] transition-transform"
+              >
+                <span className="flex-1 min-w-0 text-sm font-semibold text-foreground">
+                  {vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== ""
+                    ? s.vendor_pending_label
+                    : s.vendor_complete_verification}
+                </span>
+                <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
+              </button>
+            )}
+
             {isMobileCategory(vendor.category) && (
               <p className="mt-2 text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1">
                 <Truck className="h-3 w-3 text-brand" />
@@ -1334,33 +1358,9 @@ const VendorMode = () => {
               </p>
             )}
 
-            <div className="mt-4 flex justify-center">
-              <VerificationBadge vendor={vendor} showLabel />
-            </div>
           </div>
 
-          <VendorAnalytics
-            loading={loading}
-            stats={vendorOrderStats}
-            onTimeRate={
-              typeof vendor.on_time_rate === "number" && Number.isFinite(vendor.on_time_rate)
-                ? vendor.on_time_rate
-                : null
-            }
-          />
-
-          <button
-            type="button"
-            onClick={() => navigate("/ledger")}
-            className="block mx-4 w-[calc(100%-2rem)] text-left active:scale-[0.99] transition-transform"
-          >
-            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm font-semibold text-amber-400">📒 {s.khata_book}</span>
-              <span className="text-xs text-amber-400/70">{s.khata_view} →</span>
-            </div>
-          </button>
-
-          <div ref={ordersRef}>
+          <div>
             <IncomingOrdersSection
               vendorId={vendor.id}
               serviceMode={vendor.service_mode ?? "help"}
@@ -1370,25 +1370,50 @@ const VendorMode = () => {
 
           <button
             type="button"
-            onClick={() => setVerificationSheetOpen(true)}
-            className={cn(
-              "mx-4 w-[calc(100%-2rem)] rounded-2xl border px-4 py-3 flex items-center gap-3 text-left active:scale-[0.99] transition-transform",
-              !!vendor.is_manual_verified
-                ? "bg-brand/10 border-brand/30"
-                : vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== ""
-                  ? "bg-amber-500/10 border-amber-500/30"
-                  : "bg-amber-500/10 border-amber-500/30",
-            )}
+            onClick={() => navigate("/ledger")}
+            className="block mx-4 w-[calc(100%-2rem)] text-left active:scale-[0.99] transition-transform"
           >
-            <span className="flex-1 min-w-0 text-sm font-semibold text-foreground">
-              {!!vendor.is_manual_verified
-                ? s.vendor_verified_pro
-                : vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== ""
-                  ? s.vendor_pending_label
-                  : s.vendor_complete_verification}
-            </span>
-            <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
+            <div className="rounded-2xl border border-border bg-card px-4 py-3 flex items-center justify-between">
+              <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <span aria-hidden>📒</span>
+                {s.khata_book}
+              </span>
+              <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
+            </div>
           </button>
+
+          <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4">
+            <button
+              type="button"
+              onClick={() => setAnalyticsOpen((o) => !o)}
+              className="w-full flex items-center gap-2 text-left active:opacity-90"
+              aria-expanded={analyticsOpen}
+            >
+              <BarChart2 className="h-5 w-5 text-secondary shrink-0" />
+              <p className="font-display font-bold flex-1 min-w-0 text-foreground">{s.settings_myAnalytics}</p>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200",
+                  analyticsOpen && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </button>
+            {analyticsOpen && (
+              <div className="mt-3">
+                <VendorAnalytics
+                  hideHeader
+                  loading={loading}
+                  stats={vendorOrderStats}
+                  onTimeRate={
+                    typeof vendor.on_time_rate === "number" && Number.isFinite(vendor.on_time_rate)
+                      ? vendor.on_time_rate
+                      : null
+                  }
+                />
+              </div>
+            )}
+          </section>
 
           <Sheet open={verificationSheetOpen} onOpenChange={setVerificationSheetOpen}>
             <SheetContent
@@ -1446,7 +1471,7 @@ const VendorMode = () => {
                       type="button"
                       onClick={updateShopLocation}
                       disabled={updatingLocation}
-                      className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-400/60 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-60"
+                      className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground disabled:opacity-60"
                     >
                       {updatingLocation ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPin className="h-3.5 w-3.5" />}
                       Set Shop Location
@@ -1470,7 +1495,7 @@ const VendorMode = () => {
                     onClick={() => setCameraOpen(true)}
                     disabled={vendor.latitude == null || vendor.longitude == null}
                     title={vendor.latitude == null || vendor.longitude == null ? "Set shop location first" : undefined}
-                    className="text-xs font-semibold rounded-lg bg-foreground text-background px-3 py-2 shrink-0 inline-flex items-center gap-1 disabled:opacity-50"
+                    className="text-xs font-semibold rounded-lg bg-primary text-primary-foreground px-3 py-2 shrink-0 inline-flex items-center gap-1 disabled:opacity-50"
                   >
                     <Camera className="h-3.5 w-3.5" />
                     {vendor.shop_photo_url ? s.vendor_reshoot : s.vendor_capture}
@@ -1601,7 +1626,7 @@ const VendorMode = () => {
                         "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
                         "bg-surface border-surface-border",
                         editServiceMode === "help" &&
-                          "border-brand bg-brand/15 ring-1 ring-brand/30",
+                          "border-primary bg-primary/15 ring-1 ring-primary/30",
                       )}
                     >
                       <p className="text-base font-display font-bold text-foreground leading-tight">
@@ -1618,7 +1643,7 @@ const VendorMode = () => {
                         "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
                         "bg-surface border-surface-border",
                         editServiceMode === "delivery" &&
-                          "border-brand bg-brand/15 ring-1 ring-brand/30",
+                          "border-primary bg-primary/15 ring-1 ring-primary/30",
                       )}
                     >
                       <p className="text-base font-display font-bold text-foreground leading-tight">
@@ -1635,7 +1660,7 @@ const VendorMode = () => {
                         "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
                         "bg-surface border-surface-border",
                         editServiceMode === "appointment" &&
-                          "border-brand bg-brand/15 ring-1 ring-brand/30",
+                          "border-primary bg-primary/15 ring-1 ring-primary/30",
                       )}
                     >
                       <p className="text-base font-display font-bold text-foreground leading-tight">
@@ -1683,7 +1708,7 @@ const VendorMode = () => {
                     type="button"
                     onClick={() => void saveShopDetails()}
                     disabled={!editShopSaveReady || savingShopDetails}
-                    className="flex-1 rounded-2xl bg-gradient-vendor text-white py-3.5 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="flex-1 rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {savingShopDetails ? (
                       <Loader2 className="h-4 w-4 animate-spin" />

@@ -1,6 +1,7 @@
 ﻿import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
+import { NotificationBell } from "@/components/NotificationBell";
 import {
   ArrowLeft,
   MapPin,
@@ -233,8 +234,9 @@ const RadarSearch = () => {
         <div className="min-h-[80vh] bg-page-bg flex flex-col items-center justify-center p-6 text-white relative animate-fade-in">
           {/* Back */}
           <button
+            type="button"
             onClick={() => navigate("/")}
-            className="absolute top-4 left-0 h-10 w-10 grid place-items-center rounded-xl bg-card border border-border shadow-sm"
+            className="absolute top-4 left-0 h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted border border-border shadow-sm grid place-items-center"
             aria-label={s.radar_back_home}
           >
             <ArrowLeft className="h-5 w-5" />
@@ -270,8 +272,9 @@ const RadarSearch = () => {
         <>
           <header className="flex items-center justify-between mb-4 animate-fade-up">
             <button
+              type="button"
               onClick={() => navigate("/")}
-              className="h-10 w-10 grid place-items-center rounded-xl bg-card border border-border"
+              className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted border border-border grid place-items-center"
               aria-label={s.radar_back_home}
             >
               <ArrowLeft className="h-5 w-5" />
@@ -282,7 +285,7 @@ const RadarSearch = () => {
               </p>
               <h1 className="font-display text-lg font-bold capitalize">{term ? getCategoryLabel(term) : headline}</h1>
             </div>
-            <div className="h-10 w-10" />
+            <NotificationBell />
           </header>
 
           <div className="relative h-32 w-32 mx-auto mb-3">

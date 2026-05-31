@@ -3,6 +3,7 @@ import { Camera, Loader2, Mic, Trash2 } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
+import { saveNotification } from "@/lib/notifications";
 import {
   Sheet,
   SheetContent,
@@ -284,10 +285,20 @@ export function BillSheet({
     }
 
     if (userPhone) {
+      const title = s.bill_notifTitle;
+      const body = `${shopName}: ₹${totalAmount} — ${paymentMode}`;
       void invokeNotifyUser({
         user_phone: userPhone,
-        title: s.bill_notifTitle,
-        body: `${shopName}: ₹${totalAmount} — ${paymentMode}`,
+        title,
+        body,
+      });
+      saveNotification({
+        userPhone,
+        type: "bill",
+        title,
+        body,
+        route: "my-orders",
+        isInformational: false,
       });
     }
 

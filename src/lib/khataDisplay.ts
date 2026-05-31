@@ -5,6 +5,27 @@ export function maskPhoneLast4(phone: string): string {
   return `••••${digits.slice(-4)}`;
 }
 
+/** Mask phone for display: •••• + last 4 characters of the stored value. */
+export function maskPhone(phone: string): string {
+  if (phone.length >= 4) return `••••${phone.slice(-4)}`;
+  return "••••";
+}
+
+export function normalizePhoneDigits(phone: string): string {
+  return phone.replace(/\D/g, "");
+}
+
+export function isSamePhone(a: string, b: string): boolean {
+  const da = normalizePhoneDigits(a);
+  const db = normalizePhoneDigits(b);
+  return da.length > 0 && da === db;
+}
+
+export function feedAuthorLabel(phone: string, viewerPhone: string | null): string {
+  if (viewerPhone && isSamePhone(phone, viewerPhone)) return "You";
+  return maskPhone(phone);
+}
+
 export function khataPaymentModeLabel(mode: string, s: typeof strings.en): string {
   if (mode === "cash") return s.bill_cash;
   if (mode === "upi") return s.bill_upi;
@@ -71,4 +92,25 @@ export function formatKhataDate(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Postgres `date` or ISO date string → `YYYY-MM-DD` for `<input type="date">`. */
+export function ledgerCycleStartInputValue(value: string | null | undefined): string {
+  if (!value?.trim()) return new Date().toISOString().slice(0, 10);
+  return value.trim().slice(0, 10);
+}
+
+export function formatLedgerCycleStartLabel(dateStr: string): string {
+  const normalized = ledgerCycleStartInputValue(dateStr);
+  return new Date(`${normalized}T12:00:00`).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** Start of local calendar day for filtering `created_at >= cycle start`. */
+export function ledgerCycleStartIso(dateStr: string | null | undefined): string {
+  const normalized = ledgerCycleStartInputValue(dateStr);
+  return new Date(`${normalized}T00:00:00`).toISOString();
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
+import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
@@ -32,6 +33,7 @@ import { registerUserPushToken } from "@/lib/pushNotifications";
 import { buildRequestsActiveWindowOrFilter } from "@/lib/orders";
 import { useLanguage } from "@/lib/language";
 import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/SettingsSection";
+import { NotificationBell } from "@/components/NotificationBell";
 import { cn } from "@/lib/utils";
 
 type SavedNeighbourTile = {
@@ -40,6 +42,26 @@ type SavedNeighbourTile = {
   nickname: string;
   category: string;
 };
+
+/** Best-effort GPS snapshot for user_devices; never throws or surfaces errors. */
+function saveUserDeviceLocationSilently(userPhone: string): void {
+  if (!("geolocation" in navigator)) return;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      void supabase
+        .from("user_devices")
+        .update({
+          last_lat: pos.coords.latitude,
+          last_lng: pos.coords.longitude,
+          last_location_at: new Date().toISOString(),
+        })
+        .eq("user_phone", userPhone)
+        .eq("device_id", getDeviceId());
+    },
+    () => {},
+    { timeout: 10_000 },
+  );
+}
 
 const Index = () => {
   const { s, lang } = useLanguage();
@@ -115,7 +137,10 @@ const Index = () => {
     if (!userPhone) return;
     if (pushRegisteredUserRef.current === userPhone) return;
     pushRegisteredUserRef.current = userPhone;
-    void registerUserPushToken(userPhone);
+    void (async () => {
+      await registerUserPushToken(userPhone);
+      saveUserDeviceLocationSilently(userPhone);
+    })();
   }, [userPhone]);
 
   useEffect(() => {
@@ -312,7 +337,12 @@ const Index = () => {
   return (
     <AppShell theme="light">
       <div className="space-y-3 pb-24">
-      <SettingsPageHeader title={s.appName} subtitle={s.taglineSub} />
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <SettingsPageHeader title={s.appName} subtitle={s.taglineSub} />
+        </div>
+        <NotificationBell className="mt-6 mr-4" />
+      </div>
 
       <div>
         <form onSubmit={handleSubmit} className="relative mx-4">
@@ -354,18 +384,8 @@ const Index = () => {
         )}
       </div>
 
-      <div className="mx-4">
-        <button
-          type="button"
-          onClick={() => void handleSOS()}
-          aria-label="Emergency SOS"
-          className="w-full rounded-2xl py-4 font-bold text-lg bg-gradient-to-r from-brand/30 to-brand/10 border border-brand/30 text-foreground active:scale-[0.98] transition-transform"
-        >
-          {s.sos_title}
-          <span className="block text-xs font-semibold uppercase tracking-widest text-muted-foreground mt-0.5">
-            {s.sos_subtitle}
-          </span>
-        </button>
+      <div className="flex justify-center">
+        <SOSButton onClick={() => void handleSOS()} />
       </div>
 
       {savedNeighbours.length > 0 && (

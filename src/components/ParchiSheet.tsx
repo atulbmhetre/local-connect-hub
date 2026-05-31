@@ -38,6 +38,7 @@ import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useUserAddresses, type SavedAddress } from "@/hooks/useUserAddresses";
 import { cn } from "@/lib/utils";
+import { saveNotification } from "@/lib/notifications";
 
 type VendorMenuItem = {
   id: string;
@@ -324,11 +325,23 @@ export function ParchiSheet({
         .replace(/\s*\[I'll visit your shop\]/g, "")
         .replace(/\s*\[Location TBD\]/g, "")
         .trim();
+      const notifyTitle = v.category ? `New Order — ${v.category}` : "New Order";
       void invokeNotifyVendor({
         vendor_id: v.id,
         category: v.category,
         message: notifyBody,
       });
+      const vendorPhone = v.phone?.trim();
+      if (vendorPhone) {
+        saveNotification({
+          userPhone: vendorPhone,
+          type: "new_order",
+          title: notifyTitle,
+          body: notifyBody,
+          route: "vendor",
+          isInformational: false,
+        });
+      }
       if (saveAddress && newAddress.trim()) {
         const { error: addrError } = await supabase.from("user_addresses").insert({
           device_id: getDeviceId(),
