@@ -77,6 +77,13 @@ export const strings = {
     ai_bridge_call_failed: 'Call failed. Please try again.',
     ai_bridge_call_now: '📞 Call Now',
     radar_connection_error: 'Connection Error',
+    radar_location_required_title: 'Location needed',
+    radar_location_required_body:
+      'We need your location to find vendors near you. Please enable location access and try again.',
+    radar_location_denied_body:
+      'Location access was denied. Please enable it in your phone settings to find nearby vendors.',
+    radar_retry_location: 'Try again',
+    radar_open_settings: 'Open settings',
     radar_all_emergencies: 'All emergencies',
     radar_back_home: 'Back to home',
     radar_expanding_scan: 'Expanding Scan',
@@ -809,6 +816,13 @@ export const strings = {
     ai_bridge_call_failed: 'कॉल विफल। कृपया पुनः प्रयास करें।',
     ai_bridge_call_now: '📞 अभी कॉल करें',
     radar_connection_error: 'कनेक्शन त्रुटी',
+    radar_location_required_title: 'स्थान आवश्यक है',
+    radar_location_required_body:
+      'आपके पास के विक्रेता खोजने के लिए हमें आपका स्थान चाहिए। कृपया स्थान पहुंच सक्षम करें और पुनः प्रयास करें।',
+    radar_location_denied_body:
+      'स्थान पहुंच अस्वीकार की गई। पास के विक्रेता खोजने के लिए कृपया अपने फोन सेटिंग्स में इसे सक्षम करें।',
+    radar_retry_location: 'पुनः प्रयास करें',
+    radar_open_settings: 'सेटिंग्स खोलें',
     radar_all_emergencies: 'सभी आपातकाल',
     radar_back_home: 'होम पर जाएं',
     radar_expanding_scan: 'खोज बढ़ा रहे हैं',
@@ -1539,6 +1553,13 @@ export const strings = {
     ai_bridge_call_failed: 'कॉल अयशस्वी. पुन्हा प्रयत्न करा.',
     ai_bridge_call_now: '📞 आत्ताच कॉल करा',
     radar_connection_error: 'कनेक्शन त्रुटी',
+    radar_location_required_title: 'स्थान आवश्यक आहे',
+    radar_location_required_body:
+      'तुमच्या जवळचे विक्रेते शोधण्यासाठी आम्हाला तुमचे स्थान हवे आहे. कृपया स्थान प्रवेश सक्षम करा आणि पुन्हा प्रयत्न करा.',
+    radar_location_denied_body:
+      'स्थान प्रवेश नाकारला गेला. जवळचे विक्रेते शोधण्यासाठी कृपया तुमच्या फोन सेटिंग्जमध्ये ते सक्षम करा.',
+    radar_retry_location: 'पुन्हा प्रयत्न करा',
+    radar_open_settings: 'सेटिंग्स उघडा',
     radar_all_emergencies: 'सर्व आणीबाणी',
     radar_back_home: 'होमवर जा',
     radar_expanding_scan: 'शोध वाढवत आहे',

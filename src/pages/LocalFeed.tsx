@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/lib/supabase";
+import { distanceKm, supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
 import { feedAuthorLabel } from "@/lib/khataDisplay";
@@ -23,6 +23,20 @@ import { SettingsSectionLabel, SettingsCard } from "@/components/settings/Settin
 import { NotificationBell } from "@/components/NotificationBell";
 const MAX_CONTENT = 200;
 const FLAG_HIDE_THRESHOLD = 5;
+const FEED_CACHE_KEY = "aaspaas:feed_cache";
+const FEED_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+const FEED_CACHE_MAX_POSTS = 20;
+const GPS_TIMEOUT_MS = 3000;
+const GPS_BBOX_FAST_MS = 3000;
+/** ~50 km at Indian latitudes; matches server bounding box. */
+const BBOX_DELTA_DEG = 0.45;
+
+type FeedCachePayload = {
+  timestamp: number;
+  posts: FeedPost[];
+};
+
+type GeoCoords = { lat: number; lng: number };
 
 const CATEGORY_ALIASES: Record<string, string> = {
   "Grocery Store": "Kirana Store",
@@ -76,8 +90,73 @@ type FeedCategory = {
 
 const getPosition = () =>
   new Promise<GeolocationPosition>((resolve, reject) =>
-    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }),
+    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: GPS_TIMEOUT_MS }),
   );
+
+async function getGeoCoords(): Promise<GeoCoords | null> {
+  try {
+    const pos = await getPosition();
+    return { lat: pos.coords.latitude, lng: pos.coords.longitude };
+  } catch {
+    return null;
+  }
+}
+
+function readFeedCache(): FeedPost[] | null {
+  try {
+    const raw = localStorage.getItem(FEED_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as FeedCachePayload;
+    if (!Array.isArray(parsed.posts) || typeof parsed.timestamp !== "number") return null;
+    if (Date.now() - parsed.timestamp > FEED_CACHE_MAX_AGE_MS) return null;
+    return parsed.posts;
+  } catch {
+    return null;
+  }
+}
+
+function writeFeedCache(posts: FeedPost[]) {
+  try {
+    const payload: FeedCachePayload = {
+      timestamp: Date.now(),
+      posts: posts.slice(0, FEED_CACHE_MAX_POSTS),
+    };
+    localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+function buildFeedQuery(coords: GeoCoords | null) {
+  let query = supabase
+    .from("feed_posts")
+    .select("*, vendors(shop_name, category)")
+    .eq("is_hidden", false)
+    .or("expires_at.is.null,expires_at.gt.now()")
+    .or("starts_at.is.null,starts_at.lte.now()")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (coords) {
+    query = query
+      .gte("lat", coords.lat - BBOX_DELTA_DEG)
+      .lte("lat", coords.lat + BBOX_DELTA_DEG)
+      .gte("lng", coords.lng - BBOX_DELTA_DEG)
+      .lte("lng", coords.lng + BBOX_DELTA_DEG);
+  }
+
+  return query;
+}
+
+/** Roughly matches ±0.45° bounding box at mid-latitudes. */
+const FEED_NEAR_RADIUS_KM = 50;
+
+function filterPostsByLocation(posts: FeedPost[], coords: GeoCoords): FeedPost[] {
+  return posts.filter((post) => {
+    if (post.lat == null || post.lng == null) return true;
+    return distanceKm(coords, { lat: post.lat, lng: post.lng }) <= FEED_NEAR_RADIUS_KM;
+  });
+}
 
 function expiryBadgeLabel(expiresAt: string | null): string | null {
   if (!expiresAt) return null;
@@ -127,45 +206,66 @@ export default function LocalFeed() {
   }, []);
 
   const fetchPosts = useCallback(async () => {
-    setLoading(true);
-    let userLat: number | null = null;
-    let userLng: number | null = null;
+    const cached = readFeedCache();
+    const showingCached = cached != null;
+    if (showingCached) {
+      setPosts(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
+    const gpsStart = Date.now();
+    let gpsCoords: GeoCoords | null = null;
+    let gpsResolvedAt: number | null = null;
+
+    const gpsPromise = getGeoCoords().then((coords) => {
+      gpsResolvedAt = Date.now() - gpsStart;
+      gpsCoords = coords;
+      return coords;
+    });
+
+    const feedNoBboxPromise = buildFeedQuery(null);
+
+    const firstFinished = await Promise.race([
+      gpsPromise.then(() => "gps" as const),
+      feedNoBboxPromise.then(() => "feed" as const),
+    ]);
+
+    let nextPosts: FeedPost[] = [];
+
     try {
-      const pos = await getPosition();
-      userLat = pos.coords.latitude;
-      userLng = pos.coords.longitude;
-    } catch {
-      userLat = null;
-      userLng = null;
-    }
+      if (
+        firstFinished === "gps" &&
+        gpsCoords != null &&
+        gpsResolvedAt != null &&
+        gpsResolvedAt <= GPS_BBOX_FAST_MS
+      ) {
+        const { data, error } = await buildFeedQuery(gpsCoords);
+        if (error) throw error;
+        nextPosts = (data ?? []) as FeedPost[];
+      } else {
+        const { data, error } = await feedNoBboxPromise;
+        if (error) throw error;
+        let rows = (data ?? []) as FeedPost[];
+        const coords = gpsCoords ?? (await gpsPromise);
+        if (coords) {
+          rows = filterPostsByLocation(rows, coords);
+        }
+        nextPosts = rows;
+      }
 
-    let query = supabase
-      .from("feed_posts")
-      .select("*, vendors(shop_name, category)")
-      .eq("is_hidden", false)
-      .or("expires_at.is.null,expires_at.gt.now()")
-      .or("starts_at.is.null,starts_at.lte.now()")
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    if (userLat != null && userLng != null) {
-      query = query
-        .gte("lat", userLat - 0.45)
-        .lte("lat", userLat + 0.45)
-        .gte("lng", userLng - 0.45)
-        .lte("lng", userLng + 0.45);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
+      setPosts(nextPosts);
+      writeFeedCache(nextPosts);
+    } catch (error) {
       console.error("fetchPosts", error);
       toast.error("Could not load feed");
-      setPosts([]);
-    } else {
-      setPosts((data ?? []) as FeedPost[]);
+      if (!showingCached) {
+        setPosts([]);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -510,9 +610,11 @@ export default function LocalFeed() {
       )}
 
       {loading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
+        <ul className="flex flex-col gap-3 pb-4 px-4" aria-busy="true" aria-label="Loading feed">
+          {Array.from({ length: 4 }, (_, i) => (
+            <FeedPostSkeleton key={i} />
+          ))}
+        </ul>
       ) : visiblePosts.length === 0 ? (
         <p className="text-center text-muted-foreground py-12 px-4">
           No posts near you yet. Be the first to post!
@@ -637,6 +739,19 @@ export default function LocalFeed() {
       )}
       </div>
     </AppShell>
+  );
+}
+
+function FeedPostSkeleton() {
+  return (
+    <li className="rounded-2xl border border-surface-border bg-surface p-4 animate-pulse space-y-3">
+      <div className="h-3 w-24 rounded-md bg-muted" />
+      <div className="space-y-2">
+        <div className="h-3 w-full rounded-md bg-muted" />
+        <div className="h-3 w-5/6 rounded-md bg-muted" />
+      </div>
+      <div className="h-2.5 w-16 rounded-md bg-muted" />
+    </li>
   );
 }
 

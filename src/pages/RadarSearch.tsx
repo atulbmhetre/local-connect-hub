@@ -1,4 +1,6 @@
-﻿import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { App } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -65,6 +67,9 @@ function resolveCategory(term: string): string | null {
 /** Default geofence; user can widen to 25 km or 50 km before the failsafe UI. */
 const NEAR_RADIUS_KM = 15;
 const MAX_RADIUS_KM = 50;
+/** ~55 km at Indian latitudes; slightly wider than max 50 km search radius. */
+const BBOX_DELTA_DEG = 0.5;
+const GPS_TIMEOUT_MS = 10_000;
 
 const MEDICAL = new Set(["Ambulance", "Pharmacy", "Nursing"]);
 const ROADSIDE = new Set(["Mechanic", "Towing", "Tyre Service"]);
@@ -122,6 +127,7 @@ const RadarSearch = () => {
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [coordsTried, setCoordsTried] = useState(false);
+  const [locationDenied, setLocationDenied] = useState(false);
   const [scanning, setScanning] = useState(true);
   /** Active search radius in km (15 â†’ optional 25 / 50). */
   const [searchRadiusKm, setSearchRadiusKm] = useState(NEAR_RADIUS_KM);
@@ -129,30 +135,63 @@ const RadarSearch = () => {
   const [error, setError] = useState<string | null>(null);
 
   const expanded = searchRadiusKm > NEAR_RADIUS_KM;
+  const locating = !coordsTried;
+  const locationBlocked = coordsTried && coords == null;
 
   useLayoutEffect(() => {
     setSearchRadiusKm(NEAR_RADIUS_KM);
   }, [term]);
 
-  // Fetch GPS once on mount; we need it for the geofence.
-  useEffect(() => {
+  const requestLocation = useCallback(() => {
+    setCoordsTried(false);
+    setCoords(null);
+    setLocationDenied(false);
+    setScanning(true);
+    setError(null);
+    setResults([]);
+
     if (!("geolocation" in navigator)) {
       setCoordsTried(true);
+      setScanning(false);
       return;
     }
+
     navigator.geolocation.getCurrentPosition(
       (p) => {
         setCoords({ lat: p.coords.latitude, lng: p.coords.longitude });
         setCoordsTried(true);
+        setLocationDenied(false);
       },
-      () => setCoordsTried(true),
-      { enableHighAccuracy: true, timeout: 6000, maximumAge: 30_000 },
+      (err) => {
+        setCoordsTried(true);
+        setCoords(null);
+        setLocationDenied(err.code === 1);
+        setScanning(false);
+      },
+      { enableHighAccuracy: true, timeout: GPS_TIMEOUT_MS, maximumAge: 30_000 },
     );
   }, []);
 
-  // Run search once GPS resolved (or denied — we still scan, just without geofence).
   useEffect(() => {
-    if (!coordsTried) return;
+    requestLocation();
+  }, [requestLocation]);
+
+  const openLocationSettings = () => {
+    if (Capacitor.isNativePlatform()) {
+      void App.openUrl({ url: "app-settings:" });
+      return;
+    }
+    void App.openUrl({ url: "app-settings:" }).catch(() => {
+      /* best-effort on web */
+    });
+  };
+
+  // Run search only when GPS coordinates are available.
+  useEffect(() => {
+    if (!coords) {
+      if (coordsTried) setScanning(false);
+      return;
+    }
     let cancelled = false;
     const run = async () => {
       setScanning(true);
@@ -167,7 +206,11 @@ const RadarSearch = () => {
           .from("vendors")
           .select("*, verification_status")
           .eq("is_active", true)
-          .eq("is_banned", false);
+          .eq("is_banned", false)
+          .gte("latitude", coords.lat - BBOX_DELTA_DEG)
+          .lte("latitude", coords.lat + BBOX_DELTA_DEG)
+          .gte("longitude", coords.lng - BBOX_DELTA_DEG)
+          .lte("longitude", coords.lng + BBOX_DELTA_DEG);
         if (term) {
           const resolved = resolveCategory(term);
           if (resolved) q = q.eq("category", resolved);
@@ -187,14 +230,11 @@ const RadarSearch = () => {
           )
           .map((v) => ({
             vendor: v as Vendor,
-            dist:
-              coords && v.latitude != null && v.longitude != null
-                ? distanceKm(coords, { lat: v.latitude, lng: v.longitude })
-                : null,
+            dist: distanceKm(coords, { lat: v.latitude, lng: v.longitude }),
           }));
 
         const within = (radius: number) =>
-          all.filter((r) => (coords ? r.dist != null && r.dist <= radius : true));
+          all.filter((r) => r.dist != null && r.dist <= radius);
 
         const scoped = within(searchRadiusKm);
 
@@ -233,7 +273,7 @@ const RadarSearch = () => {
 
   return (
     <AppShell theme="dark">
-      {scanning ? (
+      {locating || (scanning && coords) ? (
         <div className="min-h-[80vh] bg-page-bg flex flex-col items-center justify-center p-6 text-white relative animate-fade-in">
           {/* Back */}
           <button
@@ -312,8 +352,39 @@ const RadarSearch = () => {
         </>
       )}
 
+      {locationBlocked && (
+        <div className="rounded-2xl border border-amber-500/40 bg-surface p-6 mt-4 space-y-4 text-center">
+          <p className="text-4xl" aria-hidden>
+            📍
+          </p>
+          <p className="font-display text-lg font-semibold text-white">
+            {s.radar_location_required_title}
+          </p>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {locationDenied ? s.radar_location_denied_body : s.radar_location_required_body}
+          </p>
+          {locationDenied ? (
+            <button
+              type="button"
+              onClick={openLocationSettings}
+              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+            >
+              {s.radar_open_settings}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={requestLocation}
+              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+            >
+              {s.radar_retry_location}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Error */}
-      {error && (
+      {!locationBlocked && error && (
         <div className="rounded-2xl bg-destructive/10 border border-destructive/30 p-4 flex gap-3 mt-2">
           <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
           <div>
@@ -324,7 +395,7 @@ const RadarSearch = () => {
       )}
 
       {/* Results */}
-      {!scanning && !error && results.length > 0 && (
+      {!locationBlocked && !scanning && !error && results.length > 0 && (
         <section className="space-y-3 mt-4 pb-4">
           {results.map(({ vendor, dist }, i) => (
             <RadarVendorCard
@@ -346,7 +417,11 @@ const RadarSearch = () => {
       )}
 
       {/* 0 results before 50 km: widen only; failsafe comes after 50 km if still empty. */}
-      {!scanning && !error && results.length === 0 && searchRadiusKm < MAX_RADIUS_KM && (
+      {!locationBlocked &&
+        !scanning &&
+        !error &&
+        results.length === 0 &&
+        searchRadiusKm < MAX_RADIUS_KM && (
         <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4">
           <p className="text-center font-display text-lg font-semibold text-white">
             {searchRadiusKm === NEAR_RADIUS_KM
@@ -382,7 +457,11 @@ const RadarSearch = () => {
       )}
 
       {/* True empty state — no private responders even at 50 km. */}
-      {!scanning && !error && results.length === 0 && searchRadiusKm >= MAX_RADIUS_KM && (
+      {!locationBlocked &&
+        !scanning &&
+        !error &&
+        results.length === 0 &&
+        searchRadiusKm >= MAX_RADIUS_KM && (
         <div className="text-center py-12 px-6 mx-4">
           <p className="text-4xl mb-2" aria-hidden>
             🔍
