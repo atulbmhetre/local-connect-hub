@@ -41,6 +41,18 @@ function parseNumber(raw: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** Normalize Indian mobile numbers for comparison (+91 / 91 prefix). */
+function normalizePhone(phone: string | null | undefined): string | null {
+  if (!phone?.trim()) return null;
+  let digits = phone.replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) {
+    digits = digits.slice(2);
+  } else if (digits.length === 11 && digits.startsWith("1")) {
+    digits = digits.slice(1);
+  }
+  return digits.length > 0 ? digits : null;
+}
+
 async function loadReferralConfig(
   supabase: ReturnType<typeof createClient>,
 ): Promise<ReferralConfig> {
@@ -113,7 +125,7 @@ serve(async (req) => {
 
     const { data: referrer, error: referrerError } = await supabase
       .from("vendors")
-      .select("id, created_at")
+      .select("id, created_at, phone")
       .eq("referral_code", referral_code)
       .maybeSingle();
 
@@ -124,6 +136,34 @@ serve(async (req) => {
 
     if (!referrer) {
       return jsonResponse({ success: false, error: "Invalid referral code" });
+    }
+
+    const { data: newVendor, error: newVendorError } = await supabase
+      .from("vendors")
+      .select("phone")
+      .eq("id", new_vendor_id)
+      .maybeSingle();
+
+    if (newVendorError) {
+      console.error("process-vendor-referral new vendor lookup failed", newVendorError);
+      return jsonResponse({ success: false, error: "Database error" });
+    }
+
+    const { data: referrerPhoneRow, error: referrerPhoneError } = await supabase
+      .from("vendors")
+      .select("phone")
+      .eq("id", referrer.id)
+      .maybeSingle();
+
+    if (referrerPhoneError) {
+      console.error("process-vendor-referral referrer phone lookup failed", referrerPhoneError);
+      return jsonResponse({ success: false, error: "Database error" });
+    }
+
+    const newPhoneNorm = normalizePhone(newVendor?.phone);
+    const referrerPhoneNorm = normalizePhone(referrerPhoneRow?.phone ?? referrer.phone);
+    if (newPhoneNorm && referrerPhoneNorm && newPhoneNorm === referrerPhoneNorm) {
+      return jsonResponse({ success: false, error: "Self-referral not allowed" });
     }
 
     const referralConfig = await loadReferralConfig(supabase);

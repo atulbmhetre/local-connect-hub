@@ -16,13 +16,13 @@ import {
   Flashlight,
   Share2,
   Clock,
-  ShieldCheck,
 } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { supabase, useCategoryLabel, type Vendor, distanceKm } from "@/lib/supabase";
 import { VerificationBadge, vendorTier } from "@/components/VerificationBadge";
+import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { useLanguage } from "@/lib/language";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -407,18 +407,7 @@ const LiveTracking = () => {
         </div>
       </header>
 
-      {/* Permanent Secure Connection banner */}
-      <div className="mx-4 mb-3 rounded-xl bg-surface border border-brand/40 px-3 py-2.5 flex items-start gap-2 shadow-[0_0_18px_rgba(34,197,94,0.15)]">
-        <ShieldCheck className="h-4 w-4 text-brand mt-0.5 shrink-0" />
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-brand leading-tight">
-            Secure Connection Active
-          </p>
-          <p className="text-[10.5px] text-gray-400 leading-snug">
-            Phone numbers and exact house numbers are masked.
-          </p>
-        </div>
-      </div>
+      <TrustWarningBanner tier={vendorTier(vendor)} context="tracking" />
 
       {/* Map */}
       <div className="mx-4 rounded-2xl overflow-hidden border border-white/10 h-[44vh] min-h-[280px] relative">

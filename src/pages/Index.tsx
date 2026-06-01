@@ -5,14 +5,8 @@ import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Loader2, Mic, Phone, Search } from "lucide-react";
+import { NeighbourSheet, type SavedVendorInfo } from "@/components/NeighbourSheet";
+import { Loader2, Mic, Search, X } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
@@ -32,6 +26,7 @@ import { getUserPhone } from "@/lib/userIdentity";
 import { registerUserPushToken } from "@/lib/pushNotifications";
 import { buildRequestsActiveWindowOrFilter } from "@/lib/orders";
 import { useLanguage } from "@/lib/language";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/SettingsSection";
 import { NotificationBell } from "@/components/NotificationBell";
 import { cn } from "@/lib/utils";
@@ -42,6 +37,41 @@ type SavedNeighbourTile = {
   nickname: string;
   category: string;
 };
+
+type HelpOrderBanner = {
+  orderId: string;
+  shopName: string;
+  vendorLastUpdated: string | null;
+};
+
+const HELP_ORDER_WINDOW_MS = 48 * 60 * 60 * 1000;
+const WELCOMED_KEY = "aaspaas:welcomed";
+
+function hasBeenWelcomed(): boolean {
+  try {
+    return localStorage.getItem(WELCOMED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function markWelcomed(): void {
+  try {
+    localStorage.setItem(WELCOMED_KEY, "true");
+  } catch {
+    /* ignore */
+  }
+}
+
+function isVendorLocationStale(
+  lastUpdated: string | null | undefined,
+  stoppedMinutes: number,
+): boolean {
+  if (!lastUpdated?.trim()) return false;
+  const t = new Date(lastUpdated).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t >= stoppedMinutes * 60 * 1000;
+}
 
 /** Best-effort GPS snapshot for user_devices; never throws or surfaces errors. */
 function saveUserDeviceLocationSilently(userPhone: string): void {
@@ -65,6 +95,7 @@ function saveUserDeviceLocationSilently(userPhone: string): void {
 
 const Index = () => {
   const { s, lang } = useLanguage();
+  const { config } = useAppConfig();
   const getCategoryLabel = useCategoryLabel();
   const navigate = useNavigate();
   const location = useLocation();
@@ -76,6 +107,7 @@ const Index = () => {
   const [parchiVendor, setParchiVendor] = useState<Vendor | null>(null);
   const [parchiOpen, setParchiOpen] = useState(false);
   const [neighbourSheetVendor, setNeighbourSheetVendor] = useState<Vendor | null>(null);
+  const [neighbourSheetSaved, setNeighbourSheetSaved] = useState<SavedVendorInfo | null>(null);
   const [neighbourSheetOpen, setNeighbourSheetOpen] = useState(false);
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [aiBridgeVendor, setAiBridgeVendor] = useState<Vendor | null>(null);
@@ -88,6 +120,13 @@ const Index = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pushRegisteredUserRef = useRef<string | null>(null);
   const [userPhone, setUserPhone] = useState(() => getUserPhone());
+  const [helpOrderBanner, setHelpOrderBanner] = useState<HelpOrderBanner | null>(null);
+  const [helpBannerTick, setHelpBannerTick] = useState(0);
+  const [welcomeVisible, setWelcomeVisible] = useState(false);
+
+  useEffect(() => {
+    setWelcomeVisible(!hasBeenWelcomed() && !getUserPhone());
+  }, []);
 
   const loadSavedNeighbours = useCallback(async () => {
     const device_id = getDeviceId();
@@ -113,7 +152,8 @@ const Index = () => {
       .select(
         "id, name, shop_name, shop_photo_url, is_active, category, service_mode, phone, verification_status, is_manual_verified, upi_verified, vendor_note, total_helped, on_time_rate",
       )
-      .in("id", vendorIds);
+      .in("id", vendorIds)
+      .eq("is_banned", false);
     if (vErr || !vendors?.length) {
       setSavedNeighbours([]);
       return;
@@ -145,6 +185,13 @@ const Index = () => {
 
   useEffect(() => {
     if (location.pathname !== "/") return;
+    try {
+      if (localStorage.getItem("aaspaas:neighbours_dirty") === "true") {
+        localStorage.removeItem("aaspaas:neighbours_dirty");
+      }
+    } catch {
+      /* ignore */
+    }
     void loadSavedNeighbours();
   }, [location.pathname, location.key, loadSavedNeighbours]);
 
@@ -163,6 +210,84 @@ const Index = () => {
     };
     void run();
   }, [s.category_mode_help, s.category_mode_delivery, s.category_mode_appointment]);
+
+  const loadHelpOrderBanner = useCallback(async () => {
+    const phone = getUserPhone();
+    if (!phone) {
+      setHelpOrderBanner(null);
+      return;
+    }
+    const since48h = new Date(Date.now() - HELP_ORDER_WINDOW_MS).toISOString();
+    const { data, error } = await supabase
+      .from("requests")
+      .select("id, status, updated_at, vendors(shop_name, service_mode, last_updated)")
+      .eq("user_phone", phone)
+      .eq("status", "accepted")
+      .gt("updated_at", since48h)
+      .order("updated_at", { ascending: false });
+    if (error) {
+      setHelpOrderBanner(null);
+      return;
+    }
+    type HelpRow = {
+      id: string;
+      status: string;
+      updated_at: string;
+      vendors: { shop_name: string; service_mode: string | null; last_updated: string | null } | null;
+    };
+    const match = ((data ?? []) as unknown as HelpRow[]).find(
+      (row) => String(row.vendors?.service_mode ?? "").trim().toLowerCase() === "help",
+    );
+    if (!match) {
+      setHelpOrderBanner(null);
+      return;
+    }
+    setHelpOrderBanner({
+      orderId: match.id,
+      shopName: match.vendors?.shop_name?.trim() || s.myOrders_shopFallback,
+      vendorLastUpdated: match.vendors?.last_updated ?? null,
+    });
+  }, [s.myOrders_shopFallback]);
+
+  useEffect(() => {
+    if (location.pathname !== "/") return;
+    void loadHelpOrderBanner();
+  }, [location.pathname, location.key, userPhone, loadHelpOrderBanner]);
+
+  useEffect(() => {
+    const phone = getUserPhone();
+    if (!phone) return;
+
+    const channel = supabase
+      .channel("home-help-order-banner")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "requests",
+          filter: `user_phone=eq.${phone}`,
+        },
+        () => {
+          void loadHelpOrderBanner();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [userPhone, loadHelpOrderBanner]);
+
+  useEffect(() => {
+    if (!helpOrderBanner) return;
+    const onTick = () => {
+      setHelpBannerTick((n) => n + 1);
+      void loadHelpOrderBanner();
+    };
+    const t = window.setInterval(onTick, 60_000);
+    return () => window.clearInterval(t);
+  }, [helpOrderBanner, loadHelpOrderBanner]);
 
   const loadActiveOrderCount = useCallback(async () => {
     const device_id = getDeviceId();
@@ -309,6 +434,21 @@ const Index = () => {
     setAiSheetOpen(true);
   }, []);
 
+  const dismissWelcome = () => {
+    markWelcomed();
+    setWelcomeVisible(false);
+  };
+
+  const handleWelcomeExplore = () => {
+    dismissWelcome();
+    document.getElementById("category-grid")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleWelcomeVendor = () => {
+    dismissWelcome();
+    navigate("/vendor");
+  };
+
   const startVoice = async () => {
     try {
       const available = await SpeechRecognition.available();
@@ -343,6 +483,76 @@ const Index = () => {
         </div>
         <NotificationBell className="mt-6 mr-4" />
       </div>
+
+      {welcomeVisible && (
+        <div className="mx-4 w-[calc(100%-2rem)] rounded-2xl border border-brand/40 bg-brand-muted p-4 relative">
+          <button
+            type="button"
+            onClick={dismissWelcome}
+            className="absolute top-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <p className="text-2xl mb-2" aria-hidden>
+            🏘️
+          </p>
+          <p className="font-display font-bold text-foreground pr-10">{s.welcome_title}</p>
+          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{s.welcome_body}</p>
+          <div className="mt-4 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={handleWelcomeExplore}
+              className="w-full rounded-xl bg-brand text-page-bg py-3 font-semibold active:scale-[0.98]"
+            >
+              {s.welcome_explore}
+            </button>
+            <button
+              type="button"
+              onClick={handleWelcomeVendor}
+              className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-foreground active:scale-[0.98]"
+            >
+              {s.welcome_vendor}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {helpOrderBanner &&
+        (() => {
+          void helpBannerTick;
+          const stopped = isVendorLocationStale(
+            helpOrderBanner.vendorLastUpdated,
+            config.vendorStoppedMinutes,
+          );
+          return (
+            <button
+              type="button"
+              onClick={() => navigate("/my-orders")}
+              className={cn(
+                "mx-4 w-[calc(100%-2rem)] rounded-xl border bg-surface px-4 py-3 text-left active:scale-[0.99] transition-transform",
+                stopped
+                  ? "border-l-4 border-l-amber-500 border-amber-500/30 bg-amber-500/5"
+                  : "border-l-4 border-l-brand border-brand/30 bg-brand/5",
+              )}
+            >
+              <p
+                className={cn(
+                  "text-sm font-semibold leading-snug",
+                  stopped ? "text-amber-400" : "text-green-700 dark:text-brand",
+                )}
+              >
+                <span className="mr-1.5" aria-hidden>
+                  {stopped ? "⚠️" : "🚗"}
+                </span>
+                {stopped ? s.home_help_vendor_stopped : s.home_help_ontheway}
+              </p>
+              {!stopped && (
+                <p className="mt-0.5 text-xs text-muted-foreground truncate">{helpOrderBanner.shopName}</p>
+              )}
+            </button>
+          );
+        })()}
 
       <div>
         <form onSubmit={handleSubmit} className="relative mx-4">
@@ -398,6 +608,7 @@ const Index = () => {
                 type="button"
                 onClick={() => {
                   setNeighbourSheetVendor(vendor);
+                  setNeighbourSheetSaved({ nickname, category });
                   setNeighbourSheetOpen(true);
                 }}
                 className="flex-shrink-0 w-44 rounded-2xl border border-surface-border bg-surface text-left px-4 py-3 flex gap-3 active:scale-[0.98] transition-transform"
@@ -444,247 +655,30 @@ const Index = () => {
         </div>
       )}
 
-      <Sheet
-        open={neighbourSheetOpen}
-        onOpenChange={(open) => {
-          setNeighbourSheetOpen(open);
-          if (!open) setNeighbourSheetVendor(null);
+      <NeighbourSheet
+        vendor={neighbourSheetVendor}
+        savedVendor={neighbourSheetSaved}
+        isOpen={neighbourSheetOpen}
+        onClose={() => {
+          setNeighbourSheetOpen(false);
+          setNeighbourSheetVendor(null);
+          setNeighbourSheetSaved(null);
         }}
-      >
-        <SheetContent
-          side="bottom"
-          className="bg-card border-t border-border rounded-t-2xl max-h-[85vh] overflow-y-auto"
-        >
-          {neighbourSheetVendor && (
-            <>
-              <SheetHeader className="text-left space-y-3 pr-8">
-                <div className="flex items-start gap-3">
-                  <div className="relative shrink-0">
-                    <span
-                      className={`absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-card ${
-                        neighbourSheetVendor.is_active ? "bg-brand" : "bg-muted-foreground/50"
-                      }`}
-                      aria-hidden
-                    />
-                    <div className="h-12 w-12 rounded-xl overflow-hidden bg-muted grid place-items-center">
-                      {neighbourSheetVendor.shop_photo_url ? (
-                        <img
-                          src={neighbourSheetVendor.shop_photo_url}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <span className="text-2xl" aria-hidden>
-                          {emojiForVendorCategory(neighbourSheetVendor.category, categories)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <SheetTitle className="text-left font-display text-lg">
-                      {neighbourSheetVendor.shop_name}
-                    </SheetTitle>
-                    <p className="text-sm text-muted-foreground">{neighbourSheetVendor.category}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {neighbourSheetVendor.is_active ? (
-                        <span className="text-brand font-medium">{s.online}</span>
-                      ) : (
-                        <span>{s.offline}</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <SheetDescription className="sr-only">
-                  Choose how to contact this saved vendor
-                </SheetDescription>
-              </SheetHeader>
-
-              <div className="mt-6 flex flex-col gap-2">
-                {String(neighbourSheetVendor.service_mode ?? "")
-                  .trim()
-                  .toLowerCase() === "delivery" ? (
-                  neighbourDeliveryActiveOrder ? (
-                    <>
-                      <button
-                        type="button"
-                        className="w-full text-left text-sm text-muted-foreground underline underline-offset-2 py-1"
-                        onClick={() => {
-                          setNeighbourSheetOpen(false);
-                          navigate("/my-orders");
-                        }}
-                      >
-                        {s.yourActiveOrders}
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
-                        onClick={() => {
-                          const v = neighbourSheetVendor;
-                          setNeighbourSheetOpen(false);
-                          setParchiVendor(v);
-                          setParchiOpen(true);
-                        }}
-                      >
-                        {s.sendNewOrder}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
-                      onClick={() => {
-                        const v = neighbourSheetVendor;
-                        setNeighbourSheetOpen(false);
-                        setParchiVendor(v);
-                        setParchiOpen(true);
-                      }}
-                    >
-                      {s.sendOrder}
-                    </button>
-                  )
-                ) : String(neighbourSheetVendor.service_mode ?? "")
-                    .trim()
-                    .toLowerCase() === "appointment" ? (
-                  <>
-                    {appointmentActiveFromDb ? (
-                      <>
-                        <button
-                          type="button"
-                          className="w-full text-left text-sm text-muted-foreground underline underline-offset-2 py-1"
-                          onClick={() => {
-                            setNeighbourSheetOpen(false);
-                            navigate("/my-orders");
-                          }}
-                        >
-                          {s.yourActiveBookings}
-                        </button>
-                        <button
-                          type="button"
-                          className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
-                          onClick={() => {
-                            const v = neighbourSheetVendor;
-                            setNeighbourSheetOpen(false);
-                            setParchiVendor(v);
-                            setParchiOpen(true);
-                          }}
-                        >
-                          {s.bookAgain}
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
-                        onClick={() => {
-                          const v = neighbourSheetVendor;
-                          setNeighbourSheetOpen(false);
-                          setParchiVendor(v);
-                          setParchiOpen(true);
-                        }}
-                      >
-                        {s.bookService}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
-                      onClick={() => setNeighbourSheetOpen(false)}
-                    >
-                      {s.cancel}
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full py-2 text-xs font-medium text-destructive hover:underline"
-                      onClick={async () => {
-                        const v = neighbourSheetVendor;
-                        if (!v) return;
-                        const device_id = getDeviceId();
-                        const userPhone = getUserPhone();
-                        let del = supabase.from("saved_vendors").delete().eq("vendor_id", v.id);
-                        del =
-                          userPhone != null
-                            ? del.eq("user_phone", userPhone)
-                            : del.eq("device_id", device_id);
-                        const { error } = await del;
-                        if (error) {
-                          toast.error(s.couldNotRemove, { description: error.message });
-                          return;
-                        }
-                        try {
-                          sessionStorage.removeItem(`aaspaas:saved:${v.id}`);
-                        } catch {
-                          /* ignore */
-                        }
-                        setNeighbourSheetOpen(false);
-                        setNeighbourSheetVendor(null);
-                        void loadSavedNeighbours();
-                        toast.success(s.removedFromNeighbourhood);
-                      }}
-                    >
-                      {s.removeFromNeighbourhood}
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98]"
-                    onClick={() => {
-                      const v = neighbourSheetVendor;
-                      setNeighbourSheetOpen(false);
-                      void openAiBridgeFromNeighbour(v);
-                    }}
-                  >
-                    <Phone className="h-4 w-4" />
-                    {s.connectAiBridge}
-                  </button>
-                )}
-                {String(neighbourSheetVendor.service_mode ?? "")
-                  .trim()
-                  .toLowerCase() !== "appointment" && (
-                <>
-                <button
-                  type="button"
-                  className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
-                  onClick={() => setNeighbourSheetOpen(false)}
-                >
-                  {s.cancel}
-                </button>
-                <button
-                  type="button"
-                  className="w-full py-2 text-xs font-medium text-destructive hover:underline"
-                  onClick={async () => {
-                    const v = neighbourSheetVendor;
-                    if (!v) return;
-                    const device_id = getDeviceId();
-                    const userPhone = getUserPhone();
-                    let del = supabase.from("saved_vendors").delete().eq("vendor_id", v.id);
-                    del =
-                      userPhone != null ? del.eq("user_phone", userPhone) : del.eq("device_id", device_id);
-                    const { error } = await del;
-                    if (error) {
-                      toast.error(s.couldNotRemove, { description: error.message });
-                      return;
-                    }
-                    try {
-                      sessionStorage.removeItem(`aaspaas:saved:${v.id}`);
-                    } catch {
-                      /* ignore */
-                    }
-                    setNeighbourSheetOpen(false);
-                    setNeighbourSheetVendor(null);
-                    void loadSavedNeighbours();
-                    toast.success(s.removedFromNeighbourhood);
-                  }}
-                >
-                  {s.removeFromNeighbourhood}
-                </button>
-                </>
-                )}
-              </div>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
+        onRemove={() => {
+          void loadSavedNeighbours();
+        }}
+        activeDeliveryOrder={neighbourDeliveryActiveOrder}
+        activeAppointmentOrder={appointmentActiveFromDb}
+        categories={categories}
+        onOpenParchi={(v) => {
+          setParchiVendor(v);
+          setParchiOpen(true);
+        }}
+        onOpenAiBridge={(v) => {
+          void openAiBridgeFromNeighbour(v);
+        }}
+        onNavigateOrders={() => navigate("/my-orders")}
+      />
 
       {aiBridgeVendor && (
         <AiBridgeSheet

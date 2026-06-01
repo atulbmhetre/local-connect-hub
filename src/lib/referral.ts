@@ -51,10 +51,29 @@ export function checkAndStoreReferral(): void {
   }
 }
 
-export async function recordUserReferral(phone: string, deviceId: string): Promise<void> {
+let cachedReferralUserCredit: number | null = null;
+
+async function getReferralUserCreditAmount(): Promise<number> {
+  if (cachedReferralUserCredit != null) return cachedReferralUserCredit;
+  try {
+    const { data } = await supabase
+      .from("app_config")
+      .select("value")
+      .eq("key", "referral_user_credit")
+      .maybeSingle();
+    const n = Number(String(data?.value ?? "").trim());
+    cachedReferralUserCredit = Number.isFinite(n) ? n : 2.5;
+  } catch {
+    cachedReferralUserCredit = 2.5;
+  }
+  return cachedReferralUserCredit;
+}
+
+/** Returns true if referral was applied; false on missing code, invalid code, or duplicate. */
+export async function recordUserReferral(phone: string, deviceId: string): Promise<boolean> {
   try {
     const stored = getReferralCode();
-    if (!stored) return;
+    if (!stored) return false;
 
     const { data: vendor, error: vendorError } = await supabase
       .from("vendors")
@@ -62,7 +81,7 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
       .eq("referral_code", stored)
       .maybeSingle();
 
-    if (vendorError || !vendor) return;
+    if (vendorError || !vendor) return false;
 
     const { error: userError } = await supabase.from("app_users").insert({
       phone,
@@ -71,7 +90,7 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
       referred_by_vendor_id: vendor.id,
     });
 
-    if (userError) return;
+    if (userError) return false;
 
     const triggeredAt = new Date().toISOString();
 
@@ -89,24 +108,27 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
       .select("id")
       .single();
 
-    if (referralError || !referral) return;
+    if (referralError || !referral) return false;
+
+    const creditAmount = await getReferralUserCreditAmount();
 
     const { error: creditError } = await supabase.from("vendor_credits").insert({
       vendor_id: vendor.id,
       referral_id: referral.id,
-      amount: 2.5,
+      amount: creditAmount,
       disbursement_month: 1,
       disbursed: false,
     });
 
-    if (creditError) return;
+    if (creditError) return false;
 
     try {
       localStorage.removeItem(REFERRAL_STORAGE_KEY);
     } catch {
       // ignore
     }
+    return true;
   } catch {
-    // never throws
+    return false;
   }
 }

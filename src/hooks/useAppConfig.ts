@@ -25,6 +25,7 @@ export interface AppConfig {
   referralVendorCreditM3: number;
   referralUserCredit: number;
   referralVeteranThresholdMonths: number;
+  helpAcceptTimeoutHours: number;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -51,6 +52,7 @@ const DEFAULT_CONFIG: AppConfig = {
   referralVendorCreditM3: 8.32,
   referralUserCredit: 2.5,
   referralVeteranThresholdMonths: 12,
+  helpAcceptTimeoutHours: 2,
 };
 
 const BOOLEAN_KEYS = new Set<keyof AppConfig>([
@@ -87,6 +89,7 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   referral_vendor_credit_m3: "referralVendorCreditM3",
   referral_user_credit: "referralUserCredit",
   referral_veteran_threshold_months: "referralVeteranThresholdMonths",
+  help_accept_timeout_hours: "helpAcceptTimeoutHours",
 };
 
 for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {

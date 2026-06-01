@@ -38,6 +38,7 @@ import {
   ChevronDown,
   BarChart2,
   Pencil,
+  X,
 } from "lucide-react";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { VerificationBadge } from "@/components/VerificationBadge";
@@ -53,9 +54,9 @@ import { suggestServiceMode } from "@/lib/vendorUtils";
 import { useLanguage } from '@/lib/language';
 import { registerPushToken } from "../lib/pushNotifications";
 import { saveNotification } from "@/lib/notifications";
+import { checkAndNotifyAdminGreenReady } from "@/lib/vendorGreenReady";
 import { NotificationBell } from "@/components/NotificationBell";
 
-const ADMIN_NOTIFY_PHONE = "8888169446";
 import { Capacitor } from "@capacitor/core";
 import {
   VendorOnboarding,
@@ -79,6 +80,36 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const STORAGE_KEY = "aaspaas:vendor_id";
+const GOLIVE_PROMPT_DISMISS_PREFIX = "aaspaas:golive_prompt_dismissed:";
+
+function goLivePromptDismissKey(vendorId: string): string {
+  return `${GOLIVE_PROMPT_DISMISS_PREFIX}${vendorId}`;
+}
+
+function isGoLivePromptDismissed(vendorId: string): boolean {
+  try {
+    return localStorage.getItem(goLivePromptDismissKey(vendorId)) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function dismissGoLivePrompt(vendorId: string): void {
+  try {
+    localStorage.setItem(goLivePromptDismissKey(vendorId), "true");
+  } catch {
+    /* ignore */
+  }
+}
+
+function isDuplicateVendorPhoneError(error: { code?: string; message?: string }): boolean {
+  if (error.code === "23505") return true;
+  const msg = (error.message ?? "").toLowerCase();
+  return (
+    (msg.includes("duplicate") || msg.includes("unique")) &&
+    (msg.includes("phone") || msg.includes("vendors"))
+  );
+}
 
 type ServiceModeValue = "" | "help" | "delivery" | "appointment";
 
@@ -230,6 +261,9 @@ const VendorMode = () => {
   const [lookupError, setLookupError] = useState<string | null>(null);
 
   const pushRegisteredVendorRef = useRef<string | null>(null);
+  const alreadyRegisteredRef = useRef<HTMLDivElement>(null);
+  const [highlightAlreadyRegistered, setHighlightAlreadyRegistered] = useState(false);
+  const [goLivePromptVisible, setGoLivePromptVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [offlineConfirmOpen, setOfflineConfirmOpen] = useState(false);
   const [checkingOffline, setCheckingOffline] = useState(false);
@@ -358,6 +392,14 @@ const VendorMode = () => {
       setShowOnboarding(true);
     }
   }, [vendorId, vendor]);
+
+  useEffect(() => {
+    if (!vendor?.id || vendor.is_banned) {
+      setGoLivePromptVisible(false);
+      return;
+    }
+    setGoLivePromptVisible(!isGoLivePromptDismissed(vendor.id));
+  }, [vendor?.id, vendor?.is_banned]);
 
   const detectLocation = (): Promise<{ lat: number; lng: number } | null> => {
     return new Promise((resolve) => {
@@ -608,6 +650,16 @@ const VendorMode = () => {
       .single();
     setLoading(false);
     if (error) {
+      if (isDuplicateVendorPhoneError(error)) {
+        toast.error(s.vendor_duplicate_phone);
+        setError(null);
+        setHighlightAlreadyRegistered(true);
+        window.setTimeout(() => {
+          alreadyRegisteredRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
+        window.setTimeout(() => setHighlightAlreadyRegistered(false), 2500);
+        return;
+      }
       setError(error.message);
       return;
     }
@@ -619,26 +671,43 @@ const VendorMode = () => {
     const adminTitle = "🏪 New vendor registered";
     const adminBody = `${name.trim()} — ${effectiveCategory} (${serviceMode})`;
     void invokeNotifyAdmin(adminTitle, adminBody, { vendor_id: newVendorId });
+    const { data: adminConfig } = await supabase
+      .from("app_config")
+      .select("value")
+      .eq("key", "admin_phone")
+      .maybeSingle();
+    const adminPhone = adminConfig?.value?.trim() || "8888169446";
     saveNotification({
-      userPhone: ADMIN_NOTIFY_PHONE,
+      userPhone: adminPhone,
       type: "verification_update",
       title: adminTitle,
       body: adminBody,
       route: "vendor",
+      routeParams: { vendor_id: newVendorId },
       isInformational: true,
     });
     if (referralCodeInput.trim()) {
-      void fetch(`${SUPABASE_URL}/functions/v1/process-vendor-referral`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          new_vendor_id: newVendorId,
-          referral_code: referralCodeInput.trim(),
-        }),
-      });
+      try {
+        const referralResp = await fetch(`${SUPABASE_URL}/functions/v1/process-vendor-referral`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            new_vendor_id: newVendorId,
+            referral_code: referralCodeInput.trim(),
+          }),
+        });
+        const referralBody = (await referralResp.json()) as { success?: boolean };
+        if (referralResp.ok && referralBody.success) {
+          toast.success(s.referral_code_applied);
+        } else {
+          toast.error(s.referral_code_invalid);
+        }
+      } catch {
+        toast.error(s.referral_code_invalid);
+      }
     }
     if (isOther && confirmedCategory) {
       void fetch(`${SUPABASE_URL}/functions/v1/process-new-category`, {
@@ -704,6 +773,12 @@ const VendorMode = () => {
   // ---- runtime actions ----
   const applyActiveState = async (next: boolean): Promise<boolean> => {
     if (!vendor) return false;
+    if (next && vendor.is_banned) {
+      toast.error(s.admin_vendor_banned_title, {
+        description: s.admin_vendor_banned_body,
+      });
+      return false;
+    }
     setVendor({ ...vendor, is_active: next });
 
     let liveCoords: { lat: number; lng: number } | null = null;
@@ -760,14 +835,9 @@ const VendorMode = () => {
   };
 
   const notifyUsersVendorOffline = (orders: BlockingOfflineOrder[]) => {
-    const phones = [
-      ...new Set(
-        orders
-          .map((o) => o.user_phone?.trim())
-          .filter((phone): phone is string => !!phone),
-      ),
-    ];
-    for (const userPhone of phones) {
+    for (const order of orders) {
+      const userPhone = order.user_phone?.trim();
+      if (!userPhone) continue;
       const title = s.user_vendor_offline_title;
       const body = s.user_vendor_offline_body;
       void invokeNotifyUser({
@@ -781,6 +851,7 @@ const VendorMode = () => {
         title,
         body,
         route: "my-orders",
+        routeParams: { order_id: order.id },
         isInformational: false,
       });
     }
@@ -789,6 +860,13 @@ const VendorMode = () => {
   const toggleActive = async () => {
     if (!vendor || checkingOffline) return;
     const next = !vendor.is_active;
+
+    if (next && vendor.is_banned) {
+      toast.error(s.admin_vendor_banned_title, {
+        description: s.admin_vendor_banned_body,
+      });
+      return;
+    }
 
     if (!next) {
       setCheckingOffline(true);
@@ -837,6 +915,8 @@ const VendorMode = () => {
       toast.error(s.vendor_upi_check_failed, { description: error.message });
       return;
     }
+    void checkAndNotifyAdminGreenReady(vendor.id);
+    setVendor((prev) => (prev ? { ...prev, upi_verified: true } : prev));
     toast.success(`${s.vendor_upi_verified}${bank.toUpperCase()}`, {
       description: s.vendor_upi_bank_valid,
     });
@@ -896,6 +976,7 @@ const VendorMode = () => {
       toast.error(s.vendor_save_verification_failed, { description: updErr.message });
       return;
     }
+    void checkAndNotifyAdminGreenReady(vendor.id);
     if (!hasShopLocation) {
       toast.success("Shop photo saved and location set ✓");
       return;
@@ -909,7 +990,10 @@ const VendorMode = () => {
 
   const updateShopLocation = async () => {
     if (!vendor) return;
-    if (vendor.verification_status === "business_verified") {
+    if (
+      vendor.verification_status === "business_verified" ||
+      vendor.verification_status === "green_pending"
+    ) {
       const ok = window.confirm(
         s.vendor_location_reset_confirm,
       );
@@ -921,7 +1005,9 @@ const VendorMode = () => {
 
     // If they were business_verified, drop them back to identity_linked and
     // clear the manual flag — admin must re-approve after a fresh photo.
-    const downgraded = vendor.verification_status === "business_verified";
+    const downgraded =
+      vendor.verification_status === "business_verified" ||
+      vendor.verification_status === "green_pending";
     const patch: Partial<Vendor> = {
       latitude: c.lat,
       longitude: c.lng,
@@ -942,11 +1028,44 @@ const VendorMode = () => {
       toast.error(s.vendor_location_update_failed, { description: error.message });
       return;
     }
+    setVendor((prev) =>
+      prev
+        ? {
+            ...prev,
+            latitude: c.lat,
+            longitude: c.lng,
+            ...(downgraded
+              ? {
+                  verification_status: "identity_linked" as VerificationStatus,
+                  shop_photo_url: null,
+                  is_manual_verified: false,
+                }
+              : {}),
+          }
+        : prev,
+    );
     toast(downgraded ? s.vendor_reverification_required : s.vendor_location_updated, {
       description: downgraded
         ? s.vendor_reverification_body
         : s.vendor_location_updated_body,
     });
+  };
+
+  const openProfileLocation = () => {
+    void updateShopLocation();
+  };
+
+  const openProfilePhoto = () => {
+    if (!vendor) return;
+    if (vendor.latitude == null || vendor.longitude == null) {
+      setVerificationSheetOpen(true);
+      return;
+    }
+    setCameraOpen(true);
+  };
+
+  const openProfileUpi = () => {
+    setVerificationSheetOpen(true);
   };
 
   return (
@@ -1193,25 +1312,34 @@ const VendorMode = () => {
           )}
           </form>
 
-          <div className="relative py-6 animate-fade-up">
-            <div className="absolute inset-0 flex items-center" aria-hidden>
-              <span className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase tracking-wider">
-              <span className="bg-background px-3 text-muted-foreground">{s.vendor_or}</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setAlreadyRegistered(true);
-              setLookupError(null);
-            }}
-            className="w-full text-center text-sm font-semibold text-primary hover:underline py-2 animate-fade-up"
+          <div
+            ref={alreadyRegisteredRef}
+            className={cn(
+              "rounded-2xl transition-colors",
+              highlightAlreadyRegistered &&
+                "ring-2 ring-amber-500 border border-amber-500/50 bg-amber-500/10 animate-pulse px-2 -mx-2",
+            )}
           >
-            {s.vendor_already_registered}
-          </button>
+            <div className="relative py-6 animate-fade-up">
+              <div className="absolute inset-0 flex items-center" aria-hidden>
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase tracking-wider">
+                <span className="bg-background px-3 text-muted-foreground">{s.vendor_or}</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAlreadyRegistered(true);
+                setLookupError(null);
+              }}
+              className="w-full text-center text-sm font-semibold text-primary hover:underline py-2 animate-fade-up"
+            >
+              {s.vendor_already_registered}
+            </button>
+          </div>
         </>
       )}
 
@@ -1276,7 +1404,32 @@ const VendorMode = () => {
         </div>
       )}
 
-      {vendor && (
+      {vendor?.is_banned && (
+        <div className="min-h-[70vh] flex flex-col items-center justify-center px-6 animate-fade-up">
+          <div className="w-full max-w-md rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-8 text-center space-y-3">
+            <p className="text-lg font-bold text-foreground">{s.admin_vendor_banned_title}</p>
+            <p className="text-sm text-foreground leading-relaxed">{s.admin_vendor_banned_body}</p>
+          </div>
+        </div>
+      )}
+
+      {vendor && !vendor.is_banned && (() => {
+        const hasShopLocation =
+          vendor.latitude != null && vendor.longitude != null;
+        const hasShopPhoto =
+          vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== "";
+        const showProfileIncomplete =
+          !vendor.is_manual_verified &&
+          (!hasShopLocation || !hasShopPhoto || !vendor.upi_verified);
+
+        const profileRowClass = (done: boolean, tappable: boolean) =>
+          cn(
+            "w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm",
+            done ? "text-muted-foreground" : "text-amber-200",
+            !done && tappable && "bg-amber-500/10 border border-amber-500/30 active:scale-[0.99]",
+          );
+
+        return (
         <div className="space-y-3 animate-fade-up pb-4">
           {isInTrial && (
             <div className="rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning text-center">
@@ -1359,6 +1512,100 @@ const VendorMode = () => {
             )}
 
           </div>
+
+          {goLivePromptVisible && (
+            <div className="mx-4 rounded-2xl border border-brand/45 bg-brand-muted p-4 text-sm relative">
+              <button
+                type="button"
+                onClick={() => {
+                  dismissGoLivePrompt(vendor.id);
+                  setGoLivePromptVisible(false);
+                }}
+                className="absolute top-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                aria-label="Dismiss"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <p className="font-semibold text-brand pr-10">
+                <span aria-hidden>🟢 </span>
+                {s.vendor_golive_prompt_title}
+              </p>
+              <p className="mt-2 text-muted-foreground leading-relaxed pr-2">
+                {s.vendor_golive_prompt_body}
+              </p>
+            </div>
+          )}
+
+          {showProfileIncomplete && (
+            <div className="mx-4 rounded-2xl border border-surface-border bg-surface p-4 space-y-2">
+              <p className="font-semibold text-foreground text-sm">{s.vendor_profile_incomplete}</p>
+              <ul className="space-y-1">
+                <li className={profileRowClass(true, false)}>
+                  <span aria-hidden>✅</span>
+                  <span>{s.vendor_profile_phone_row}</span>
+                </li>
+                {hasShopLocation ? (
+                  <li className={profileRowClass(true, false)}>
+                    <span aria-hidden>✅</span>
+                    <span>{s.vendor_profile_location_row}</span>
+                  </li>
+                ) : (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={openProfileLocation}
+                      disabled={updatingLocation}
+                      className={profileRowClass(false, true)}
+                    >
+                      <span aria-hidden>❌</span>
+                      <span className="flex-1">{s.vendor_profile_location_row}</span>
+                      {updatingLocation ? (
+                        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0" />
+                      )}
+                    </button>
+                  </li>
+                )}
+                {hasShopPhoto ? (
+                  <li className={profileRowClass(true, false)}>
+                    <span aria-hidden>✅</span>
+                    <span>{s.vendor_profile_photo_row}</span>
+                  </li>
+                ) : (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={openProfilePhoto}
+                      className={profileRowClass(false, true)}
+                    >
+                      <span aria-hidden>❌</span>
+                      <span className="flex-1">{s.vendor_profile_photo_row}</span>
+                      <ChevronRight className="h-4 w-4 shrink-0" />
+                    </button>
+                  </li>
+                )}
+                {vendor.upi_verified ? (
+                  <li className={profileRowClass(true, false)}>
+                    <span aria-hidden>✅</span>
+                    <span>{s.vendor_profile_upi_row}</span>
+                  </li>
+                ) : (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={openProfileUpi}
+                      className={profileRowClass(false, true)}
+                    >
+                      <span aria-hidden>❌</span>
+                      <span className="flex-1">{s.vendor_profile_upi_row}</span>
+                      <ChevronRight className="h-4 w-4 shrink-0" />
+                    </button>
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
 
           <div>
             <IncomingOrdersSection
@@ -1544,7 +1791,8 @@ const VendorMode = () => {
                     {s.vendor_update_location}
                   </button>
                 )}
-                {vendor.verification_status === "business_verified" && (
+                {(vendor.verification_status === "business_verified" ||
+                  vendor.verification_status === "green_pending") && (
                   <p className="text-[11px] text-muted-foreground inline-flex items-start gap-1">
                     <AlertTriangle className="h-3 w-3 text-accent mt-0.5 shrink-0" />
                     {s.vendor_location_reset_warning}
@@ -1720,7 +1968,8 @@ const VendorMode = () => {
             </SheetContent>
           </Sheet>
         </div>
-      )}
+        );
+      })()}
 
       <AlertDialog open={offlineConfirmOpen} onOpenChange={setOfflineConfirmOpen}>
         <AlertDialogContent className="rounded-2xl border border-border bg-card">

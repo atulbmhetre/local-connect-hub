@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { supabase, invokecalculateTrustScore, fetchUserTrust, invokeNotifyUser } from "@/lib/supabase";
 import { saveNotification } from "@/lib/notifications";
 import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
@@ -27,6 +28,13 @@ type TrustInfo = {
   is_banned: boolean;
   ban_reason: string | null;
 } | null;
+
+type OrderBillSummary = {
+  id: string;
+  total_amount: number;
+  payment_mode: "cash" | "upi" | "khata";
+  payment_status: string;
+};
 
 function getUserTrustBadge(trust: TrustInfo | undefined): { label: string; className: string } | null {
   if (trust === undefined) return null;
@@ -90,7 +98,12 @@ function maskPhoneLast4(phone: string): string {
   return `••••${digits.slice(-4)}`;
 }
 
+type LocationHighlightState = { highlightOrderId?: string };
+
 export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: Props) {
+  const location = useLocation();
+  const highlightOrderId = (location.state as LocationHighlightState | null)?.highlightOrderId;
+  const [flashOrderId, setFlashOrderId] = useState<string | null>(null);
   const isHelpMode = serviceMode === "help";
   const canAddToLedger = serviceMode === "appointment" || serviceMode === "delivery";
   const { s } = useLanguage();
@@ -119,6 +132,8 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [cancelling, setCancelling] = useState(false);
   const [billRequestId, setBillRequestId] = useState<string | null>(null);
   const [billUserPhone, setBillUserPhone] = useState<string | null>(null);
+  const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBillSummary>>({});
+  const [markingBillPaidId, setMarkingBillPaidId] = useState<string | null>(null);
   const [flagOrderId, setFlagOrderId] = useState<string | null>(null);
   const [flagUserPhone, setFlagUserPhone] = useState<string | null>(null);
   const [selectedFlagType, setSelectedFlagType] = useState<
@@ -145,10 +160,75 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
     setTrustMap((prev) => ({ ...prev, [orderId]: trust }));
   }, []);
 
+  const clearOrderEditedFlag = useCallback(async (orderId: string) => {
+    const { error } = await supabase
+      .from("requests")
+      .update({ is_edited: false })
+      .eq("id", orderId)
+      .eq("is_edited", true);
+    if (error) {
+      console.error("clearOrderEditedFlag", error);
+      return;
+    }
+    setRows((prev) =>
+      prev.map((r) => (r.id === orderId ? { ...r, is_edited: false } : r)),
+    );
+  }, []);
+
   const selectFields =
-    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason";
+    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason, is_edited";
 
   const FULFILLED_STALE_MS = 60 * 60 * 1000;
+
+  const loadBillsForOrders = useCallback(async (requestIds: string[]) => {
+    if (requestIds.length === 0) {
+      setBillsByRequestId({});
+      return;
+    }
+    const { data } = await supabase
+      .from("order_bills")
+      .select("id, request_id, total_amount, payment_mode, payment_status")
+      .in("request_id", requestIds)
+      .neq("payment_status", "void");
+
+    if (!data?.length) {
+      setBillsByRequestId({});
+      return;
+    }
+
+    const billMap: Record<string, OrderBillSummary> = {};
+    const sorted = [...data].sort((a, b) => String(b.id).localeCompare(String(a.id)));
+    for (const bill of sorted) {
+      if (!billMap[bill.request_id]) {
+        billMap[bill.request_id] = {
+          id: bill.id,
+          total_amount: bill.total_amount,
+          payment_mode: bill.payment_mode as OrderBillSummary["payment_mode"],
+          payment_status: bill.payment_status,
+        };
+      }
+    }
+    setBillsByRequestId(billMap);
+  }, []);
+
+  const markOrderBillPaid = async (billId: string, requestId: string) => {
+    setMarkingBillPaidId(billId);
+    const { error } = await supabase
+      .from("order_bills")
+      .update({ payment_status: "paid" })
+      .eq("id", billId);
+    setMarkingBillPaidId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(s.bill_marked_paid);
+    setBillsByRequestId((prev) => {
+      const bill = prev[requestId];
+      if (!bill || bill.id !== billId) return prev;
+      return { ...prev, [requestId]: { ...bill, payment_status: "paid" } };
+    });
+  };
 
   const refreshUnpaidKhataDismissBlocks = useCallback(
     async (terminalIds: string[]) => {
@@ -282,6 +362,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
 
       let activeList = await autoDismissStaleFulfilledOnLoad(list, withLedger);
       setRows(activeList);
+      void loadBillsForOrders(activeList.map((r) => r.id));
       onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
 
       if (!opts?.silent) setLoading(false);
@@ -324,10 +405,18 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         await refreshUnpaidKhataDismissBlocks(refreshedTerminalIds);
         activeList = await autoDismissStaleFulfilledOnLoad(refreshedList, withLedger);
         setRows(activeList);
+        void loadBillsForOrders(activeList.map((r) => r.id));
         onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
       }
     },
-    [vendorId, onUnreadCount, isHelpMode, autoDismissStaleFulfilledOnLoad, refreshUnpaidKhataDismissBlocks],
+    [
+      vendorId,
+      onUnreadCount,
+      isHelpMode,
+      autoDismissStaleFulfilledOnLoad,
+      refreshUnpaidKhataDismissBlocks,
+      loadBillsForOrders,
+    ],
   );
 
   useEffect(() => {
@@ -396,6 +485,8 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   }, [vendorId, load]);
 
   const acceptHelpOrder = async (id: string) => {
+    void clearOrderEditedFlag(id);
+    const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     setMarkingId(id);
     const { data, error } = await supabase
       .from("requests")
@@ -413,6 +504,22 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       setRows((prev) => prev.filter((r) => r.id !== id));
       return;
     }
+    if (userPhone) {
+      void invokeNotifyUser({
+        user_phone: userPhone,
+        title: s.incoming_helpAcceptedNotifyTitle,
+        body: s.incoming_helpAcceptedNotifyBody,
+      });
+      saveNotification({
+        userPhone,
+        type: "order_accepted",
+        title: s.incoming_helpAcceptedNotifyTitle,
+        body: s.incoming_helpAcceptedNotifyBody,
+        route: "my-orders",
+        routeParams: { order_id: id },
+        isInformational: false,
+      });
+    }
     setRows((prev) => {
       const next = prev.map((r) => (r.id === id ? { ...r, status: "accepted" } : r));
       onUnreadCount?.(next.filter((r) => r.status === "sent").length);
@@ -421,6 +528,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   };
 
   const acceptDeliveryOrder = async (id: string, userPhone: string | null) => {
+    void clearOrderEditedFlag(id);
     setMarkingId(id);
     const { data, error } = await supabase
       .from("requests")
@@ -451,6 +559,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         title: s.incoming_orderAcceptedTitle,
         body: s.incoming_orderAcceptedBody,
         route: "my-orders",
+        routeParams: { order_id: id },
         isInformational: false,
       });
     }
@@ -482,6 +591,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         title: s.incoming_orderFulfilledNotifyTitle,
         body: s.incoming_orderFulfilledNotifyBody,
         route: "my-orders",
+        routeParams: { order_id: id },
         isInformational: false,
       });
     }
@@ -530,6 +640,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         title: s.incoming_bookingConfirmedNotifyTitle,
         body: s.incoming_bookingConfirmedNotifyBody,
         route: "my-orders",
+        routeParams: { order_id: id },
         isInformational: false,
       });
     }
@@ -548,6 +659,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
 
   const confirmDeclineBooking = async () => {
     if (!declineOrderId || !selectedReason) return;
+    void clearOrderEditedFlag(declineOrderId);
     const reasonText =
       selectedReason === "Other" ? otherReasonText.trim() : selectedReason;
     if (!reasonText) return;
@@ -589,6 +701,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         title,
         body,
         route: "my-orders",
+        routeParams: { order_id: declineOrderId },
         isInformational: false,
       });
     }
@@ -782,6 +895,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         title,
         body,
         route: "my-orders",
+        routeParams: { order_id: cancelOrderId },
         isInformational: false,
       });
     }
@@ -830,6 +944,16 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         r.delivery_address?.toLowerCase().includes(q),
     );
   }, [rows, searchQuery]);
+
+  useEffect(() => {
+    if (!highlightOrderId || loading) return;
+    const el = document.getElementById(`order-card-${highlightOrderId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashOrderId(highlightOrderId);
+    const t = window.setTimeout(() => setFlashOrderId(null), 2000);
+    return () => window.clearTimeout(t);
+  }, [highlightOrderId, loading, rows.length]);
 
   const badge = (status: string) => {
     if (status === "sent")
@@ -928,7 +1052,13 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
           {filteredRows.map((r) => (
             <li
               key={r.id}
-              className="rounded-xl border border-border bg-muted/30 p-3 space-y-2"
+              id={`order-card-${r.id}`}
+              className={cn(
+                "rounded-xl border border-border bg-muted/30 p-3 space-y-2",
+                flashOrderId === r.id &&
+                  "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse",
+              )}
+              onClick={() => void clearOrderEditedFlag(r.id)}
             >
               <div className="flex items-start justify-between gap-2">
                 <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -936,9 +1066,16 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                 </span>
                 {shouldShowStatusBadge(r) && badge(r.status)}
               </div>
-              <p className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
-                {stripLocationTag(r.message)}
-              </p>
+              <div className="flex items-start gap-2">
+                <p className="flex-1 min-w-0 text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
+                  {stripLocationTag(r.message)}
+                </p>
+                {r.is_edited && (
+                  <span className="shrink-0 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
+                    {s.order_edited_badge}
+                  </span>
+                )}
+              </div>
               {r.user_phone && (
                 <>
                   <OrderTrustLoader
@@ -1119,16 +1256,54 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                     </button>
                   )}
                   {(r.status === "accepted" || r.status === "fulfilled") && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBillRequestId(r.id);
-                        setBillUserPhone(r.user_phone);
-                      }}
-                      className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold py-2.5 active:scale-[0.99]"
-                    >
-                      {s.bill_title}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBillRequestId(r.id);
+                          setBillUserPhone(r.user_phone);
+                        }}
+                        className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold py-2.5 active:scale-[0.99]"
+                      >
+                        {s.bill_title}
+                      </button>
+                      {billsByRequestId[r.id] && (
+                        <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-foreground">
+                              {s.bill_total}: ₹{billsByRequestId[r.id].total_amount.toFixed(2)}
+                            </p>
+                            <span className="text-[10px] text-muted-foreground">
+                              {billsByRequestId[r.id].payment_mode === "cash"
+                                ? s.bill_cash
+                                : billsByRequestId[r.id].payment_mode === "upi"
+                                  ? s.bill_upi
+                                  : s.bill_khata}
+                              {" · "}
+                              {billsByRequestId[r.id].payment_status === "paid"
+                                ? "✅ Paid"
+                                : "⏳ Unpaid"}
+                            </span>
+                          </div>
+                          {(billsByRequestId[r.id].payment_mode === "cash" ||
+                            billsByRequestId[r.id].payment_mode === "upi") &&
+                            billsByRequestId[r.id].payment_status === "unpaid" && (
+                              <button
+                                type="button"
+                                disabled={markingBillPaidId === billsByRequestId[r.id].id}
+                                onClick={() =>
+                                  void markOrderBillPaid(billsByRequestId[r.id].id, r.id)
+                                }
+                                className="w-full rounded-lg bg-brand/15 text-brand border border-brand/40 text-xs font-semibold py-2 disabled:opacity-50"
+                              >
+                                {markingBillPaidId === billsByRequestId[r.id].id
+                                  ? s.incoming_saving
+                                  : s.khata_markPaid}
+                              </button>
+                            )}
+                        </div>
+                      )}
+                    </>
                   )}
                   {r.status === "accepted" && (
                     <button
@@ -1468,6 +1643,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
           onClose={() => {
             setBillRequestId(null);
             setBillUserPhone(null);
+            void loadBillsForOrders(rows.map((row) => row.id));
           }}
           requestId={billRequestId}
           vendorId={vendor.id}

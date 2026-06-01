@@ -13,6 +13,7 @@ import {
   vendorTier,
   verificationCopy,
 } from "@/components/VerificationBadge";
+import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import {
   emojiForVendorCategory,
   fetchAiBridgeBrief,
@@ -227,6 +228,8 @@ export function AiBridgeSheet({
               </span>
             </div>
           </div>
+
+          <TrustWarningBanner tier={tier} context="bridge" />
 
           {vendor.vendor_note?.trim() && (
             <div className="rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-green-700 dark:text-brand">

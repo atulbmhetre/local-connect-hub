@@ -3,8 +3,6 @@ import {
   MapPin,
   Phone,
   Store,
-  AlertTriangle,
-  ShieldAlert,
   Clock,
   HeartHandshake,
   Package,
@@ -17,6 +15,7 @@ import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { VerificationBadge, vendorTier, verificationCopy } from "@/components/VerificationBadge";
+import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
@@ -60,6 +59,16 @@ function writeCalledVendor(vendorId: string) {
 }
 
 const SAVED_SESSION_PREFIX = "aaspaas:saved:";
+const NEIGHBOURS_DIRTY_KEY = "aaspaas:neighbours_dirty";
+const MAX_SAVED_NEIGHBOURS = 20;
+
+export function markNeighboursDirty(): void {
+  try {
+    localStorage.setItem(NEIGHBOURS_DIRTY_KEY, "true");
+  } catch {
+    /* ignore */
+  }
+}
 
 export function readSessionSaved(vendorId: string): boolean {
   try {
@@ -75,6 +84,28 @@ function writeSessionSaved(vendorId: string) {
   } catch {
     /* ignore */
   }
+}
+
+function clearSessionSaved(vendorId: string) {
+  try {
+    sessionStorage.removeItem(`${SAVED_SESSION_PREFIX}${vendorId}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function countSavedNeighbours(): Promise<number> {
+  const device_id = getDeviceId();
+  const userPhone = getUserPhone();
+  let q = supabase.from("saved_vendors").select("id", { count: "exact", head: true });
+  if (userPhone != null) {
+    q = q.or(`user_phone.eq.${userPhone},device_id.eq.${device_id}`);
+  } else {
+    q = q.eq("device_id", device_id);
+  }
+  const { count, error } = await q;
+  if (error) return 0;
+  return count ?? 0;
 }
 
 function readIsOwnVendorCard(vendorId: string, vendorPhone: string | null | undefined): boolean {
@@ -335,7 +366,9 @@ export function RadarVendorCard({
   const showConnectAiBridge =
     serviceMode === "help" || deliveryOrderSent;
 
-  const showSaveRow = !isOwnVendor && !isSaved && !savedVendorLocked;
+  const isNeighbourSaved = !isOwnVendor && (isSaved || savedVendorLocked);
+  const showSaveRow = !isOwnVendor && !isNeighbourSaved;
+  const showUnsaveRow = isNeighbourSaved;
 
   const accentRing =
     tier === "green"
@@ -356,6 +389,11 @@ export function RadarVendorCard({
       setPhoneSheetOpen(true);
       return;
     }
+    const existing = await countSavedNeighbours();
+    if (existing >= MAX_SAVED_NEIGHBOURS) {
+      toast.error(s.neighbours_max_reached);
+      return;
+    }
     const device_id = getDeviceId();
     const { error } = await supabase.from("saved_vendors").insert({
       device_id,
@@ -369,6 +407,7 @@ export function RadarVendorCard({
         writeSessionSaved(vendor.id);
         setSavedVendorLocked(true);
         onSave(vendor);
+        markNeighboursDirty();
         toast.success(`✅ ${s.radar_saved_success}`);
         return;
       }
@@ -378,8 +417,26 @@ export function RadarVendorCard({
     writeSessionSaved(vendor.id);
     setSavedVendorLocked(true);
     onSave(vendor);
+    markNeighboursDirty();
     toast.success(`✅ ${s.radar_saved_success}`);
   }, [isSaved, onSave, savedVendorLocked, vendor, s]);
+
+  const handleUnsaveVendor = useCallback(async () => {
+    if (!savedVendorLocked && !isSaved) return;
+    const device_id = getDeviceId();
+    const userPhone = getUserPhone();
+    let del = supabase.from("saved_vendors").delete().eq("vendor_id", vendor.id);
+    del = userPhone != null ? del.eq("user_phone", userPhone) : del.eq("device_id", device_id);
+    const { error } = await del;
+    if (error) {
+      toast.error(s.couldNotRemove, { description: error.message });
+      return;
+    }
+    clearSessionSaved(vendor.id);
+    setSavedVendorLocked(false);
+    markNeighboursDirty();
+    toast.success(s.neighbours_removed);
+  }, [isSaved, savedVendorLocked, vendor.id, s]);
 
   const handleResolution = useCallback(async () => {
     if (resolutionMarked || resolutionBusy) return;
@@ -490,23 +547,7 @@ export function RadarVendorCard({
         </div>
       </div>
 
-      {tier === "yellow" && (
-        <div className="mt-3 rounded-xl bg-warning/10 border border-warning/60 px-3 py-2 flex items-start gap-2">
-          <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
-            <ShieldAlert className="h-4 w-4 text-warning" />
-            <span className="text-xs text-warning font-semibold">Pending</span>
-          </span>
-          <p className="text-xs text-warning font-semibold">{s.radar_verification_progress}</p>
-        </div>
-      )}
-      {tier === "red" && (
-        <div className="mt-3 rounded-xl bg-amber-950/40 border border-amber-800/50 px-3 py-2 flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" aria-hidden />
-          <p className="min-w-0 flex-1 text-xs text-amber-400 font-semibold leading-relaxed">
-            {s.radar_not_verified}
-          </p>
-        </div>
-      )}
+      <TrustWarningBanner tier={tier} context="radar" />
 
       <VendorReputationLine
         vendor={vendor}
@@ -691,6 +732,18 @@ export function RadarVendorCard({
           {`🔖 ${s.radar_save_as}${getLabel(vendor.category) || s.radar_vendor_fallback}`}
         </button>
       )}
+      {showUnsaveRow && (
+        <button
+          type="button"
+          onClick={() => void handleUnsaveVendor()}
+          className={cn(
+            "mt-2 w-full rounded-xl border py-2.5 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
+            "border-border text-muted-foreground bg-muted/30 hover:bg-muted/50",
+          )}
+        >
+          {s.neighbours_saved_button}
+        </button>
+      )}
       <ParchiSheet
         vendor={vendor}
         vendorId={vendor.id}
@@ -701,6 +754,7 @@ export function RadarVendorCard({
       />
       <PhoneEntrySheet
         isOpen={phoneSheetOpen}
+        context="save"
         onClose={() => setPhoneSheetOpen(false)}
         onConfirmed={async (phone) => {
           setPhoneSheetOpen(false);

@@ -9,16 +9,29 @@ import {
 import { saveUserPhone } from "@/lib/userIdentity";
 import { recordUserReferral } from "@/lib/referral";
 import { getDeviceId } from "@/lib/deviceId";
+import { useLanguage } from "@/lib/language";
+
+export type PhoneEntryContext = "order" | "save";
 
 type Props = {
   isOpen: boolean;
   onClose: () => void;
   onConfirmed: (phone: string) => void;
+  context?: PhoneEntryContext;
 };
 
-export function PhoneEntrySheet({ isOpen, onClose, onConfirmed }: Props) {
+export function PhoneEntrySheet({
+  isOpen,
+  onClose,
+  onConfirmed,
+  context = "order",
+}: Props) {
+  const { s } = useLanguage();
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
+
+  const contextLine =
+    context === "save" ? s.phone_entry_save_context : s.phone_entry_order_context;
 
   const handleConfirm = () => {
     const cleaned = value.replace(/\D/g, "");
@@ -51,6 +64,8 @@ export function PhoneEntrySheet({ isOpen, onClose, onConfirmed }: Props) {
         </SheetHeader>
 
         <div className="mt-5 space-y-3">
+          <p className="text-sm text-foreground leading-relaxed px-1">{contextLine}</p>
+
           <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3">
             <span className="text-sm text-muted-foreground font-medium">+91</span>
             <input

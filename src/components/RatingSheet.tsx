@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-
   Sheet,
 
   SheetContent,
@@ -33,6 +32,9 @@ import { toast } from "sonner";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import { cn } from "@/lib/utils";
 import { saveNotification } from "@/lib/notifications";
+import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
+
+// DB migration (run if not applied): ALTER TABLE vendors ADD COLUMN IF NOT EXISTS low_rating_admin_notified boolean DEFAULT false;
 
 
 
@@ -171,33 +173,10 @@ export function RatingSheet({
 
       });
 
-      const { data: reviews } = await supabase
-
-        .from("vendor_reviews")
-
-        .select("rating")
-
-        .eq("vendor_id", vendorId);
-
-      if (reviews?.length) {
-
-        const avg = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
-
-        await supabase
-
-          .from("vendors")
-
-          .update({
-
-            avg_rating: Math.round(avg * 10) / 10,
-
-            review_count: reviews.length,
-
-          })
-
-          .eq("id", vendorId);
-
-      }
+      await syncVendorRatingFromReviews(vendorId, {
+        shopName,
+        alertAdmin: true,
+      });
 
       if (stars <= 2) {
         void invokeNotifyVendor({
@@ -213,6 +192,7 @@ export function RatingSheet({
             title: s.review_lowRatingNotifTitle,
             body: s.review_lowRatingNotifBody,
             route: "vendor",
+            routeParams: { order_id: requestId },
             isInformational: false,
           });
         }
@@ -249,6 +229,7 @@ export function RatingSheet({
     s.rating_errCouldNotSave,
     s.review_lowRatingNotifTitle,
     s.review_lowRatingNotifBody,
+    shopName,
 
   ]);
 
@@ -362,6 +343,14 @@ export function RatingSheet({
           >
             {loading === "rate" ? <Loader2 className="h-5 w-5 animate-spin shrink-0" /> : null}
             {isDelivery ? s.rating_btnDelivered : s.rating_btnHelped}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onDismiss()}
+            className="w-full text-xs text-muted-foreground text-center py-1 active:opacity-80 disabled:opacity-60"
+          >
+            {s.rating_skip}
           </button>
           <button
             type="button"

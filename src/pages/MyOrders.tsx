@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
   supabase,
@@ -41,6 +41,7 @@ import {
   khataPaymentModeLabel,
 } from "@/lib/khataDisplay";
 import { saveNotification } from "@/lib/notifications";
+import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
 
 const MAX_LEN = 200;
 
@@ -121,6 +122,17 @@ function computeVendorStopped(
   return maxSpreadMeters(recent) <= stoppedRadiusM;
 }
 
+function isVendorStoppedIncludingStale(
+  history: VendorLocationPoint[],
+  stoppedRadiusM: number,
+  stoppedMinutes: number,
+): boolean {
+  if (computeVendorStopped(history, stoppedRadiusM, stoppedMinutes)) return true;
+  if (history.length < 1) return false;
+  const last = history[history.length - 1];
+  return Date.now() - last.timestamp >= stoppedMinutes * 60 * 1000;
+}
+
 const MS_24H = 24 * 60 * 60 * 1000;
 
 function orderCreatedWithinLast24h(created_at: string): boolean {
@@ -128,8 +140,13 @@ function orderCreatedWithinLast24h(created_at: string): boolean {
   return Number.isFinite(t) && Date.now() - t < MS_24H;
 }
 
+const cancelledOrderStatusLabel = (
+  r: Pick<OrderRequestRow, "cancel_reason">,
+  s: ReturnType<typeof useLanguage>["s"],
+) => (r.cancel_reason?.trim() ? s.order_cancelled_by_vendor : s.order_cancelled_by_you);
+
 const userStatusLabel = (
-  r: Pick<OrderRequestRow, "status" | "created_at" | "appointment_status"> & {
+  r: Pick<OrderRequestRow, "status" | "created_at" | "appointment_status" | "cancel_reason"> & {
     vendors?: { service_mode: string | null } | null;
   },
   s: ReturnType<typeof useLanguage>["s"],
@@ -146,7 +163,7 @@ const userStatusLabel = (
       : s.myOrders_statusNoResponse;
   }
   if (r.status === "fulfilled") return s.myOrders_statusFulfilled;
-  if (r.status === "cancelled") return s.myOrders_cancelledByVendor;
+  if (r.status === "cancelled") return cancelledOrderStatusLabel(r, s);
   return r.status;
 };
 
@@ -154,6 +171,16 @@ function canShowRemoveOrder(r: Pick<OrderRequestRow, "status" | "created_at">): 
   if (r.status === "sent") return true;
   if (r.status === "seen") return !orderCreatedWithinLast24h(r.created_at);
   return false;
+}
+
+function isHelpAcceptDelayed(
+  r: Pick<OrderRequestRow, "updated_at" | "created_at">,
+  timeoutHours: number,
+): boolean {
+  const iso = r.updated_at ?? r.created_at;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t >= timeoutHours * 60 * 60 * 1000;
 }
 
 function stripLocationTag(message: string): string {
@@ -183,8 +210,13 @@ function deliverySlotLabel(
   return labels[slot.trim().toLowerCase()] ?? slot;
 }
 
+type LocationHighlightState = { highlightOrderId?: string };
+
 const MyOrders = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const highlightOrderId = (location.state as LocationHighlightState | null)?.highlightOrderId;
+  const [flashOrderId, setFlashOrderId] = useState<string | null>(null);
   const { s } = useLanguage();
   const { config } = useAppConfig();
   const slotLabels = useMemo(
@@ -209,11 +241,13 @@ const MyOrders = () => {
         review_text: string | null;
         created_at: string;
         vendor_response: string | null;
+        vendor_responded_at: string | null;
       }
     >
   >({});
   const [editingReview, setEditingReview] = useState<{
     id: string;
+    vendorId: string;
     rating: number;
     text: string;
   } | null>(null);
@@ -297,12 +331,23 @@ const MyOrders = () => {
     );
   }, [rows, searchQuery]);
 
+  useEffect(() => {
+    if (!highlightOrderId || loading) return;
+    const el = document.getElementById(`order-card-${highlightOrderId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashOrderId(highlightOrderId);
+    const t = window.setTimeout(() => setFlashOrderId(null), 2000);
+    return () => window.clearTimeout(t);
+  }, [highlightOrderId, loading, rows.length]);
+
   const loadBills = async (requestIds: string[]) => {
     if (!requestIds.length) return;
     const { data } = await supabase
       .from("order_bills")
       .select("id, request_id, total_amount, payment_mode, payment_status, notes")
-      .in("request_id", requestIds);
+      .in("request_id", requestIds)
+      .neq("payment_status", "void");
 
     if (!data?.length) return;
 
@@ -312,7 +357,9 @@ const MyOrders = () => {
       .in("request_id", requestIds);
 
     const billMap: Record<string, OrderBill> = {};
-    for (const bill of data) {
+    const sortedBills = [...data].sort((a, b) => String(b.id).localeCompare(String(a.id)));
+    for (const bill of sortedBills) {
+      if (billMap[bill.request_id]) continue;
       billMap[bill.request_id] = {
         id: bill.id,
         total_amount: bill.total_amount,
@@ -330,7 +377,7 @@ const MyOrders = () => {
     const deviceId = getDeviceId();
     const { data } = await supabase
       .from("vendor_reviews")
-      .select("id, request_id, rating, review_text, created_at, vendor_response")
+      .select("id, request_id, rating, review_text, created_at, vendor_response, vendor_responded_at")
       .or(`user_phone.eq.${userPhone},device_id.eq.${deviceId}`);
     const map: Record<
       string,
@@ -340,6 +387,7 @@ const MyOrders = () => {
         review_text: string | null;
         created_at: string;
         vendor_response: string | null;
+        vendor_responded_at: string | null;
       }
     > = {};
     for (const r of data ?? []) map[r.request_id] = r;
@@ -400,7 +448,7 @@ const MyOrders = () => {
     let listQuery = supabase
       .from("requests")
       .select(
-        "id, device_id, vendor_id, message, status, created_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, vendors(shop_name, service_mode, phone)",
+        "id, device_id, vendor_id, message, status, created_at, updated_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, delivery_address, is_edited, vendors(shop_name, service_mode, phone)",
       )
       .neq("status", "done")
       .order("created_at", { ascending: false });
@@ -448,9 +496,33 @@ const MyOrders = () => {
 
   useEffect(() => {
     if (acceptedHelpVendorIds.length === 0) return;
-    const t = window.setInterval(() => setLocationTick((n) => n + 1), 60_000);
+    const stoppedRadiusM = config.vendorStoppedDistanceMeters;
+    const stoppedMinutes = config.vendorStoppedMinutes;
+
+    const onTick = () => {
+      setLocationTick((n) => n + 1);
+      setVendorStoppedByOrderId((prevStopped) => {
+        const next = { ...prevStopped };
+        for (const order of acceptedHelpOrders) {
+          const history = vendorLocationHistoryRef.current.get(order.vendor_id) ?? [];
+          next[order.id] = isVendorStoppedIncludingStale(
+            history,
+            stoppedRadiusM,
+            stoppedMinutes,
+          );
+        }
+        return next;
+      });
+    };
+
+    const t = window.setInterval(onTick, 60_000);
     return () => window.clearInterval(t);
-  }, [acceptedHelpVendorIds.join(",")]);
+  }, [
+    acceptedHelpVendorIds.join(","),
+    acceptedHelpOrders,
+    config.vendorStoppedDistanceMeters,
+    config.vendorStoppedMinutes,
+  ]);
 
   const applyVendorLocationUpdate = useCallback(
     (
@@ -715,6 +787,7 @@ const MyOrders = () => {
         title: s.myOrders_userCancelledNotifyTitle,
         body: s.myOrders_userCancelledNotifyBody,
         route: "vendor",
+        routeParams: { order_id: r.id },
         isInformational: false,
       });
     }
@@ -744,6 +817,7 @@ const MyOrders = () => {
         title: s.myOrders_userCancelledNotifyTitle,
         body: s.myOrders_userCancelledNotifyBody,
         route: "vendor",
+        routeParams: { order_id: r.id },
         isInformational: false,
       });
     }
@@ -842,11 +916,40 @@ const MyOrders = () => {
     if (trimmed === originalStripped) return;
 
     const newMessage = buildMessageWithTags(trimmed, editOrder.message);
+    const oldMessage = editOrder.message;
 
     setSavingEdit(true);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    let updateQuery = supabase.from("requests").update({ message: newMessage }).eq("id", editOrder.id);
+
+    const { data: statusRow, error: statusError } = await supabase
+      .from("requests")
+      .select("status")
+      .eq("id", editOrder.id)
+      .maybeSingle();
+
+    if (statusError) {
+      setSavingEdit(false);
+      toast.error(s.myOrders_errCouldNotUpdate, { description: statusError.message });
+      return;
+    }
+
+    const currentStatus = statusRow?.status;
+    if (currentStatus !== "sent" && currentStatus !== "seen") {
+      setSavingEdit(false);
+      toast.error(s.order_no_longer_editable);
+      closeEditSheet();
+      return;
+    }
+
+    let updateQuery = supabase
+      .from("requests")
+      .update({
+        message: newMessage,
+        previous_message: oldMessage,
+        is_edited: true,
+      })
+      .eq("id", editOrder.id);
     updateQuery =
       userPhone != null ? updateQuery.eq("user_phone", userPhone) : updateQuery.eq("device_id", device_id);
     const { error } = await updateQuery;
@@ -858,16 +961,25 @@ const MyOrders = () => {
     }
 
     setRows((prev) =>
-      prev.map((r) => (r.id === editOrder.id ? { ...r, message: newMessage } : r)),
+      prev.map((r) =>
+        r.id === editOrder.id
+          ? {
+              ...r,
+              message: newMessage,
+              previous_message: oldMessage,
+              is_edited: true,
+            }
+          : r,
+      ),
     );
 
     const hasAppointment =
       editOrder.appointment_time != null && String(editOrder.appointment_time).trim() !== "";
-    const appointmentDate = hasAppointment
-      ? new Date(editOrder.appointment_time!).toDateString()
-      : null;
     const today = new Date().toDateString();
-    const isSameDay = hasAppointment && appointmentDate === today;
+    const referenceDate = hasAppointment
+      ? new Date(editOrder.appointment_time!).toDateString()
+      : new Date(editOrder.created_at).toDateString();
+    const isSameDay = referenceDate === today;
     const customerName = userPhone ?? "Customer";
 
     const notificationTitle = hasAppointment
@@ -884,13 +996,30 @@ const MyOrders = () => {
       : isSameDay
         ? `${customerName} changed their order — check details now`
         : `${customerName} updated their order details`;
-    void invokeNotifyVendor({
-      vendor_id: editOrder.vendor_id,
-      notification_title: notificationTitle,
-      message: notificationBody,
-      request_id: editOrder.id,
-    });
+
     const vendorPhone = editOrder.vendors?.phone?.trim();
+    let skipPush = false;
+    if (vendorPhone) {
+      const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const { data: recentNotif } = await supabase
+        .from("user_notifications")
+        .select("id")
+        .eq("user_phone", vendorPhone)
+        .eq("type", "order_update")
+        .gt("created_at", twoMinAgo)
+        .limit(1);
+      skipPush = (recentNotif?.length ?? 0) > 0;
+    }
+
+    if (!skipPush) {
+      void invokeNotifyVendor({
+        vendor_id: editOrder.vendor_id,
+        notification_title: notificationTitle,
+        message: notificationBody,
+        request_id: editOrder.id,
+      });
+    }
+
     if (vendorPhone) {
       saveNotification({
         userPhone: vendorPhone,
@@ -898,6 +1027,7 @@ const MyOrders = () => {
         title: notificationTitle,
         body: notificationBody,
         route: "vendor",
+        routeParams: { order_id: editOrder.id },
         isInformational: false,
       });
     }
@@ -1020,9 +1150,12 @@ const MyOrders = () => {
           {filteredRows.map((r) => (
             <li
               key={r.id}
+              id={`order-card-${r.id}`}
               className={cn(
                 "mx-4 rounded-2xl border border-surface-border bg-surface p-4 space-y-2 mb-3",
                 r.status === "cancelled" && "border-red-500/30 bg-red-500/5",
+                flashOrderId === r.id &&
+                  "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse",
               )}
             >
               <div className="flex items-start justify-between gap-2">
@@ -1053,7 +1186,7 @@ const MyOrders = () => {
                 )}
               >
                 {r.status === "cancelled"
-                  ? s.myOrders_cancelledByVendor
+                  ? cancelledOrderStatusLabel(r, s)
                   : r.status === "accepted" && r.vendors?.service_mode === "help"
                     ? s.status_accepted
                     : userStatusLabel(r, s)}
@@ -1132,6 +1265,7 @@ const MyOrders = () => {
                             onClick={() =>
                               setEditingReview({
                                 id: review.id,
+                                vendorId: r.vendor_id,
                                 rating: review.rating,
                                 text: review.review_text ?? "",
                               })
@@ -1151,6 +1285,11 @@ const MyOrders = () => {
                         <div className="rounded-lg bg-brand/5 border border-brand-border px-2 py-1.5">
                           <p className="text-[10px] text-brand font-semibold">{s.review_vendorSays}</p>
                           <p className="text-xs text-foreground">{review.vendor_response}</p>
+                          {review.vendor_responded_at && (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              {formatTimeAgo(review.vendor_responded_at)}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1198,6 +1337,46 @@ const MyOrders = () => {
                             >
                               {s.radar_connect_ai}
                             </button>
+                          )}
+                        </div>
+                      )}
+                      {isHelpAcceptDelayed(r, config.helpAcceptTimeoutHours) && (
+                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
+                          <p className="text-[11px] text-amber-400 text-center leading-snug">
+                            {s.order_help_delayed_warning}
+                          </p>
+                          {!showOrderCancelConfirm[r.id] ? (
+                            <button
+                              type="button"
+                              disabled={markingId === r.id}
+                              onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: true }))}
+                              className="w-full rounded-lg bg-destructive text-destructive-foreground text-xs font-semibold py-2.5 active:scale-[0.99] disabled:opacity-50"
+                            >
+                              {s.myOrders_cancelOrder}
+                            </button>
+                          ) : (
+                            <div className="space-y-2">
+                              <p className="text-xs text-destructive font-semibold text-center">
+                                {s.myOrders_confirmCancelOrderQ}
+                              </p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  disabled={markingId === r.id}
+                                  onClick={() => void handleRemoveOrder(r)}
+                                  className="rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
+                                >
+                                  {s.myOrders_yesCancel}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: false }))}
+                                  className="rounded-lg border border-border text-xs font-semibold py-2"
+                                >
+                                  {s.myOrders_keepIt}
+                                </button>
+                              </div>
+                            </div>
                           )}
                         </div>
                       )}
@@ -1489,6 +1668,41 @@ const MyOrders = () => {
           <p className="text-[10px] text-muted-foreground text-right mt-1">
             {editMessage.length}/{MAX_LEN}
           </p>
+          {editOrder?.delivery_address?.trim() && (
+            <p className="mt-3 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              {editOrder.delivery_address.trim()}
+            </p>
+          )}
+          {editOrder &&
+            (() => {
+              const slot = deliverySlotLabel(editOrder.delivery_slot, slotLabels);
+              if (!slot) return null;
+              return (
+                <p className="mt-2 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                  {slot}
+                </p>
+              );
+            })()}
+          {editOrder?.appointment_time &&
+            String(editOrder.appointment_time).trim() !== "" && (
+              <p className="mt-2 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                {new Date(editOrder.appointment_time).toLocaleString("en-IN", {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+            )}
+          {(editOrder?.delivery_address?.trim() ||
+            deliverySlotLabel(editOrder?.delivery_slot, slotLabels) ||
+            (editOrder?.appointment_time &&
+              String(editOrder.appointment_time).trim() !== "")) && (
+            <p className="mt-2 text-[11px] text-muted-foreground leading-snug">
+              {s.edit_address_hint}
+            </p>
+          )}
           <button
             type="button"
             disabled={
@@ -1545,13 +1759,18 @@ const MyOrders = () => {
                 type="button"
                 onClick={async () => {
                   if (!editingReview) return;
-                  await supabase
+                  const { error } = await supabase
                     .from("vendor_reviews")
                     .update({
                       rating: editingReview.rating,
                       review_text: editingReview.text.trim() || null,
                     })
                     .eq("id", editingReview.id);
+                  if (error) {
+                    toast.error(s.rating_errCouldNotSave);
+                    return;
+                  }
+                  await syncVendorRatingFromReviews(editingReview.vendorId);
                   toast.success(s.review_updated);
                   setEditingReview(null);
                   void loadMyReviews();

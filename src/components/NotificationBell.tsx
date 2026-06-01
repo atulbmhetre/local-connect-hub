@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { formatTimeAgo } from "@/lib/orders";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/lib/language";
 import {
   Sheet,
   SheetContent,
@@ -29,12 +30,45 @@ export type UserNotification = {
 const ROUTE_PATHS: Record<string, string> = {
   vendor: "/vendor",
   "my-orders": "/my-orders",
+  settings: "/settings",
 };
 
 function resolveRoutePath(route: string | null): string {
   if (!route?.trim()) return "/";
   const key = route.trim().replace(/^\//, "");
   return ROUTE_PATHS[key] ?? `/${key}`;
+}
+
+function navigateFromNotification(
+  navigate: ReturnType<typeof useNavigate>,
+  route: string | null,
+  routeParams: Record<string, string> | null,
+): void {
+  const path = resolveRoutePath(route);
+  const key = route?.trim().replace(/^\//, "") ?? "";
+  const params = routeParams ?? {};
+
+  if (key === "my-orders" && params.order_id) {
+    navigate(path, { state: { highlightOrderId: params.order_id } });
+    return;
+  }
+  if (key === "vendor" && params.order_id) {
+    navigate(path, { state: { highlightOrderId: params.order_id } });
+    return;
+  }
+  if (key === "vendor" && params.vendor_id) {
+    navigate(path, { state: { highlightVendorId: params.vendor_id } });
+    return;
+  }
+  if (key === "settings" && params.vendor_id) {
+    navigate(path, { state: { highlightVendorId: params.vendor_id } });
+    return;
+  }
+  navigate(path);
+}
+
+function formatBadgeCount(n: number): string {
+  return n > 9 ? "9+" : String(n);
 }
 
 type Props = {
@@ -44,6 +78,7 @@ type Props = {
 };
 
 export function NotificationBell({ className, extraCount = 0 }: Props) {
+  const { s } = useLanguage();
   const navigate = useNavigate();
   const [phone, setPhone] = useState(() => getUserPhone());
   const [open, setOpen] = useState(false);
@@ -72,6 +107,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
         "id, user_phone, type, title, body, route, route_params, is_informational, is_read, read_at, created_at",
       )
       .eq("user_phone", userPhone)
+      .order("is_read", { ascending: true })
       .order("created_at", { ascending: false })
       .limit(50);
     setLoading(false);
@@ -102,6 +138,21 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     );
     void refreshUnreadCount(userPhone);
   }, [refreshUnreadCount]);
+
+  const markAllRead = useCallback(async (userPhone: string) => {
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("user_notifications")
+      .update({ is_read: true, read_at: now })
+      .eq("user_phone", userPhone)
+      .eq("is_read", false);
+    if (error) {
+      console.error("NotificationBell mark all read", error);
+      return;
+    }
+    setUnreadCount(0);
+    void loadTray(userPhone);
+  }, [loadTray]);
 
   useEffect(() => {
     const syncPhone = () => setPhone(getUserPhone());
@@ -150,6 +201,19 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
           if (open) void loadTray(phone);
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "user_notifications",
+          filter: `user_phone=eq.${phone}`,
+        },
+        () => {
+          void refreshUnreadCount(phone);
+          if (open) void loadTray(phone);
+        },
+      )
       .subscribe();
 
     return () => {
@@ -186,11 +250,11 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
       }
     }
     setOpen(false);
-    navigate(resolveRoutePath(n.route));
+    navigateFromNotification(navigate, n.route, n.route_params);
   };
 
-  const totalUnread = unreadCount + Math.max(0, extraCount);
-  const badgeLabel = totalUnread > 9 ? "9+" : String(totalUnread);
+  const pendingOrderCount = Math.max(0, extraCount);
+  const vendorDualBadges = pendingOrderCount > 0;
 
   return (
     <>
@@ -204,13 +268,34 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
         aria-label="Notifications"
       >
         <Bell className="h-5 w-5" />
-        {totalUnread > 0 && (
-          <span
-            className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold tabular-nums"
-            aria-hidden
-          >
-            {badgeLabel}
-          </span>
+        {vendorDualBadges ? (
+          <>
+            {unreadCount > 0 && (
+              <span
+                className="absolute -top-1 -left-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-[10px] font-bold tabular-nums"
+                aria-hidden
+              >
+                {formatBadgeCount(unreadCount)}
+              </span>
+            )}
+            {pendingOrderCount > 0 && (
+              <span
+                className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-amber-500 text-amber-950 text-[10px] font-bold tabular-nums"
+                aria-hidden
+              >
+                {formatBadgeCount(pendingOrderCount)}
+              </span>
+            )}
+          </>
+        ) : (
+          unreadCount > 0 && (
+            <span
+              className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-[10px] font-bold tabular-nums"
+              aria-hidden
+            >
+              {formatBadgeCount(unreadCount)}
+            </span>
+          )
         )}
       </button>
 
@@ -220,7 +305,18 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
           className="rounded-t-2xl border-t border-border bg-background max-h-[85vh] flex flex-col p-0 [&>button]:hidden"
         >
           <SheetHeader className="px-4 pt-4 pb-2 border-b border-border text-left shrink-0">
-            <SheetTitle className="text-foreground">Notifications</SheetTitle>
+            <div className="flex items-center justify-between gap-2 pr-8">
+              <SheetTitle className="text-foreground">Notifications</SheetTitle>
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => phone && void markAllRead(phone)}
+                  className="text-xs font-medium text-brand shrink-0 hover:underline"
+                >
+                  {s.notifications_mark_all_read}
+                </button>
+              )}
+            </div>
           </SheetHeader>
 
           <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -265,6 +361,19 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
               </ul>
             )}
           </div>
+
+          {pendingOrderCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                navigate("/vendor");
+              }}
+              className="shrink-0 mx-4 mb-4 mt-1 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-left text-xs text-foreground leading-relaxed active:opacity-90"
+            >
+              {s.notifications_pending_orders_note.replace("{count}", String(pendingOrderCount))}
+            </button>
+          )}
         </SheetContent>
       </Sheet>
     </>

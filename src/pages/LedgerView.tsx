@@ -10,7 +10,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { supabase } from "@/lib/supabase";
+import { supabase, invokeNotifyUser } from "@/lib/supabase";
+import { saveNotification } from "@/lib/notifications";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
@@ -254,6 +255,61 @@ const LedgerView = () => {
           : e,
       ),
     );
+
+    const { data: linkedKhataTx } = await supabase
+      .from("khata_transactions")
+      .select("request_id")
+      .eq("vendor_id", vendorId)
+      .eq("user_phone", selectedPhone)
+      .not("request_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const khataOrderRouteParams = linkedKhataTx?.request_id
+      ? { order_id: linkedKhataTx.request_id }
+      : undefined;
+
+    if (newOutstanding === 0) {
+      await supabase
+        .from("order_bills")
+        .update({ payment_status: "paid" })
+        .eq("user_phone", selectedPhone)
+        .eq("vendor_id", vendorId)
+        .eq("payment_mode", "khata")
+        .eq("payment_status", "unpaid");
+
+      const paidTitle = s.khata_paidNotifTitle;
+      const paidBody = `₹${amountPaid.toFixed(0)} payment recorded by ${shopName || "vendor"}`;
+      void invokeNotifyUser({
+        user_phone: selectedPhone,
+        title: paidTitle,
+        body: paidBody,
+      });
+      saveNotification({
+        userPhone: selectedPhone,
+        type: "bill",
+        title: paidTitle,
+        body: paidBody,
+        route: "my-orders",
+        ...(khataOrderRouteParams ? { routeParams: khataOrderRouteParams } : {}),
+        isInformational: false,
+      });
+    } else {
+      const partialTitle = s.khata_partial_paid_title;
+      const partialBody = s.khata_partial_paid_body
+        .replace("{amount}", amountPaid.toFixed(0))
+        .replace("{shop}", shopName || "vendor")
+        .replace("{outstanding}", newOutstanding.toFixed(0));
+      saveNotification({
+        userPhone: selectedPhone,
+        type: "bill",
+        title: partialTitle,
+        body: partialBody,
+        route: "my-orders",
+        ...(khataOrderRouteParams ? { routeParams: khataOrderRouteParams } : {}),
+        isInformational: false,
+      });
+    }
 
     setSavingPayment(false);
     toast.success(s.khata_markedPaid);

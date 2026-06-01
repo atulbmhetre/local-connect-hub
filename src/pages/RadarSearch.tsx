@@ -166,7 +166,8 @@ const RadarSearch = () => {
         let q = supabase
           .from("vendors")
           .select("*, verification_status")
-          .eq("is_active", true);
+          .eq("is_active", true)
+          .eq("is_banned", false);
         if (term) {
           const resolved = resolveCategory(term);
           if (resolved) q = q.eq("category", resolved);

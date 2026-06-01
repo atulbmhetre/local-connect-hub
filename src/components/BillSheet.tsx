@@ -11,6 +11,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   supabase,
   invokeNotifyUser,
   SUPABASE_URL,
@@ -60,6 +70,7 @@ export function BillSheet({
   const [items, setItems] = useState<BillItem[]>([newBillItem()]);
   const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "khata">("cash");
   const [sending, setSending] = useState(false);
+  const [replaceDialogOpen, setReplaceDialogOpen] = useState(false);
   const [notes, setNotes] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
@@ -228,42 +239,58 @@ export function BillSheet({
     }
   };
 
-  const sendBill = async () => {
-    if (!validItems.length) return;
-
-    setSending(true);
-
-    const { data: bill, error: billError } = await supabase
+  const voidExistingUnpaidBills = async () => {
+    await supabase
       .from("order_bills")
-      .insert({
-        request_id: requestId,
-        vendor_id: vendorId,
-        user_phone: userPhone,
-        total_amount: totalAmount,
-        payment_mode: paymentMode,
-        payment_status: "unpaid",
-        notes: notes.trim() || null,
-      })
-      .select()
-      .single();
+      .update({ payment_status: "void" })
+      .eq("request_id", requestId)
+      .neq("payment_status", "paid");
+  };
 
-    if (billError || !bill) {
+  const executeSendBill = async () => {
+    const rpcItems = validItems.map((i) => ({
+      name: i.description.trim(),
+      quantity: i.quantity,
+      unit_price: i.unit_price,
+      unit: i.unit.trim() || null,
+    }));
+
+    const { data: billId, error: billError } = await supabase.rpc("insert_bill_with_items", {
+      p_order_id: requestId,
+      p_vendor_id: vendorId,
+      p_customer_phone: userPhone,
+      p_total: totalAmount,
+      p_payment_mode: paymentMode,
+      p_payment_status: "unpaid",
+      p_notes: notes.trim() || null,
+      p_items: rpcItems,
+    });
+
+    if (billError || !billId) {
       toast.error(s.bill_sendFailed);
       setSending(false);
       return;
     }
 
-    await supabase.from("order_items").insert(
-      validItems.map((i) => ({
-        request_id: requestId,
-        description: i.description.trim(),
-        quantity: i.quantity,
-        unit: i.unit.trim() || null,
-        unit_price: i.unit_price,
-      })),
-    );
-
     if (paymentMode === "khata" && userPhone) {
+      const { data: orderRow } = await supabase
+        .from("requests")
+        .select("message")
+        .eq("id", requestId)
+        .maybeSingle();
+      const orderMessage = orderRow?.message?.trim();
+      const khataNote = orderMessage || "Bill from order";
+
+      await supabase.from("khata_transactions").insert({
+        vendor_id: vendorId,
+        user_phone: userPhone,
+        amount: totalAmount,
+        note: khataNote,
+        payment_mode: "khata",
+        request_id: requestId,
+        created_at: new Date().toISOString(),
+      });
+
       const { data: existing } = await supabase
         .from("khata_ledger")
         .select("total_outstanding")
@@ -298,6 +325,7 @@ export function BillSheet({
         title,
         body,
         route: "my-orders",
+        routeParams: { order_id: requestId },
         isInformational: false,
       });
     }
@@ -307,7 +335,60 @@ export function BillSheet({
     onClose();
   };
 
+  const sendBill = async () => {
+    if (!validItems.length) return;
+
+    const { data: existingBills, error: checkError } = await supabase
+      .from("order_bills")
+      .select("id")
+      .eq("request_id", requestId)
+      .neq("payment_status", "void")
+      .limit(1);
+
+    if (checkError) {
+      toast.error(s.bill_sendFailed);
+      return;
+    }
+
+    if (existingBills && existingBills.length > 0) {
+      setReplaceDialogOpen(true);
+      return;
+    }
+
+    setSending(true);
+    await executeSendBill();
+  };
+
+  const confirmReplaceBill = async () => {
+    setReplaceDialogOpen(false);
+    setSending(true);
+    await voidExistingUnpaidBills();
+    await executeSendBill();
+  };
+
   return (
+    <>
+    <AlertDialog open={replaceDialogOpen} onOpenChange={setReplaceDialogOpen}>
+      <AlertDialogContent className="rounded-2xl border border-border bg-card">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{s.bill_already_sent_title}</AlertDialogTitle>
+          <AlertDialogDescription>{s.bill_already_sent_body}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+          <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={sending}
+            onClick={(e) => {
+              e.preventDefault();
+              void confirmReplaceBill();
+            }}
+          >
+            {s.bill_send}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
     <Sheet open={isOpen} onOpenChange={handleOpenChange}>
       <SheetContent
         side="bottom"
@@ -506,5 +587,6 @@ export function BillSheet({
         </div>
       </SheetContent>
     </Sheet>
+    </>
   );
 }

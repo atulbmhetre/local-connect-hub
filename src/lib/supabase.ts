@@ -167,6 +167,7 @@ export type VerificationStatus =
   | "unverified"
   | "identity_linked"
   | "business_verified"
+  | "green_pending"
   | "Green"
   | "Yellow"
   | "Red";
@@ -205,6 +206,8 @@ export type Vendor = {
   review_count?: number | null;
   /** First day of current ledger/financial year (date). */
   ledger_cycle_start?: string | null;
+  is_banned?: boolean;
+  ban_reason?: string | null;
 };
 
 export type RequestRow = {
@@ -594,11 +597,14 @@ export function isValidPhone(phone: string) {
  * Manual admin approval (`is_manual_verified`) gates the actual glow.
  */
 export function meetsGreenCriteria(v: Vendor) {
+  const status = v.verification_status;
+  const verificationComplete =
+    status === "business_verified" || status === "green_pending";
   return (
     !!v.shop_photo_url &&
     v.upi_verified &&
     isValidPhone(v.phone ?? "") &&
-    v.verification_status === "business_verified"
+    verificationComplete
   );
 }
 

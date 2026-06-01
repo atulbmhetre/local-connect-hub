@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import {
   supabase,
   invokeNotifyUser,
+  invokeNotifyVendor,
   useCategoryLabel,
   useServiceModeLabel,
   type Vendor,
@@ -39,6 +40,7 @@ import { saveNotification } from "@/lib/notifications";
 import { NotificationBell } from "@/components/NotificationBell";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
+import { logAdminAction } from "@/lib/adminAudit";
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
@@ -93,20 +95,26 @@ const VOICE_INPUT_OPTIONS: { code: VoiceInputLang; label: string }[] = [
   { code: "mr-IN", label: "MR" },
 ];
 
-const VERIFY_MANDATORY = new Set([
+const VERIFY_ITEM_IDS = [
   "phone_called",
+  "name_match",
   "aware",
   "shop_exists",
-  "no_duplicate",
-]);
-const VERIFY_IMPORTANT = new Set([
-  "name_match",
   "shop_name_match",
   "category_match",
   "service_mode_correct",
+  "no_duplicate",
   "photo_genuine",
-]);
-const VERIFY_CHECK_COUNT = 12;
+  "upi_verified",
+  "no_suspicious",
+  "rules_understood",
+  "gps_photo_independent",
+] as const;
+const VERIFY_CHECK_COUNT = VERIFY_ITEM_IDS.length;
+
+function emptyVerifyChecks(): Record<string, boolean> {
+  return Object.fromEntries(VERIFY_ITEM_IDS.map((id) => [id, false]));
+}
 
 function verifyProgressKey(vendorId: string) {
   return `aaspaas:verify_progress:${vendorId}`;
@@ -134,6 +142,28 @@ function adminServiceModeLabel(mode: string | null | undefined): string {
 }
 
 const GPS_MATCH_TOLERANCE_M = 75;
+
+const DEV_MENU_PIN_DEFAULT = "1947";
+
+const ADMIN_CONFIG_WHITELIST = [
+  "referral_enabled",
+  "help_accept_timeout_hours",
+  "vendor_stopped_minutes",
+  "location_ping_seconds",
+  "referral_user_credit",
+  "dev_menu_pin",
+] as const;
+
+type AdminConfigKey = (typeof ADMIN_CONFIG_WHITELIST)[number];
+
+const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
+  referral_enabled: "referral_enabled",
+  help_accept_timeout_hours: "help_accept_timeout_hours",
+  vendor_stopped_minutes: "vendor_stopped_minutes",
+  location_ping_seconds: "location_ping_seconds",
+  referral_user_credit: "referral_user_credit",
+  dev_menu_pin: "dev_menu_pin",
+};
 
 function buildVerifyAutoChecks(
   v: {
@@ -220,6 +250,7 @@ const Settings = () => {
   const { lang, setLang, s } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const { config } = useAppConfig();
+  const [referEarnVisible, setReferEarnVisible] = useState(true);
   const languageOptions = useMemo(
     () =>
       (Object.entries(LANGUAGE_LABELS) as [Language, string][]).filter(([code]) => {
@@ -234,10 +265,15 @@ const Settings = () => {
   const getServiceModeLabel = useServiceModeLabel();
   const [titleTaps, setTitleTaps] = useState(0);
   const [devOpen, setDevOpen] = useState(false);
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [devMenuPin, setDevMenuPin] = useState(DEV_MENU_PIN_DEFAULT);
   const userPhone = getUserPhone();
   const deviceId = getDeviceId();
   const vendorId = localStorage.getItem("aaspaas:vendor_id");
-  const isAdmin = userPhone === "8888169446";
+  const ADMIN_PHONE_FALLBACK = "8888169446";
+  const [adminPhone, setAdminPhone] = useState(ADMIN_PHONE_FALLBACK);
+  const isAdmin = userPhone === adminPhone;
   const [devPhone, setDevPhone] = useState(userPhone ?? "");
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
@@ -251,6 +287,10 @@ const Settings = () => {
     activeVendorsToday: 0,
     newVendorsThisWeek: 0,
     unverifiedVendors: 0,
+    stuckOrders: 0,
+    avgVendorRating: 0,
+    riskyUsers: 0,
+    totalReferrals: 0,
   });
 
   const [vendorList, setVendorList] = useState<
@@ -271,6 +311,8 @@ const Settings = () => {
       last_updated: string | null;
       gps_match_distance: number | null;
       upi_verified: boolean;
+      is_banned: boolean;
+      ban_reason: string | null;
     }[]
   >([]);
   const [vendorSearch, setVendorSearch] = useState("");
@@ -293,6 +335,8 @@ const Settings = () => {
       fake_count: number;
       is_banned: boolean;
       ban_reason: string | null;
+      warn_count: number;
+      last_warned_at: string | null;
     }[]
   >([]);
   const [flaggedAction, setFlaggedAction] = useState<string | null>(null);
@@ -301,6 +345,12 @@ const Settings = () => {
     phone: null,
   });
   const [banReason, setBanReason] = useState("");
+  const [vendorBanDialog, setVendorBanDialog] = useState<{
+    open: boolean;
+    vendor: (typeof vendorList)[number] | null;
+  }>({ open: false, vendor: null });
+  const [vendorBanReason, setVendorBanReason] = useState("");
+  const [vendorBanAction, setVendorBanAction] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [verifySheet, setVerifySheet] = useState<{
     open: boolean;
@@ -308,6 +358,7 @@ const Settings = () => {
   }>({ open: false, vendor: null });
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
   const [verifyAutoTicked, setVerifyAutoTicked] = useState<Set<string>>(() => new Set());
+  const [verifyReferrerLabel, setVerifyReferrerLabel] = useState<string | null>(null);
   const { addresses, loading: addressesLoading, refresh: refreshAddresses } = useUserAddresses();
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [editAddressValue, setEditAddressValue] = useState("");
@@ -336,6 +387,11 @@ const Settings = () => {
   });
   const [addressesOpen, setAddressesOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
+  const [userTrust, setUserTrust] = useState<{
+    trust_score: number | null;
+    warn_count: number | null;
+    is_banned: boolean;
+  } | null>(null);
   const [activeGroup, setActiveGroup] = useState<SettingsActiveGroup>(() =>
     defaultSettingsActiveGroup(vendorId),
   );
@@ -344,9 +400,88 @@ const Settings = () => {
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const { enabled: feedNotificationsEnabled, onCheckedChange: onFeedNotificationsChange } =
     useFeedNotificationsEnabled();
-  const [adminOpen, setAdminOpen] = useState(isAdmin);
+  const [adminOpen, setAdminOpen] = useState(false);
   const [pendingCatOpen, setPendingCatOpen] = useState(false);
   const [flaggedOpen, setFlaggedOpen] = useState(false);
+  const [adminConfigOpen, setAdminConfigOpen] = useState(false);
+  const [adminConfigValues, setAdminConfigValues] = useState<Partial<Record<AdminConfigKey, string>>>(
+    {},
+  );
+  const [adminConfigDraft, setAdminConfigDraft] = useState<Partial<Record<AdminConfigKey, string>>>(
+    {},
+  );
+  const [adminConfigSaving, setAdminConfigSaving] = useState<AdminConfigKey | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      const { data, error } = await supabase
+        .from("app_config")
+        .select("key, value")
+        .in("key", ["admin_phone", "dev_menu_pin"]);
+      if (error || !data) return;
+      for (const row of data) {
+        const value = String(row.value ?? "").trim();
+        if (row.key === "admin_phone" && value) setAdminPhone(value);
+        if (row.key === "dev_menu_pin" && value) setDevMenuPin(value);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const { data } = await supabase
+        .from("app_config")
+        .select("value")
+        .eq("key", "referral_enabled")
+        .maybeSingle();
+      const raw = data?.value?.trim().toLowerCase();
+      if (raw === "false" || raw === "0") setReferEarnVisible(false);
+      else setReferEarnVisible(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin) setAdminOpen(true);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    const phone = userPhone?.trim();
+    if (!phone) {
+      setUserTrust(null);
+      return;
+    }
+    void (async () => {
+      const { data, error } = await supabase
+        .from("users")
+        .select("trust_score, warn_count, is_banned")
+        .eq("phone", phone)
+        .maybeSingle();
+      if (error) {
+        console.error("loadUserTrust", error);
+        setUserTrust(null);
+        return;
+      }
+      setUserTrust(data ?? null);
+    })();
+  }, [userPhone]);
+
+  const accountStanding = useMemo(() => {
+    if (!userTrust) {
+      return { tone: "good" as const, label: s.trust_status_good };
+    }
+    if (userTrust.is_banned) {
+      return { tone: "banned" as const, label: s.trust_status_banned };
+    }
+    const score = userTrust.trust_score ?? 75;
+    const warns = userTrust.warn_count ?? 0;
+    if (score < 25 || warns >= 3) {
+      return { tone: "complaints" as const, label: s.trust_status_complaints };
+    }
+    if (score >= 25 && score <= 74) {
+      return { tone: "fair" as const, label: s.trust_status_fair };
+    }
+    return { tone: "good" as const, label: s.trust_status_good };
+  }, [userTrust, s]);
   useEffect(() => {
     if (!vendorId) return;
     const load = async () => {
@@ -395,11 +530,39 @@ const Settings = () => {
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
       const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).toISOString();
+      const stuckCutoff = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
 
-      const { data: orders } = await supabase.from("requests").select("created_at");
-      const { data: vendors } = await supabase
-        .from("vendors")
-        .select("created_at, last_updated, is_manual_verified");
+      const [
+        { data: orders },
+        { data: vendors },
+        { count: stuckOrders },
+        { data: ratedVendors },
+        { count: riskyUsers },
+        { count: totalReferrals },
+      ] = await Promise.all([
+        supabase.from("requests").select("created_at"),
+        supabase
+          .from("vendors")
+          .select("created_at, last_updated, is_manual_verified, avg_rating, is_active"),
+        supabase
+          .from("requests")
+          .select("id", { count: "exact", head: true })
+          .in("status", ["sent", "accepted"])
+          .lt("created_at", stuckCutoff),
+        supabase.from("vendors").select("avg_rating").gt("avg_rating", 0).eq("is_active", true),
+        supabase
+          .from("users")
+          .select("phone", { count: "exact", head: true })
+          .lt("trust_score", 25)
+          .eq("is_banned", false),
+        supabase.from("referrals").select("id", { count: "exact", head: true }),
+      ]);
+
+      let avgVendorRating = 0;
+      if (ratedVendors?.length) {
+        const sum = ratedVendors.reduce((acc, v) => acc + Number(v.avg_rating), 0);
+        avgVendorRating = Math.round((sum / ratedVendors.length) * 10) / 10;
+      }
 
       if (orders && vendors) {
         setAdminStats({
@@ -410,17 +573,44 @@ const Settings = () => {
           activeVendorsToday: vendors.filter((v) => v.last_updated >= startOfToday).length,
           newVendorsThisWeek: vendors.filter((v) => v.created_at >= startOfWeek).length,
           unverifiedVendors: vendors.filter((v) => !v.is_manual_verified).length,
+          stuckOrders: stuckOrders ?? 0,
+          avgVendorRating,
+          riskyUsers: riskyUsers ?? 0,
+          totalReferrals: totalReferrals ?? 0,
         });
       }
     };
     void load();
   }, [isAdmin]);
 
+  const loadAdminConfig = async () => {
+    const { data, error } = await supabase
+      .from("app_config")
+      .select("key, value")
+      .in("key", [...ADMIN_CONFIG_WHITELIST]);
+    if (error) {
+      console.error("loadAdminConfig", error);
+      return;
+    }
+    const values: Partial<Record<AdminConfigKey, string>> = {};
+    for (const key of ADMIN_CONFIG_WHITELIST) {
+      const row = data?.find((r) => r.key === key);
+      values[key] = row?.value != null ? String(row.value) : "";
+    }
+    setAdminConfigValues(values);
+    setAdminConfigDraft(values);
+  };
+
+  useEffect(() => {
+    if (!isAdmin || !adminConfigOpen) return;
+    void loadAdminConfig();
+  }, [isAdmin, adminConfigOpen]);
+
   const loadVendorList = async () => {
     const { data } = await supabase
       .from("vendors")
       .select(
-        "id, name, shop_name, category, service_mode, phone, is_manual_verified, is_active, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified",
+        "id, name, shop_name, category, service_mode, phone, is_manual_verified, is_active, is_banned, ban_reason, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified",
       )
       .order("is_manual_verified", { ascending: true })
       .order("shop_name");
@@ -450,7 +640,7 @@ const Settings = () => {
   const loadFlaggedUsers = async () => {
     const { data, error } = await supabase
       .from("users")
-      .select("phone, trust_score, noshow_count, fake_count, is_banned, ban_reason")
+      .select("phone, trust_score, noshow_count, fake_count, is_banned, ban_reason, warn_count, last_warned_at")
       .or("noshow_count.gt.0,fake_count.gt.0,is_banned.eq.true")
       .order("trust_score", { ascending: true });
     if (error) {
@@ -472,6 +662,92 @@ const Settings = () => {
     return "text-red-500";
   };
 
+  const notifyCategoryVendor = async (
+    cat: (typeof pendingCategories)[number],
+    kind: "approved" | "rejected",
+  ) => {
+    if (!cat.suggested_by_vendor_id) return;
+    const { data: vendorRow } = await supabase
+      .from("vendors")
+      .select("phone")
+      .eq("id", cat.suggested_by_vendor_id)
+      .maybeSingle();
+    const vendorPhone = vendorRow?.phone?.trim();
+    if (!vendorPhone) return;
+    const title =
+      kind === "approved" ? s.category_approved_title : s.category_rejected_title;
+    const bodyTemplate =
+      kind === "approved" ? s.category_approved_body : s.category_rejected_body;
+    const body = bodyTemplate.replace("{label}", cat.label);
+    saveNotification({
+      userPhone: vendorPhone,
+      type: kind === "approved" ? "category_approved" : "category_rejected",
+      title,
+      body,
+      route: "vendor",
+      routeParams: { category_id: cat.id },
+      isInformational: false,
+    });
+  };
+
+  const notifyAccountRestored = (
+    phone: string,
+    route: "vendor" | "settings",
+    vendorId?: string,
+  ) => {
+    const title = s.account_restored_title;
+    const body = s.account_restored_body;
+    if (route === "vendor" && vendorId) {
+      void invokeNotifyVendor({
+        vendor_id: vendorId,
+        notification_title: title,
+        message: body,
+      });
+    } else {
+      void invokeNotifyUser({
+        user_phone: phone,
+        title,
+        body,
+      });
+    }
+    saveNotification({
+      userPhone: phone,
+      type: "account_restored",
+      title,
+      body,
+      route,
+      routeParams:
+        route === "vendor" && vendorId
+          ? { vendor_id: vendorId }
+          : route === "settings"
+            ? { user_phone: phone }
+            : undefined,
+      isInformational: false,
+    });
+  };
+
+  const saveAdminConfigKey = async (key: AdminConfigKey) => {
+    const newValue = (adminConfigDraft[key] ?? "").trim();
+    setAdminConfigSaving(key);
+    const { error } = await supabase
+      .from("app_config")
+      .update({ value: newValue })
+      .eq("key", key);
+    setAdminConfigSaving(null);
+    if (error) {
+      console.error("saveAdminConfigKey", error);
+      toast.error(error.message);
+      return;
+    }
+    setAdminConfigValues((prev) => ({ ...prev, [key]: newValue }));
+    if (key === "dev_menu_pin" && newValue) setDevMenuPin(newValue);
+    if (key === "referral_enabled") {
+      const raw = newValue.toLowerCase();
+      setReferEarnVisible(raw !== "false" && raw !== "0");
+    }
+    toast.success(s.admin_config_updated);
+  };
+
   const warnFlaggedUser = async (phone: string) => {
     setFlaggedAction(phone);
     const title = "⚠️ Account Warning";
@@ -484,14 +760,97 @@ const Settings = () => {
     });
     saveNotification({
       userPhone: phone,
-      type: "order_update",
+      type: "account_warning",
       title,
       body,
-      route: "my-orders",
+      route: "settings",
+      routeParams: { user_phone: phone },
       isInformational: false,
     });
+    const { data: userRow } = await supabase
+      .from("users")
+      .select("warn_count")
+      .eq("phone", phone)
+      .maybeSingle();
+    const nextWarnCount = (userRow?.warn_count ?? 0) + 1;
+    const { error: warnError } = await supabase
+      .from("users")
+      .update({
+        warn_count: nextWarnCount,
+        last_warned_at: new Date().toISOString(),
+      })
+      .eq("phone", phone);
     setFlaggedAction(null);
+    if (warnError) {
+      console.error("warnFlaggedUser", warnError);
+      toast.error("Warning sent but count not saved");
+      return;
+    }
+    logAdminAction("warn_user", "user", phone);
     toast.success("Warning sent");
+    await loadFlaggedUsers();
+  };
+
+  const confirmBanVendor = async () => {
+    const v = vendorBanDialog.vendor;
+    if (!v || !vendorBanReason.trim()) return;
+    setVendorBanAction(v.id);
+    const { error } = await supabase
+      .from("vendors")
+      .update({ is_banned: true, ban_reason: vendorBanReason.trim() })
+      .eq("id", v.id);
+    if (error) {
+      console.error("confirmBanVendor", error);
+      setVendorBanAction(null);
+      toast.error("Failed to ban vendor");
+      return;
+    }
+    const title = s.admin_vendor_banned_title;
+    const body = s.admin_vendor_banned_body;
+    void invokeNotifyVendor({
+      vendor_id: v.id,
+      notification_title: title,
+      message: body,
+    });
+    if (v.phone?.trim()) {
+      saveNotification({
+        userPhone: v.phone.trim(),
+        type: "account_banned",
+        title,
+        body,
+        route: "settings",
+        routeParams: { vendor_id: v.id },
+        isInformational: false,
+      });
+    }
+    logAdminAction("ban_vendor", "vendor", v.id, vendorBanReason.trim());
+    setVendorBanAction(null);
+    toast.success("Vendor banned");
+    setVendorBanDialog({ open: false, vendor: null });
+    setVendorBanReason("");
+    await loadVendorList();
+  };
+
+  const unbanVendor = async (vendorId: string) => {
+    setVendorBanAction(vendorId);
+    const vendorRow = vendorList.find((v) => v.id === vendorId);
+    const { error } = await supabase
+      .from("vendors")
+      .update({ is_banned: false, ban_reason: null })
+      .eq("id", vendorId);
+    setVendorBanAction(null);
+    if (error) {
+      console.error("unbanVendor", error);
+      toast.error("Failed to unban vendor");
+      return;
+    }
+    const phone = vendorRow?.phone?.trim();
+    if (phone) {
+      notifyAccountRestored(phone, "vendor", vendorId);
+    }
+    logAdminAction("unban_vendor", "vendor", vendorId);
+    toast.success("Vendor unbanned");
+    await loadVendorList();
   };
 
   const confirmBanUser = async () => {
@@ -510,6 +869,23 @@ const Settings = () => {
       console.error("confirmBanUser", error);
       return;
     }
+    const bannedPhone = banDialog.phone;
+    const reason = banReason.trim();
+    void invokeNotifyUser({
+      user_phone: bannedPhone,
+      title: s.user_banned_title,
+      body: s.user_banned_body,
+    });
+    saveNotification({
+      userPhone: bannedPhone,
+      type: "account_banned",
+      title: s.user_banned_title,
+      body: s.user_banned_body,
+      route: "settings",
+      routeParams: { user_phone: bannedPhone },
+      isInformational: false,
+    });
+    logAdminAction("ban_user", "user", bannedPhone, reason);
     toast.success("User banned");
     setBanDialog({ open: false, phone: null });
     setBanReason("");
@@ -531,30 +907,34 @@ const Settings = () => {
       console.error("unbanFlaggedUser", error);
       return;
     }
+    notifyAccountRestored(phone, "settings");
+    logAdminAction("unban_user", "user", phone);
     toast.success("User unbanned");
     await loadFlaggedUsers();
   };
 
-  const approvePendingCategory = async (categoryId: string) => {
-    setPendingAction(categoryId);
+  const approvePendingCategory = async (cat: (typeof pendingCategories)[number]) => {
+    setPendingAction(cat.id);
     const { error } = await supabase
       .from("categories")
       .update({ is_active: true, pending_review: false })
-      .eq("id", categoryId);
+      .eq("id", cat.id);
     setPendingAction(null);
     if (error) {
       toast.error("Update failed: " + error.message);
       return;
     }
+    await notifyCategoryVendor(cat, "approved");
+    logAdminAction("approve_category", "category", cat.id);
     await loadPendingCategories();
   };
 
-  const rejectPendingCategory = async (categoryId: string) => {
-    setPendingAction(categoryId);
+  const rejectPendingCategory = async (cat: (typeof pendingCategories)[number]) => {
+    setPendingAction(cat.id);
     const { error: updateError } = await supabase
       .from("categories")
       .update({ pending_review: false, is_active: false })
-      .eq("id", categoryId);
+      .eq("id", cat.id);
     if (updateError) {
       setPendingAction(null);
       toast.error("Update failed: " + updateError.message);
@@ -563,12 +943,14 @@ const Settings = () => {
     const { error: deleteError } = await supabase
       .from("categories")
       .delete()
-      .eq("id", categoryId);
+      .eq("id", cat.id);
     setPendingAction(null);
     if (deleteError) {
       toast.error("Delete failed: " + deleteError.message);
       return;
     }
+    await notifyCategoryVendor(cat, "rejected");
+    logAdminAction("reject_category", "category", cat.id);
     await loadPendingCategories();
   };
 
@@ -592,36 +974,91 @@ const Settings = () => {
       new Set(Object.keys(autoChecks).filter((k) => autoChecks[k])),
     );
     setVerifySheet({ open: true, vendor });
-    setVerifyChecks({ ...autoChecks, ...savedChecks });
+    setVerifyChecks({ ...emptyVerifyChecks(), ...autoChecks, ...savedChecks });
+    setVerifyReferrerLabel(null);
+    void (async () => {
+      const { data: ref } = await supabase
+        .from("referrals")
+        .select("referrer_vendor_id")
+        .eq("referee_id", vendor.id)
+        .eq("referee_type", "vendor")
+        .limit(1)
+        .maybeSingle();
+      if (!ref?.referrer_vendor_id) {
+        setVerifyReferrerLabel(s.referral_direct_signup);
+        return;
+      }
+      const { data: referrer } = await supabase
+        .from("vendors")
+        .select("shop_name, phone")
+        .eq("id", ref.referrer_vendor_id)
+        .maybeSingle();
+      if (referrer?.shop_name) {
+        setVerifyReferrerLabel(`${referrer.shop_name} · ${referrer.phone ?? ""}`.trim());
+      } else {
+        setVerifyReferrerLabel(s.referral_direct_signup);
+      }
+    })();
   };
 
   const closeVerifySheet = () => {
     setVerifySheet({ open: false, vendor: null });
     setVerifyChecks({});
     setVerifyAutoTicked(new Set());
+    setVerifyReferrerLabel(null);
   };
 
-  const mandatoryDone = [...VERIFY_MANDATORY].every((k) => verifyChecks[k] === true);
-  const mandatoryCompleteCount = [...VERIFY_MANDATORY].filter((k) => verifyChecks[k] === true).length;
-  const mandatoryPendingCount = VERIFY_MANDATORY.size - mandatoryCompleteCount;
-  const totalCheckedCount = Object.values(verifyChecks).filter(Boolean).length;
-  const allChecked =
-    Object.keys(verifyChecks).length === VERIFY_CHECK_COUNT &&
-    Object.values(verifyChecks).every(Boolean);
+  const totalCheckedCount = VERIFY_ITEM_IDS.filter((id) => verifyChecks[id] === true).length;
+  const allChecked = VERIFY_ITEM_IDS.every((id) => verifyChecks[id] === true);
+
+  const notifyVendorVerification = (
+    vendorId: string,
+    phone: string | null | undefined,
+    payload: {
+      type: string;
+      title: string;
+      body: string;
+    },
+  ) => {
+    void invokeNotifyVendor({
+      vendor_id: vendorId,
+      notification_title: payload.title,
+      message: payload.body,
+    });
+    const vendorPhone = phone?.trim();
+    if (vendorPhone) {
+      saveNotification({
+        userPhone: vendorPhone,
+        type: payload.type,
+        title: payload.title,
+        body: payload.body,
+        route: "vendor",
+        routeParams: { vendor_id: vendorId },
+        isInformational: false,
+      });
+    }
+  };
 
   const confirmVerify = async () => {
     if (!verifySheet.vendor || !allChecked) return;
     setVerifying(verifySheet.vendor.id);
+    const vendor = verifySheet.vendor;
     const { error } = await supabase
       .from("vendors")
       .update({ is_manual_verified: true })
-      .eq("id", verifySheet.vendor.id);
+      .eq("id", vendor.id);
     if (error) {
       setVerifying(null);
       toast.error("Update failed: " + error.message);
       return;
     }
-    localStorage.removeItem(verifyProgressKey(verifySheet.vendor.id));
+    notifyVendorVerification(vendor.id, vendor.phone, {
+      type: "account_verified",
+      title: s.vendor_approved_title,
+      body: s.vendor_approved_body,
+    });
+    logAdminAction("verify_vendor", "vendor", vendor.id);
+    localStorage.removeItem(verifyProgressKey(vendor.id));
     await loadVendorList();
     setVerifying(null);
     closeVerifySheet();
@@ -631,15 +1068,34 @@ const Settings = () => {
   const confirmUnverify = async (vendorId: string) => {
     if (!window.confirm(s.settings_removeVerifyConfirm)) return;
     setVerifying(vendorId);
-    const { error } = await supabase
+    const { data: row, error: fetchError } = await supabase
       .from("vendors")
-      .update({ is_manual_verified: false })
-      .eq("id", vendorId);
+      .select("phone, verification_status")
+      .eq("id", vendorId)
+      .maybeSingle();
+    if (fetchError || !row) {
+      setVerifying(null);
+      toast.error(fetchError ? "Update failed: " + fetchError.message : "Vendor not found");
+      return;
+    }
+    const patch: { is_manual_verified: boolean; verification_status?: string } = {
+      is_manual_verified: false,
+    };
+    if (row.verification_status === "green_pending") {
+      patch.verification_status = "business_verified";
+    }
+    const { error } = await supabase.from("vendors").update(patch).eq("id", vendorId);
     if (error) {
       setVerifying(null);
       toast.error("Update failed: " + error.message);
       return;
     }
+    notifyVendorVerification(vendorId, row.phone, {
+      type: "account_unverified",
+      title: s.vendor_unverified_title,
+      body: s.vendor_unverified_body,
+    });
+    logAdminAction("unverify_vendor", "vendor", vendorId);
     await loadVendorList();
     setVerifying(null);
     toast(s.settings_verificationRemoved);
@@ -652,15 +1108,28 @@ const Settings = () => {
       v.phone.includes(vendorSearch),
   );
 
-  // Hidden gesture: tap the page title 7× to unlock the developer menu.
+  // Hidden gesture: tap the page title 7× to open PIN gate for developer menu.
   const tapTitle = () => {
     const next = titleTaps + 1;
     setTitleTaps(next);
     if (next >= 7) {
-      setDevOpen(true);
       setTitleTaps(0);
-      toast(s.settings_devMenuUnlocked);
+      setPinInput("");
+      setPinDialogOpen(true);
     }
+  };
+
+  const submitDevPin = () => {
+    const expected = devMenuPin.trim() || DEV_MENU_PIN_DEFAULT;
+    if (pinInput.trim() !== expected) {
+      toast.error(s.settings_incorrectPin);
+      setPinInput("");
+      return;
+    }
+    setPinDialogOpen(false);
+    setPinInput("");
+    setDevOpen(true);
+    toast(s.settings_devMenuUnlocked);
   };
 
   const reset = async () => {
@@ -798,6 +1267,25 @@ const Settings = () => {
           </div>
         </SettingsCollapsible>
 
+        <div className="px-4 py-3.5 border-b border-surface-border">
+          <p className="text-sm font-medium text-foreground">{s.settings_accountStanding}</p>
+          <span
+            className={cn(
+              "mt-2 inline-block rounded-full border px-3 py-1.5 text-xs font-semibold leading-snug",
+              accountStanding.tone === "banned" &&
+                "bg-destructive/10 text-destructive border-destructive/30",
+              accountStanding.tone === "complaints" &&
+                "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
+              accountStanding.tone === "fair" &&
+                "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
+              accountStanding.tone === "good" &&
+                "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30",
+            )}
+          >
+            {accountStanding.label}
+          </span>
+        </div>
+
         <SettingsCollapsible
           label={`${s.settings_myDeliveryAddresses} (${addresses.length})`}
           open={addressesOpen}
@@ -877,6 +1365,7 @@ const Settings = () => {
         )}
         </SettingsCollapsible>
 
+        {referEarnVisible && (
         <SettingsCollapsible
           label={s.vendor_referEarn}
           open={referOpen}
@@ -885,6 +1374,7 @@ const Settings = () => {
         >
           <VendorSettingsReferEarn vendor={vendor} userPhone={userPhone} />
         </SettingsCollapsible>
+        )}
 
         <SettingsCollapsible
           label={s.settings_trustSecurity}
@@ -1162,8 +1652,69 @@ const Settings = () => {
                 <p className="text-[10px] text-muted-foreground mt-1">{s.settings_unverified}</p>
               </div>
             </div>
+
+            <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2 mt-4">
+              Insights
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-2xl bg-amber-500/10 p-3 text-center">
+                <p className="text-xl font-bold text-amber-600">{adminStats.stuckOrders}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_stuck_orders}</p>
+              </div>
+              <div className="rounded-2xl bg-secondary/10 p-3 text-center">
+                <p className="text-xl font-bold text-secondary">
+                  {adminStats.avgVendorRating > 0 ? adminStats.avgVendorRating : "—"}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_avg_rating}</p>
+              </div>
+              <div className="rounded-2xl bg-destructive/10 p-3 text-center">
+                <p className="text-xl font-bold text-destructive">{adminStats.riskyUsers}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_risky_users}</p>
+              </div>
+              <div className="rounded-2xl bg-brand/10 p-3 text-center">
+                <p className="text-xl font-bold text-brand">{adminStats.totalReferrals}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_total_referrals}</p>
+              </div>
+            </div>
             </div>
           </SettingsCard>
+
+          <SettingsCollapsible
+            label={s.admin_app_config}
+            open={adminConfigOpen}
+            onToggle={() => setAdminConfigOpen((o) => !o)}
+          >
+            <div className="space-y-3">
+              {ADMIN_CONFIG_WHITELIST.map((key) => (
+                <div
+                  key={key}
+                  className="rounded-2xl border border-border p-3 space-y-2"
+                >
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    {ADMIN_CONFIG_LABELS[key]}
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={adminConfigDraft[key] ?? adminConfigValues[key] ?? ""}
+                      onChange={(e) =>
+                        setAdminConfigDraft((prev) => ({ ...prev, [key]: e.target.value }))
+                      }
+                      className="flex-1 min-w-0 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <button
+                      type="button"
+                      disabled={adminConfigSaving === key}
+                      onClick={() => void saveAdminConfigKey(key)}
+                      className="shrink-0 rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground disabled:opacity-50"
+                    >
+                      {adminConfigSaving === key ? "…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SettingsCollapsible>
 
           <SettingsCollapsible
             label={`${s.admin_pendingCategories} (${pendingCategories.length})`}
@@ -1198,7 +1749,7 @@ const Settings = () => {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => void approvePendingCategory(cat.id)}
+                        onClick={() => void approvePendingCategory(cat)}
                         disabled={pendingAction === cat.id}
                         className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                       >
@@ -1206,7 +1757,7 @@ const Settings = () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => void rejectPendingCategory(cat.id)}
+                        onClick={() => void rejectPendingCategory(cat)}
                         disabled={pendingAction === cat.id}
                         className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                       >
@@ -1244,9 +1795,14 @@ const Settings = () => {
               {filteredVendors.map((v) => (
                 <div key={v.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border p-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-semibold truncate">{v.shop_name}</p>
                       {v.is_active && <span className="text-[10px] text-green-500 font-semibold">{s.settings_live}</span>}
+                      {v.is_banned && (
+                        <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-bold px-2 py-0.5 border border-destructive/30">
+                          BANNED
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
                       {v.name}{s.settings_dotSeparator}{getLabel(v.category)}
@@ -1283,6 +1839,28 @@ const Settings = () => {
                         </>
                       )}
                     </button>
+                    {!v.is_banned ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVendorBanReason("");
+                          setVendorBanDialog({ open: true, vendor: v });
+                        }}
+                        disabled={vendorBanAction === v.id}
+                        className="rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                      >
+                        Ban
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void unbanVendor(v.id)}
+                        disabled={vendorBanAction === v.id}
+                        className="rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                      >
+                        Unban
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1306,19 +1884,36 @@ const Settings = () => {
               <p className="text-sm text-muted-foreground">✅ No flagged users at this time</p>
             ) : (
               <div className="space-y-3">
-                {flaggedUsers.map((user) => (
+                {flaggedUsers.map((user) => {
+                  const warnCount = user.warn_count ?? 0;
+                  const highWarns = warnCount >= 3;
+                  return (
                   <div
                     key={user.phone}
-                    className="rounded-2xl border border-border p-3 space-y-2"
+                    className={`rounded-2xl border p-3 space-y-2 ${
+                      highWarns
+                        ? "border-amber-500/50 bg-amber-500/5"
+                        : "border-border"
+                    }`}
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-semibold">{user.phone}</p>
+                      {warnCount > 0 && (
+                        <span className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
+                          ⚠️ {warnCount} warns
+                        </span>
+                      )}
                       {user.is_banned && (
                         <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-bold px-2 py-0.5 border border-destructive/30">
                           BANNED
                         </span>
                       )}
                     </div>
+                    {highWarns && (
+                      <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                        {s.admin_consider_banning}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       Trust score:{" "}
                       <span className={`font-semibold ${trustScoreClass(user.trust_score)}`}>
@@ -1365,10 +1960,50 @@ const Settings = () => {
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </SettingsCollapsible>
+
+          <AlertDialog
+            open={vendorBanDialog.open}
+            onOpenChange={(open) => {
+              if (!open) {
+                setVendorBanDialog({ open: false, vendor: null });
+                setVendorBanReason("");
+              }
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Ban this vendor?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Enter a reason for the ban. The vendor will be notified immediately.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <input
+                type="text"
+                value={vendorBanReason}
+                onChange={(e) => setVendorBanReason(e.target.value.slice(0, 200))}
+                placeholder="Ban reason"
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={!vendorBanReason.trim() || vendorBanAction != null}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmBanVendor();
+                  }}
+                >
+                  Confirm ban
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           <AlertDialog
             open={banDialog.open}
@@ -1428,6 +2063,48 @@ const Settings = () => {
         {s.settings_copyright}
       </p>
       </div>
+
+      <AlertDialog
+        open={pinDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPinDialogOpen(false);
+            setPinInput("");
+          }
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl border border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Developer PIN</AlertDialogTitle>
+            <AlertDialogDescription>Enter the 4-digit PIN to open the developer menu.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && pinInput.length === 4) submitDevPin();
+            }}
+            placeholder="••••"
+            className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary"
+            autoFocus
+          />
+          <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pinInput.length !== 4}
+              onClick={(e) => {
+                e.preventDefault();
+                submitDevPin();
+              }}
+            >
+              Unlock
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {devOpen && (
         <section className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 mb-5 animate-fade-up">
@@ -1612,6 +2289,7 @@ const Settings = () => {
                 ) : (
                   <p className="text-xs text-muted-foreground">No UPI added</p>
                 )}
+                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_upi_manual_note}</p>
               </div>
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
@@ -1625,15 +2303,15 @@ const Settings = () => {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   Referred by
                 </p>
-                {verifySheet.vendor.referral_code?.trim() ? (
-                  <p className="text-xs text-foreground font-mono">
-                    {verifySheet.vendor.referral_code}
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No referral</p>
-                )}
+                <p className="text-xs text-foreground">
+                  {verifyReferrerLabel ?? "…"}
+                </p>
               </div>
             </div>
+
+            <p className="text-sm font-medium text-muted-foreground mb-4">
+              {s.settings_verify_checks_progress.replace("{done}", String(totalCheckedCount))}
+            </p>
 
             {[
               { id: "phone_called", label: s.settings_check1 },
@@ -1648,6 +2326,7 @@ const Settings = () => {
               { id: "upi_verified", label: s.settings_check10 },
               { id: "no_suspicious", label: s.settings_check11 },
               { id: "rules_understood", label: s.settings_check12 },
+              { id: "gps_photo_independent", label: s.admin_checklist_gps_photo },
             ].map((item) => (
               <label key={item.id} className="flex items-start gap-3 mb-4 cursor-pointer">
                 <input
@@ -1669,24 +2348,6 @@ const Settings = () => {
                 />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm text-foreground leading-snug">{item.label}</span>
-                  <p className="mt-0.5 text-[10px] font-semibold flex items-center gap-1">
-                    {VERIFY_MANDATORY.has(item.id) ? (
-                      <>
-                        <span aria-hidden>🔴</span>
-                        <span className="text-red-500">Required</span>
-                      </>
-                    ) : VERIFY_IMPORTANT.has(item.id) ? (
-                      <>
-                        <span aria-hidden>🟡</span>
-                        <span className="text-amber-600">Important</span>
-                      </>
-                    ) : (
-                      <>
-                        <span aria-hidden>⚪</span>
-                        <span className="text-muted-foreground">Optional</span>
-                      </>
-                    )}
-                  </p>
                   {verifyAutoTicked.has(item.id) && verifyChecks[item.id] && (
                     <p className="text-[10px] text-green-600/80 mt-0.5">
                       ✅ Auto-verified by app
@@ -1696,30 +2357,19 @@ const Settings = () => {
               </label>
             ))}
 
-            <div className="mt-2 mb-3 space-y-1">
-              <p
-                className={`text-xs font-semibold ${
-                  mandatoryDone ? "text-green-600" : "text-destructive"
-                }`}
-              >
-                {mandatoryDone
-                  ? "4/4 required checks done ✅"
-                  : `${mandatoryPendingCount}/4 required checks pending 🔴`}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {totalCheckedCount}/{VERIFY_CHECK_COUNT} total
-              </p>
-            </div>
-
             <button
               type="button"
               onClick={() => void confirmVerify()}
               disabled={!allChecked || verifying === verifySheet.vendor?.id}
-              className={`w-full rounded-2xl py-4 font-bold text-sm transition-colors mt-2 ${
+              className={`w-full rounded-2xl py-4 font-bold text-sm transition-colors mt-4 ${
                 allChecked ? "bg-green-500 text-white" : "bg-muted text-muted-foreground cursor-not-allowed"
               }`}
             >
-              {verifying === verifySheet.vendor?.id ? s.settings_verifying : s.settings_markVerified}
+              {verifying === verifySheet.vendor?.id
+                ? s.settings_verifying
+                : allChecked
+                  ? s.settings_markVerified_ready
+                  : s.settings_checks_required}
             </button>
 
             <button

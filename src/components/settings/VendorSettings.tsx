@@ -66,6 +66,8 @@ type VendorReview = {
   service_mode: string | null;
   created_at: string;
   user_phone: string | null;
+  vendor_response: string | null;
+  vendor_responded_at: string | null;
 };
 
 type Props = {
@@ -407,6 +409,8 @@ export function VendorSettingsReferEarn({
   const initialVendorCode = vendor?.referral_code?.trim() || null;
   const [referralCode, setReferralCode] = useState<string | null>(initialVendorCode);
   const [referralLoading, setReferralLoading] = useState(!initialVendorCode);
+  const [creditTotal, setCreditTotal] = useState(0);
+  const [creditPending, setCreditPending] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -419,7 +423,15 @@ export function VendorSettingsReferEarn({
 
     const loadReferral = async () => {
       setReferralLoading(true);
+      setCreditTotal(0);
+      setCreditPending(0);
       try {
+        const storedVendorId =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("aaspaas:vendor_id")?.trim() || null
+            : null;
+        const vendorIdForCredits = vendor?.id ?? storedVendorId;
+
         if (vendor?.id) {
           const { data } = await supabase
             .from("vendors")
@@ -429,6 +441,24 @@ export function VendorSettingsReferEarn({
           if (cancelled) return;
           const fromDb = data?.referral_code?.trim() || null;
           setReferralCode(fromDb ?? vendor?.referral_code?.trim() ?? resolveFallback());
+
+          if (vendorIdForCredits) {
+            const { data: credits } = await supabase
+              .from("vendor_credits")
+              .select("amount, disbursed")
+              .eq("vendor_id", vendorIdForCredits);
+            if (!cancelled && credits?.length) {
+              let total = 0;
+              let pending = 0;
+              for (const row of credits) {
+                const amt = Number(row.amount) || 0;
+                total += amt;
+                if (!row.disbursed) pending += amt;
+              }
+              setCreditTotal(total);
+              setCreditPending(pending);
+            }
+          }
           return;
         }
 
@@ -516,6 +546,20 @@ export function VendorSettingsReferEarn({
           >
             {s.vendor_referShare}
           </button>
+          {(creditTotal > 0 || creditPending > 0) && (
+            <div className="space-y-1 pt-1">
+              {creditTotal > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {s.referral_total_earned(creditTotal.toFixed(2))}
+                </p>
+              )}
+              {creditPending > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {s.referral_pending_payout(creditPending.toFixed(2))}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       ) : null}
       <div className="px-4 pb-3.5">
@@ -560,6 +604,9 @@ export function VendorSettings({
   const [reviews, setReviews] = useState<VendorReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
+  const [replyingReviewId, setReplyingReviewId] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
   const [shopOpen, setShopOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -594,11 +641,42 @@ export function VendorSettings({
     setReviewsLoading(true);
     const { data } = await supabase
       .from("vendor_reviews")
-      .select("id, rating, review_text, service_mode, created_at, user_phone")
+      .select(
+        "id, rating, review_text, service_mode, created_at, user_phone, vendor_response, vendor_responded_at",
+      )
       .eq("vendor_id", vendor.id)
       .order("created_at", { ascending: false });
-    setReviews(data ?? []);
+    setReviews((data ?? []) as VendorReview[]);
     setReviewsLoading(false);
+  };
+
+  const sendReviewReply = async (reviewId: string) => {
+    const text = replyDraft.trim();
+    if (!text || sendingReplyId) return;
+    setSendingReplyId(reviewId);
+    const respondedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from("vendor_reviews")
+      .update({
+        vendor_response: text,
+        vendor_responded_at: respondedAt,
+      })
+      .eq("id", reviewId);
+    setSendingReplyId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setReviews((prev) =>
+      prev.map((r) =>
+        r.id === reviewId
+          ? { ...r, vendor_response: text, vendor_responded_at: respondedAt }
+          : r,
+      ),
+    );
+    setReplyingReviewId(null);
+    setReplyDraft("");
+    toast.success(s.review_reply_sent);
   };
 
   const loadMenu = async () => {
@@ -1229,6 +1307,48 @@ export function VendorSettings({
                   </button>
                 )}
               </div>
+              {r.vendor_response?.trim() ? (
+                <div className="mt-2 pt-2 border-t border-surface-border">
+                  <p className="text-[10px] font-semibold text-muted-foreground">
+                    {s.review_your_reply}
+                  </p>
+                  <p className="text-xs text-foreground mt-0.5 leading-relaxed">{r.vendor_response}</p>
+                  {r.vendor_responded_at && (
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      {formatTimeAgo(r.vendor_responded_at)}
+                    </p>
+                  )}
+                </div>
+              ) : replyingReviewId === r.id ? (
+                <div className="mt-2 pt-2 border-t border-surface-border space-y-2">
+                  <textarea
+                    value={replyDraft}
+                    onChange={(e) => setReplyDraft(e.target.value.slice(0, 200))}
+                    rows={2}
+                    placeholder={s.review_reply_placeholder}
+                    className="w-full rounded-lg border border-surface-border bg-surface px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-brand"
+                  />
+                  <button
+                    type="button"
+                    disabled={!replyDraft.trim() || sendingReplyId === r.id}
+                    onClick={() => void sendReviewReply(r.id)}
+                    className="w-full rounded-lg bg-brand text-white text-xs font-semibold py-2 disabled:opacity-50"
+                  >
+                    {sendingReplyId === r.id ? s.incoming_saving : s.review_send}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReplyingReviewId(r.id);
+                    setReplyDraft("");
+                  }}
+                  className="mt-2 text-xs font-semibold text-brand active:opacity-80"
+                >
+                  {s.review_respond}
+                </button>
+              )}
             </div>
           ))}
         </div>

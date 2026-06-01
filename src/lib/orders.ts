@@ -13,6 +13,9 @@ export type OrderRequestRow = {
   delivery_slot?: string | null;
   appointment_time?: string | null;
   appointment_status?: string | null;
+  updated_at?: string | null;
+  previous_message?: string | null;
+  is_edited?: boolean;
 };
 
 export const ACTIVE_ORDER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;

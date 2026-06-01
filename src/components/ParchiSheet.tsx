@@ -300,18 +300,22 @@ export function ParchiSheet({
 
       setSending(true);
       const device_id = getDeviceId();
-      const { error } = await supabase.from("requests").insert({
-        device_id,
-        vendor_id: v.id,
-        message: text.slice(0, config.maxOrderMessageChars) + locationNote,
-        status: "sent",
-        user_phone: phone,
-        device_id_log: device_id,
-        delivery_address: finalAddress,
-        delivery_slot: selectedSlot,
-        appointment_time: appointmentTimestamp,
-        appointment_status: appointmentTimestamp ? "pending" : null,
-      });
+      const { data: inserted, error } = await supabase
+        .from("requests")
+        .insert({
+          device_id,
+          vendor_id: v.id,
+          message: text.slice(0, config.maxOrderMessageChars) + locationNote,
+          status: "sent",
+          user_phone: phone,
+          device_id_log: device_id,
+          delivery_address: finalAddress,
+          delivery_slot: selectedSlot,
+          appointment_time: appointmentTimestamp,
+          appointment_status: appointmentTimestamp ? "pending" : null,
+        })
+        .select("id")
+        .single();
       if (error) {
         setSending(false);
         toast.error(s.parchi_errCouldNotSend, { description: error.message });
@@ -339,6 +343,7 @@ export function ParchiSheet({
           title: notifyTitle,
           body: notifyBody,
           route: "vendor",
+          routeParams: { order_id: inserted.id },
           isInformational: false,
         });
       }
@@ -1015,6 +1020,7 @@ export function ParchiSheet({
 
       <PhoneEntrySheet
         isOpen={phoneSheetOpen}
+        context="order"
         onClose={() => setPhoneSheetOpen(false)}
         onConfirmed={async (phone) => {
           setPhoneSheetOpen(false);
