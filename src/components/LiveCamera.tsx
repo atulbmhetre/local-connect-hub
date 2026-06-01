@@ -81,7 +81,7 @@ export const LiveCamera = ({ open, onClose, onCapture }: Props) => {
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, onCapture, onClose]);
 
   if (!open) return null;
 

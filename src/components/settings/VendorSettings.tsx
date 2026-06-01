@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
 import { Bell, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
@@ -114,7 +114,7 @@ export function VendorSettingsOffers({ vendorId }: { vendorId: string }) {
   const [offerImagePreview, setOfferImagePreview] = useState<string | null>(null);
   const [offersOpen, setOffersOpen] = useState(false);
 
-  const loadActiveOffer = async () => {
+  const loadActiveOffer = useCallback(async () => {
     const { data, error } = await supabase
       .from("feed_posts")
       .select("*")
@@ -138,11 +138,11 @@ export function VendorSettingsOffers({ vendorId }: { vendorId: string }) {
           }
         : null,
     );
-  };
+  }, [vendorId]);
 
   useEffect(() => {
     void loadActiveOffer();
-  }, [vendorId]);
+  }, [loadActiveOffer]);
 
   const resetOfferImage = () => {
     setOfferImageFile(null);
@@ -679,7 +679,7 @@ export function VendorSettings({
     toast.success(s.review_reply_sent);
   };
 
-  const loadMenu = async () => {
+  const loadMenu = useCallback(async () => {
     setMenuLoading(true);
     const { data } = await supabase
       .from("vendor_menu_items")
@@ -688,11 +688,11 @@ export function VendorSettings({
       .order("sort_order", { ascending: true });
     setMenuItems(data ?? []);
     setMenuLoading(false);
-  };
+  }, [vendor.id]);
 
   useEffect(() => {
     void loadMenu();
-  }, [vendor.id]);
+  }, [loadMenu]);
 
   useEffect(() => {
     setCancelReasons([

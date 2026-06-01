@@ -230,6 +230,7 @@ export function RatingSheet({
     s.review_lowRatingNotifTitle,
     s.review_lowRatingNotifBody,
     shopName,
+    vendorPhone,
 
   ]);
 

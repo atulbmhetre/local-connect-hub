@@ -126,7 +126,7 @@ export function ParchiSheet({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, resolvedVendorId]);
+  }, [isOpen, resolvedVendorId, message]);
 
   useEffect(() => {
     if (!isOpen) return;

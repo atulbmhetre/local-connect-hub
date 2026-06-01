@@ -318,7 +318,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       const dismissSet = new Set(toDismissIds);
       return orderList.filter((r) => !dismissSet.has(r.id));
     },
-    [vendorId],
+    [vendorId, FULFILLED_STALE_MS],
   );
 
   const load = useCallback(

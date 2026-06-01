@@ -212,8 +212,10 @@ const RadarSearch = () => {
 
         if (cancelled) return;
         setResults(scoped);
-      } catch (e: any) {
-        if (!cancelled) setError(e.message ?? s.radar_connection_error);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : s.radar_connection_error);
+        }
       } finally {
         if (!cancelled) setScanning(false);
       }

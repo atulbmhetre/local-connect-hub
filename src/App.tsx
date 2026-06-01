@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect, type ReactNode } from "react";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,19 +9,34 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { LanguageProvider } from "@/lib/language";
 import { ThemeProvider } from "@/lib/theme";
 import Index from "./pages/Index.tsx";
-import VendorMode from "./pages/VendorMode.tsx";
-import SettingsPage from "./pages/Settings.tsx";
 import NotFound from "./pages/NotFound.tsx";
-import RadarSearch from "./pages/RadarSearch.tsx";
-import LiveTracking from "./pages/LiveTracking.tsx";
-import MyOrders from "./pages/MyOrders.tsx";
-import LedgerView from "./pages/LedgerView.tsx";
 import Landing from "./pages/Landing.tsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.tsx";
 import LocalFeed from "./pages/LocalFeed.tsx";
+import LiveTracking from "./pages/LiveTracking.tsx";
 import { ReferralRedirect } from "@/components/ReferralRedirect";
 
+const SettingsPage = lazy(() => import("./pages/Settings.tsx"));
+const LedgerView = lazy(() => import("./pages/LedgerView.tsx"));
+const RadarSearch = lazy(() => import("./pages/RadarSearch.tsx"));
+const MyOrders = lazy(() => import("./pages/MyOrders.tsx"));
+const VendorMode = lazy(() => import("./pages/VendorMode.tsx"));
+
 const queryClient = new QueryClient();
+
+function RouteSuspense({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-screen">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
 
 function NativeBackButtonHandler() {
   useEffect(() => {
@@ -58,21 +73,56 @@ const App = () => (
           <NativeBackButtonHandler />
           <LanguageProvider>
             <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/r/:code" element={<ReferralRedirect />} />
-            <Route path="/landing" element={<Landing />} />
-            <Route path="/radar" element={<RadarSearch />} />
-            <Route path="/feed" element={<LocalFeed />} />
-            <Route path="/track/:vendorId" element={<LiveTracking />} />
-            <Route path="/tracking" element={<LiveTracking />} />
-            <Route path="/tracking/:vendorId" element={<LiveTracking />} />
-            <Route path="/vendor" element={<VendorMode />} />
-            <Route path="/ledger" element={<LedgerView />} />
-            <Route path="/my-orders" element={<MyOrders />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/privacy" element={<PrivacyPolicy />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
+              <Route path="/" element={<Index />} />
+              <Route path="/r/:code" element={<ReferralRedirect />} />
+              <Route path="/landing" element={<Landing />} />
+              <Route
+                path="/radar"
+                element={
+                  <RouteSuspense>
+                    <RadarSearch />
+                  </RouteSuspense>
+                }
+              />
+              <Route path="/feed" element={<LocalFeed />} />
+              <Route path="/track/:vendorId" element={<LiveTracking />} />
+              <Route path="/tracking" element={<LiveTracking />} />
+              <Route path="/tracking/:vendorId" element={<LiveTracking />} />
+              <Route
+                path="/vendor"
+                element={
+                  <RouteSuspense>
+                    <VendorMode />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/ledger"
+                element={
+                  <RouteSuspense>
+                    <LedgerView />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/my-orders"
+                element={
+                  <RouteSuspense>
+                    <MyOrders />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <RouteSuspense>
+                    <SettingsPage />
+                  </RouteSuspense>
+                }
+              />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </LanguageProvider>
         </BrowserRouter>

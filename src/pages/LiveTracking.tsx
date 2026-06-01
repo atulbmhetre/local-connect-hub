@@ -119,8 +119,10 @@ const LiveTracking = () => {
           lastCoordsRef.current = h;
           lastMoveRef.current = Date.now();
         }
-      } catch (e: any) {
-        if (!cancelled) setError(e.message ?? "Could not load responder.");
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Could not load responder.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -259,7 +261,9 @@ const LiveTracking = () => {
       try {
         // @ts-expect-error torch is non-standard
         torchTrackRef.current.applyConstraints({ advanced: [{ torch: false }] });
-      } catch {}
+      } catch {
+        void 0;
+      }
       torchTrackRef.current.stop();
       torchTrackRef.current = null;
     }
@@ -287,7 +291,9 @@ const LiveTracking = () => {
           try {
             // @ts-expect-error torch is non-standard
             await track.applyConstraints({ advanced: [{ torch: on }] });
-          } catch {}
+          } catch {
+            void 0;
+          }
         }, 500);
         toast("Flash LED Signal active", {
           description: "Your phone torch is pulsing — helper can spot you.",

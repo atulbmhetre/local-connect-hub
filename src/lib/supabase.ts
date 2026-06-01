@@ -422,7 +422,15 @@ export async function classifyCategory(rawInput: string): Promise<CategoryClassi
     });
 
     if (!resp.ok) return defaultClassification(rawInput);
-    const data: any = await resp.json();
+    const data = (await resp.json()) as {
+      result?: {
+        canonical?: string | null;
+        message?: string;
+        emoji?: string;
+        hindi?: string;
+        mode?: string;
+      };
+    };
     const result = data?.result;
     if (!result) return defaultClassification(rawInput);
 
@@ -684,7 +692,7 @@ export function useCategoryLabel() {
       .then(({ data }) => {
         if (!data) return;
         const m: TranslationMap = {};
-        data.forEach((row: any) => {
+        data.forEach((row: { label: string; categories?: { label?: string } | null }) => {
           const original = row.categories?.label;
           if (original) m[original] = row.label;
         });

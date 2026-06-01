@@ -266,14 +266,14 @@ export function RadarVendorCard({
       .order("sort_order", { ascending: true });
     setRateCardItems(data ?? []);
     setRateCardLoading(false);
-  }, [rateCardItems.length, rateCardLoading, serviceMode, vendor.id]);
+  }, [rateCardItems.length, rateCardLoading, vendor.id]);
 
   useEffect(() => {
     setHelpCount(vendor.total_helped ?? 0);
     setDeliveredCount(vendor.total_delivered ?? 0);
     setResolutionMarked(readResolutionMarked(vendor.id));
     setSavedVendorLocked(isSaved || readSessionSaved(vendor.id));
-  }, [vendor.id, isSaved]);
+  }, [vendor.id, vendor.total_delivered, vendor.total_helped, isSaved]);
 
   useEffect(() => {
     if ((serviceMode !== "delivery" && serviceMode !== "appointment") || isOwnVendor) {

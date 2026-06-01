@@ -492,7 +492,7 @@ const MyOrders = () => {
       },
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
     );
-  }, [acceptedHelpVendorIds.join(",")]);
+  }, [acceptedHelpVendorIds]);
 
   useEffect(() => {
     if (acceptedHelpVendorIds.length === 0) return;
@@ -518,7 +518,7 @@ const MyOrders = () => {
     const t = window.setInterval(onTick, 60_000);
     return () => window.clearInterval(t);
   }, [
-    acceptedHelpVendorIds.join(","),
+    acceptedHelpVendorIds,
     acceptedHelpOrders,
     config.vendorStoppedDistanceMeters,
     config.vendorStoppedMinutes,
@@ -653,7 +653,7 @@ const MyOrders = () => {
       cancelled = true;
       void supabase.removeChannel(channel);
     };
-  }, [acceptedHelpVendorIds.join(","), applyVendorLocationUpdate]);
+  }, [acceptedHelpVendorIds, applyVendorLocationUpdate]);
 
   const closeAiSheet = useCallback((open: boolean) => {
     setAiSheetOpen(open);

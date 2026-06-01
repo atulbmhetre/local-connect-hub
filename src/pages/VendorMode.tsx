@@ -176,7 +176,7 @@ const VendorPostRegistrationGuidance = ({ vendor }: { vendor: Vendor }) => {
   const hasPhoto =
     vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== "";
 
-  if (!!vendor.is_manual_verified) {
+  if (vendor.is_manual_verified) {
     return (
       <div className="rounded-2xl border border-brand/45 bg-brand-muted p-4 text-sm">
         <p className="font-semibold text-brand">🟢 {s.vendor_verified_title}</p>
