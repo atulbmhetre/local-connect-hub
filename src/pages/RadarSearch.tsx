@@ -20,20 +20,35 @@ import {
 import {
   supabase,
   type Vendor,
+  type Category,
   distanceKm,
   displayName,
   useCategoryLabel,
 } from "@/lib/supabase";
-import { vendorTier } from "@/components/VerificationBadge";
-import { RadarVendorCard, readSessionSaved } from "@/components/RadarVendorCard";
+import {
+  RadarVendorCard,
+  consumeNeighboursDirty,
+  readSessionSaved,
+} from "@/components/RadarVendorCard";
 import {
   Collapsible,
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { useLanguage } from "@/lib/language";
+import {
+  compareRadarResults,
+  computeTrustLevelsByVendor,
+  type TrustLevel,
+  type VendorVerificationRow,
+} from "@/lib/trustLevel";
 
-type Ranked = { vendor: Vendor; dist: number | null };
+export type RadarVendorResult = Vendor & {
+  categories: { label: string; emoji: string }[];
+  trustLevel: TrustLevel;
+};
+
+type Ranked = { vendor: RadarVendorResult; dist: number | null };
 
 // Strict resolver mirrors Home: maps free-text/voice to canonical category labels.
 // TODO Phase 2: Replace KNOWN_CATEGORIES with DB lookup from categories table
@@ -55,6 +70,7 @@ const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
   { label: "Electrician", aliases: ["electrician", "electric", "wiring", "current", "fuse", "power"] },
   { label: "Security", aliases: ["security", "guard", "watchman", "bouncer"] },
 ];
+
 function resolveCategory(term: string): string | null {
   const t = term.toLowerCase().trim();
   for (const c of KNOWN_CATEGORIES) {
@@ -62,6 +78,59 @@ function resolveCategory(term: string): string | null {
     if (c.aliases.some((a) => t.includes(a))) return c.label;
   }
   return null;
+}
+
+function resolveCategoryIdsForTerm(term: string, categories: Category[]): string[] {
+  const resolvedLabel = resolveCategory(term);
+  if (resolvedLabel) {
+    const exact = categories.find(
+      (c) => c.label.toLowerCase() === resolvedLabel.toLowerCase(),
+    );
+    if (exact) return [exact.id];
+  }
+  const t = term.trim().toLowerCase();
+  if (!t) return [];
+  return categories
+    .filter(
+      (c) =>
+        c.label.toLowerCase().includes(t) ||
+        t.includes(c.label.toLowerCase()),
+    )
+    .map((c) => c.id);
+}
+
+function buildVendorCategoriesMap(
+  rows: {
+    vendor_id: string;
+    is_primary: boolean | null;
+    categories: { label: string; emoji: string } | { label: string; emoji: string }[] | null;
+  }[],
+): Map<string, { label: string; emoji: string }[]> {
+  const map = new Map<string, { label: string; emoji: string; is_primary: boolean }[]>();
+
+  for (const row of rows) {
+    const cat = row.categories;
+    const resolved = Array.isArray(cat) ? cat[0] : cat;
+    if (!resolved?.label) continue;
+
+    const list = map.get(row.vendor_id) ?? [];
+    list.push({
+      label: resolved.label,
+      emoji: resolved.emoji ?? "✨",
+      is_primary: row.is_primary === true,
+    });
+    map.set(row.vendor_id, list);
+  }
+
+  const out = new Map<string, { label: string; emoji: string }[]>();
+  for (const [vendorId, list] of map) {
+    list.sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
+    out.set(
+      vendorId,
+      list.map(({ label, emoji }) => ({ label, emoji })),
+    );
+  }
+  return out;
 }
 
 /** Default geofence; user can widen to 25 km or 50 km before the failsafe UI. */
@@ -133,6 +202,30 @@ const RadarSearch = () => {
   const [searchRadiusKm, setSearchRadiusKm] = useState(NEAR_RADIUS_KM);
   const [results, setResults] = useState<Ranked[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  /** Bumped when neighbours_dirty is consumed so isSaved re-reads session flags. */
+  const [neighboursSyncTick, setNeighboursSyncTick] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void supabase
+      .from("categories")
+      .select("id, label, emoji, service_mode, is_active, sort_order")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .then(({ data, error: catError }) => {
+        if (cancelled) return;
+        if (catError) {
+          console.error("radar categories load", catError);
+          setCategories([]);
+          return;
+        }
+        setCategories((data ?? []) as Category[]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const expanded = searchRadiusKm > NEAR_RADIUS_KM;
   const locating = !coordsTried;
@@ -186,22 +279,41 @@ const RadarSearch = () => {
     });
   };
 
-  // Run search only when GPS coordinates are available.
-  useEffect(() => {
-    if (!coords) {
-      if (coordsTried) setScanning(false);
-      return;
-    }
-    let cancelled = false;
-    const run = async () => {
-      setScanning(true);
-      setError(null);
+  const fetchVendors = useCallback(
+    async (opts: { silent?: boolean }) => {
+      if (!coords) {
+        if (coordsTried && !opts.silent) setScanning(false);
+        return;
+      }
+      if (!opts.silent) {
+        setScanning(true);
+        setError(null);
+      }
       try {
-        // Let the radar breathe so the transition feels intentional.
-        await new Promise((r) => setTimeout(r, 900));
+        if (!opts.silent) {
+          await new Promise((r) => setTimeout(r, 900));
+        }
 
-        // Explicitly select verification_status (along with the rest) so the
-        // RadarCard can render straight from the DB without any frontend overrides.
+        let vendorIdFilter: string[] | null = null;
+        if (term) {
+          const categoryIds = resolveCategoryIdsForTerm(term, categories);
+          if (categoryIds.length === 0) {
+            setResults([]);
+            return;
+          }
+          const { data: vcRows, error: vcError } = await supabase
+            .from("vendor_categories")
+            .select("vendor_id")
+            .in("category_id", categoryIds)
+            .eq("status", "approved");
+          if (vcError) throw vcError;
+          vendorIdFilter = [...new Set((vcRows ?? []).map((row) => row.vendor_id))];
+          if (vendorIdFilter.length === 0) {
+            setResults([]);
+            return;
+          }
+        }
+
         let q = supabase
           .from("vendors")
           .select("*, verification_status")
@@ -211,65 +323,117 @@ const RadarSearch = () => {
           .lte("latitude", coords.lat + BBOX_DELTA_DEG)
           .gte("longitude", coords.lng - BBOX_DELTA_DEG)
           .lte("longitude", coords.lng + BBOX_DELTA_DEG);
-        if (term) {
-          const resolved = resolveCategory(term);
-          if (resolved) q = q.eq("category", resolved);
-          else q = q.ilike("category", `%${term}%`);
-        }
-        const { data, error } = await q.limit(80);
-        if (error) throw error;
-        if (cancelled) return;
 
-        const all: Ranked[] = (data ?? [])
-          .filter(
-            (v) =>
-              v.latitude != null &&
-              v.longitude != null &&
-              v.latitude !== 0 &&
-              v.longitude !== 0,
-          )
-          .map((v) => ({
-            vendor: v as Vendor,
-            dist: distanceKm(coords, { lat: v.latitude, lng: v.longitude }),
-          }));
+        if (vendorIdFilter) {
+          q = q.in("id", vendorIdFilter);
+        }
+
+        const { data, error: fetchError } = await q.limit(80);
+        if (fetchError) throw fetchError;
+
+        const bboxVendors = (data ?? []).filter(
+          (v) =>
+            v.latitude != null &&
+            v.longitude != null &&
+            v.latitude !== 0 &&
+            v.longitude !== 0,
+        ) as Vendor[];
+
+        const vendorIds = bboxVendors.map((v) => v.id);
+
+        let verificationRows: VendorVerificationRow[] = [];
+        let categoriesByVendor = new Map<string, { label: string; emoji: string }[]>();
+
+        if (vendorIds.length > 0) {
+          const [verResult, vcResult] = await Promise.all([
+            supabase
+              .from("vendor_verification")
+              .select("vendor_id, check_type, status, is_latest")
+              .in("vendor_id", vendorIds)
+              .eq("is_latest", true),
+            supabase
+              .from("vendor_categories")
+              .select("vendor_id, is_primary, categories(label, emoji)")
+              .in("vendor_id", vendorIds)
+              .eq("status", "approved"),
+          ]);
+
+          if (verResult.error) throw verResult.error;
+          if (vcResult.error) throw vcResult.error;
+
+          verificationRows = (verResult.data ?? []) as VendorVerificationRow[];
+          categoriesByVendor = buildVendorCategoriesMap(
+            (vcResult.data ?? []) as Parameters<typeof buildVendorCategoriesMap>[0],
+          );
+        }
+
+        const trustByVendor = computeTrustLevelsByVendor(vendorIds, verificationRows);
+
+        const all: Ranked[] = bboxVendors.map((v) => ({
+          vendor: {
+            ...(v as Vendor),
+            categories: categoriesByVendor.get(v.id) ?? [],
+            trustLevel: trustByVendor.get(v.id) ?? "Unverified",
+          },
+          dist: distanceKm(coords, { lat: v.latitude!, lng: v.longitude! }),
+        }));
 
         const within = (radius: number) =>
           all.filter((r) => r.dist != null && r.dist <= radius);
 
         const scoped = within(searchRadiusKm);
 
-        // Rank: Green status first (always on top), then by proximity.
-        // Yellow/Red helpers fall back to pure distance ordering.
-        scoped.sort((a, b) => {
-          const ag = vendorTier(a.vendor) === "green" ? 0 : 1;
-          const bg = vendorTier(b.vendor) === "green" ? 0 : 1;
-          if (ag !== bg) return ag - bg;
-          if (a.dist == null && b.dist == null) return 0;
-          if (a.dist == null) return 1;
-          if (b.dist == null) return -1;
-          return a.dist - b.dist;
-        });
+        scoped.sort((a, b) =>
+          compareRadarResults(
+            { dist: a.dist, trustLevel: a.vendor.trustLevel },
+            { dist: b.dist, trustLevel: b.vendor.trustLevel },
+          ),
+        );
 
-        if (cancelled) return;
         setResults(scoped);
       } catch (e: unknown) {
-        if (!cancelled) {
+        if (!opts.silent) {
           setError(e instanceof Error ? e.message : s.radar_connection_error);
         }
       } finally {
-        if (!cancelled) setScanning(false);
+        if (!opts.silent) setScanning(false);
+      }
+    },
+    [coords, coordsTried, term, searchRadiusKm, categories, s.radar_connection_error],
+  );
+
+  // Run search only when GPS coordinates are available.
+  useEffect(() => {
+    if (!coords) {
+      if (coordsTried) setScanning(false);
+      return;
+    }
+    void fetchVendors({ silent: false });
+  }, [coords, coordsTried, fetchVendors]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      void fetchVendors({ silent: true });
+      if (consumeNeighboursDirty()) {
+        setNeighboursSyncTick((t) => t + 1);
       }
     };
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [coordsTried, coords, term, searchRadiusKm, s.radar_connection_error]);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [fetchVendors]);
 
   const headline = useMemo(() => {
     if (term) return displayName(term);
     return s.radar_all_emergencies;
   }, [term, s.radar_all_emergencies]);
+
+  const savedByVendorId = useMemo(() => {
+    void neighboursSyncTick;
+    return Object.fromEntries(
+      results.map(({ vendor }) => [vendor.id, readSessionSaved(vendor.id)]),
+    );
+  }, [results, neighboursSyncTick]);
 
   return (
     <AppShell theme="dark">
@@ -404,12 +568,14 @@ const RadarSearch = () => {
               dist={dist}
               index={i}
               userNeed={term}
-              categories={[]}
-              isSaved={readSessionSaved(vendor.id)}
+              categories={vendor.categories}
+              trustLevel={vendor.trustLevel}
+              isSaved={savedByVendorId[vendor.id] ?? false}
               hasOrdered={false}
               onOrder={() => {}}
               onAiBridge={() => {}}
               onSave={() => {}}
+              onOrderCancelled={() => {}}
             />
           ))}
           {isOfficialEmergencyCategory(term) && <GovEmergencyServices term={term} />}

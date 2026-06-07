@@ -20,7 +20,7 @@ import {
   CheckCircle,
   XCircle,
   Store,
-  ChevronDown,
+  Loader2,
 } from "lucide-react";
 import { Capacitor, type PermissionState } from "@capacitor/core";
 import { App } from "@capacitor/app";
@@ -32,6 +32,8 @@ import {
   supabase,
   invokeNotifyUser,
   invokeNotifyVendor,
+  invokeDeleteAccount,
+  invokeCancelDeletion,
   useCategoryLabel,
   useServiceModeLabel,
   type Vendor,
@@ -65,23 +67,219 @@ import {
 } from "@/components/ui/alert-dialog";
 import { LANGUAGE_LABELS, type Language } from "@/lib/strings";
 import { useUserAddresses } from "@/hooks/useUserAddresses";
-import {
-  VendorSettings,
-  VendorSettingsNotifications,
-  VendorSettingsReferEarn,
-} from "@/components/settings/VendorSettings";
+import { VendorSettings, VendorSettingsReferEarn } from "@/components/settings/VendorSettings";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   SettingsPageHeader,
-  SettingsSectionLabel,
   SettingsCard,
   SettingsRow,
   SettingsCollapsible,
   SettingsParentCollapsible,
-  defaultSettingsActiveGroup,
-  type SettingsActiveGroup,
 } from "@/components/settings/SettingsSection";
+import {
+  computeTrustLevelsByVendor,
+  trustLevelRank,
+  type TrustLevel,
+  type VendorVerificationRow,
+} from "@/lib/trustLevel";
+
+type AdminVendorCategory = {
+  label: string;
+  emoji: string;
+  service_mode: string;
+  is_primary: boolean;
+};
+
+type AdminVendorListRow = {
+  id: string;
+  name: string;
+  shop_name: string;
+  category: string;
+  service_mode: string | null;
+  vendor_type: Vendor["vendor_type"];
+  phone: string;
+  is_manual_verified: boolean;
+  is_active: boolean;
+  shop_photo_url: string | null;
+  upi_id: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  referral_code: string | null;
+  last_updated: string | null;
+  gps_match_distance: number | null;
+  upi_verified: boolean;
+  is_banned: boolean;
+  ban_reason: string | null;
+  categories: AdminVendorCategory[];
+  trustLevel: TrustLevel;
+  verifications: VendorVerificationRow[];
+};
+
+const TRUST_BADGE_CLASS: Record<Exclude<TrustLevel, "Unverified">, string> = {
+  Diamond: "bg-sidebar-primary text-sidebar-primary-foreground",
+  Gold: "bg-warning text-primary-foreground",
+  Silver: "bg-muted text-foreground border border-surface-border",
+  Bronze: "bg-surface-raised text-foreground border border-warning/40",
+};
+
+const VERIFICATION_CHECK_META: { check_type: string; label: string; icon: string }[] = [
+  { check_type: "upi_format", label: "UPI Format", icon: "💳" },
+  { check_type: "upi_pennydrop", label: "UPI Penny-drop", icon: "🏦" },
+  { check_type: "photo_shop", label: "Shop Photo", icon: "🏪" },
+  { check_type: "photo_selfie", label: "Selfie Photo", icon: "🤳" },
+  { check_type: "gps", label: "GPS", icon: "📍" },
+  { check_type: "admin_check", label: "Admin Check", icon: "✅" },
+  { check_type: "aadhaar_digilocker", label: "Aadhaar/DigiLocker", icon: "🪪" },
+];
+
+function buildAdminVendorCategoriesMap(
+  rows: {
+    vendor_id: string;
+    is_primary: boolean | null;
+    service_mode: string | null;
+    categories:
+      | { label: string; emoji: string }
+      | { label: string; emoji: string }[]
+      | null;
+  }[],
+): Map<string, AdminVendorCategory[]> {
+  const map = new Map<string, AdminVendorCategory[]>();
+
+  for (const row of rows) {
+    const joined = row.categories;
+    const resolved = Array.isArray(joined) ? joined[0] : joined;
+    if (!resolved?.label) continue;
+
+    const list = map.get(row.vendor_id) ?? [];
+    list.push({
+      label: resolved.label,
+      emoji: resolved.emoji ?? "✨",
+      service_mode: row.service_mode ?? "help",
+      is_primary: row.is_primary === true,
+    });
+    map.set(row.vendor_id, list);
+  }
+
+  const out = new Map<string, AdminVendorCategory[]>();
+  for (const [vendorId, list] of map) {
+    list.sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
+    out.set(vendorId, list);
+  }
+  return out;
+}
+
+function adminTrustBadgeLabel(
+  level: TrustLevel,
+  s: {
+    radar_trust_badge_diamond: string;
+    radar_trust_badge_gold: string;
+    radar_trust_badge_silver: string;
+    radar_trust_badge_bronze: string;
+  },
+): string | null {
+  switch (level) {
+    case "Diamond":
+      return s.radar_trust_badge_diamond;
+    case "Gold":
+      return s.radar_trust_badge_gold;
+    case "Silver":
+      return s.radar_trust_badge_silver;
+    case "Bronze":
+      return s.radar_trust_badge_bronze;
+    default:
+      return null;
+  }
+}
+
+function AdminTrustLevelBadge({ level }: { level: TrustLevel }) {
+  const { s } = useLanguage();
+  if (level === "Unverified") return null;
+  const label = adminTrustBadgeLabel(level, s);
+  if (!label) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none whitespace-nowrap shrink-0",
+        TRUST_BADGE_CLASS[level],
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+function AdminVendorCategoryChips({
+  categories,
+  fallbackLabel,
+  getLabel,
+}: {
+  categories: AdminVendorCategory[];
+  fallbackLabel: string;
+  getLabel: (label: string) => string;
+}) {
+  const chips =
+    categories.length > 0
+      ? categories
+      : fallbackLabel
+        ? [{ label: fallbackLabel, emoji: "✨", service_mode: "help", is_primary: true }]
+        : [];
+
+  if (chips.length === 0) return null;
+
+  const scrollable = chips.length > 1;
+
+  return (
+    <div
+      className={cn(
+        "mt-1 flex gap-1.5 min-w-0",
+        scrollable ? "overflow-x-auto pb-0.5 scrollbar-none" : "flex-wrap",
+      )}
+    >
+      {chips.map((cat, index) => (
+        <span
+          key={`${cat.label}-${index}`}
+          className={cn(
+            "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] shrink-0",
+            "border border-surface-border bg-surface text-muted-foreground",
+            index === 0 && "font-semibold text-foreground border-brand/40 bg-brand/10",
+          )}
+        >
+          <span aria-hidden>{cat.emoji}</span>
+          <span className="truncate max-w-[8rem]">{getLabel(cat.label)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AdminVendorTypeLabel({ vendorType }: { vendorType: Vendor["vendor_type"] }) {
+  const { s } = useLanguage();
+  if (vendorType === "home") {
+    return (
+      <p className="text-[11px] text-muted-foreground mt-0.5">{s.radar_vendor_home_based}</p>
+    );
+  }
+  if (vendorType === "visiting") {
+    return (
+      <p className="text-[11px] text-muted-foreground mt-0.5">{s.radar_vendor_visits_you}</p>
+    );
+  }
+  return null;
+}
+
+function verificationStatusChipClass(status: string): string {
+  if (status === "passed") {
+    return "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30";
+  }
+  if (status === "failed") {
+    return "bg-destructive/10 text-destructive border-destructive/30";
+  }
+  if (status === "pending") {
+    return "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30";
+  }
+  return "bg-muted text-muted-foreground border-border";
+}
 
 const LARGE_TEXT_KEY = "aaspaas:large_text";
 const VOICE_LANG_KEY = "aaspaas:voice_lang";
@@ -114,6 +312,16 @@ const VERIFY_CHECK_COUNT = VERIFY_ITEM_IDS.length;
 
 function emptyVerifyChecks(): Record<string, boolean> {
   return Object.fromEntries(VERIFY_ITEM_IDS.map((id) => [id, false]));
+}
+
+function formatVendorDeletionDate(deletionRequestedAt: string): string {
+  const d = new Date(deletionRequestedAt);
+  d.setDate(d.getDate() + 30);
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function verifyProgressKey(vendorId: string) {
@@ -271,6 +479,7 @@ const Settings = () => {
   const userPhone = getUserPhone();
   const deviceId = getDeviceId();
   const vendorId = localStorage.getItem("aaspaas:vendor_id");
+  const isVendor = Boolean(vendorId?.trim());
   const ADMIN_PHONE_FALLBACK = "8888169446";
   const [adminPhone, setAdminPhone] = useState(ADMIN_PHONE_FALLBACK);
   const isAdmin = userPhone === adminPhone;
@@ -293,28 +502,7 @@ const Settings = () => {
     totalReferrals: 0,
   });
 
-  const [vendorList, setVendorList] = useState<
-    {
-      id: string;
-      name: string;
-      shop_name: string;
-      category: string;
-      service_mode: string | null;
-      phone: string;
-      is_manual_verified: boolean;
-      is_active: boolean;
-      shop_photo_url: string | null;
-      upi_id: string | null;
-      latitude: number | null;
-      longitude: number | null;
-      referral_code: string | null;
-      last_updated: string | null;
-      gps_match_distance: number | null;
-      upi_verified: boolean;
-      is_banned: boolean;
-      ban_reason: string | null;
-    }[]
-  >([]);
+  const [vendorList, setVendorList] = useState<AdminVendorListRow[]>([]);
   const [vendorSearch, setVendorSearch] = useState("");
   const [pendingCategories, setPendingCategories] = useState<
     {
@@ -359,11 +547,15 @@ const Settings = () => {
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
   const [verifyAutoTicked, setVerifyAutoTicked] = useState<Set<string>>(() => new Set());
   const [verifyReferrerLabel, setVerifyReferrerLabel] = useState<string | null>(null);
+  const [adminCheckUpdating, setAdminCheckUpdating] = useState(false);
   const { addresses, loading: addressesLoading, refresh: refreshAddresses } = useUserAddresses();
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [editAddressValue, setEditAddressValue] = useState("");
   const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
   const [clearDataOpen, setClearDataOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
+  const [vendorDeletionRequestedAt, setVendorDeletionRequestedAt] = useState<string | null>(null);
   const [permissionHint, setPermissionHint] = useState<string | null>(null);
   const [permissionStatuses, setPermissionStatuses] = useState<NativePermissionStatuses>({
     notifications: "prompt",
@@ -392,17 +584,17 @@ const Settings = () => {
     warn_count: number | null;
     is_banned: boolean;
   } | null>(null);
-  const [activeGroup, setActiveGroup] = useState<SettingsActiveGroup>(() =>
-    defaultSettingsActiveGroup(vendorId),
-  );
+  const [accountOpen, setAccountOpen] = useState(true);
+  const [shopOpen, setShopOpen] = useState(() => Boolean(vendorId?.trim()));
   const [referOpen, setReferOpen] = useState(false);
-  const [trustOpen, setTrustOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [deviceOpen, setDeviceOpen] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
   const { enabled: feedNotificationsEnabled, onCheckedChange: onFeedNotificationsChange } =
     useFeedNotificationsEnabled();
-  const [adminOpen, setAdminOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"settings" | "admin">("settings");
   const [pendingCatOpen, setPendingCatOpen] = useState(false);
-  const [flaggedOpen, setFlaggedOpen] = useState(false);
+  const [vendorModerationOpen, setVendorModerationOpen] = useState(false);
   const [adminConfigOpen, setAdminConfigOpen] = useState(false);
   const [adminConfigValues, setAdminConfigValues] = useState<Partial<Record<AdminConfigKey, string>>>(
     {},
@@ -441,7 +633,7 @@ const Settings = () => {
   }, []);
 
   useEffect(() => {
-    if (isAdmin) setAdminOpen(true);
+    if (isAdmin) setActiveTab("admin");
   }, [isAdmin]);
 
   useEffect(() => {
@@ -500,6 +692,26 @@ const Settings = () => {
   }, [vendorId]);
 
   useEffect(() => {
+    const phone = userPhone?.trim();
+    if (!phone || !isVendor) {
+      setVendorDeletionRequestedAt(null);
+      return;
+    }
+    void (async () => {
+      const { data, error } = await supabase
+        .from("vendors")
+        .select("deletion_requested_at")
+        .eq("phone", phone)
+        .maybeSingle();
+      if (error) {
+        console.error("loadVendorDeletionRequestedAt", error);
+        return;
+      }
+      setVendorDeletionRequestedAt(data?.deletion_requested_at ?? null);
+    })();
+  }, [userPhone, isVendor]);
+
+  useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
     const refreshPermissions = () => {
@@ -543,7 +755,7 @@ const Settings = () => {
         supabase.from("requests").select("created_at"),
         supabase
           .from("vendors")
-          .select("created_at, last_updated, is_manual_verified, avg_rating, is_active"),
+          .select("last_updated, is_manual_verified, avg_rating, is_active"),
         supabase
           .from("requests")
           .select("id", { count: "exact", head: true })
@@ -570,8 +782,12 @@ const Settings = () => {
           ordersToday: orders.filter((o) => o.created_at >= startOfToday).length,
           ordersThisWeek: orders.filter((o) => o.created_at >= startOfWeek).length,
           totalVendors: vendors.length,
-          activeVendorsToday: vendors.filter((v) => v.last_updated >= startOfToday).length,
-          newVendorsThisWeek: vendors.filter((v) => v.created_at >= startOfWeek).length,
+          activeVendorsToday: vendors.filter(
+            (v) => v.last_updated != null && v.last_updated >= startOfToday,
+          ).length,
+          newVendorsThisWeek: vendors.filter(
+            (v) => v.last_updated != null && v.last_updated >= startOfWeek,
+          ).length,
           unverifiedVendors: vendors.filter((v) => !v.is_manual_verified).length,
           stuckOrders: stuckOrders ?? 0,
           avgVendorRating,
@@ -606,15 +822,75 @@ const Settings = () => {
     void loadAdminConfig();
   }, [isAdmin, adminConfigOpen]);
 
-  const loadVendorList = async () => {
-    const { data } = await supabase
+  const loadVendorList = async (): Promise<AdminVendorListRow[]> => {
+    const { data: vendors, error } = await supabase
       .from("vendors")
       .select(
-        "id, name, shop_name, category, service_mode, phone, is_manual_verified, is_active, is_banned, ban_reason, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified",
+        "id, name, shop_name, category, service_mode, vendor_type, phone, is_manual_verified, is_active, is_banned, ban_reason, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified",
       )
       .order("is_manual_verified", { ascending: true })
       .order("shop_name");
-    if (data) setVendorList(data);
+    if (error) {
+      console.error("loadVendorList", error);
+      setVendorList([]);
+      return [];
+    }
+    if (!vendors?.length) {
+      setVendorList([]);
+      return [];
+    }
+
+    const vendorIds = vendors.map((v) => v.id);
+    const [vcResult, verResult] = await Promise.all([
+      supabase
+        .from("vendor_categories")
+        .select("vendor_id, is_primary, service_mode, categories(label, emoji)")
+        .in("vendor_id", vendorIds)
+        .eq("status", "approved"),
+      supabase
+        .from("vendor_verification")
+        .select("vendor_id, check_type, status, is_latest")
+        .in("vendor_id", vendorIds)
+        .eq("is_latest", true),
+    ]);
+
+    if (vcResult.error) console.error("loadVendorList vendor_categories", vcResult.error);
+    if (verResult.error) console.error("loadVendorList vendor_verification", verResult.error);
+
+    const categoriesMap = buildAdminVendorCategoriesMap(vcResult.data ?? []);
+    const verifications = (verResult.data ?? []) as VendorVerificationRow[];
+    const trustMap = computeTrustLevelsByVendor(vendorIds, verifications);
+
+    const verificationsByVendor = new Map<string, VendorVerificationRow[]>();
+    for (const row of verifications) {
+      const list = verificationsByVendor.get(row.vendor_id) ?? [];
+      list.push(row);
+      verificationsByVendor.set(row.vendor_id, list);
+    }
+
+    const merged: AdminVendorListRow[] = vendors.map((v) => {
+      let categories = categoriesMap.get(v.id) ?? [];
+      if (categories.length === 0 && v.category) {
+        categories = [
+          {
+            label: v.category,
+            emoji: "✨",
+            service_mode: v.service_mode ?? "help",
+            is_primary: true,
+          },
+        ];
+      }
+      return {
+        ...v,
+        vendor_type: v.vendor_type as Vendor["vendor_type"],
+        categories,
+        trustLevel: trustMap.get(v.id) ?? "Unverified",
+        verifications: verificationsByVendor.get(v.id) ?? [],
+      };
+    });
+
+    setVendorList(merged);
+    return merged;
   };
 
   useEffect(() => {
@@ -1101,12 +1377,60 @@ const Settings = () => {
     toast(s.settings_verificationRemoved);
   };
 
-  const filteredVendors = vendorList.filter(
-    (v) =>
-      v.shop_name.toLowerCase().includes(vendorSearch.toLowerCase()) ||
-      v.name.toLowerCase().includes(vendorSearch.toLowerCase()) ||
-      v.phone.includes(vendorSearch),
-  );
+  const setAdminCheckStatus = async (vendorId: string, status: "passed" | "failed") => {
+    setAdminCheckUpdating(true);
+    const { error: unsetError } = await supabase
+      .from("vendor_verification")
+      .update({ is_latest: false })
+      .eq("vendor_id", vendorId)
+      .eq("check_type", "admin_check")
+      .eq("is_latest", true);
+    if (unsetError) {
+      console.error("setAdminCheckStatus unset", unsetError);
+      setAdminCheckUpdating(false);
+      toast.error("Failed to update admin check");
+      return;
+    }
+    const { error: insertError } = await supabase.from("vendor_verification").insert({
+      vendor_id: vendorId,
+      check_type: "admin_check",
+      status,
+      checked_by: "admin",
+      is_latest: true,
+    });
+    if (insertError) {
+      console.error("setAdminCheckStatus insert", insertError);
+      setAdminCheckUpdating(false);
+      toast.error("Failed to update admin check");
+      return;
+    }
+    const refreshed = await loadVendorList();
+    setVerifySheet((prev) => {
+      if (!prev.vendor || prev.vendor.id !== vendorId) return prev;
+      const updated = refreshed.find((v) => v.id === vendorId);
+      return updated ? { ...prev, vendor: updated } : prev;
+    });
+    setAdminCheckUpdating(false);
+    toast.success(status === "passed" ? "Admin check marked passed" : "Admin check marked failed");
+  };
+
+  const filteredVendors = useMemo(() => {
+    const q = vendorSearch.toLowerCase();
+    const filtered = vendorList.filter(
+      (v) =>
+        v.shop_name.toLowerCase().includes(q) ||
+        v.name.toLowerCase().includes(q) ||
+        v.phone.includes(vendorSearch),
+    );
+    return [...filtered].sort((a, b) => {
+      if (a.is_manual_verified !== b.is_manual_verified) {
+        return a.is_manual_verified ? 1 : -1;
+      }
+      const trustDiff = trustLevelRank(b.trustLevel) - trustLevelRank(a.trustLevel);
+      if (trustDiff !== 0) return trustDiff;
+      return a.shop_name.localeCompare(b.shop_name);
+    });
+  }, [vendorList, vendorSearch]);
 
   // Hidden gesture: tap the page title 7× to open PIN gate for developer menu.
   const tapTitle = () => {
@@ -1203,9 +1527,96 @@ const Settings = () => {
     await refreshAddresses();
   };
 
+  const confirmDeleteAccount = async () => {
+    const phone = userPhone?.trim();
+    if (!phone) return;
+
+    setDeleteAccountLoading(true);
+    const result = await invokeDeleteAccount(phone, isVendor ? "vendor" : "customer");
+    setDeleteAccountLoading(false);
+    setDeleteConfirmOpen(false);
+
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+
+    if (isVendor) {
+      const { data } = await supabase
+        .from("vendors")
+        .select("deletion_requested_at")
+        .eq("phone", phone)
+        .maybeSingle();
+      setVendorDeletionRequestedAt(
+        data?.deletion_requested_at ?? new Date().toISOString(),
+      );
+      toast.success(s.delete_account_success_vendor);
+      return;
+    }
+
+    toast.success(s.delete_account_success_customer);
+    try {
+      localStorage.removeItem("aaspaas:user_phone");
+      localStorage.removeItem("aaspaas:device_id");
+    } catch {
+      /* ignore */
+    }
+    window.setTimeout(() => location.reload(), 1500);
+  };
+
+  const cancelAccountDeletion = async () => {
+    const phone = userPhone?.trim();
+    if (!phone) return;
+
+    setDeleteAccountLoading(true);
+    const result = await invokeCancelDeletion(phone);
+    setDeleteAccountLoading(false);
+
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+
+    setVendorDeletionRequestedAt(null);
+    toast.success(s.delete_account_cancelled);
+  };
+
   return (
     <AppShell theme="dark">
-      <div className="pb-8">
+      <div className="pb-8" data-testid="settings-screen">
+      {isAdmin && (
+        <div className="flex gap-2 px-4 pt-2 pb-4">
+          <button
+            type="button"
+            data-testid="settings-tab-settings"
+            onClick={() => setActiveTab("settings")}
+            className={cn(
+              "flex-1 rounded-xl border py-2.5 text-sm font-bold transition-colors active:scale-[0.98]",
+              activeTab === "settings"
+                ? "border-brand bg-brand/15 text-brand"
+                : "border-surface-border bg-surface text-muted-foreground",
+            )}
+          >
+            Settings
+          </button>
+          <button
+            type="button"
+            data-testid="settings-tab-admin"
+            onClick={() => setActiveTab("admin")}
+            className={cn(
+              "flex-1 rounded-xl border py-2.5 text-sm font-bold transition-colors active:scale-[0.98]",
+              activeTab === "admin"
+                ? "border-brand bg-brand/15 text-brand"
+                : "border-surface-border bg-surface text-muted-foreground",
+            )}
+          >
+            Admin
+          </button>
+        </div>
+      )}
+
+      {(!isAdmin || activeTab === "settings") && (
+      <>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <SettingsPageHeader
@@ -1235,8 +1646,8 @@ const Settings = () => {
 
       <SettingsParentCollapsible
         label="MY ACCOUNT"
-        open={activeGroup === "account"}
-        onToggle={() => setActiveGroup("account")}
+        open={accountOpen}
+        onToggle={() => setAccountOpen((o) => !o)}
       >
         <SettingsCollapsible
           label={s.settings_myIdentity}
@@ -1267,7 +1678,7 @@ const Settings = () => {
           </div>
         </SettingsCollapsible>
 
-        <div className="px-4 py-3.5 border-b border-surface-border">
+        <div className="px-4 py-3.5 border-b border-surface-border" data-testid="account-standing-row">
           <p className="text-sm font-medium text-foreground">{s.settings_accountStanding}</p>
           <span
             className={cn(
@@ -1365,7 +1776,7 @@ const Settings = () => {
         )}
         </SettingsCollapsible>
 
-        {referEarnVisible && (
+        {referEarnVisible && !vendorId && (
         <SettingsCollapsible
           label={s.vendor_referEarn}
           open={referOpen}
@@ -1375,20 +1786,6 @@ const Settings = () => {
           <VendorSettingsReferEarn vendor={vendor} userPhone={userPhone} />
         </SettingsCollapsible>
         )}
-
-        <SettingsCollapsible
-          label={s.settings_trustSecurity}
-          open={trustOpen}
-          onToggle={() => setTrustOpen((o) => !o)}
-          nested
-        >
-        <SettingsRow label={s.settings_trustSecurity} sublabel={s.settings_tlsNote}>
-          <CheckCircle2 className="h-5 w-5 text-brand shrink-0" aria-hidden />
-        </SettingsRow>
-        <div className="px-4 pb-3.5">
-          <p className="text-xs text-brand font-medium">{s.settings_dbConnected}</p>
-        </div>
-        </SettingsCollapsible>
 
         <SettingsCollapsible
           label={s.settings_preferences}
@@ -1402,6 +1799,7 @@ const Settings = () => {
         >
           <button
             type="button"
+            data-testid="theme-toggle"
             onClick={toggleTheme}
             className="h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-surface-border bg-surface text-brand active:opacity-90"
             aria-label={s.theme}
@@ -1418,7 +1816,10 @@ const Settings = () => {
             {s.settings_language}
           </p>
           <Select value={lang} onValueChange={(value) => setLang(value as Language)}>
-            <SelectTrigger className="w-full rounded-xl border-surface-border bg-surface h-auto px-3 py-2.5 font-medium text-sm">
+            <SelectTrigger
+              data-testid="language-select"
+              className="w-full rounded-xl border-surface-border bg-surface h-auto px-3 py-2.5 font-medium text-sm"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1474,20 +1875,8 @@ const Settings = () => {
             }}
           />
         </SettingsRow>
-        <SettingsRow
-          label={s.settings_feedNotifications}
-          sublabel={s.settings_feedNotificationsHint}
-        >
-          <Switch
-            className="data-[state=checked]:bg-brand"
-            checked={feedNotificationsEnabled}
-            onCheckedChange={onFeedNotificationsChange}
-          />
-        </SettingsRow>
         </SettingsCollapsible>
       </SettingsParentCollapsible>
-
-      {vendor && <VendorSettingsNotifications vendor={vendor} />}
 
       {vendorId && (
         <>
@@ -1499,8 +1888,10 @@ const Settings = () => {
               vendor={vendor}
               onVendorUpdated={setVendor}
               onEditShopDetails={() => navigate("/vendor")}
-              activeGroup={activeGroup}
-              onActiveGroupChange={setActiveGroup}
+              shopOpen={shopOpen}
+              onShopOpenChange={setShopOpen}
+              referEarnVisible={referEarnVisible}
+              userPhone={userPhone}
             />
           )}
         </>
@@ -1508,8 +1899,15 @@ const Settings = () => {
 
       {Capacitor.isNativePlatform() && (
         <>
-          <SettingsSectionLabel>PERMISSIONS</SettingsSectionLabel>
-          <SettingsCard>
+          <SettingsParentCollapsible
+            label={s.settings_device_section}
+            open={deviceOpen}
+            onToggle={() => setDeviceOpen((o) => !o)}
+          >
+            <p className="px-3 pt-1 pb-2 text-xs font-bold uppercase tracking-widest text-brand">
+              Permissions
+            </p>
+            <SettingsCard className="mx-0 mb-3 border-surface-border">
               <SettingsRow label="Notifications" sublabel="Required for order alerts">
                 {permissionStatuses.notifications === "granted" ? (
                   <span className="shrink-0 text-lg leading-none" aria-label="Granted">
@@ -1567,49 +1965,151 @@ const Settings = () => {
                   </button>
                 </div>
               </SettingsRow>
-          </SettingsCard>
+            </SettingsCard>
+            <SettingsCard className="mx-0 mb-0 border-surface-border">
+              <SettingsRow
+                label={s.settings_feedNotifications}
+                sublabel={s.settings_feedNotificationsHint}
+              >
+                <Switch
+                  className="data-[state=checked]:bg-brand"
+                  checked={feedNotificationsEnabled}
+                  onCheckedChange={onFeedNotificationsChange}
+                />
+              </SettingsRow>
+            </SettingsCard>
+          </SettingsParentCollapsible>
 
-            <AlertDialog
-              open={permissionHint != null}
-              onOpenChange={(open) => {
-                if (!open) setPermissionHint(null);
-              }}
-            >
-              <AlertDialogContent className="rounded-2xl border border-border bg-card">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Open Settings</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Go to Android Settings → Apps → AasPaas Pro → Permissions and enable{" "}
-                    {permissionHint}.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogAction className="mt-0">OK</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+          <AlertDialog
+            open={permissionHint != null}
+            onOpenChange={(open) => {
+              if (!open) setPermissionHint(null);
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Open Settings</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Go to Android Settings → Apps → AasPaas Pro → Permissions and enable{" "}
+                  {permissionHint}.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogAction className="mt-0">OK</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
 
-      {isAdmin && (
-        <>
-          <div className="flex items-center justify-between px-4 pt-6 pb-2">
+      <SettingsParentCollapsible
+        label={s.settings_connection_privacy}
+        open={connectionOpen}
+        onToggle={() => setConnectionOpen((o) => !o)}
+      >
+        <SettingsRow label={s.settings_trustSecurity} sublabel={s.settings_tlsNote}>
+          <CheckCircle2 className="h-5 w-5 text-brand shrink-0" aria-hidden />
+        </SettingsRow>
+        <div className="px-4 pb-3.5">
+          <p className="text-xs text-brand font-medium">{s.settings_dbConnected}</p>
+        </div>
+      </SettingsParentCollapsible>
+
+      <div className="mt-8 pt-4 border-t border-surface-border/50">
+      <button
+        type="button"
+        onClick={() => setClearDataOpen(true)}
+        className="mx-4 w-[calc(100%-2rem)] rounded-xl border border-destructive/40 text-destructive bg-transparent py-2.5 text-sm font-medium flex items-center justify-center gap-2 active:opacity-90"
+      >
+        <Trash2 className="h-4 w-4" /> {s.settings_clearMyData}
+      </button>
+
+      {userPhone && (
+        <section className="mx-4 mt-4 space-y-3">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold px-1">
+            {s.delete_account_title}
+          </p>
+          {deleteAccountLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
+            </div>
+          ) : vendorDeletionRequestedAt ? (
+            <>
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100 leading-relaxed">
+                {s.delete_account_scheduled.replace(
+                  "{date}",
+                  formatVendorDeletionDate(vendorDeletionRequestedAt),
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void cancelAccountDeletion()}
+                className="w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:opacity-90"
+              >
+                {s.delete_account_cancel}
+              </button>
+            </>
+          ) : (
             <button
               type="button"
-              onClick={() => setAdminOpen((o) => !o)}
-              className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-brand active:opacity-90"
+              onClick={() => setDeleteConfirmOpen(true)}
+              className="w-full rounded-xl bg-destructive text-destructive-foreground py-2.5 text-sm font-semibold active:opacity-90"
             >
-              ADMIN
-              <ChevronDown
-                className={cn(
-                  "h-4 w-4 text-muted-foreground transition-transform duration-200",
-                  adminOpen && "rotate-180",
-                )}
-              />
+              {s.delete_account_title}
             </button>
+          )}
+        </section>
+      )}
+
+      <p className="text-xs text-muted-foreground text-center py-4 mt-2">
+        {s.settings_appName} · {s.settings_version}
+        <br />
+        {s.settings_copyright}
+      </p>
+      </div>
+
+      {devOpen && (
+        <section className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 mb-5 mx-4 animate-fade-up">
+          <div className="flex items-center gap-2 mb-3">
+            <Wrench className="h-4 w-4 text-destructive" />
+            <p className="text-xs uppercase tracking-wider text-destructive font-semibold">{s.settings_devMenu}</p>
           </div>
-          {adminOpen && (
-          <>
+          <div className="mb-4 space-y-2">
+            <label className="text-xs font-semibold text-muted-foreground" htmlFor="dev-phone-number">
+              Set phone number (dev)
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="dev-phone-number"
+                value={devPhone}
+                onChange={(e) => setDevPhone(e.target.value)}
+                className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem('aaspaas:user_phone', devPhone);
+                  location.reload();
+                }}
+                className="rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+          <button
+            onClick={() => setDevOpen(false)}
+            className="w-full text-xs text-muted-foreground underline"
+          >
+            {s.settings_hideDevMenu}
+          </button>
+        </section>
+      )}
+      </>
+      )}
+
+      {isAdmin && activeTab === "admin" && (
+        <div data-testid="admin-panel">
           <SettingsCard className="border-brand/20">
             <div className="px-4 py-3 border-b border-surface-border">
               <p className="text-sm font-medium text-foreground">{s.settings_adminHealth}</p>
@@ -1680,39 +2180,218 @@ const Settings = () => {
           </SettingsCard>
 
           <SettingsCollapsible
-            label={s.admin_app_config}
-            open={adminConfigOpen}
-            onToggle={() => setAdminConfigOpen((o) => !o)}
+            label={s.admin_vendor_moderation}
+            open={vendorModerationOpen}
+            onToggle={() => setVendorModerationOpen((o) => !o)}
+            badge={
+              flaggedUsers.length > 0 ? (
+                <span className="bg-destructive/20 text-destructive text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  {flaggedUsers.length}
+                </span>
+              ) : undefined
+            }
           >
-            <div className="space-y-3">
-              {ADMIN_CONFIG_WHITELIST.map((key) => (
-                <div
-                  key={key}
-                  className="rounded-2xl border border-border p-3 space-y-2"
-                >
-                  <p className="text-xs font-semibold text-muted-foreground">
-                    {ADMIN_CONFIG_LABELS[key]}
+            <div className="px-4 py-3 border-b border-surface-border">
+              <p className="text-sm font-medium text-foreground">{s.settings_vendorVerification}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{s.settings_unverifiedFirst}</p>
+            </div>
+            <div className="px-4 py-3">
+              <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 mb-4">
+                <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                <input
+                  type="text"
+                  placeholder={s.settings_searchPlaceholder}
+                  value={vendorSearch}
+                  onChange={(e) => setVendorSearch(e.target.value)}
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {filteredVendors.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    {s.settings_noVendorsFound}
                   </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={adminConfigDraft[key] ?? adminConfigValues[key] ?? ""}
-                      onChange={(e) =>
-                        setAdminConfigDraft((prev) => ({ ...prev, [key]: e.target.value }))
-                      }
-                      className="flex-1 min-w-0 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-                    />
-                    <button
-                      type="button"
-                      disabled={adminConfigSaving === key}
-                      onClick={() => void saveAdminConfigKey(key)}
-                      className="shrink-0 rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground disabled:opacity-50"
-                    >
-                      {adminConfigSaving === key ? "…" : "Save"}
-                    </button>
+                )}
+                {filteredVendors.map((v) => (
+                  <div
+                    key={v.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-border p-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold truncate">{v.shop_name}</p>
+                        {v.is_active && (
+                          <span className="text-[10px] text-green-500 font-semibold">
+                            {s.settings_live}
+                          </span>
+                        )}
+                        <AdminTrustLevelBadge level={v.trustLevel} />
+                        {v.is_banned && (
+                          <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-bold px-2 py-0.5 border border-destructive/30">
+                            BANNED
+                          </span>
+                        )}
+                      </div>
+                      <AdminVendorTypeLabel vendorType={v.vendor_type} />
+                      <AdminVendorCategoryChips
+                        categories={v.categories}
+                        fallbackLabel={v.category}
+                        getLabel={getLabel}
+                      />
+                      <p className="text-xs text-muted-foreground truncate mt-1">{v.name}</p>
+                      <p className="text-xs text-muted-foreground">{v.phone}</p>
+                    </div>
+                    <div className="shrink-0 flex flex-col items-end gap-1.5">
+                      {!v.is_manual_verified && hasVerifyInProgress(v.id) && (
+                        <span className="rounded-full bg-amber-500/10 text-amber-600 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
+                          In progress
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          v.is_manual_verified ? void confirmUnverify(v.id) : openVerifySheet(v)
+                        }
+                        disabled={verifying === v.id}
+                        className={`flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
+                          v.is_manual_verified
+                            ? "bg-green-500/10 text-green-500 border border-green-500/30"
+                            : "bg-destructive/10 text-destructive border border-destructive/30"
+                        }`}
+                      >
+                        {verifying === v.id ? (
+                          s.settings_btnLoading
+                        ) : v.is_manual_verified ? (
+                          <>
+                            <CheckCircle className="h-3 w-3" /> {s.settings_verified}
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="h-3 w-3" /> {s.settings_unverified}
+                          </>
+                        )}
+                      </button>
+                      {!v.is_banned ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVendorBanReason("");
+                            setVendorBanDialog({ open: true, vendor: v });
+                          }}
+                          disabled={vendorBanAction === v.id}
+                          className="rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                        >
+                          Ban
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void unbanVendor(v.id)}
+                          disabled={vendorBanAction === v.id}
+                          className="rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                        >
+                          Unban
+                        </button>
+                      )}
+                    </div>
                   </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mx-4 border-t border-surface-border" />
+
+            <div className="px-4 py-3 border-b border-surface-border">
+              <p className="text-sm font-medium text-foreground">
+                Flagged Users ({flaggedUsers.length})
+              </p>
+            </div>
+            <div className="px-4 py-3">
+              {flaggedUsers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">✅ No flagged users at this time</p>
+              ) : (
+                <div className="space-y-3">
+                  {flaggedUsers.map((user) => {
+                    const warnCount = user.warn_count ?? 0;
+                    const highWarns = warnCount >= 3;
+                    return (
+                      <div
+                        key={user.phone}
+                        className={`rounded-2xl border p-3 space-y-2 ${
+                          highWarns
+                            ? "border-amber-500/50 bg-amber-500/5"
+                            : "border-border"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold">{user.phone}</p>
+                          {warnCount > 0 && (
+                            <span className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
+                              ⚠️ {warnCount} warns
+                            </span>
+                          )}
+                          {user.is_banned && (
+                            <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-bold px-2 py-0.5 border border-destructive/30">
+                              BANNED
+                            </span>
+                          )}
+                        </div>
+                        {highWarns && (
+                          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                            {s.admin_consider_banning}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Trust score:{" "}
+                          <span className={`font-semibold ${trustScoreClass(user.trust_score)}`}>
+                            {user.trust_score}
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {user.noshow_count} no-shows, {user.fake_count} fakes
+                        </p>
+                        {user.is_banned && user.ban_reason && (
+                          <p className="text-[11px] text-destructive/80">{user.ban_reason}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void warnFlaggedUser(user.phone)}
+                            disabled={flaggedAction === user.phone}
+                            className="flex-1 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                          >
+                            Warn
+                          </button>
+                          {!user.is_banned && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBanReason("");
+                                setBanDialog({ open: true, phone: user.phone });
+                              }}
+                              disabled={flaggedAction === user.phone}
+                              className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                            >
+                              Ban
+                            </button>
+                          )}
+                          {user.is_banned && (
+                            <button
+                              type="button"
+                              onClick={() => void unbanFlaggedUser(user.phone)}
+                              disabled={flaggedAction === user.phone}
+                              className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                            >
+                              Unban
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
+              )}
             </div>
           </SettingsCollapsible>
 
@@ -1770,200 +2449,41 @@ const Settings = () => {
             )}
           </SettingsCollapsible>
 
-          <SettingsCard className="border-brand/20">
-            <div className="px-4 py-3 border-b border-surface-border">
-              <p className="text-sm font-medium text-foreground">{s.settings_vendorVerification}</p>
-            </div>
-            <div className="px-4 py-3">
-            <p className="text-xs text-muted-foreground mb-4">{s.settings_unverifiedFirst}</p>
-
-            <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 mb-4">
-              <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-              <input
-                type="text"
-                placeholder={s.settings_searchPlaceholder}
-                value={vendorSearch}
-                onChange={(e) => setVendorSearch(e.target.value)}
-                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              />
-            </div>
-
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {filteredVendors.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">{s.settings_noVendorsFound}</p>
-              )}
-              {filteredVendors.map((v) => (
-                <div key={v.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border p-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold truncate">{v.shop_name}</p>
-                      {v.is_active && <span className="text-[10px] text-green-500 font-semibold">{s.settings_live}</span>}
-                      {v.is_banned && (
-                        <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-bold px-2 py-0.5 border border-destructive/30">
-                          BANNED
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {v.name}{s.settings_dotSeparator}{getLabel(v.category)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{v.phone}</p>
-                  </div>
-                  <div className="shrink-0 flex flex-col items-end gap-1.5">
-                    {!v.is_manual_verified && hasVerifyInProgress(v.id) && (
-                      <span className="rounded-full bg-amber-500/10 text-amber-600 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
-                        In progress
-                      </span>
-                    )}
+          <SettingsCollapsible
+            label={s.admin_app_config}
+            open={adminConfigOpen}
+            onToggle={() => setAdminConfigOpen((o) => !o)}
+          >
+            <div className="space-y-3">
+              {ADMIN_CONFIG_WHITELIST.map((key) => (
+                <div
+                  key={key}
+                  className="rounded-2xl border border-border p-3 space-y-2"
+                >
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    {ADMIN_CONFIG_LABELS[key]}
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={adminConfigDraft[key] ?? adminConfigValues[key] ?? ""}
+                      onChange={(e) =>
+                        setAdminConfigDraft((prev) => ({ ...prev, [key]: e.target.value }))
+                      }
+                      className="flex-1 min-w-0 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                    />
                     <button
                       type="button"
-                      onClick={() =>
-                        v.is_manual_verified ? void confirmUnverify(v.id) : openVerifySheet(v)
-                      }
-                      disabled={verifying === v.id}
-                      className={`flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
-                        v.is_manual_verified
-                          ? "bg-green-500/10 text-green-500 border border-green-500/30"
-                          : "bg-destructive/10 text-destructive border border-destructive/30"
-                      }`}
+                      disabled={adminConfigSaving === key}
+                      onClick={() => void saveAdminConfigKey(key)}
+                      className="shrink-0 rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground disabled:opacity-50"
                     >
-                      {verifying === v.id ? (
-                        s.settings_btnLoading
-                      ) : v.is_manual_verified ? (
-                        <>
-                          <CheckCircle className="h-3 w-3" /> {s.settings_verified}
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="h-3 w-3" /> {s.settings_unverified}
-                        </>
-                      )}
+                      {adminConfigSaving === key ? "…" : "Save"}
                     </button>
-                    {!v.is_banned ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setVendorBanReason("");
-                          setVendorBanDialog({ open: true, vendor: v });
-                        }}
-                        disabled={vendorBanAction === v.id}
-                        className="rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-                      >
-                        Ban
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void unbanVendor(v.id)}
-                        disabled={vendorBanAction === v.id}
-                        className="rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-                      >
-                        Unban
-                      </button>
-                    )}
                   </div>
                 </div>
               ))}
             </div>
-            </div>
-          </SettingsCard>
-
-          <SettingsCollapsible
-            label={`Flagged Users (${flaggedUsers.length})`}
-            open={flaggedOpen}
-            onToggle={() => setFlaggedOpen((o) => !o)}
-            badge={
-              flaggedUsers.length > 0 ? (
-                <span className="bg-destructive/20 text-destructive text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  {flaggedUsers.length}
-                </span>
-              ) : undefined
-            }
-          >
-            {flaggedUsers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">✅ No flagged users at this time</p>
-            ) : (
-              <div className="space-y-3">
-                {flaggedUsers.map((user) => {
-                  const warnCount = user.warn_count ?? 0;
-                  const highWarns = warnCount >= 3;
-                  return (
-                  <div
-                    key={user.phone}
-                    className={`rounded-2xl border p-3 space-y-2 ${
-                      highWarns
-                        ? "border-amber-500/50 bg-amber-500/5"
-                        : "border-border"
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold">{user.phone}</p>
-                      {warnCount > 0 && (
-                        <span className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
-                          ⚠️ {warnCount} warns
-                        </span>
-                      )}
-                      {user.is_banned && (
-                        <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-bold px-2 py-0.5 border border-destructive/30">
-                          BANNED
-                        </span>
-                      )}
-                    </div>
-                    {highWarns && (
-                      <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
-                        {s.admin_consider_banning}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Trust score:{" "}
-                      <span className={`font-semibold ${trustScoreClass(user.trust_score)}`}>
-                        {user.trust_score}
-                      </span>
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {user.noshow_count} no-shows, {user.fake_count} fakes
-                    </p>
-                    {user.is_banned && user.ban_reason && (
-                      <p className="text-[11px] text-destructive/80">{user.ban_reason}</p>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void warnFlaggedUser(user.phone)}
-                        disabled={flaggedAction === user.phone}
-                        className="flex-1 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
-                      >
-                        Warn
-                      </button>
-                      {!user.is_banned && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBanReason("");
-                            setBanDialog({ open: true, phone: user.phone });
-                          }}
-                          disabled={flaggedAction === user.phone}
-                          className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
-                        >
-                          Ban
-                        </button>
-                      )}
-                      {user.is_banned && (
-                        <button
-                          type="button"
-                          onClick={() => void unbanFlaggedUser(user.phone)}
-                          disabled={flaggedAction === user.phone}
-                          className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
-                        >
-                          Unban
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  );
-                })}
-              </div>
-            )}
           </SettingsCollapsible>
 
           <AlertDialog
@@ -2043,26 +2563,30 @@ const Settings = () => {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          </>
-          )}
-        </>
+        </div>
       )}
 
-      <div className="mt-8 pt-4 border-t border-surface-border/50">
-      <button
-        type="button"
-        onClick={() => setClearDataOpen(true)}
-        className="mx-4 w-[calc(100%-2rem)] rounded-xl border border-destructive/40 text-destructive bg-transparent py-2.5 text-sm font-medium flex items-center justify-center gap-2 active:opacity-90"
-      >
-        <Trash2 className="h-4 w-4" /> {s.settings_clearMyData}
-      </button>
-
-      <p className="text-xs text-muted-foreground text-center py-4 mt-2">
-        {s.settings_appName} · {s.settings_version}
-        <br />
-        {s.settings_copyright}
-      </p>
-      </div>
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent className="rounded-2xl border border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{s.delete_account_confirm_title}</AlertDialogTitle>
+            <AlertDialogDescription>{s.delete_account_confirm_body}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteAccountLoading}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDeleteAccount();
+              }}
+            >
+              Yes, Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={pinDialogOpen}
@@ -2105,44 +2629,6 @@ const Settings = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {devOpen && (
-        <section className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 mb-5 animate-fade-up">
-          <div className="flex items-center gap-2 mb-3">
-            <Wrench className="h-4 w-4 text-destructive" />
-            <p className="text-xs uppercase tracking-wider text-destructive font-semibold">{s.settings_devMenu}</p>
-          </div>
-          <div className="mb-4 space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground" htmlFor="dev-phone-number">
-              Set phone number (dev)
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="dev-phone-number"
-                value={devPhone}
-                onChange={(e) => setDevPhone(e.target.value)}
-                className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  localStorage.setItem('aaspaas:user_phone', devPhone);
-                  location.reload();
-                }}
-                className="rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-          <button
-            onClick={() => setDevOpen(false)}
-            className="w-full text-xs text-muted-foreground underline"
-          >
-            {s.settings_hideDevMenu}
-          </button>
-        </section>
-      )}
 
       <AlertDialog open={clearDataOpen} onOpenChange={setClearDataOpen}>
         <AlertDialogContent className="rounded-2xl border border-border bg-card">
@@ -2227,6 +2713,57 @@ const Settings = () => {
             <p className="text-xs text-muted-foreground mb-4">
               Service mode: {adminServiceModeLabel(verifySheet.vendor.service_mode)}
             </p>
+
+            <div className="rounded-2xl border border-border bg-muted/20 p-4 mb-5 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Verification checks
+              </p>
+              {VERIFICATION_CHECK_META.map((meta) => {
+                const row = verifySheet.vendor?.verifications.find(
+                  (r) => r.check_type === meta.check_type,
+                );
+                const status = row?.status ?? "pending";
+                return (
+                  <div
+                    key={meta.check_type}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-base shrink-0" aria-hidden>
+                        {meta.icon}
+                      </span>
+                      <span className="text-sm text-foreground truncate">{meta.label}</span>
+                    </div>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize",
+                        verificationStatusChipClass(status),
+                      )}
+                    >
+                      {status}
+                    </span>
+                  </div>
+                );
+              })}
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={adminCheckUpdating}
+                  onClick={() => void setAdminCheckStatus(verifySheet.vendor.id, "passed")}
+                  className="flex-1 rounded-xl bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                >
+                  Mark Admin Check Passed
+                </button>
+                <button
+                  type="button"
+                  disabled={adminCheckUpdating}
+                  onClick={() => void setAdminCheckStatus(verifySheet.vendor.id, "failed")}
+                  className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                >
+                  Mark Admin Check Failed
+                </button>
+              </div>
+            </div>
 
             <div className="rounded-2xl border border-border bg-muted/30 p-4 mb-5 space-y-3 text-sm">
               <div>

@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { App } from "@capacitor/app";
-import { Camera as CapacitorCamera, CameraResultType, CameraSource } from "@capacitor/camera";
+import {
+  Camera as CapacitorCamera,
+  CameraDirection,
+  CameraResultType,
+  CameraSource,
+} from "@capacitor/camera";
 
 export type CapturedShot = {
   blob: Blob;
@@ -13,13 +18,23 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onCapture: (shot: CapturedShot) => void;
+  /** Defaults to rear (shop photos). Use front for selfie capture. */
+  facing?: "front" | "rear";
+  /** When false, skips GPS (e.g. selfie). Defaults to true. */
+  requireLocation?: boolean;
 };
 
 /**
  * Live-only shop photo capture via native camera.
  * No visible UI while the plugin is opening; error UI only on failure.
  */
-export const LiveCamera = ({ open, onClose, onCapture }: Props) => {
+export const LiveCamera = ({
+  open,
+  onClose,
+  onCapture,
+  facing = "rear",
+  requireLocation = true,
+}: Props) => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +52,7 @@ export const LiveCamera = ({ open, onClose, onCapture }: Props) => {
           allowEditing: false,
           resultType: CameraResultType.DataUrl,
           source: CameraSource.Camera,
+          direction: facing === "front" ? CameraDirection.Front : CameraDirection.Rear,
         });
 
         if (cancelled) return;
@@ -45,23 +61,27 @@ export const LiveCamera = ({ open, onClose, onCapture }: Props) => {
           return;
         }
 
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-          if (!("geolocation" in navigator)) {
-            reject(new Error("Geolocation not supported"));
-            return;
-          }
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 10_000,
-            maximumAge: 0,
+        let coords = { lat: 0, lng: 0 };
+        if (requireLocation) {
+          const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+            if (!("geolocation" in navigator)) {
+              reject(new Error("Geolocation not supported"));
+              return;
+            }
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 10_000,
+              maximumAge: 0,
+            });
           });
-        });
+          coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        }
 
         const blob = await fetch(photo.dataUrl).then((r) => r.blob());
         onCapture({
           blob,
           dataUrl: photo.dataUrl,
-          coords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+          coords,
           takenAt: new Date().toISOString(),
         });
         onClose();
@@ -81,7 +101,7 @@ export const LiveCamera = ({ open, onClose, onCapture }: Props) => {
     return () => {
       cancelled = true;
     };
-  }, [open, onCapture, onClose]);
+  }, [open, onCapture, onClose, facing, requireLocation]);
 
   if (!open) return null;
 

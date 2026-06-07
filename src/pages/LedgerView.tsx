@@ -320,7 +320,7 @@ const LedgerView = () => {
 
   return (
     <AppShell>
-      <div className="space-y-3 pb-24">
+      <div className="space-y-3 pb-24" data-testid="ledger-screen">
       <div className="flex items-start gap-3">
         <button
           type="button"
@@ -391,6 +391,7 @@ const LedgerView = () => {
             </SheetTitle>
             {selectedEntry && (
               <p
+                data-testid="ledger-balance"
                 className={cn(
                   "text-2xl font-bold tabular-nums mt-2",
                   selectedEntry.total_outstanding > 0 ? "text-amber-400" : "text-green-400",
@@ -499,6 +500,7 @@ const LedgerView = () => {
               <div className="border-t border-surface-border pt-4">
                 <button
                   type="button"
+                  data-testid="ledger-mark-paid-btn"
                   onClick={openPaymentSheet}
                   className="w-full rounded-2xl bg-brand text-page-bg py-4 font-bold active:scale-[0.99]"
                 >
@@ -527,6 +529,7 @@ const LedgerView = () => {
               </label>
               <input
                 id="payment-amount"
+                data-testid="ledger-partial-input"
                 type="number"
                 inputMode="decimal"
                 min="0"

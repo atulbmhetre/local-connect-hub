@@ -189,7 +189,7 @@ export function AiBridgeSheet({
     setCallLoading(false);
 
     if (!result.success) {
-      toast.error(s.ai_bridge_call_failed);
+      window.open(`tel:${vendorPhone}`, "_self");
       return;
     }
 

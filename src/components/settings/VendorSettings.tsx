@@ -24,7 +24,6 @@ import {
   SettingsSectionLabel,
   SettingsCollapsible,
   SettingsParentCollapsible,
-  type SettingsActiveGroup,
 } from "@/components/settings/SettingsSection";
 import {
   Sheet,
@@ -47,7 +46,6 @@ import {
 import { getUserPhone } from "@/lib/userIdentity";
 import { uploadFeedImage } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
-import { useFeedNotificationsEnabled } from "@/hooks/useFeedNotificationsEnabled";
 
 type MenuItem = {
   id: string;
@@ -74,8 +72,10 @@ type Props = {
   vendor: Vendor;
   onVendorUpdated: (updated: Vendor) => void;
   onEditShopDetails?: () => void;
-  activeGroup: SettingsActiveGroup;
-  onActiveGroupChange: (group: SettingsActiveGroup) => void;
+  shopOpen: boolean;
+  onShopOpenChange: (open: boolean) => void;
+  referEarnVisible?: boolean;
+  userPhone?: string | null;
 };
 
 function offerDateInputMin() {
@@ -339,61 +339,35 @@ export function VendorSettingsOffers({ vendorId }: { vendorId: string }) {
   );
 }
 
-export function VendorSettingsNotifications({ vendor: _vendor }: { vendor: Vendor }) {
+/** Order alert toggles (vibrate/sound) for nested MY SHOP section; native only. */
+export function VendorSettingsOrderAlertsContent() {
   const { s } = useLanguage();
   const [vendorVibrate, setVendorVibrate] = useState(() => isVendorVibrateEnabled());
   const [vendorSound, setVendorSound] = useState(() => isVendorSoundEnabled());
-  const { enabled: feedNotificationsEnabled, onCheckedChange: onFeedNotificationsChange } =
-    useFeedNotificationsEnabled();
-  const native = Capacitor.isNativePlatform();
-
-  if (!native) return null;
 
   return (
-    <section className="mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden mb-3">
-      <div className="px-4 py-3 border-b border-surface-border">
-        <p className="text-sm font-medium text-foreground">{s.settings_notifications}</p>
-      </div>
-      <div>
-        <div className="flex items-center justify-between gap-3 px-4 py-3.5 border-b border-surface-border">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">{s.settings_vibrate}</p>
-          </div>
-          <Switch
-            checked={vendorVibrate}
-            onCheckedChange={(checked) => {
-              setVendorVibrate(checked);
-              setVendorVibrateEnabled(checked);
-            }}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-3 px-4 py-3.5 border-b border-surface-border">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">{s.settings_sound}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{s.settings_sound_body}</p>
-          </div>
-          <Switch
-            checked={vendorSound}
-            onCheckedChange={(checked) => {
-              setVendorSound(checked);
-              setVendorSoundEnabled(checked);
-            }}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-3 px-4 py-3.5">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">{s.settings_feedNotifications}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {s.settings_feedNotificationsHint}
-            </p>
-          </div>
-          <Switch
-            checked={feedNotificationsEnabled}
-            onCheckedChange={onFeedNotificationsChange}
-          />
-        </div>
-      </div>
-    </section>
+    <>
+      <SettingsRow label={s.settings_vibrate}>
+        <Switch
+          className="data-[state=checked]:bg-brand"
+          checked={vendorVibrate}
+          onCheckedChange={(checked) => {
+            setVendorVibrate(checked);
+            setVendorVibrateEnabled(checked);
+          }}
+        />
+      </SettingsRow>
+      <SettingsRow label={s.settings_sound} sublabel={s.settings_sound_body}>
+        <Switch
+          className="data-[state=checked]:bg-brand"
+          checked={vendorSound}
+          onCheckedChange={(checked) => {
+            setVendorSound(checked);
+            setVendorSoundEnabled(checked);
+          }}
+        />
+      </SettingsRow>
+    </>
   );
 }
 
@@ -578,8 +552,10 @@ export function VendorSettings({
   vendor,
   onVendorUpdated,
   onEditShopDetails,
-  activeGroup,
-  onActiveGroupChange,
+  shopOpen,
+  onShopOpenChange,
+  referEarnVisible = false,
+  userPhone,
 }: Props) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
@@ -607,11 +583,13 @@ export function VendorSettings({
   const [replyingReviewId, setReplyingReviewId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
-  const [shopOpen, setShopOpen] = useState(false);
+  const [shopInfoOpen, setShopInfoOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [orderAlertsOpen, setOrderAlertsOpen] = useState(false);
+  const [referOpen, setReferOpen] = useState(false);
   const [callReview, setCallReview] = useState<{
     callerPhone: string;
     serviceMode: string;
@@ -904,13 +882,13 @@ export function VendorSettings({
   return (
     <SettingsParentCollapsible
       label="MY SHOP"
-      open={activeGroup === "shop"}
-      onToggle={() => onActiveGroupChange("shop")}
+      open={shopOpen}
+      onToggle={() => onShopOpenChange(!shopOpen)}
     >
       <SettingsCollapsible
         label="Shop Info"
-        open={shopOpen}
-        onToggle={() => setShopOpen((o) => !o)}
+        open={shopInfoOpen}
+        onToggle={() => setShopInfoOpen((o) => !o)}
         nested
       >
         <SettingsRow label={s.vendor_shop_name} sublabel={vendor.shop_name}>
@@ -1190,30 +1168,27 @@ export function VendorSettings({
 
       <VendorSettingsOffers vendorId={vendor.id} />
 
-      <SettingsCollapsible
-        label={s.vendor_ledgerCycleStart}
-        open={ledgerOpen}
-        onToggle={() => setLedgerOpen((o) => !o)}
-        nested
-      >
-        <div className="px-4 py-3.5 space-y-2">
-          <p className="text-xs text-muted-foreground">
-            {s.vendor_ledgerCycleStartHint}
-          </p>
-          <input
-            id="ledger-cycle-start"
-            type="date"
-            value={ledgerCycleStart}
-            disabled={savingLedgerCycleStart}
-            onChange={(e) => {
-              const next = e.target.value;
-              setLedgerCycleStart(next);
-              void saveLedgerCycleStart(next);
-            }}
-            className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
-          />
-        </div>
-      </SettingsCollapsible>
+      {Capacitor.isNativePlatform() && (
+        <SettingsCollapsible
+          label={s.settings_order_alerts}
+          open={orderAlertsOpen}
+          onToggle={() => setOrderAlertsOpen((o) => !o)}
+          nested
+        >
+          <VendorSettingsOrderAlertsContent />
+        </SettingsCollapsible>
+      )}
+
+      {referEarnVisible && (
+        <SettingsCollapsible
+          label={s.vendor_referEarn}
+          open={referOpen}
+          onToggle={() => setReferOpen((o) => !o)}
+          nested
+        >
+          <VendorSettingsReferEarn vendor={vendor} userPhone={userPhone} />
+        </SettingsCollapsible>
+      )}
 
       <SettingsCollapsible
         label={s.cancelReasons}
@@ -1250,6 +1225,31 @@ export function VendorSettings({
           >
             {savingReasons ? s.incoming_saving : s.saveReasons}
           </button>
+        </div>
+      </SettingsCollapsible>
+
+      <SettingsCollapsible
+        label={s.vendor_ledgerCycleStart}
+        open={ledgerOpen}
+        onToggle={() => setLedgerOpen((o) => !o)}
+        nested
+      >
+        <div className="px-4 py-3.5 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {s.vendor_ledgerCycleStartHint}
+          </p>
+          <input
+            id="ledger-cycle-start"
+            type="date"
+            value={ledgerCycleStart}
+            disabled={savingLedgerCycleStart}
+            onChange={(e) => {
+              const next = e.target.value;
+              setLedgerCycleStart(next);
+              void saveLedgerCycleStart(next);
+            }}
+            className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+          />
         </div>
       </SettingsCollapsible>
 

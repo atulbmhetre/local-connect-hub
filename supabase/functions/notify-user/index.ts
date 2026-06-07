@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
+import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 
 serve(async (req) => {
   let parsed: Record<string, unknown> = {};
@@ -113,6 +114,13 @@ serve(async (req) => {
         } else {
           const fcmData = await fcmRes.json();
           console.error("notify-user fcm_response:", JSON.stringify(fcmData));
+          if (fcmData?.error?.status === "UNREGISTERED" || fcmData?.error?.code === 404) {
+            await deleteStaleToken(
+              fcmToken,
+              Deno.env.get("SUPABASE_URL")!,
+              Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+            );
+          }
         }
       } catch (tokenErr) {
         console.error("notify-user token send failed", tokenErr);

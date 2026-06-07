@@ -88,13 +88,7 @@ export function SettingsRow({
   );
 }
 
-export type SettingsActiveGroup = "account" | "shop";
-
-export function defaultSettingsActiveGroup(vendorId: string | null | undefined): SettingsActiveGroup {
-  return vendorId?.trim() ? "shop" : "account";
-}
-
-/** Top-level settings group (MY ACCOUNT / MY SHOP). */
+/** Top-level settings group (MY ACCOUNT / MY SHOP / DEVICE). */
 export function SettingsParentCollapsible({
   label,
   open,

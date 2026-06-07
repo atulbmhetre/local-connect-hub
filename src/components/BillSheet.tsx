@@ -391,6 +391,7 @@ export function BillSheet({
 
     <Sheet open={isOpen} onOpenChange={handleOpenChange}>
       <SheetContent
+        data-testid="bill-sheet"
         side="bottom"
         className="bg-page-bg border-t border-surface-border rounded-t-2xl max-h-[90vh] flex flex-col [&>button]:text-muted-foreground"
         style={{
@@ -519,10 +520,15 @@ export function BillSheet({
 
           <div className="border-t-2 border-surface-border mt-2 pt-3 flex items-center justify-between">
             <span className="font-bold text-foreground">{s.bill_total}</span>
-            <span className="text-xl font-bold text-brand tabular-nums">₹{totalAmount.toFixed(0)}</span>
+            <span
+              data-testid="bill-total-input"
+              className="text-xl font-bold text-brand tabular-nums"
+            >
+              ₹{totalAmount.toFixed(0)}
+            </span>
           </div>
 
-          <div className="flex flex-wrap gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-3" data-testid="bill-payment-mode-select">
             <button
               type="button"
               onClick={() => setPaymentMode("cash")}
@@ -577,6 +583,7 @@ export function BillSheet({
 
           <button
             type="button"
+            data-testid="bill-submit-btn"
             disabled={sending || validItems.length === 0}
             onClick={() => void sendBill()}
             className="w-full rounded-2xl bg-brand text-white py-4 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:pointer-events-none"

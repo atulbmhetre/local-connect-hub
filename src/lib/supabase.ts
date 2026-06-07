@@ -1,8 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 
-export const SUPABASE_URL = "https://rpxsyeqskvhjmbkxnpmd.supabase.co";
-export const SUPABASE_ANON_KEY =
+const SUPABASE_URL =
+  import.meta.env.VITE_SUPABASE_URL || "https://rpxsyeqskvhjmbkxnpmd.supabase.co";
+const SUPABASE_ANON_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJweHN5ZXFza3Zoam1ia3hucG1kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0ODQ3MDEsImV4cCI6MjA5MjA2MDcwMX0.HXZF2uGxkUbBrYMWfvOQyx8_7Syrx4BY3pdt0z1dNF0";
+
+export { SUPABASE_URL, SUPABASE_ANON_KEY };
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false },
@@ -163,6 +167,53 @@ export async function invokeNotifyAdmin(
   }
 }
 
+export type DeleteAccountResult =
+  | { ok: true; type?: string; message?: string }
+  | { ok: false; error: string };
+
+export async function invokeDeleteAccount(
+  phone: string,
+  type: "customer" | "vendor",
+): Promise<DeleteAccountResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke("delete-account", {
+      body: { phone, type },
+    });
+    if (error) {
+      console.error("invokeDeleteAccount", error);
+      return { ok: false, error: error.message };
+    }
+    const payload = data as { ok?: boolean; error?: string; type?: string; message?: string } | null;
+    if (!payload?.ok) {
+      return { ok: false, error: payload?.error ?? "delete_failed" };
+    }
+    return { ok: true, type: payload.type, message: payload.message };
+  } catch (err) {
+    console.error("invokeDeleteAccount", err);
+    return { ok: false, error: err instanceof Error ? err.message : "delete_failed" };
+  }
+}
+
+export async function invokeCancelDeletion(phone: string): Promise<DeleteAccountResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke("delete-account", {
+      body: { phone, action: "cancel" },
+    });
+    if (error) {
+      console.error("invokeCancelDeletion", error);
+      return { ok: false, error: error.message };
+    }
+    const payload = data as { ok?: boolean; error?: string; message?: string } | null;
+    if (!payload?.ok) {
+      return { ok: false, error: payload?.error ?? "cancel_failed" };
+    }
+    return { ok: true, message: payload.message };
+  } catch (err) {
+    console.error("invokeCancelDeletion", err);
+    return { ok: false, error: err instanceof Error ? err.message : "cancel_failed" };
+  }
+}
+
 export type VerificationStatus =
   | "unverified"
   | "identity_linked"
@@ -192,7 +243,7 @@ export type Vendor = {
   subscription_active?: boolean;
   last_updated?: string | null;
   /** Hyperlocal service vs delivery; drives reputation copy on cards. */
-  service_mode?: "help" | "delivery" | "appointment";
+  service_mode?: "help" | "delivery" | "appointment" | "booking";
   vendor_note?: string | null;
   cancel_reason_1: string | null;
   cancel_reason_2: string | null;
@@ -208,6 +259,8 @@ export type Vendor = {
   ledger_cycle_start?: string | null;
   is_banned?: boolean;
   ban_reason?: string | null;
+  vendor_type?: "shop" | "home" | "visiting" | null;
+  photo_selfie?: string | null;
 };
 
 export type RequestRow = {
@@ -270,6 +323,7 @@ export function displayName(canonical: string): string {
 }
 
 export const SHOP_PHOTOS_BUCKET = "shop-photos";
+export const VENDOR_SELFIES_BUCKET = "vendor-selfies";
 export const GPS_MATCH_TOLERANCE_M = 75;
 
 type CategoryMode = "help" | "delivery";

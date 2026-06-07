@@ -1055,7 +1055,7 @@ const MyOrders = () => {
 
   return (
     <AppShell theme="dark">
-      <div className="space-y-3 pb-24">
+      <div className="space-y-3 pb-24" data-testid="my-orders-screen">
       <div className="flex items-start gap-3 pr-4">
         <button
           type="button"
@@ -1151,6 +1151,7 @@ const MyOrders = () => {
             <li
               key={r.id}
               id={`order-card-${r.id}`}
+              data-testid="order-card"
               className={cn(
                 "mx-4 rounded-2xl border border-surface-border bg-surface p-4 space-y-2 mb-3",
                 r.status === "cancelled" && "border-red-500/30 bg-red-500/5",
@@ -1180,6 +1181,7 @@ const MyOrders = () => {
                 </div>
               </div>
               <span
+                data-testid="order-status-badge"
                 className={cn(
                   "inline-flex rounded-full text-[11px] font-semibold px-2.5 py-1 border",
                   orderStatusPillClass(r),
@@ -1348,6 +1350,7 @@ const MyOrders = () => {
                           {!showOrderCancelConfirm[r.id] ? (
                             <button
                               type="button"
+                              data-testid="order-cancel-btn"
                               disabled={markingId === r.id}
                               onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: true }))}
                               className="w-full rounded-lg bg-destructive text-destructive-foreground text-xs font-semibold py-2.5 active:scale-[0.99] disabled:opacity-50"
@@ -1484,6 +1487,7 @@ const MyOrders = () => {
                     return (
                       <button
                         type="button"
+                        data-testid="order-cancel-btn"
                         onClick={() => setShowCancelConfirm((p) => ({ ...p, [r.id]: true }))}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                       >
@@ -1519,6 +1523,7 @@ const MyOrders = () => {
                       </p>
                       <button
                         type="button"
+                        data-testid="order-cancel-btn"
                         onClick={() => void cancelAppointment(r)}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                       >
@@ -1566,6 +1571,7 @@ const MyOrders = () => {
                 {r.status === "fulfilled" ? (
                   <button
                     type="button"
+                    data-testid="order-rate-btn"
                     disabled={markingId === r.id}
                     onClick={() => handleFulfilledDismiss(r)}
                     className="w-full rounded-2xl bg-brand text-page-bg text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
@@ -1579,6 +1585,7 @@ const MyOrders = () => {
                     !showOrderCancelConfirm[r.id] ? (
                       <button
                         type="button"
+                        data-testid="order-cancel-btn"
                         disabled={markingId === r.id}
                         onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: true }))}
                         className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"

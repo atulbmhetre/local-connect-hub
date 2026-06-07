@@ -24,6 +24,14 @@ export const BottomNav = () => {
 
   const settingsTab = { to: "/settings", label: s.nav_settings, Icon: Settings };
 
+  const navTestIds: Record<string, string> = {
+    "/": "nav-home",
+    "/feed": "nav-feed",
+    "/my-orders": "nav-orders",
+    "/vendor": "nav-vendor",
+    "/settings": "nav-settings",
+  };
+
   const tabs = hasVendorId
     ? [...baseTabs, vendorTab, settingsTab]
     : [...baseTabs, settingsTab];
@@ -53,6 +61,7 @@ export const BottomNav = () => {
             key={to}
             to={to}
             end
+            data-testid={navTestIds[to]}
             className={({ isActive }) =>
               `flex flex-col items-center justify-center gap-1 py-3 text-xs font-medium transition-colors ${
                 isActive ? "text-primary" : "text-muted-foreground"

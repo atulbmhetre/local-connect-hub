@@ -7,7 +7,7 @@ import {
   HeartHandshake,
   Package,
 } from "lucide-react";
-import { supabase, type Vendor, type Category, useCategoryLabel } from "@/lib/supabase";
+import { supabase, type Vendor, useCategoryLabel } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, migrateUserPhone } from "@/lib/userIdentity";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
@@ -19,6 +19,7 @@ import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
+import type { TrustLevel } from "@/lib/trustLevel";
 
 const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
 const VENDOR_SELF_STORAGE_KEY = "aaspaas:vendor_id";
@@ -68,6 +69,19 @@ export function markNeighboursDirty(): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Clears the neighbours_dirty flag after Home save/unsave; returns whether it was set. */
+export function consumeNeighboursDirty(): boolean {
+  try {
+    if (localStorage.getItem(NEIGHBOURS_DIRTY_KEY) === "true") {
+      localStorage.removeItem(NEIGHBOURS_DIRTY_KEY);
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 export function readSessionSaved(vendorId: string): boolean {
@@ -186,6 +200,107 @@ const VendorReputationLine = ({
   return null;
 };
 
+const TRUST_BADGE_CLASS: Record<
+  Exclude<TrustLevel, "Unverified">,
+  string
+> = {
+  Diamond: "bg-sidebar-primary text-sidebar-primary-foreground",
+  Gold: "bg-warning text-primary-foreground",
+  Silver: "bg-muted text-foreground border border-surface-border",
+  Bronze: "bg-surface-raised text-foreground border border-warning/40",
+};
+
+function trustBadgeLabel(level: TrustLevel, s: ReturnType<typeof useLanguage>["s"]): string | null {
+  switch (level) {
+    case "Diamond":
+      return s.radar_trust_badge_diamond;
+    case "Gold":
+      return s.radar_trust_badge_gold;
+    case "Silver":
+      return s.radar_trust_badge_silver;
+    case "Bronze":
+      return s.radar_trust_badge_bronze;
+    default:
+      return null;
+  }
+}
+
+const TrustLevelBadge = ({ level }: { level: TrustLevel | undefined }) => {
+  const { s } = useLanguage();
+  if (!level || level === "Unverified") return null;
+  const label = trustBadgeLabel(level, s);
+  if (!label) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none whitespace-nowrap shrink-0",
+        TRUST_BADGE_CLASS[level],
+      )}
+    >
+      {label}
+    </span>
+  );
+};
+
+const VendorCategoryChips = ({
+  categories,
+  fallbackLabel,
+  getLabel,
+}: {
+  categories: { label: string; emoji: string }[];
+  fallbackLabel: string;
+  getLabel: (label: string) => string;
+}) => {
+  const chips =
+    categories.length > 0
+      ? categories
+      : fallbackLabel
+        ? [{ label: fallbackLabel, emoji: "✨" }]
+        : [];
+
+  if (chips.length === 0) return null;
+
+  const scrollable = chips.length > 1;
+
+  return (
+    <div
+      className={cn(
+        "mt-1.5 flex gap-1.5 min-w-0",
+        scrollable ? "overflow-x-auto pb-0.5 -mx-0.5 px-0.5 scrollbar-none" : "flex-wrap",
+      )}
+    >
+      {chips.map((cat, index) => (
+        <span
+          key={`${cat.label}-${index}`}
+          className={cn(
+            "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] shrink-0",
+            "border border-surface-border bg-surface text-muted-foreground",
+            index === 0 && "font-semibold text-foreground border-brand/40 bg-brand/10",
+          )}
+        >
+          <span aria-hidden>{cat.emoji}</span>
+          <span className="truncate max-w-[8rem]">{getLabel(cat.label)}</span>
+        </span>
+      ))}
+    </div>
+  );
+};
+
+const VendorTypeLabel = ({ vendorType }: { vendorType: Vendor["vendor_type"] }) => {
+  const { s } = useLanguage();
+  if (vendorType === "home") {
+    return (
+      <p className="text-[11px] text-muted-foreground mt-0.5">{s.radar_vendor_home_based}</p>
+    );
+  }
+  if (vendorType === "visiting") {
+    return (
+      <p className="text-[11px] text-muted-foreground mt-0.5">{s.radar_vendor_visits_you}</p>
+    );
+  }
+  return null;
+};
+
 type Props = {
   vendor: Vendor;
   onOrder: (vendor: Vendor) => void;
@@ -193,10 +308,13 @@ type Props = {
   onSave: (vendor: Vendor) => void;
   isSaved: boolean;
   hasOrdered: boolean;
-  categories: Category[];
+  categories: { label: string; emoji: string }[];
+  trustLevel?: TrustLevel;
   dist: number | null;
   index: number;
   userNeed: string;
+  /** Optional; clears card UI when an order/booking is cancelled from the sheet path. */
+  onOrderCancelled?: () => void;
 };
 
 export function RadarVendorCard({
@@ -206,10 +324,12 @@ export function RadarVendorCard({
   onSave,
   isSaved,
   hasOrdered,
-  categories: _categories,
+  categories,
+  trustLevel,
   dist,
   index,
   userNeed,
+  onOrderCancelled = () => {},
 }: Props) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
@@ -275,51 +395,81 @@ export function RadarVendorCard({
     setSavedVendorLocked(isSaved || readSessionSaved(vendor.id));
   }, [vendor.id, vendor.total_delivered, vendor.total_helped, isSaved]);
 
-  useEffect(() => {
+  const refreshActiveOrderFromDb = useCallback(async () => {
     if ((serviceMode !== "delivery" && serviceMode !== "appointment") || isOwnVendor) {
       setDeliveryActiveFromDb(false);
       return;
     }
-    let cancelled = false;
-    const run = async () => {
-      const device_id = getDeviceId();
-      const { data } = await supabase
-        .from("requests")
-        .select("id")
-        .eq("device_id", device_id)
-        .eq("vendor_id", vendor.id)
-        .in("status", ["sent", "seen"])
-        .limit(1);
-      if (!cancelled) setDeliveryActiveFromDb(!!data?.length);
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [vendor.id, serviceMode, isOwnVendor, resolutionSessionTick]);
+    const device_id = getDeviceId();
+    const { data } = await supabase
+      .from("requests")
+      .select("id, status")
+      .eq("device_id", device_id)
+      .eq("vendor_id", vendor.id)
+      .in("status", ["sent", "seen"])
+      .limit(1);
+    const active =
+      !!data?.length && data.every((row) => row.status === "sent" || row.status === "seen");
+    setDeliveryActiveFromDb(active);
+  }, [vendor.id, serviceMode, isOwnVendor]);
 
-  useEffect(() => {
+  const handleOrderCancelled = useCallback(() => {
+    setDeliveryActiveFromDb(false);
+    onOrderCancelled();
+  }, [onOrderCancelled]);
+
+  const refreshFulfilledFromDb = useCallback(async () => {
     if (serviceMode !== "delivery" || isOwnVendor) {
       setDeliveryFulfilledFromDb(false);
       return;
     }
-    let cancelled = false;
-    const run = async () => {
-      const device_id = getDeviceId();
-      const { data } = await supabase
-        .from("requests")
-        .select("id")
-        .eq("device_id", device_id)
-        .eq("vendor_id", vendor.id)
-        .eq("status", "fulfilled")
-        .limit(1);
-      if (!cancelled) setDeliveryFulfilledFromDb(!!data?.length);
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [vendor.id, serviceMode, isOwnVendor, resolutionSessionTick]);
+    const device_id = getDeviceId();
+    const { data } = await supabase
+      .from("requests")
+      .select("id")
+      .eq("device_id", device_id)
+      .eq("vendor_id", vendor.id)
+      .eq("status", "fulfilled")
+      .limit(1);
+    setDeliveryFulfilledFromDb(!!data?.length);
+  }, [vendor.id, serviceMode, isOwnVendor]);
+
+  const refreshSavedNeighbourFromDb = useCallback(async () => {
+    if (isOwnVendor) return;
+    const deviceId = getDeviceId();
+    const userPhone = getUserPhone();
+    let savedQuery = supabase
+      .from("saved_vendors")
+      .select("id")
+      .eq("vendor_id", vendor.id)
+      .limit(1);
+    savedQuery =
+      userPhone != null ? savedQuery.eq("user_phone", userPhone) : savedQuery.eq("device_id", deviceId);
+    const { data } = await savedQuery;
+    if (data?.length) {
+      writeSessionSaved(vendor.id);
+      setSavedVendorLocked(true);
+    } else {
+      clearSessionSaved(vendor.id);
+      setSavedVendorLocked(false);
+    }
+  }, [vendor.id, isOwnVendor]);
+
+  const refreshOnVisibility = useCallback(async () => {
+    await Promise.all([
+      refreshActiveOrderFromDb(),
+      refreshFulfilledFromDb(),
+      refreshSavedNeighbourFromDb(),
+    ]);
+  }, [refreshActiveOrderFromDb, refreshFulfilledFromDb, refreshSavedNeighbourFromDb]);
+
+  useEffect(() => {
+    void refreshActiveOrderFromDb();
+  }, [refreshActiveOrderFromDb, resolutionSessionTick]);
+
+  useEffect(() => {
+    void refreshFulfilledFromDb();
+  }, [refreshFulfilledFromDb, resolutionSessionTick]);
 
   useEffect(() => {
     if (isOwnVendor) return;
@@ -327,32 +477,18 @@ export function RadarVendorCard({
       setSavedVendorLocked(true);
       return;
     }
-    let cancelled = false;
-    const run = async () => {
-      const deviceId = getDeviceId();
-      const userPhone = getUserPhone();
-      console.log("[RadarVendorCard] saved_vendors check", {
-        deviceId,
-        userPhone,
-        vendorId: vendor.id,
-      });
-      let savedQuery = supabase
-        .from("saved_vendors")
-        .select("id")
-        .eq("vendor_id", vendor.id)
-        .limit(1);
-      savedQuery =
-        userPhone != null ? savedQuery.eq("user_phone", userPhone) : savedQuery.eq("device_id", deviceId);
-      const { data } = await savedQuery;
-      if (cancelled || !data?.length) return;
-      writeSessionSaved(vendor.id);
-      setSavedVendorLocked(true);
+    void refreshSavedNeighbourFromDb();
+  }, [vendor.id, isOwnVendor, isSaved, refreshSavedNeighbourFromDb]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refreshOnVisibility();
+      }
     };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [vendor.id, isOwnVendor, isSaved]);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [refreshOnVisibility]);
 
   const showResolution =
     !isOwnVendor &&
@@ -470,6 +606,7 @@ export function RadarVendorCard({
 
   return (
     <div
+      data-testid="radar-vendor-card"
       className={cn(
         "mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-fade-up",
         accentRing,
@@ -499,18 +636,24 @@ export function RadarVendorCard({
                 <span className="text-[10px] font-medium text-muted-foreground">• You</span>
               )}
             </div>
-            <span className="inline-flex items-center gap-1 shrink-0">
+            <span className="inline-flex items-center gap-1 shrink-0 flex-wrap justify-end">
+              <TrustLevelBadge level={trustLevel} />
               <VerificationBadge vendor={vendor} />
               <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
                 {verificationCopy[tier].label}
               </span>
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 mt-1">
-            <span className="text-xs rounded-full px-2 py-0.5 border border-surface-border text-muted-foreground bg-surface">
-              {getLabel(vendor.category)}
-            </span>
-            <span className="text-xs rounded-full px-2 py-0.5 bg-brand/20 text-brand font-medium">
+          <VendorTypeLabel vendorType={vendor.vendor_type} />
+          <div className="flex flex-wrap items-center gap-1.5 mt-1 min-w-0">
+            <div className="min-w-0 flex-1">
+              <VendorCategoryChips
+                categories={categories}
+                fallbackLabel={vendor.category}
+                getLabel={getLabel}
+              />
+            </div>
+            <span className="text-xs rounded-full px-2 py-0.5 bg-brand/20 text-brand font-medium shrink-0">
               {serviceModePill}
             </span>
           </div>
@@ -691,6 +834,7 @@ export function RadarVendorCard({
         ) : (
           <button
             type="button"
+            data-testid="radar-vendor-card-order-btn"
             onClick={openParchi}
             className="mt-2 w-full rounded-xl bg-brand text-white py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform"
           >
@@ -751,6 +895,7 @@ export function RadarVendorCard({
         isOpen={parchiOpen}
         onClose={() => setParchiOpen(false)}
         onOrderSent={() => setResolutionSessionTick((n) => n + 1)}
+        onOrderCancelled={handleOrderCancelled}
       />
       <PhoneEntrySheet
         isOpen={phoneSheetOpen}

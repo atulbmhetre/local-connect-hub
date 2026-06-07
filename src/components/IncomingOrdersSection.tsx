@@ -958,36 +958,54 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const badge = (status: string) => {
     if (status === "sent")
       return (
-        <span className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-bold px-2 py-0.5 border border-brand/40">
+        <span
+          data-testid="incoming-order-status"
+          className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-bold px-2 py-0.5 border border-brand/40"
+        >
           {s.incoming_statusNew}
         </span>
       );
     if (status === "seen")
       return (
-        <span className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border">
+        <span
+          data-testid="incoming-order-status"
+          className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border"
+        >
           {s.incoming_statusSeen}
         </span>
       );
     if (status === "accepted")
       return (
-        <span className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40">
+        <span
+          data-testid="incoming-order-status"
+          className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40"
+        >
           {s.status_accepted}
         </span>
       );
     if (status === "fulfilled")
       return (
-        <span className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-brand-border text-brand">
+        <span
+          data-testid="incoming-order-status"
+          className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-brand-border text-brand"
+        >
           {s.incoming_statusDone}
         </span>
       );
     if (status === "cancelled")
       return (
-        <span className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border">
+        <span
+          data-testid="incoming-order-status"
+          className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border"
+        >
           {s.orderCancelled}
         </span>
       );
     return (
-      <span className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-brand-border text-brand">
+      <span
+        data-testid="incoming-order-status"
+        className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-brand-border text-brand"
+      >
         {s.incoming_statusDone}
       </span>
     );
@@ -1053,6 +1071,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
             <li
               key={r.id}
               id={`order-card-${r.id}`}
+              data-testid="incoming-order-card"
               className={cn(
                 "rounded-xl border border-border bg-muted/30 p-3 space-y-2",
                 flashOrderId === r.id &&
@@ -1153,14 +1172,16 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
+                    data-testid="incoming-accept-btn"
                     disabled={markingId === r.id}
                     onClick={() => void handleAppointmentAction(r.id, "confirmed")}
-                    className="rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                    className="min-h-[44px] rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                   >
                     {s.incoming_btnConfirm}
                   </button>
                   <button
                     type="button"
+                    data-testid="incoming-decline-btn"
                     disabled={markingId === r.id}
                     onClick={() => {
                       setDeclineOrderId(r.id);
@@ -1180,7 +1201,10 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                 r.status !== "cancelled" && (
                 <>
                   {r.status !== "fulfilled" && r.status !== "done" && (
-                    <span className="inline-flex rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40">
+                    <span
+                      data-testid="incoming-order-status"
+                      className="inline-flex rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40"
+                    >
                       {s.incoming_bookingConfirmed}
                     </span>
                   )}
@@ -1201,6 +1225,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                         </button>
                         <button
                           type="button"
+                          data-testid="incoming-done-btn"
                           disabled={markingId === r.id}
                           onClick={() => void markDone(r.id)}
                           className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
@@ -1221,9 +1246,10 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               {!r.appointment_time && isHelpMode && r.status === "sent" && (
                   <button
                     type="button"
+                    data-testid="incoming-accept-btn"
                     disabled={markingId === r.id}
                     onClick={() => void acceptHelpOrder(r.id)}
-                    className="w-full rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                    className="w-full min-h-[44px] rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                   >
                     {markingId === r.id ? s.incoming_saving : s.incoming_btnAccept}
                   </button>
@@ -1232,9 +1258,10 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               {!r.appointment_time && !isHelpMode && r.status === "seen" && (
                 <button
                   type="button"
+                  data-testid="incoming-accept-btn"
                   disabled={markingId === r.id}
                   onClick={() => void acceptDeliveryOrder(r.id, r.user_phone ?? null)}
-                  className="w-full rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                  className="w-full min-h-[44px] rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                 >
                   {markingId === r.id ? s.incoming_saving : s.incoming_acceptOrder}
                 </button>
@@ -1259,6 +1286,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                     <>
                       <button
                         type="button"
+                        data-testid="incoming-bill-btn"
                         onClick={() => {
                           setBillRequestId(r.id);
                           setBillUserPhone(r.user_phone);
@@ -1308,6 +1336,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
                   {r.status === "accepted" && (
                     <button
                       type="button"
+                      data-testid="incoming-done-btn"
                       disabled={markingId === r.id}
                       onClick={() => void markDone(r.id)}
                       className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
@@ -1624,6 +1653,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
           )}
           <button
             type="button"
+            data-testid="incoming-decline-btn"
             disabled={
               declining ||
               !selectedReason ||

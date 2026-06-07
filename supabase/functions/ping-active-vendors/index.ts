@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
+import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 
 type VendorJoin = {
   service_mode: string | null;
@@ -104,6 +105,13 @@ serve(async (req) => {
         } else {
           const fcmData = await fcmRes.json();
           console.error("ping-active-vendors fcm_response:", JSON.stringify(fcmData));
+          if (fcmData?.error?.status === "UNREGISTERED" || fcmData?.error?.code === 404) {
+            await deleteStaleToken(
+              fcm_token,
+              Deno.env.get("SUPABASE_URL")!,
+              Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+            );
+          }
         }
       } catch (tokenErr) {
         console.error("ping-active-vendors token send failed", tokenErr);

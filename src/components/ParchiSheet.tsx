@@ -55,7 +55,39 @@ type Props = {
   onClose: () => void;
   /** After successful order send; e.g. refresh radar resolution button visibility. */
   onOrderSent?: () => void;
+  /** When user cancels an in-flight order/booking from this sheet (optional). */
+  onOrderCancelled?: () => void;
 };
+
+function getDeliverySlotDeadline(slot: string | null): string | null {
+  const now = new Date();
+
+  if (slot === "asap") {
+    return new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
+  }
+  if (slot === "morning") {
+    const d = new Date(now);
+    d.setHours(12, 0, 0, 0);
+    return d.toISOString();
+  }
+  if (slot === "afternoon") {
+    const d = new Date(now);
+    d.setHours(16, 0, 0, 0);
+    return d.toISOString();
+  }
+  if (slot === "evening") {
+    const d = new Date(now);
+    d.setHours(20, 0, 0, 0);
+    return d.toISOString();
+  }
+  if (slot === "tomorrow") {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    d.setHours(20, 0, 0, 0);
+    return d.toISOString();
+  }
+  return null;
+}
 
 export function ParchiSheet({
   vendor,
@@ -311,6 +343,10 @@ export function ParchiSheet({
           device_id_log: device_id,
           delivery_address: finalAddress,
           delivery_slot: selectedSlot,
+          delivery_slot_deadline:
+            effectiveVendor?.service_mode === "delivery"
+              ? getDeliverySlotDeadline(selectedSlot)
+              : null,
           appointment_time: appointmentTimestamp,
           appointment_status: appointmentTimestamp ? "pending" : null,
         })
@@ -513,8 +549,9 @@ export function ParchiSheet({
     <>
       <Sheet open={isOpen} onOpenChange={handleOpenChange}>
         <SheetContent
+          data-testid="parchi-sheet"
           side="bottom"
-          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[90vh] flex flex-col [&>button]:text-gray-400"
+          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[90vh] flex flex-col overflow-hidden [&>button]:text-gray-400"
           style={{
             transform: "translateZ(0)",
             WebkitOverflowScrolling: "touch",
@@ -621,6 +658,7 @@ export function ParchiSheet({
                   <div className="space-y-2">
                     <input
                       type="text"
+                      data-testid="parchi-address-input"
                       value={newAddress}
                       onChange={(e) => setNewAddress(e.target.value)}
                       placeholder={s.parchi_addressPlaceholder}
@@ -713,6 +751,7 @@ export function ParchiSheet({
                   {s.parchi_whenDelivery}
                 </p>
                 <select
+                  data-testid="parchi-slot-select"
                   value={deliverySlot}
                   onChange={(e) => setDeliverySlot(e.target.value)}
                   className="w-full rounded-xl border border-surface-border bg-surface text-foreground px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
@@ -869,6 +908,7 @@ export function ParchiSheet({
             <div className="relative">
               <textarea
                 id="parchi-message"
+                data-testid="parchi-message-input"
                 value={message}
                 onChange={(e) => setMessage(e.target.value.slice(0, config.maxOrderMessageChars))}
                 rows={5}
@@ -912,40 +952,44 @@ export function ParchiSheet({
             </div>
             </div>
 
-            {effectiveVendor?.service_mode === "appointment" ? (
-              <p className="text-[11px] text-muted-foreground text-center">
-                {s.parchi_cancellationAppt}
-              </p>
-            ) : (
-              <p className="text-[11px] text-muted-foreground text-center">
-                {s.parchi_cancellationOrder}
-              </p>
-            )}
-
-            <button
-              type="button"
-              disabled={sending}
-              onClick={() => void send()}
-              className="mx-4 w-[calc(100%-2rem)] bg-brand text-white font-bold py-4 rounded-2xl text-base active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
-            >
-              {sending
-                ? "..."
-                : effectiveVendor?.service_mode === "appointment"
-                  ? s.parchi_btnConfirmBooking
-                  : s.parchi_btnSendOrder}
-            </button>
-            <button
-              type="button"
-              disabled={sending}
-              onClick={() => handleOpenChange(false)}
-              className="w-full py-2 text-sm text-gray-500 hover:text-gray-400 transition-colors"
-            >
-              {s.parchi_btnCancel}
-            </button>
             </>
             )}
           </div>
           </div>
+          {!trustBlock && (
+            <div className="shrink-0 border-t border-surface-border bg-page-bg px-4 pt-3 pb-4 space-y-2">
+              {effectiveVendor?.service_mode === "appointment" ? (
+                <p className="text-[11px] text-muted-foreground text-center">
+                  {s.parchi_cancellationAppt}
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground text-center">
+                  {s.parchi_cancellationOrder}
+                </p>
+              )}
+              <button
+                type="button"
+                data-testid="parchi-submit-btn"
+                disabled={sending}
+                onClick={() => void send()}
+                className="w-full min-h-11 bg-brand text-white font-bold py-4 rounded-2xl text-base active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+              >
+                {sending
+                  ? "..."
+                  : effectiveVendor?.service_mode === "appointment"
+                    ? s.parchi_btnConfirmBooking
+                    : s.parchi_btnSendOrder}
+              </button>
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => handleOpenChange(false)}
+                className="w-full min-h-11 py-2 text-sm text-gray-500 hover:text-gray-400 transition-colors"
+              >
+                {s.parchi_btnCancel}
+              </button>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
       <Sheet

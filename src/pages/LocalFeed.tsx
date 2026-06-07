@@ -560,7 +560,7 @@ export default function LocalFeed() {
 
   return (
     <AppShell>
-      <div className="space-y-3 pb-24">
+      <div className="space-y-3 pb-24" data-testid="feed-screen">
       <header className="flex items-start justify-between gap-3 px-4 pt-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Local Feed</h1>
@@ -570,6 +570,7 @@ export default function LocalFeed() {
           <NotificationBell />
           <button
             type="button"
+            data-testid="feed-post-btn"
             onClick={openCompose}
             className="h-12 w-12 shrink-0 grid place-items-center rounded-full bg-brand text-page-bg shadow-lg active:scale-[0.98] transition-transform"
             aria-label="New post"
@@ -792,7 +793,10 @@ function OfferCard({
 }) {
   const expiry = expiryBadgeLabel(post.expires_at);
   return (
-    <article className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4">
+    <article
+      data-testid="feed-post-card"
+      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4"
+    >
       <span className="inline-block text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 px-2 py-0.5 mb-2">
         Offer
       </span>
@@ -836,7 +840,10 @@ function AnnouncementCard({
   flagging: boolean;
 }) {
   return (
-    <article className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative">
+    <article
+      data-testid="feed-post-card"
+      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative"
+    >
       <span className="inline-block text-xs font-semibold rounded-full bg-blue-500/20 text-blue-400 px-2 py-0.5 mb-2">
         Announcement
       </span>
@@ -855,6 +862,7 @@ function AnnouncementCard({
       )}
       <button
         type="button"
+        data-testid="feed-flag-btn"
         onClick={onFlag}
         disabled={flagging}
         className="absolute bottom-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
@@ -892,7 +900,10 @@ function RecommendationCard({
   onSendReply: () => void;
 }) {
   return (
-    <article className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4">
+    <article
+      data-testid="feed-post-card"
+      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4"
+    >
       <span className="inline-block text-xs font-semibold rounded-full bg-purple-500/20 text-purple-400 px-2 py-0.5 mb-2">
         Recommendation
       </span>

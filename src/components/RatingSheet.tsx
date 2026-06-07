@@ -271,6 +271,7 @@ export function RatingSheet({
     >
 
       <SheetContent
+        data-testid="rating-sheet"
         side="bottom"
         className="bg-page-bg border-t border-surface-border rounded-t-2xl max-h-[85vh] overflow-y-auto"
         style={{ transform: "translateZ(0)", WebkitOverflowScrolling: "touch" }}
@@ -290,6 +291,7 @@ export function RatingSheet({
                 <button
                   key={n}
                   type="button"
+                  data-testid={`rating-star-${n}`}
                   onClick={() => setStars(n)}
                   className={cn(
                     "text-4xl transition-transform active:scale-110",
@@ -338,6 +340,7 @@ export function RatingSheet({
 
           <button
             type="button"
+            data-testid="rating-submit-btn"
             disabled={busy || stars === 0}
             onClick={() => void handleRate()}
             className="w-full rounded-2xl bg-brand text-white py-4 font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
@@ -347,6 +350,7 @@ export function RatingSheet({
           </button>
           <button
             type="button"
+            data-testid="rating-skip-btn"
             disabled={busy}
             onClick={() => onDismiss()}
             className="w-full text-xs text-muted-foreground text-center py-1 active:opacity-80 disabled:opacity-60"

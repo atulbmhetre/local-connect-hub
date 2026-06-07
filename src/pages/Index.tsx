@@ -476,7 +476,7 @@ const Index = () => {
 
   return (
     <AppShell theme="light">
-      <div className="space-y-3 pb-24">
+      <div className="space-y-3 pb-24" data-testid="home-screen">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <SettingsPageHeader title={s.appName} subtitle={s.taglineSub} />
@@ -485,7 +485,10 @@ const Index = () => {
       </div>
 
       {welcomeVisible && (
-        <div className="mx-4 w-[calc(100%-2rem)] rounded-2xl border border-brand/40 bg-brand-muted p-4 relative">
+        <div
+          data-testid="welcome-card"
+          className="mx-4 w-[calc(100%-2rem)] rounded-2xl border border-brand/40 bg-brand-muted p-4 relative"
+        >
           <button
             type="button"
             onClick={dismissWelcome}
@@ -502,6 +505,7 @@ const Index = () => {
           <div className="mt-4 flex flex-col gap-2">
             <button
               type="button"
+              data-testid="welcome-explore-btn"
               onClick={handleWelcomeExplore}
               className="w-full rounded-xl bg-brand text-page-bg py-3 font-semibold active:scale-[0.98]"
             >
@@ -509,6 +513,7 @@ const Index = () => {
             </button>
             <button
               type="button"
+              data-testid="welcome-vendor-btn"
               onClick={handleWelcomeVendor}
               className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-foreground active:scale-[0.98]"
             >
