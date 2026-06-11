@@ -147,6 +147,22 @@ test('EXP-05: expire_pending_orders inserts order_expired notification per expir
   await supabaseAdmin.from('requests').delete().eq('id', order.id);
 });
 
+test('EXP-07: delivery seen order expires when slot deadline has passed', async () => {
+  const pastDeadline = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const order = await insertRequest({
+    vendor_id: deliveryVendor.id,
+    status: 'seen',
+    delivery_slot: 'evening',
+    delivery_slot_deadline: pastDeadline,
+  });
+
+  await invokeExpirePendingOrders();
+  await assertRequestStatus(order.id, 'expired');
+
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', CUSTOMER_PHONE);
+  await supabaseAdmin.from('requests').delete().eq('id', order.id);
+});
+
 test('EXP-06: delivery_slot_deadline matches slot rules on insert', async () => {
   const slots = ['asap', 'morning', 'afternoon', 'evening', 'tomorrow'] as const;
   const now = Date.now();

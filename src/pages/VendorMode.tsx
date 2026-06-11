@@ -78,23 +78,23 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const STORAGE_KEY = "aaspaas:vendor_id";
-const GOLIVE_PROMPT_DISMISS_PREFIX = "aaspaas:golive_prompt_dismissed:";
+const REGISTERED_BANNER_DISMISS_PREFIX = "aaspaas:vendor_registered_banner_dismissed_";
 
-function goLivePromptDismissKey(vendorId: string): string {
-  return `${GOLIVE_PROMPT_DISMISS_PREFIX}${vendorId}`;
+function registeredBannerDismissKey(vendorId: string): string {
+  return `${REGISTERED_BANNER_DISMISS_PREFIX}${vendorId}`;
 }
 
-function isGoLivePromptDismissed(vendorId: string): boolean {
+function isRegisteredBannerDismissed(vendorId: string): boolean {
   try {
-    return localStorage.getItem(goLivePromptDismissKey(vendorId)) === "true";
+    return localStorage.getItem(registeredBannerDismissKey(vendorId)) === "true";
   } catch {
     return false;
   }
 }
 
-function dismissGoLivePrompt(vendorId: string): void {
+function dismissRegisteredBanner(vendorId: string): void {
   try {
-    localStorage.setItem(goLivePromptDismissKey(vendorId), "true");
+    localStorage.setItem(registeredBannerDismissKey(vendorId), "true");
   } catch {
     /* ignore */
   }
@@ -174,10 +174,17 @@ function orderBlocksGoingOffline(
 
 type BlockingOfflineOrder = {
   id: string;
+  status: string;
+  appointment_status: string | null;
   user_phone: string | null;
   delivery_slot: string | null;
   appointment_time: string | null;
 };
+
+function orderShouldNotifyVendorOffline(order: BlockingOfflineOrder): boolean {
+  if (order.status === "accepted") return true;
+  return order.appointment_status === "confirmed";
+}
 
 async function fetchBlockingActiveOrders(
   vendorId: string,
@@ -185,11 +192,13 @@ async function fetchBlockingActiveOrders(
 ): Promise<BlockingOfflineOrder[]> {
   const { data, error } = await supabase
     .from("requests")
-    .select("id, user_phone, delivery_slot, appointment_time")
+    .select("id, status, appointment_status, user_phone, delivery_slot, appointment_time")
     .eq("vendor_id", vendorId)
     .in("status", ["sent", "seen", "accepted"]);
   if (error || !data?.length) return [];
-  return data.filter((row) => orderBlocksGoingOffline(row, serviceMode));
+  return (data as BlockingOfflineOrder[]).filter((row) =>
+    orderBlocksGoingOffline(row, serviceMode),
+  );
 }
 
 // Heuristic gibberish detector: rejects keyboard mashing like "asdfasdf"
@@ -466,7 +475,7 @@ const VendorMode = () => {
       setGoLivePromptVisible(false);
       return;
     }
-    setGoLivePromptVisible(!isGoLivePromptDismissed(vendor.id));
+    setGoLivePromptVisible(!isRegisteredBannerDismissed(vendor.id));
   }, [vendor?.id, vendor?.is_banned]);
 
   const detectLocation = (opts?: { silent?: boolean }): Promise<{ lat: number; lng: number } | null> => {
@@ -1100,6 +1109,11 @@ const VendorMode = () => {
       return false;
     }
 
+    if (next) {
+      dismissRegisteredBanner(vendor.id);
+      setGoLivePromptVisible(false);
+    }
+
     toast(next ? s.vendor_you_are_live : s.vendor_you_are_offline, {
       description: next
         ? liveCoords
@@ -1111,11 +1125,17 @@ const VendorMode = () => {
   };
 
   const notifyUsersVendorOffline = (orders: BlockingOfflineOrder[]) => {
+    const notifyByPhone = new Map<string, string>();
     for (const order of orders) {
+      if (!orderShouldNotifyVendorOffline(order)) continue;
       const userPhone = order.user_phone?.trim();
-      if (!userPhone) continue;
-      const title = s.user_vendor_offline_title;
-      const body = s.user_vendor_offline_body;
+      if (!userPhone || notifyByPhone.has(userPhone)) continue;
+      notifyByPhone.set(userPhone, order.id);
+    }
+
+    const title = s.user_vendor_offline_title;
+    const body = s.user_vendor_offline_body;
+    for (const [userPhone, orderId] of notifyByPhone) {
       void invokeNotifyUser({
         user_phone: userPhone,
         title,
@@ -1127,7 +1147,7 @@ const VendorMode = () => {
         title,
         body,
         route: "my-orders",
-        routeParams: { order_id: order.id },
+        routeParams: { order_id: orderId },
         isInformational: false,
       });
     }
@@ -1371,23 +1391,6 @@ const VendorMode = () => {
         ? s.vendor_reverification_body
         : s.vendor_location_updated_body,
     });
-  };
-
-  const openProfileLocation = () => {
-    void updateShopLocation();
-  };
-
-  const openProfilePhoto = () => {
-    if (!vendor) return;
-    if (vendor.latitude == null || vendor.longitude == null) {
-      setVerificationSheetOpen(true);
-      return;
-    }
-    setCameraOpen(true);
-  };
-
-  const openProfileUpi = () => {
-    setVerificationSheetOpen(true);
   };
 
   return (
@@ -1739,23 +1742,7 @@ const VendorMode = () => {
       )}
 
       {vendor && !vendor.is_banned && (() => {
-        const hasShopLocation =
-          vendor.latitude != null && vendor.longitude != null;
-        const hasShopPhoto =
-          vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== "";
-        const hasSelfie =
-          vendor.photo_selfie != null && String(vendor.photo_selfie).trim() !== "";
-        const showProfileIncomplete =
-          !vendor.is_manual_verified &&
-          (!hasShopLocation || !hasShopPhoto || !hasSelfie || !vendor.upi_verified);
         const profilePhotoCopy = vendorPhotoCopy(vendor.vendor_type, s);
-
-        const profileRowClass = (done: boolean, tappable: boolean) =>
-          cn(
-            "w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm",
-            done ? "text-muted-foreground" : "text-amber-200",
-            !done && tappable && "bg-amber-500/10 border border-amber-500/30 active:scale-[0.99]",
-          );
 
         return (
         <div className="space-y-3 animate-fade-up pb-4">
@@ -1788,24 +1775,26 @@ const VendorMode = () => {
               {vendor.is_active ? s.vendor_ready : s.vendor_offline_label}
             </p>
 
-            <button
-              type="button"
-              data-testid="vendor-golive-btn"
-              onClick={() => void toggleActive()}
-              disabled={checkingOffline}
-              aria-pressed={vendor.is_active}
-              className={cn(
-                "mt-6 mx-auto grid place-items-center rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-60",
-                vendor.is_active
-                  ? "h-11 w-11 bg-primary border-0 text-primary-foreground"
-                  : "h-[72px] w-[72px] px-6 py-2.5 bg-primary/10 border-2 border-primary text-primary",
-              )}
-            >
-              <Power
-                className={vendor.is_active ? "h-[18px] w-[18px] text-primary-foreground" : "h-[30px] w-[30px] text-primary"}
-                strokeWidth={2.5}
-              />
-            </button>
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                data-testid="vendor-golive-btn"
+                onClick={() => void toggleActive()}
+                disabled={checkingOffline}
+                aria-pressed={vendor.is_active}
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-60",
+                  vendor.is_active
+                    ? "h-11 w-11 bg-primary border-0 text-primary-foreground"
+                    : "h-[72px] w-[72px] bg-primary/10 border-2 border-primary text-primary",
+                )}
+              >
+                <Power
+                  className={vendor.is_active ? "h-[18px] w-[18px] text-primary-foreground" : "h-[30px] w-[30px] text-primary"}
+                  strokeWidth={2.5}
+                />
+              </button>
+            </div>
 
             {vendor.is_active ? (
               <p className="mt-3 text-xs text-muted-foreground">{s.vendor_tap_offline}</p>
@@ -1848,7 +1837,7 @@ const VendorMode = () => {
               <button
                 type="button"
                 onClick={() => {
-                  dismissGoLivePrompt(vendor.id);
+                  dismissRegisteredBanner(vendor.id);
                   setGoLivePromptVisible(false);
                 }}
                 className="absolute top-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40"
@@ -1866,109 +1855,18 @@ const VendorMode = () => {
             </div>
           )}
 
-          {showProfileIncomplete && (
-            <div className="mx-4 rounded-2xl border border-surface-border bg-surface p-4 space-y-2">
-              <p className="font-semibold text-foreground text-sm">{s.vendor_profile_incomplete}</p>
-              <ul className="space-y-1">
-                <li className={profileRowClass(true, false)}>
-                  <span aria-hidden>✅</span>
-                  <span>{s.vendor_profile_phone_row}</span>
-                </li>
-                {hasShopLocation ? (
-                  <li className={profileRowClass(true, false)}>
-                    <span aria-hidden>✅</span>
-                    <span>{s.vendor_profile_location_row}</span>
-                  </li>
-                ) : (
-                  <li>
-                    <button
-                      type="button"
-                      onClick={openProfileLocation}
-                      disabled={updatingLocation}
-                      className={profileRowClass(false, true)}
-                    >
-                      <span aria-hidden>❌</span>
-                      <span className="flex-1">{s.vendor_profile_location_row}</span>
-                      {updatingLocation ? (
-                        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 shrink-0" />
-                      )}
-                    </button>
-                  </li>
-                )}
-                {hasShopPhoto ? (
-                  <li className={profileRowClass(true, false)}>
-                    <span aria-hidden>✅</span>
-                    <span>{s.vendor_profile_photo_row}</span>
-                  </li>
-                ) : (
-                  <li>
-                    <button
-                      type="button"
-                      onClick={openProfilePhoto}
-                      className={profileRowClass(false, true)}
-                    >
-                      <span aria-hidden>❌</span>
-                      <span className="flex-1">{s.vendor_profile_photo_row}</span>
-                      <ChevronRight className="h-4 w-4 shrink-0" />
-                    </button>
-                  </li>
-                )}
-                {hasSelfie ? (
-                  <li className={profileRowClass(true, false)}>
-                    <span aria-hidden>✅</span>
-                    <span>{s.vendor_profile_selfie_row}</span>
-                  </li>
-                ) : (
-                  <li>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setVerificationSheetOpen(true);
-                        if (hasShopPhoto) openSelfieCamera();
-                      }}
-                      disabled={!hasShopPhoto}
-                      className={cn(
-                        profileRowClass(false, hasShopPhoto),
-                        !hasShopPhoto && "opacity-50 cursor-not-allowed",
-                      )}
-                    >
-                      <span aria-hidden>❌</span>
-                      <span className="flex-1">{s.vendor_profile_selfie_row}</span>
-                      {hasShopPhoto ? (
-                        <ChevronRight className="h-4 w-4 shrink-0" />
-                      ) : null}
-                    </button>
-                  </li>
-                )}
-                {vendor.upi_verified ? (
-                  <li className={profileRowClass(true, false)}>
-                    <span aria-hidden>✅</span>
-                    <span>{s.vendor_profile_upi_row}</span>
-                  </li>
-                ) : (
-                  <li>
-                    <button
-                      type="button"
-                      onClick={openProfileUpi}
-                      className={profileRowClass(false, true)}
-                    >
-                      <span aria-hidden>❌</span>
-                      <span className="flex-1">{s.vendor_profile_upi_row}</span>
-                      <ChevronRight className="h-4 w-4 shrink-0" />
-                    </button>
-                  </li>
-                )}
-              </ul>
-            </div>
-          )}
-
           <div>
             <IncomingOrdersSection
               vendorId={vendor.id}
               serviceMode={vendor.service_mode ?? "help"}
               onUnreadCount={(n) => setUnreadCount(n)}
+              shopName={vendor.shop_name}
+              cancelReasons={[
+                vendor.cancel_reason_1,
+                vendor.cancel_reason_2,
+                vendor.cancel_reason_3,
+                vendor.cancel_reason_4,
+              ]}
             />
           </div>
 

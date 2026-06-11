@@ -128,9 +128,29 @@ export function ParchiSheet({
   const [selectedMenuItems, setSelectedMenuItems] = useState<Record<string, number>>({});
   const [menuExpanded, setMenuExpanded] = useState(true);
   const lastVendor = useRef<Vendor | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (vendor) lastVendor.current = vendor;
   }, [vendor]);
+
+  const resetFormFields = useCallback(() => {
+    setMessage("");
+    setAppointmentDate("");
+    setAppointmentTime("");
+    setAppointmentLocation("decide");
+    setDeliverySlot("asap");
+    setSelectedAddressId(null);
+    setNewAddress("");
+    setSelectedMenuItems({});
+    setSending(false);
+    setPendingPhone(null);
+    setMenuExpanded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    resetFormFields();
+  }, [isOpen, resetFormFields]);
   const effectiveVendor = vendor ?? lastVendor.current;
   const resolvedVendorId = vendorIdProp ?? effectiveVendor?.id ?? null;
   const resolvedServiceMode =
@@ -162,10 +182,10 @@ export function ParchiSheet({
 
   useEffect(() => {
     if (!isOpen) return;
-    // Force repaint on Android WebView
     requestAnimationFrame(() => {
-      window.scrollBy(0, 1);
-      window.scrollBy(0, -1);
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      el.scrollTop = 0;
     });
   }, [isOpen, menuItems]);
 
@@ -204,27 +224,17 @@ export function ParchiSheet({
   const handleOpenChange = useCallback(
     (open: boolean) => {
       if (!open) {
-        setMessage("");
-        setSending(false);
-        setSelectedAddressId(null);
-        setNewAddress("");
+        resetFormFields();
         setSaveAddress(false);
-        setAppointmentDate("");
-        setAppointmentTime("");
-        setAppointmentLocation("decide");
-        setDeliverySlot("asap");
         setTrustBlock(null);
         setLowTrustSheetOpen(false);
         setLowTrustConfirmed(false);
         setMediumTrustDialogOpen(false);
-        setPendingPhone(null);
         setMenuItems([]);
-        setSelectedMenuItems({});
-        setMenuExpanded(true);
         onClose();
       }
     },
-    [onClose],
+    [onClose, resetFormFields],
   );
 
   const startVoiceInput = async () => {
@@ -551,13 +561,16 @@ export function ParchiSheet({
         <SheetContent
           data-testid="parchi-sheet"
           side="bottom"
-          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[90vh] flex flex-col overflow-hidden [&>button]:text-gray-400"
+          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0 [&>button]:text-gray-400"
           style={{
             transform: "translateZ(0)",
             WebkitOverflowScrolling: "touch",
           }}
         >
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+          >
           <SheetHeader className="sr-only">
             <SheetTitle>
               {effectiveVendor?.service_mode === "appointment"
@@ -783,7 +796,8 @@ export function ParchiSheet({
                   />
                 </button>
                 {menuExpanded && (
-                  <div className="divide-y divide-surface-border px-2 py-2 space-y-0">
+                  <div className="flex flex-col max-h-[min(42vh,20rem)]">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-surface-border px-2 py-2 space-y-0">
                     {menuItems.map((item) => {
                       const qty = selectedMenuItems[item.id] ?? 0;
                       const selected = qty > 0;
@@ -882,14 +896,17 @@ export function ParchiSheet({
                         </button>
                       );
                     })}
+                    </div>
                     {selectedMenuCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={addMenuToOrder}
-                        className="w-full mt-1 rounded-xl bg-brand/20 border border-brand text-brand py-2.5 text-sm font-semibold active:scale-[0.98]"
-                      >
-                        Add to order
-                      </button>
+                      <div className="shrink-0 border-t border-surface-border bg-surface px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={addMenuToOrder}
+                          className="w-full rounded-xl bg-brand/20 border border-brand text-brand py-2.5 text-sm font-semibold active:scale-[0.98]"
+                        >
+                          Add to order
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
@@ -957,7 +974,7 @@ export function ParchiSheet({
           </div>
           </div>
           {!trustBlock && (
-            <div className="shrink-0 border-t border-surface-border bg-page-bg px-4 pt-3 pb-4 space-y-2">
+            <div className="shrink-0 border-t border-surface-border bg-page-bg px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2">
               {effectiveVendor?.service_mode === "appointment" ? (
                 <p className="text-[11px] text-muted-foreground text-center">
                   {s.parchi_cancellationAppt}
@@ -1065,6 +1082,7 @@ export function ParchiSheet({
       <PhoneEntrySheet
         isOpen={phoneSheetOpen}
         context="order"
+        skipRecovery
         onClose={() => setPhoneSheetOpen(false)}
         onConfirmed={async (phone) => {
           setPhoneSheetOpen(false);

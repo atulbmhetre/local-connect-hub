@@ -138,18 +138,12 @@ export async function invokeNotifyVendor(record: {
 }
 
 /** Best-effort push to user devices; never throws. */
-export async function invokeNotifyUser(payload: {
+export function invokeNotifyUser(payload: {
   user_phone: string;
   title: string;
   body: string;
-}): Promise<void> {
-  try {
-    await supabase.functions.invoke("notify-user", {
-      body: payload,
-    });
-  } catch {
-    /* ignore */
-  }
+}): void {
+  void supabase.functions.invoke("notify-user", { body: payload }).catch(() => {});
 }
 
 /** Best-effort push to admin; never throws. */

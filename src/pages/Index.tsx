@@ -73,26 +73,6 @@ function isVendorLocationStale(
   return Date.now() - t >= stoppedMinutes * 60 * 1000;
 }
 
-/** Best-effort GPS snapshot for user_devices; never throws or surfaces errors. */
-function saveUserDeviceLocationSilently(userPhone: string): void {
-  if (!("geolocation" in navigator)) return;
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      void supabase
-        .from("user_devices")
-        .update({
-          last_lat: pos.coords.latitude,
-          last_lng: pos.coords.longitude,
-          last_location_at: new Date().toISOString(),
-        })
-        .eq("user_phone", userPhone)
-        .eq("device_id", getDeviceId());
-    },
-    () => {},
-    { timeout: 10_000 },
-  );
-}
-
 const Index = () => {
   const { s, lang } = useLanguage();
   const { config } = useAppConfig();
@@ -177,10 +157,7 @@ const Index = () => {
     if (!userPhone) return;
     if (pushRegisteredUserRef.current === userPhone) return;
     pushRegisteredUserRef.current = userPhone;
-    void (async () => {
-      await registerUserPushToken(userPhone);
-      saveUserDeviceLocationSilently(userPhone);
-    })();
+    void registerUserPushToken(userPhone);
   }, [userPhone]);
 
   useEffect(() => {

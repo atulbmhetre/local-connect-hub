@@ -81,6 +81,26 @@ export async function invokeExpirePendingOrders(): Promise<void> {
   if (error) throw error;
 }
 
+export async function invokeWarnPendingOrdersNearDeadline(): Promise<void> {
+  const { error } = await supabaseAdmin.rpc('warn_pending_orders_near_deadline');
+  if (error) throw error;
+}
+
+export async function invokeWarnNearDeadlinePush(): Promise<{ pushed: number }> {
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY!;
+  const res = await fetch(`${supabaseUrl}/functions/v1/warn-near-deadline`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${anonKey}`,
+      apikey: anonKey,
+      'Content-Type': 'application/json',
+    },
+    body: '{}',
+  });
+  const json = (await res.json().catch(() => ({}))) as { pushed?: number };
+  return { pushed: json.pushed ?? 0 };
+}
+
 export async function invokeAnonymiseDeletedAccounts(): Promise<void> {
   const { error } = await supabaseAdmin.rpc('anonymise_deleted_accounts');
   if (error) throw error;

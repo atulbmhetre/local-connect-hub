@@ -3,7 +3,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
+
 serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
   let parsed: Record<string, unknown> = {};
   try {
     const text = await req.text();
@@ -13,7 +25,7 @@ serve(async (req) => {
   } catch {
     return new Response(JSON.stringify({ error: "invalid_json" }), {
       status: 400,
-      headers: { "Content-Type": "application/json" },
+      headers: CORS_HEADERS,
     });
   }
 
@@ -41,18 +53,18 @@ serve(async (req) => {
 
       if (error) {
         console.error("notify-user user_devices query failed", error);
-        return new Response(JSON.stringify({ sent: 0 }), { status: 200 });
+        return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
       }
 
       tokens = (devices ?? [])
         .map((row) => row.fcm_token)
         .filter((token): token is string => typeof token === "string" && token.length > 0);
     } else {
-      return new Response(JSON.stringify({ sent: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     if (tokens.length === 0) {
-      return new Response(JSON.stringify({ sent: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     const clientEmail = Deno.env.get("FCM_CLIENT_EMAIL")!;
@@ -73,7 +85,7 @@ serve(async (req) => {
 
     if (!accessToken) {
       console.error("notify-user failed to obtain FCM access token");
-      return new Response(JSON.stringify({ sent: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     let sent = 0;
@@ -100,8 +112,9 @@ serve(async (req) => {
                   body,
                 },
                 android: {
+                  priority: "high",
                   notification: {
-                    channel_id: "default",
+                    channel_id: "order_alert",
                   },
                 },
               },
@@ -127,9 +140,9 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ sent }), { status: 200 });
+    return new Response(JSON.stringify({ sent }), { status: 200, headers: CORS_HEADERS });
   } catch (err) {
     console.error("notify-user failed", err);
-    return new Response(JSON.stringify({ sent: 0 }), { status: 200 });
+    return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
   }
 });

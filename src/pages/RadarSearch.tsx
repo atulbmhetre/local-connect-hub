@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -30,6 +30,8 @@ import {
   consumeNeighboursDirty,
   readSessionSaved,
 } from "@/components/RadarVendorCard";
+import { getDeviceId } from "@/lib/deviceId";
+import { getUserPhone } from "@/lib/userIdentity";
 import {
   Collapsible,
   CollapsibleTrigger,
@@ -43,9 +45,21 @@ import {
   type VendorVerificationRow,
 } from "@/lib/trustLevel";
 
+export type RadarMenuItem = {
+  name: string;
+  price: number;
+  unit: string | null;
+  is_available: boolean;
+};
+
 export type RadarVendorResult = Vendor & {
   categories: { label: string; emoji: string }[];
   trustLevel: TrustLevel;
+  /** First 5 available menu items, batch-fetched so cards render complete. */
+  menuPreview: RadarMenuItem[];
+  hasActiveOrder: boolean;
+  hasFulfilledOrder: boolean;
+  isSavedNeighbour: boolean;
 };
 
 type Ranked = { vendor: RadarVendorResult; dist: number | null };
@@ -203,8 +217,16 @@ const RadarSearch = () => {
   const [results, setResults] = useState<Ranked[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  /**
+   * Search must not run before the categories lookup resolves: with an empty
+   * categories list the term resolves to zero ids and the search would
+   * early-return setResults([]), flashing "0 results" before the real fetch.
+   */
+  const [categoriesLoaded, setCategoriesLoaded] = useState(false);
   /** Bumped when neighbours_dirty is consumed so isSaved re-reads session flags. */
   const [neighboursSyncTick, setNeighboursSyncTick] = useState(0);
+  /** Monotonic id so a stale in-flight fetch can never overwrite newer results. */
+  const fetchSeqRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -218,9 +240,11 @@ const RadarSearch = () => {
         if (catError) {
           console.error("radar categories load", catError);
           setCategories([]);
+          setCategoriesLoaded(true);
           return;
         }
         setCategories((data ?? []) as Category[]);
+        setCategoriesLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -285,6 +309,11 @@ const RadarSearch = () => {
         if (coordsTried && !opts.silent) setScanning(false);
         return;
       }
+      // Categories not loaded yet: keep the spinner up and bail. The search
+      // effect re-runs once categoriesLoaded flips, so nothing is lost.
+      if (!categoriesLoaded) return;
+      const seq = ++fetchSeqRef.current;
+      const isCurrent = () => seq === fetchSeqRef.current;
       if (!opts.silent) {
         setScanning(true);
         setError(null);
@@ -298,7 +327,7 @@ const RadarSearch = () => {
         if (term) {
           const categoryIds = resolveCategoryIdsForTerm(term, categories);
           if (categoryIds.length === 0) {
-            setResults([]);
+            if (isCurrent()) setResults([]);
             return;
           }
           const { data: vcRows, error: vcError } = await supabase
@@ -309,7 +338,7 @@ const RadarSearch = () => {
           if (vcError) throw vcError;
           vendorIdFilter = [...new Set((vcRows ?? []).map((row) => row.vendor_id))];
           if (vendorIdFilter.length === 0) {
-            setResults([]);
+            if (isCurrent()) setResults([]);
             return;
           }
         }
@@ -343,28 +372,82 @@ const RadarSearch = () => {
 
         let verificationRows: VendorVerificationRow[] = [];
         let categoriesByVendor = new Map<string, { label: string; emoji: string }[]>();
+        const menuByVendor = new Map<string, RadarMenuItem[]>();
+        let activeOrderVendorIds = new Set<string>();
+        let fulfilledVendorIds = new Set<string>();
+        let savedVendorIds = new Set<string>();
 
         if (vendorIds.length > 0) {
-          const [verResult, vcResult] = await Promise.all([
-            supabase
-              .from("vendor_verification")
-              .select("vendor_id, check_type, status, is_latest")
-              .in("vendor_id", vendorIds)
-              .eq("is_latest", true),
-            supabase
-              .from("vendor_categories")
-              .select("vendor_id, is_primary, categories(label, emoji)")
-              .in("vendor_id", vendorIds)
-              .eq("status", "approved"),
-          ]);
+          const deviceId = getDeviceId();
+          const userPhone = getUserPhone();
+          let savedQuery = supabase
+            .from("saved_vendors")
+            .select("vendor_id")
+            .in("vendor_id", vendorIds);
+          savedQuery =
+            userPhone != null
+              ? savedQuery.eq("user_phone", userPhone)
+              : savedQuery.eq("device_id", deviceId);
+
+          const [verResult, vcResult, menuResult, activeResult, fulfilledResult, savedResult] =
+            await Promise.all([
+              supabase
+                .from("vendor_verification")
+                .select("vendor_id, check_type, status, is_latest")
+                .in("vendor_id", vendorIds)
+                .eq("is_latest", true),
+              supabase
+                .from("vendor_categories")
+                .select("vendor_id, is_primary, categories(label, emoji)")
+                .in("vendor_id", vendorIds)
+                .eq("status", "approved"),
+              supabase
+                .from("vendor_menu_items")
+                .select("vendor_id, name, price, unit, is_available")
+                .in("vendor_id", vendorIds)
+                .eq("is_available", true)
+                .order("sort_order", { ascending: true }),
+              supabase
+                .from("requests")
+                .select("vendor_id")
+                .eq("device_id", deviceId)
+                .in("vendor_id", vendorIds)
+                .in("status", ["sent", "seen"]),
+              supabase
+                .from("requests")
+                .select("vendor_id")
+                .eq("device_id", deviceId)
+                .in("vendor_id", vendorIds)
+                .eq("status", "fulfilled"),
+              savedQuery,
+            ]);
 
           if (verResult.error) throw verResult.error;
           if (vcResult.error) throw vcResult.error;
+          // Menu/order/saved data only enrich the cards; tolerate failures.
 
           verificationRows = (verResult.data ?? []) as VendorVerificationRow[];
           categoriesByVendor = buildVendorCategoriesMap(
             (vcResult.data ?? []) as Parameters<typeof buildVendorCategoriesMap>[0],
           );
+
+          for (const row of menuResult.data ?? []) {
+            const list = menuByVendor.get(row.vendor_id) ?? [];
+            // Rows arrive sorted by sort_order; keep the first 5 per vendor
+            // to match the old per-card .limit(5) preview behaviour.
+            if (list.length < 5) {
+              list.push({
+                name: row.name,
+                price: row.price,
+                unit: row.unit,
+                is_available: row.is_available,
+              });
+              menuByVendor.set(row.vendor_id, list);
+            }
+          }
+          activeOrderVendorIds = new Set((activeResult.data ?? []).map((r) => r.vendor_id));
+          fulfilledVendorIds = new Set((fulfilledResult.data ?? []).map((r) => r.vendor_id));
+          savedVendorIds = new Set((savedResult.data ?? []).map((r) => r.vendor_id));
         }
 
         const trustByVendor = computeTrustLevelsByVendor(vendorIds, verificationRows);
@@ -374,6 +457,10 @@ const RadarSearch = () => {
             ...(v as Vendor),
             categories: categoriesByVendor.get(v.id) ?? [],
             trustLevel: trustByVendor.get(v.id) ?? "Unverified",
+            menuPreview: menuByVendor.get(v.id) ?? [],
+            hasActiveOrder: activeOrderVendorIds.has(v.id),
+            hasFulfilledOrder: fulfilledVendorIds.has(v.id),
+            isSavedNeighbour: savedVendorIds.has(v.id),
           },
           dist: distanceKm(coords, { lat: v.latitude!, lng: v.longitude! }),
         }));
@@ -390,26 +477,30 @@ const RadarSearch = () => {
           ),
         );
 
-        setResults(scoped);
+        if (isCurrent()) setResults(scoped);
       } catch (e: unknown) {
-        if (!opts.silent) {
+        if (!opts.silent && isCurrent()) {
           setError(e instanceof Error ? e.message : s.radar_connection_error);
         }
       } finally {
-        if (!opts.silent) setScanning(false);
+        // A newer fetch owns the scanning flag now; don't end its spinner early.
+        if (!opts.silent && isCurrent()) setScanning(false);
       }
     },
-    [coords, coordsTried, term, searchRadiusKm, categories, s.radar_connection_error],
+    [coords, coordsTried, term, searchRadiusKm, categories, categoriesLoaded, s.radar_connection_error],
   );
 
-  // Run search only when GPS coordinates are available.
+  // Run search only when GPS coordinates AND the category lookup are ready.
+  // scanning stays true (initial state / requestLocation) while waiting, so
+  // the radar spinner covers the whole search instead of flashing "0 results".
   useEffect(() => {
     if (!coords) {
       if (coordsTried) setScanning(false);
       return;
     }
+    if (!categoriesLoaded) return;
     void fetchVendors({ silent: false });
-  }, [coords, coordsTried, fetchVendors]);
+  }, [coords, coordsTried, categoriesLoaded, fetchVendors]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -431,7 +522,10 @@ const RadarSearch = () => {
   const savedByVendorId = useMemo(() => {
     void neighboursSyncTick;
     return Object.fromEntries(
-      results.map(({ vendor }) => [vendor.id, readSessionSaved(vendor.id)]),
+      results.map(({ vendor }) => [
+        vendor.id,
+        vendor.isSavedNeighbour || readSessionSaved(vendor.id),
+      ]),
     );
   }, [results, neighboursSyncTick]);
 
@@ -570,12 +664,14 @@ const RadarSearch = () => {
               userNeed={term}
               categories={vendor.categories}
               trustLevel={vendor.trustLevel}
+              menuItems={vendor.menuPreview}
               isSaved={savedByVendorId[vendor.id] ?? false}
-              hasOrdered={false}
+              hasOrdered={vendor.hasActiveOrder}
+              hasFulfilledOrder={vendor.hasFulfilledOrder}
               onOrder={() => {}}
               onAiBridge={() => {}}
               onSave={() => {}}
-              onOrderCancelled={() => {}}
+              onOrderCancelled={() => void fetchVendors({ silent: true })}
             />
           ))}
           {isOfficialEmergencyCategory(term) && <GovEmergencyServices term={term} />}

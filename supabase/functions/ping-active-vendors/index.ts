@@ -3,6 +3,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
+
 type VendorJoin = {
   service_mode: string | null;
   fcm_token: string | null;
@@ -16,6 +24,10 @@ type AcceptedOrderRow = {
 };
 
 serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
   try {
     try {
       await req.json();
@@ -36,7 +48,7 @@ serve(async (req) => {
 
     if (ordersError) {
       console.error("ping-active-vendors orders query failed", ordersError);
-      return new Response(JSON.stringify({ pinged: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ pinged: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     const byVendor = new Map<string, { fcm_token: string; order_id: string }>();
@@ -49,7 +61,7 @@ serve(async (req) => {
     }
 
     if (byVendor.size === 0) {
-      return new Response(JSON.stringify({ pinged: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ pinged: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     const clientEmail = Deno.env.get("FCM_CLIENT_EMAIL")!;
@@ -70,7 +82,7 @@ serve(async (req) => {
 
     if (!accessToken) {
       console.error("ping-active-vendors failed to obtain FCM access token");
-      return new Response(JSON.stringify({ pinged: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ pinged: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     let pinged = 0;
@@ -118,9 +130,9 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ pinged }), { status: 200 });
+    return new Response(JSON.stringify({ pinged }), { status: 200, headers: CORS_HEADERS });
   } catch (err) {
     console.error("ping-active-vendors failed", err);
-    return new Response(JSON.stringify({ pinged: 0 }), { status: 200 });
+    return new Response(JSON.stringify({ pinged: 0 }), { status: 200, headers: CORS_HEADERS });
   }
 });

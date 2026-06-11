@@ -26,7 +26,7 @@ const FLAG_HIDE_THRESHOLD = 5;
 const FEED_CACHE_KEY = "aaspaas:feed_cache";
 const FEED_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 const FEED_CACHE_MAX_POSTS = 20;
-const GPS_TIMEOUT_MS = 3000;
+const GPS_TIMEOUT_MS = 10_000;
 const GPS_BBOX_FAST_MS = 3000;
 /** ~50 km at Indian latitudes; matches server bounding box. */
 const BBOX_DELTA_DEG = 0.45;
@@ -90,7 +90,11 @@ type FeedCategory = {
 
 const getPosition = () =>
   new Promise<GeolocationPosition>((resolve, reject) =>
-    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: GPS_TIMEOUT_MS }),
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: false,
+      timeout: GPS_TIMEOUT_MS,
+      maximumAge: 60_000,
+    }),
   );
 
 async function getGeoCoords(): Promise<GeoCoords | null> {
@@ -189,7 +193,11 @@ export default function LocalFeed() {
 
   const [categories, setCategories] = useState<FeedCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [vendor, setVendor] = useState<{ phone: string | null } | null>(null);
+  const [vendor, setVendor] = useState<{
+    phone: string | null;
+    latitude: number | null;
+    longitude: number | null;
+  } | null>(null);
   const viewerPhone = getUserPhone();
 
   useEffect(() => {
@@ -197,7 +205,7 @@ export default function LocalFeed() {
     if (!vendorId?.trim()) return;
     void supabase
       .from("vendors")
-      .select("phone")
+      .select("phone, latitude, longitude")
       .eq("id", vendorId)
       .maybeSingle()
       .then(({ data }) => {
@@ -496,8 +504,15 @@ export default function LocalFeed() {
       lat = pos.coords.latitude;
       lng = pos.coords.longitude;
     } catch {
-      lat = null;
-      lng = null;
+      const vLat = vendor?.latitude;
+      const vLng = vendor?.longitude;
+      if (vLat != null && vLng != null && Number.isFinite(vLat) && Number.isFinite(vLng)) {
+        lat = vLat;
+        lng = vLng;
+      } else {
+        lat = null;
+        lng = null;
+      }
     }
 
     const { data: newPost, error } = await supabase
@@ -523,27 +538,26 @@ export default function LocalFeed() {
       return;
     }
 
-    if (lat != null && lng != null) {
-      const authorPhone = getUserPhone();
-      if (authorPhone && newPost?.id) {
-        const notifyTitle =
-          composeType === "announcement"
-            ? "📢 Announcement near you"
-            : "💬 Recommendation near you";
-        void supabase.functions
-          .invoke("notify-feed-post", {
-            body: {
-              post_id: newPost.id,
-              post_type: composeType,
-              title: notifyTitle,
-              body: content.substring(0, 100),
-              lat,
-              lng,
-              author_phone: authorPhone,
-            },
-          })
-          .catch(() => {});
-      }
+    // Use the same phone as the insert (includes vendor?.phone fallback).
+    const authorPhone = phone;
+    if (lat != null && lng != null && authorPhone && newPost?.id) {
+      const notifyTitle =
+        composeType === "announcement"
+          ? "📢 Announcement near you"
+          : "💬 Recommendation near you";
+      void supabase.functions
+        .invoke("notify-feed-post", {
+          body: {
+            post_id: newPost.id,
+            post_type: composeType,
+            title: notifyTitle,
+            body: content.substring(0, 100),
+            lat,
+            lng,
+            author_phone: authorPhone,
+          },
+        })
+        .catch(() => {});
     }
 
     closeCompose();

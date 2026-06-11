@@ -67,7 +67,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { LANGUAGE_LABELS, type Language } from "@/lib/strings";
 import { useUserAddresses } from "@/hooks/useUserAddresses";
-import { VendorSettings, VendorSettingsReferEarn } from "@/components/settings/VendorSettings";
+import {
+  VendorSettings,
+  VendorSettingsReferEarn,
+  type MenuItem,
+  type VendorActiveOffer,
+  type VendorReferralCredits,
+} from "@/components/settings/VendorSettings";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
@@ -359,6 +365,10 @@ const ADMIN_CONFIG_WHITELIST = [
   "vendor_stopped_minutes",
   "location_ping_seconds",
   "referral_user_credit",
+  "referral_vendor_credit_total",
+  "referral_vendor_credit_m1",
+  "referral_vendor_credit_m2",
+  "referral_vendor_credit_m3",
   "dev_menu_pin",
 ] as const;
 
@@ -370,6 +380,10 @@ const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
   vendor_stopped_minutes: "vendor_stopped_minutes",
   location_ping_seconds: "location_ping_seconds",
   referral_user_credit: "referral_user_credit",
+  referral_vendor_credit_total: "referral_vendor_credit_total",
+  referral_vendor_credit_m1: "referral_vendor_credit_m1",
+  referral_vendor_credit_m2: "referral_vendor_credit_m2",
+  referral_vendor_credit_m3: "referral_vendor_credit_m3",
   dev_menu_pin: "dev_menu_pin",
 };
 
@@ -482,10 +496,19 @@ const Settings = () => {
   const isVendor = Boolean(vendorId?.trim());
   const ADMIN_PHONE_FALLBACK = "8888169446";
   const [adminPhone, setAdminPhone] = useState(ADMIN_PHONE_FALLBACK);
-  const isAdmin = userPhone === adminPhone;
+  const [adminConfigLoaded, setAdminConfigLoaded] = useState(false);
+  const isAdmin =
+    userPhone != null &&
+    (userPhone === adminPhone ||
+      (!adminConfigLoaded && userPhone === ADMIN_PHONE_FALLBACK));
   const [devPhone, setDevPhone] = useState(userPhone ?? "");
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
+  const [vendorExtras, setVendorExtras] = useState<{
+    activeOffer: VendorActiveOffer | null;
+    referralCredits: VendorReferralCredits;
+    menuItems: MenuItem[];
+  } | null>(null);
   const identityPhone = (vendor?.phone ?? "").trim() || (userPhone ?? "").trim() || null;
 
   const [adminStats, setAdminStats] = useState({
@@ -610,12 +633,16 @@ const Settings = () => {
         .from("app_config")
         .select("key, value")
         .in("key", ["admin_phone", "dev_menu_pin"]);
-      if (error || !data) return;
+      if (error || !data) {
+        setAdminConfigLoaded(true);
+        return;
+      }
       for (const row of data) {
         const value = String(row.value ?? "").trim();
         if (row.key === "admin_phone" && value) setAdminPhone(value);
         if (row.key === "dev_menu_pin" && value) setDevMenuPin(value);
       }
+      setAdminConfigLoaded(true);
     })();
   }, []);
 
@@ -689,6 +716,64 @@ const Settings = () => {
       if (data) setVendor(data as Vendor);
     };
     void load();
+  }, [vendorId]);
+
+  // Batch-fetch everything VendorSettings needs (offer / referral credits /
+  // menu) so its panels render complete instead of popping in one by one.
+  useEffect(() => {
+    if (!vendorId) {
+      setVendorExtras(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const [offerRes, creditsRes, menuRes] = await Promise.all([
+        supabase
+          .from("feed_posts")
+          .select("id, content, expires_at")
+          .eq("vendor_id", vendorId)
+          .eq("type", "offer")
+          .eq("is_hidden", false)
+          .gt("expires_at", new Date().toISOString())
+          .or("starts_at.is.null,starts_at.lte.now()")
+          .maybeSingle(),
+        supabase
+          .from("vendor_credits")
+          .select("amount, disbursed")
+          .eq("vendor_id", vendorId),
+        supabase
+          .from("vendor_menu_items")
+          .select("*")
+          .eq("vendor_id", vendorId)
+          .order("sort_order", { ascending: true }),
+      ]);
+      if (cancelled) return;
+      if (offerRes.error) console.error("vendorExtras offer", offerRes.error);
+      if (creditsRes.error) console.error("vendorExtras credits", creditsRes.error);
+      if (menuRes.error) console.error("vendorExtras menu", menuRes.error);
+
+      let total = 0;
+      let pending = 0;
+      for (const row of creditsRes.data ?? []) {
+        const amt = Number(row.amount) || 0;
+        total += amt;
+        if (!row.disbursed) pending += amt;
+      }
+      setVendorExtras({
+        activeOffer: offerRes.data
+          ? {
+              id: offerRes.data.id as string,
+              content: (offerRes.data.content as string) ?? "",
+              expires_at: (offerRes.data.expires_at as string | null) ?? null,
+            }
+          : null,
+        referralCredits: { total, pending },
+        menuItems: (menuRes.data ?? []) as MenuItem[],
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [vendorId]);
 
   useEffect(() => {
@@ -1029,7 +1114,7 @@ const Settings = () => {
     const title = "⚠️ Account Warning";
     const body =
       "Your account has received complaints from vendors. Further issues may result in suspension.";
-    await invokeNotifyUser({
+    void invokeNotifyUser({
       user_phone: phone,
       title,
       body,
@@ -1583,9 +1668,13 @@ const Settings = () => {
 
   return (
     <AppShell theme="dark">
-      <div className="pb-8" data-testid="settings-screen">
+      <div
+        className="pb-8"
+        data-testid="settings-screen"
+        data-admin-config-loaded={adminConfigLoaded ? "true" : "false"}
+      >
       {isAdmin && (
-        <div className="flex gap-2 px-4 pt-2 pb-4">
+        <div className="flex gap-2 px-4 pt-2 pb-4" data-testid="settings-admin-tabs">
           <button
             type="button"
             data-testid="settings-tab-settings"
@@ -1880,10 +1969,10 @@ const Settings = () => {
 
       {vendorId && (
         <>
-          {vendorId && !vendor && (
+          {(!vendor || !vendorExtras) && (
             <p className="text-sm text-muted-foreground px-4 mb-5">{s.settings_loading}</p>
           )}
-          {vendor && (
+          {vendor && vendorExtras && (
             <VendorSettings
               vendor={vendor}
               onVendorUpdated={setVendor}
@@ -1892,6 +1981,9 @@ const Settings = () => {
               onShopOpenChange={setShopOpen}
               referEarnVisible={referEarnVisible}
               userPhone={userPhone}
+              activeOffer={vendorExtras.activeOffer}
+              referralCredits={vendorExtras.referralCredits}
+              menuItems={vendorExtras.menuItems}
             />
           )}
         </>

@@ -3,6 +3,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
+
 const TITLE = "You have orders for today";
 const BODY = "Go online and contact your customers.";
 
@@ -34,6 +42,10 @@ function orderMatchesTomorrowReminder(row: {
 }
 
 serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
   try {
     try {
       await req.json();
@@ -53,7 +65,7 @@ serve(async (req) => {
 
     if (ordersError) {
       console.error("notify-vendor-tomorrow orders query failed", ordersError);
-      return new Response(JSON.stringify({ notified: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ notified: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     const vendorIds = [
@@ -66,7 +78,7 @@ serve(async (req) => {
     ];
 
     if (vendorIds.length === 0) {
-      return new Response(JSON.stringify({ notified: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ notified: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     const { data: vendors, error: vendorsError } = await supabase
@@ -76,7 +88,7 @@ serve(async (req) => {
 
     if (vendorsError) {
       console.error("notify-vendor-tomorrow vendors query failed", vendorsError);
-      return new Response(JSON.stringify({ notified: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ notified: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     const tokens = (vendors ?? [])
@@ -84,7 +96,7 @@ serve(async (req) => {
       .filter((token): token is string => typeof token === "string" && token.length > 0);
 
     if (tokens.length === 0) {
-      return new Response(JSON.stringify({ notified: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ notified: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     const clientEmail = Deno.env.get("FCM_CLIENT_EMAIL")!;
@@ -105,7 +117,7 @@ serve(async (req) => {
 
     if (!accessToken) {
       console.error("notify-vendor-tomorrow failed to obtain FCM access token");
-      return new Response(JSON.stringify({ notified: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ notified: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     let notified = 0;
@@ -132,8 +144,9 @@ serve(async (req) => {
                   body: BODY,
                 },
                 android: {
+                  priority: "high",
                   notification: {
-                    channel_id: "default",
+                    channel_id: "order_alert",
                   },
                 },
               },
@@ -159,9 +172,9 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ notified }), { status: 200 });
+    return new Response(JSON.stringify({ notified }), { status: 200, headers: CORS_HEADERS });
   } catch (err) {
     console.error("notify-vendor-tomorrow failed", err);
-    return new Response(JSON.stringify({ notified: 0 }), { status: 200 });
+    return new Response(JSON.stringify({ notified: 0 }), { status: 200, headers: CORS_HEADERS });
   }
 });

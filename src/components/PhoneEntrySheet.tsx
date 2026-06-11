@@ -20,6 +20,13 @@ type Props = {
   onClose: () => void;
   onConfirmed: (phone: string) => void;
   context?: PhoneEntryContext;
+  /**
+   * Bypass the "Welcome back!" account-recovery screen (BR-3) and call
+   * onConfirmed directly after saving the phone. Set when the user is already
+   * mid-flow (ordering, booking, saving a vendor) — the recovery screen there
+   * blocks completion. Recovery should only show on first app open.
+   */
+  skipRecovery?: boolean;
 };
 
 async function checkExistingAccount(
@@ -50,6 +57,7 @@ export function PhoneEntrySheet({
   onClose,
   onConfirmed,
   context = "order",
+  skipRecovery = false,
 }: Props) {
   const { s } = useLanguage();
   const [value, setValue] = useState("");
@@ -73,6 +81,11 @@ export function PhoneEntrySheet({
     const digits = normalizePhoneDigits(value);
     if (digits.length !== 10 || !/^[6-9]/.test(digits)) {
       setError("Please enter a valid 10-digit Indian mobile number.");
+      return;
+    }
+
+    if (skipRecovery) {
+      completePhoneFlow(digits);
       return;
     }
 

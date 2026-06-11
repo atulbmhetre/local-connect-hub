@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
   supabase,
+  supabaseAdmin,
   cleanupTestData,
   cleanupTestVendors,
   getActiveCategories,
@@ -12,19 +13,23 @@ import {
 
 const TEST_DEVICE_ID = `device_edit_${TEST_SESSION}`;
 
+function editShopSheet(page: import('@playwright/test').Page) {
+  return page.locator('[role="dialog"]').filter({ hasText: 'Edit Shop Details' });
+}
+
 async function createEditTestVendor(
   overrides: Record<string, unknown> = {},
   categoryCount = 1,
 ) {
   const phone = `99005${Date.now().toString().slice(-5)}`;
-  const categories = await getActiveCategories(Math.max(categoryCount, 1));
+  const categories = await getActiveCategories(Math.max(categoryCount, 3));
   const primary = categories[0];
 
   const { data, error } = await supabase
     .from('vendors')
     .insert({
       name: 'Edit Test Owner',
-      shop_name: `Edit Shop ${TEST_SESSION} ${phone.slice(-4)}`,
+      shop_name: `Fresh Grocery Mart ${phone.slice(-4)}`,
       phone,
       category: primary.label,
       service_mode: primary.service_mode,
@@ -56,6 +61,25 @@ async function openEditShopSheet(page: import('@playwright/test').Page, phone: s
   await page.getByRole('button', { name: /Complete your verification/i }).click();
   await page.getByRole('button', { name: /Edit Shop Details/i }).click();
   await expect(page.getByRole('heading', { name: 'Edit Shop Details' })).toBeVisible({ timeout: 8000 });
+  await expect(editShopSheet(page).locator('.animate-spin')).not.toBeVisible({ timeout: 8000 });
+  await expect(editShopSheet(page).getByText(/\d\/5 selected/)).toBeVisible({ timeout: 8000 });
+}
+
+async function ensureCategorySelected(page: import('@playwright/test').Page, label: string) {
+  const sheet = editShopSheet(page);
+  const chip = sheet.getByRole('button').filter({ hasText: label }).first();
+  await expect(chip).toBeVisible({ timeout: 8000 });
+  const className = (await chip.getAttribute('class')) ?? '';
+  if (!className.includes('ring-primary')) {
+    await chip.click();
+  }
+}
+
+async function saveEditShop(page: import('@playwright/test').Page) {
+  const saveBtn = editShopSheet(page).getByRole('button', { name: 'Save' });
+  await expect(saveBtn).toBeEnabled({ timeout: 10000 });
+  await saveBtn.click();
+  await page.waitForTimeout(2000);
 }
 
 test.afterAll(async () => {
@@ -68,8 +92,7 @@ test('VE-01: vendor can change vendor_type from shop to home and save', async ({
   await openEditShopSheet(page, phone, vendor.id);
 
   await page.getByRole('button', { name: /Home/i }).filter({ hasText: /work from home/i }).first().click();
-  await page.getByRole('button', { name: 'Save' }).last().click();
-  await page.waitForTimeout(2000);
+  await saveEditShop(page);
 
   const { data } = await supabase.from('vendors').select('vendor_type').eq('id', vendor.id).single();
   expect(data?.vendor_type).toBe('home');
@@ -77,16 +100,13 @@ test('VE-01: vendor can change vendor_type from shop to home and save', async ({
 
 test('VE-02: vendor can add a second category in edit sheet', async ({ page }) => {
   const { vendor, phone, categories } = await createEditTestVendor({ vendor_type: 'shop' }, 1);
-  const secondCategory = categories[1] ?? (await getActiveCategories(2))[1];
+  const secondCategory = categories[1];
 
   await openEditShopSheet(page, phone, vendor.id);
-  await page.waitForTimeout(1000);
+  await ensureCategorySelected(page, secondCategory.label);
+  await saveEditShop(page);
 
-  await page.getByRole('button', { name: new RegExp(secondCategory.label, 'i') }).click();
-  await page.getByRole('button', { name: 'Save' }).last().click();
-  await page.waitForTimeout(2000);
-
-  const { data: vcRows } = await supabase
+  const { data: vcRows } = await supabaseAdmin
     .from('vendor_categories')
     .select('id')
     .eq('vendor_id', vendor.id);
@@ -99,15 +119,12 @@ test('VE-03: selecting 3+ categories sets needs_review on vendor_categories rows
 
   const { vendor, phone } = await createEditTestVendor({ vendor_type: 'shop' }, 1);
   await openEditShopSheet(page, phone, vendor.id);
-  await page.waitForTimeout(1000);
 
-  for (const cat of categories.slice(1, 3)) {
-    await page.getByRole('button', { name: new RegExp(cat.label, 'i') }).click();
-  }
-  await page.getByRole('button', { name: 'Save' }).last().click();
-  await page.waitForTimeout(2000);
+  await ensureCategorySelected(page, categories[1].label);
+  await ensureCategorySelected(page, categories[2].label);
+  await saveEditShop(page);
 
-  const { data: vcRows } = await supabase
+  const { data: vcRows } = await supabaseAdmin
     .from('vendor_categories')
     .select('needs_review')
     .eq('vendor_id', vendor.id);

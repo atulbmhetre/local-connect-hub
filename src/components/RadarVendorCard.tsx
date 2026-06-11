@@ -308,6 +308,10 @@ type Props = {
   onSave: (vendor: Vendor) => void;
   isSaved: boolean;
   hasOrdered: boolean;
+  /** Batch-fetched by the parent so the card renders complete on first paint. */
+  hasFulfilledOrder: boolean;
+  /** Menu preview (first 5 available items), batch-fetched by the parent. */
+  menuItems: { name: string; price: number; unit: string | null; is_available: boolean }[];
   categories: { label: string; emoji: string }[];
   trustLevel?: TrustLevel;
   dist: number | null;
@@ -324,6 +328,8 @@ export function RadarVendorCard({
   onSave,
   isSaved,
   hasOrdered,
+  hasFulfilledOrder,
+  menuItems,
   categories,
   trustLevel,
   dist,
@@ -352,27 +358,13 @@ export function RadarVendorCard({
   );
   const [resolutionSessionTick, setResolutionSessionTick] = useState(0);
   const [deliveryActiveFromDb, setDeliveryActiveFromDb] = useState(false);
-  const [deliveryFulfilledFromDb, setDeliveryFulfilledFromDb] = useState(false);
+  const [deliveryFulfilledFromDb, setDeliveryFulfilledFromDb] = useState(hasFulfilledOrder);
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
-  const [menuItems, setMenuItems] = useState<
-    { name: string; price: number; unit: string | null; is_available: boolean }[]
-  >([]);
   const [rateCardOpen, setRateCardOpen] = useState(false);
   const [rateCardLoading, setRateCardLoading] = useState(false);
   const [rateCardItems, setRateCardItems] = useState<
     { name: string; price: number; unit: string | null }[]
   >([]);
-
-  useEffect(() => {
-    void supabase
-      .from("vendor_menu_items")
-      .select("name, price, unit, is_available")
-      .eq("vendor_id", vendor.id)
-      .eq("is_available", true)
-      .order("sort_order", { ascending: true })
-      .limit(5)
-      .then(({ data }) => setMenuItems(data ?? []));
-  }, [vendor.id]);
 
   const openRateCard = useCallback(async () => {
     setRateCardOpen(true);
@@ -393,7 +385,8 @@ export function RadarVendorCard({
     setDeliveredCount(vendor.total_delivered ?? 0);
     setResolutionMarked(readResolutionMarked(vendor.id));
     setSavedVendorLocked(isSaved || readSessionSaved(vendor.id));
-  }, [vendor.id, vendor.total_delivered, vendor.total_helped, isSaved]);
+    setDeliveryFulfilledFromDb(hasFulfilledOrder);
+  }, [vendor.id, vendor.total_delivered, vendor.total_helped, isSaved, hasFulfilledOrder]);
 
   const refreshActiveOrderFromDb = useCallback(async () => {
     if ((serviceMode !== "delivery" && serviceMode !== "appointment") || isOwnVendor) {
@@ -463,22 +456,18 @@ export function RadarVendorCard({
     ]);
   }, [refreshActiveOrderFromDb, refreshFulfilledFromDb, refreshSavedNeighbourFromDb]);
 
+  // Initial order/fulfilled/saved state is batch-fetched by the parent before
+  // the card renders; only refetch after an in-card interaction (tick) or on
+  // visibility change, so the card never visibly mutates right after mount.
   useEffect(() => {
+    if (resolutionSessionTick === 0) return;
     void refreshActiveOrderFromDb();
   }, [refreshActiveOrderFromDb, resolutionSessionTick]);
 
   useEffect(() => {
+    if (resolutionSessionTick === 0) return;
     void refreshFulfilledFromDb();
   }, [refreshFulfilledFromDb, resolutionSessionTick]);
-
-  useEffect(() => {
-    if (isOwnVendor) return;
-    if (isSaved || readSessionSaved(vendor.id)) {
-      setSavedVendorLocked(true);
-      return;
-    }
-    void refreshSavedNeighbourFromDb();
-  }, [vendor.id, isOwnVendor, isSaved, refreshSavedNeighbourFromDb]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -900,6 +889,7 @@ export function RadarVendorCard({
       <PhoneEntrySheet
         isOpen={phoneSheetOpen}
         context="save"
+        skipRecovery
         onClose={() => setPhoneSheetOpen(false)}
         onConfirmed={async (phone) => {
           setPhoneSheetOpen(false);

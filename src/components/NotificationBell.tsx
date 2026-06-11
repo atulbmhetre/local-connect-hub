@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -85,6 +85,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [loading, setLoading] = useState(false);
+  const loadIdRef = useRef(0);
 
   const refreshUnreadCount = useCallback(async (userPhone: string) => {
     const { count, error } = await supabase
@@ -100,6 +101,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
   }, []);
 
   const loadTray = useCallback(async (userPhone: string) => {
+    const loadId = ++loadIdRef.current;
     setLoading(true);
     const { data, error } = await supabase
       .from("user_notifications")
@@ -110,6 +112,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
       .order("is_read", { ascending: true })
       .order("created_at", { ascending: false })
       .limit(50);
+    if (loadId !== loadIdRef.current) return;
     setLoading(false);
     if (error) {
       console.error("NotificationBell load tray", error);
@@ -154,6 +157,40 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     void loadTray(userPhone);
   }, [loadTray]);
 
+  const dismissNotification = useCallback(
+    async (n: UserNotification) => {
+      if (!phone) return;
+      setNotifications((prev) => prev.filter((row) => row.id !== n.id));
+      if (!n.is_read) {
+        setUnreadCount((count) => Math.max(0, count - 1));
+      }
+      const { error } = await supabase.from("user_notifications").delete().eq("id", n.id);
+      if (error) {
+        console.error("NotificationBell dismiss", error);
+        void loadTray(phone);
+        void refreshUnreadCount(phone);
+      }
+    },
+    [phone, loadTray, refreshUnreadCount],
+  );
+
+  const clearAll = useCallback(
+    async (userPhone: string) => {
+      setNotifications([]);
+      setUnreadCount(0);
+      const { error } = await supabase
+        .from("user_notifications")
+        .delete()
+        .eq("user_phone", userPhone);
+      if (error) {
+        console.error("NotificationBell clear all", error);
+        void loadTray(userPhone);
+        void refreshUnreadCount(userPhone);
+      }
+    },
+    [loadTray, refreshUnreadCount],
+  );
+
   useEffect(() => {
     const syncPhone = () => setPhone(getUserPhone());
     syncPhone();
@@ -185,7 +222,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
         },
         () => {
           void refreshUnreadCount(phone);
-          if (open) void loadTray(phone);
+          void loadTray(phone);
         },
       )
       .on(
@@ -198,7 +235,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
         },
         () => {
           void refreshUnreadCount(phone);
-          if (open) void loadTray(phone);
+          void loadTray(phone);
         },
       )
       .on(
@@ -211,7 +248,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
         },
         () => {
           void refreshUnreadCount(phone);
-          if (open) void loadTray(phone);
+          void loadTray(phone);
         },
       )
       .subscribe();
@@ -219,7 +256,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [phone, open, refreshUnreadCount, loadTray]);
+  }, [phone, refreshUnreadCount, loadTray]);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -307,14 +344,27 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
           <SheetHeader className="px-4 pt-4 pb-2 border-b border-border text-left shrink-0">
             <div className="flex items-center justify-between gap-2 pr-8">
               <SheetTitle className="text-foreground">Notifications</SheetTitle>
-              {unreadCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => phone && void markAllRead(phone)}
-                  className="text-xs font-medium text-brand shrink-0 hover:underline"
-                >
-                  {s.notifications_mark_all_read}
-                </button>
+              {(unreadCount > 0 || notifications.length > 0) && (
+                <div className="flex items-center gap-3 shrink-0">
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => phone && void markAllRead(phone)}
+                      className="text-xs font-medium text-brand hover:underline"
+                    >
+                      {s.notifications_mark_all_read}
+                    </button>
+                  )}
+                  {notifications.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => phone && void clearAll(phone)}
+                      className="text-xs font-medium text-muted-foreground hover:underline"
+                    >
+                      {s.notifications_clear_all}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </SheetHeader>
@@ -335,17 +385,20 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
             ) : (
               <ul className="space-y-2">
                 {notifications.map((n) => (
-                  <li key={n.id}>
+                  <li
+                    key={n.id}
+                    className={cn(
+                      "flex items-stretch rounded-xl border border-border overflow-hidden transition-colors",
+                      n.is_read ? "bg-muted/60" : "bg-background shadow-sm",
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={() => void handleNotificationTap(n)}
-                      className={cn(
-                        "w-full text-left rounded-xl border border-border px-3 py-3 transition-colors active:opacity-90",
-                        n.is_read ? "bg-muted/60" : "bg-background shadow-sm",
-                      )}
+                      className="flex-1 min-w-0 text-left px-3 py-3 active:opacity-90"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-foreground leading-snug">
+                        <p className="text-sm font-semibold text-foreground leading-snug min-w-0 flex-1">
                           {n.title}
                         </p>
                         <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
@@ -355,6 +408,17 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
                       <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
                         {n.body}
                       </p>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Dismiss notification"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void dismissNotification(n);
+                      }}
+                      className="shrink-0 w-9 grid place-items-center text-muted-foreground hover:text-foreground border-l border-border active:opacity-70"
+                    >
+                      ✕
                     </button>
                   </li>
                 ))}

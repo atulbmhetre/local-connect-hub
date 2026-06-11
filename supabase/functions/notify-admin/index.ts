@@ -3,7 +3,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
+
 serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
   let parsed: Record<string, unknown> = {};
   try {
     const text = await req.text();
@@ -13,7 +25,7 @@ serve(async (req) => {
   } catch {
     return new Response(JSON.stringify({ error: "invalid_json" }), {
       status: 400,
-      headers: { "Content-Type": "application/json" },
+      headers: CORS_HEADERS,
     });
   }
 
@@ -41,6 +53,7 @@ serve(async (req) => {
       console.error("notify-admin app_config query failed", configError);
       return new Response(JSON.stringify({ success: false, reason: "no_admin_token" }), {
         status: 200,
+        headers: CORS_HEADERS,
       });
     }
 
@@ -48,6 +61,7 @@ serve(async (req) => {
     if (!adminToken) {
       return new Response(JSON.stringify({ success: false, reason: "no_admin_token" }), {
         status: 200,
+        headers: CORS_HEADERS,
       });
     }
 
@@ -71,6 +85,7 @@ serve(async (req) => {
       console.error("notify-admin failed to obtain FCM access token");
       return new Response(JSON.stringify({ success: false, reason: "fcm_auth_failed" }), {
         status: 200,
+        headers: CORS_HEADERS,
       });
     }
 
@@ -133,14 +148,16 @@ serve(async (req) => {
       }
       return new Response(JSON.stringify({ success: false, reason: "fcm_send_failed" }), {
         status: 200,
+        headers: CORS_HEADERS,
       });
     }
 
-    return new Response(JSON.stringify({ success: true }), { status: 200 });
+    return new Response(JSON.stringify({ success: true }), { status: 200, headers: CORS_HEADERS });
   } catch (err) {
     console.error("notify-admin failed", err);
     return new Response(JSON.stringify({ success: false, reason: "unexpected_error" }), {
       status: 200,
+      headers: CORS_HEADERS,
     });
   }
 });

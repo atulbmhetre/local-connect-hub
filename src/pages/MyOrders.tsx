@@ -164,6 +164,7 @@ const userStatusLabel = (
   }
   if (r.status === "fulfilled") return s.myOrders_statusFulfilled;
   if (r.status === "cancelled") return cancelledOrderStatusLabel(r, s);
+  if (r.status === "expired") return s.myOrders_statusExpired;
   return r.status;
 };
 
@@ -1049,6 +1050,7 @@ const MyOrders = () => {
 
   const orderStatusPillClass = (r: RowWithShop) => {
     if (r.status === "cancelled") return "bg-red-500/20 text-red-400 border-red-500/30";
+    if (r.status === "expired") return "bg-amber-500/20 text-amber-500 border-amber-500/30";
     if (r.status === "fulfilled" || r.status === "done") return "bg-green-500/20 text-green-400 border-green-500/30";
     return "bg-brand/20 text-brand border-brand/30";
   };
@@ -1155,6 +1157,7 @@ const MyOrders = () => {
               className={cn(
                 "mx-4 rounded-2xl border border-surface-border bg-surface p-4 space-y-2 mb-3",
                 r.status === "cancelled" && "border-red-500/30 bg-red-500/5",
+                r.status === "expired" && "border-amber-500/30 bg-amber-500/5",
                 flashOrderId === r.id &&
                   "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse",
               )}
@@ -1393,6 +1396,13 @@ const MyOrders = () => {
                   </p>
                 </div>
               )}
+              {r.status === "expired" && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+                  <p className="text-sm font-semibold text-foreground leading-snug">
+                    {s.myOrders_expiredBanner}
+                  </p>
+                </div>
+              )}
               {(() => {
                 const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
                 if (!slot) return null;
@@ -1558,9 +1568,10 @@ const MyOrders = () => {
               )}
 
               <div className="flex flex-col gap-1.5">
-                {r.status === "cancelled" ? (
+                {r.status === "cancelled" || r.status === "expired" ? (
                   <button
                     type="button"
+                    data-testid="order-dismiss-btn"
                     disabled={markingId === r.id}
                     onClick={() => void markDone(r.id)}
                     className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"

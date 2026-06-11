@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { supabase, invokecalculateTrustScore, fetchUserTrust, invokeNotifyUser } from "@/lib/supabase";
+import { supabase, invokecalculateTrustScore, invokeNotifyUser } from "@/lib/supabase";
 import { saveNotification } from "@/lib/notifications";
 import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
 import { Loader2, Search, X } from "lucide-react";
@@ -50,31 +50,13 @@ function getUserTrustBadge(trust: TrustInfo | undefined): { label: string; class
   return { label: "🔴 Risky User", className: "text-red-600 dark:text-red-500" };
 }
 
-function OrderTrustLoader({
-  orderId,
-  userPhone,
-  onLoaded,
-}: {
-  orderId: string;
-  userPhone: string;
-  onLoaded: (orderId: string, trust: TrustInfo) => void;
-}) {
-  useEffect(() => {
-    let cancelled = false;
-    void fetchUserTrust(userPhone).then((data) => {
-      if (!cancelled) onLoaded(orderId, data);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [orderId, userPhone, onLoaded]);
-  return null;
-}
-
 type Props = {
   vendorId: string;
   serviceMode?: "help" | "delivery" | "appointment" | null;
   onUnreadCount?: (n: number) => void;
+  /** From the parent's vendor row; replaces a redundant per-mount vendors fetch. */
+  shopName: string;
+  cancelReasons: (string | null | undefined)[];
 };
 
 function stripLocationTag(message: string): string {
@@ -100,7 +82,13 @@ function maskPhoneLast4(phone: string): string {
 
 type LocationHighlightState = { highlightOrderId?: string };
 
-export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: Props) {
+export function IncomingOrdersSection({
+  vendorId,
+  serviceMode,
+  onUnreadCount,
+  shopName,
+  cancelReasons,
+}: Props) {
   const location = useLocation();
   const highlightOrderId = (location.state as LocationHighlightState | null)?.highlightOrderId;
   const [flashOrderId, setFlashOrderId] = useState<string | null>(null);
@@ -122,7 +110,10 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [calledUser, setCalledUser] = useState<Record<string, boolean>>({});
-  const [presetReasons, setPresetReasons] = useState<string[]>([]);
+  const presetReasons = useMemo(
+    () => cancelReasons.filter((r): r is string => r != null && String(r).trim() !== ""),
+    [cancelReasons],
+  );
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [declineOrderId, setDeclineOrderId] = useState<string | null>(null);
   const [declineUserPhone, setDeclineUserPhone] = useState<string | null>(null);
@@ -142,8 +133,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [flagNotes, setFlagNotes] = useState("");
   const [flagSubmitting, setFlagSubmitting] = useState(false);
   const [flaggedOrderIds, setFlaggedOrderIds] = useState<Record<string, boolean>>({});
-  const [trustMap, setTrustMap] = useState<Record<string, TrustInfo>>({});
-  const [vendor, setVendor] = useState<{ id: string; shop_name: string } | null>(null);
+  const [trustByPhone, setTrustByPhone] = useState<Record<string, TrustInfo>>({});
   const [requestIdsWithLedger, setRequestIdsWithLedger] = useState<Set<string>>(() => new Set());
   const [requestIdsDismissBlockedByKhata, setRequestIdsDismissBlockedByKhata] = useState<
     Set<string>
@@ -156,8 +146,39 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
   const [ledgerSubmitting, setLedgerSubmitting] = useState(false);
   const mounted = useRef(true);
 
-  const handleTrustLoaded = useCallback((orderId: string, trust: TrustInfo) => {
-    setTrustMap((prev) => ({ ...prev, [orderId]: trust }));
+  /** Batch user-trust lookup: one .in() query for every order's phone. */
+  const loadTrustForOrders = useCallback(async (orderList: OrderRequestRow[]) => {
+    const phones = [
+      ...new Set(
+        orderList
+          .map((r) => r.user_phone?.trim())
+          .filter((p): p is string => !!p),
+      ),
+    ];
+    if (phones.length === 0) {
+      setTrustByPhone({});
+      return;
+    }
+    const { data, error } = await supabase
+      .from("users")
+      .select("phone, trust_score, total_orders, is_banned, ban_reason")
+      .in("phone", phones);
+    if (error) {
+      console.error("loadTrustForOrders", error);
+      return;
+    }
+    const map: Record<string, TrustInfo> = {};
+    // Phones with no users row are legitimate new users (trust = null).
+    for (const phone of phones) map[phone] = null;
+    for (const row of data ?? []) {
+      map[row.phone] = {
+        trust_score: row.trust_score,
+        total_orders: row.total_orders,
+        is_banned: row.is_banned,
+        ban_reason: row.ban_reason,
+      };
+    }
+    setTrustByPhone(map);
   }, []);
 
   const clearOrderEditedFlag = useCallback(async (orderId: string) => {
@@ -361,6 +382,8 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       await refreshUnpaidKhataDismissBlocks(terminalIds);
 
       let activeList = await autoDismissStaleFulfilledOnLoad(list, withLedger);
+      await loadTrustForOrders(activeList);
+      if (!mounted.current) return;
       setRows(activeList);
       void loadBillsForOrders(activeList.map((r) => r.id));
       onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
@@ -404,6 +427,8 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         }
         await refreshUnpaidKhataDismissBlocks(refreshedTerminalIds);
         activeList = await autoDismissStaleFulfilledOnLoad(refreshedList, withLedger);
+        await loadTrustForOrders(activeList);
+        if (!mounted.current) return;
         setRows(activeList);
         void loadBillsForOrders(activeList.map((r) => r.id));
         onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
@@ -416,29 +441,9 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
       autoDismissStaleFulfilledOnLoad,
       refreshUnpaidKhataDismissBlocks,
       loadBillsForOrders,
+      loadTrustForOrders,
     ],
   );
-
-  useEffect(() => {
-    void (async () => {
-      const { data } = await supabase
-        .from("vendors")
-        .select(
-          "id, shop_name, cancel_reason_1, cancel_reason_2, cancel_reason_3, cancel_reason_4",
-        )
-        .eq("id", vendorId)
-        .single();
-      if (!data) return;
-      setVendor({ id: data.id, shop_name: data.shop_name });
-      const presets = [
-        data.cancel_reason_1,
-        data.cancel_reason_2,
-        data.cancel_reason_3,
-        data.cancel_reason_4,
-      ].filter((r): r is string => r != null && String(r).trim() !== "");
-      setPresetReasons(presets);
-    })();
-  }, [vendorId]);
 
   useEffect(() => {
     mounted.current = true;
@@ -1097,13 +1102,8 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
               </div>
               {r.user_phone && (
                 <>
-                  <OrderTrustLoader
-                    orderId={r.id}
-                    userPhone={r.user_phone}
-                    onLoaded={handleTrustLoaded}
-                  />
                   {(() => {
-                    const trustBadge = getUserTrustBadge(trustMap[r.id]);
+                    const trustBadge = getUserTrustBadge(trustByPhone[r.user_phone.trim()]);
                     if (!trustBadge) return null;
                     return (
                       <p className={cn("text-xs font-normal", trustBadge.className)}>
@@ -1667,7 +1667,7 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
         </SheetContent>
       </Sheet>
 
-      {billRequestId && vendor && (
+      {billRequestId && (
         <BillSheet
           isOpen={billRequestId !== null}
           onClose={() => {
@@ -1676,9 +1676,9 @@ export function IncomingOrdersSection({ vendorId, serviceMode, onUnreadCount }: 
             void loadBillsForOrders(rows.map((row) => row.id));
           }}
           requestId={billRequestId}
-          vendorId={vendor.id}
+          vendorId={vendorId}
           userPhone={billUserPhone}
-          shopName={vendor.shop_name}
+          shopName={shopName}
         />
       )}
       </div>

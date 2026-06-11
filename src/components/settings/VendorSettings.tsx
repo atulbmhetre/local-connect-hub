@@ -47,7 +47,7 @@ import { getUserPhone } from "@/lib/userIdentity";
 import { uploadFeedImage } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
 
-type MenuItem = {
+export type MenuItem = {
   id: string;
   name: string;
   description: string | null;
@@ -55,6 +55,17 @@ type MenuItem = {
   unit: string | null;
   is_available: boolean;
   sort_order: number;
+};
+
+export type VendorActiveOffer = {
+  id: string;
+  content: string;
+  expires_at: string | null;
+};
+
+export type VendorReferralCredits = {
+  total: number;
+  pending: number;
 };
 
 type VendorReview = {
@@ -76,6 +87,10 @@ type Props = {
   onShopOpenChange: (open: boolean) => void;
   referEarnVisible?: boolean;
   userPhone?: string | null;
+  /** Batch-fetched by the parent (Settings) so panels render complete on first paint. */
+  activeOffer: VendorActiveOffer | null;
+  referralCredits: VendorReferralCredits;
+  menuItems: MenuItem[];
 };
 
 function offerDateInputMin() {
@@ -98,12 +113,15 @@ function offerDateToEndIso(dateStr: string) {
   return d.toISOString();
 }
 
-export function VendorSettingsOffers({ vendorId }: { vendorId: string }) {
-  const [activeOffer, setActiveOffer] = useState<{
-    id: string;
-    content: string;
-    expires_at: string | null;
-  } | null>(null);
+export function VendorSettingsOffers({
+  vendorId,
+  activeOffer: initialActiveOffer,
+}: {
+  vendorId: string;
+  /** Batch-fetched by the parent; refetched locally only after posting an offer. */
+  activeOffer: VendorActiveOffer | null;
+}) {
+  const [activeOffer, setActiveOffer] = useState<VendorActiveOffer | null>(initialActiveOffer);
   const [offerText, setOfferText] = useState("");
   const [offerStartsAt, setOfferStartsAt] = useState("");
   const [offerEndsAt, setOfferEndsAt] = useState("");
@@ -139,10 +157,6 @@ export function VendorSettingsOffers({ vendorId }: { vendorId: string }) {
         : null,
     );
   }, [vendorId]);
-
-  useEffect(() => {
-    void loadActiveOffer();
-  }, [loadActiveOffer]);
 
   const resetOfferImage = () => {
     setOfferImageFile(null);
@@ -374,68 +388,45 @@ export function VendorSettingsOrderAlertsContent() {
 export function VendorSettingsReferEarn({
   vendor,
   userPhone,
+  referralCredits,
 }: {
   vendor?: Vendor | null;
   userPhone?: string | null;
+  /** Batch-fetched by the parent for vendors; plain users have no credits. */
+  referralCredits?: VendorReferralCredits | null;
 }) {
   const { s } = useLanguage();
   const { config } = useAppConfig();
-  const initialVendorCode = vendor?.referral_code?.trim() || null;
-  const [referralCode, setReferralCode] = useState<string | null>(initialVendorCode);
-  const [referralLoading, setReferralLoading] = useState(!initialVendorCode);
-  const [creditTotal, setCreditTotal] = useState(0);
-  const [creditPending, setCreditPending] = useState(0);
+
+  // Vendor code resolves synchronously: vendor.referral_code is already in the
+  // prop (the old vendors.referral_code refetch was redundant).
+  const vendorCode = vendor?.id
+    ? vendor.referral_code?.trim() ||
+      referralCodeFromPhone((vendor.phone ?? userPhone ?? "").trim())
+    : null;
+  const [referralCode, setReferralCode] = useState<string | null>(vendorCode);
+  const [referralLoading, setReferralLoading] = useState(!vendorCode);
+  const creditTotal = referralCredits?.total ?? 0;
+  const creditPending = referralCredits?.pending ?? 0;
 
   useEffect(() => {
-    let cancelled = false;
+    if (vendor?.id) {
+      setReferralCode(
+        vendor.referral_code?.trim() ||
+          referralCodeFromPhone((vendor.phone ?? userPhone ?? "").trim()),
+      );
+      setReferralLoading(false);
+      return;
+    }
 
-    const resolveFallback = (): string => {
-      const phone = (vendor?.phone ?? userPhone ?? "").trim();
-      if (vendor?.id) return referralCodeFromPhone(phone);
-      return generateUserReferralCode(phone || undefined);
-    };
+    // Plain-user case (rendered standalone in Settings without a vendor).
+    let cancelled = false;
+    const resolveFallback = (): string =>
+      generateUserReferralCode((userPhone ?? "").trim() || undefined);
 
     const loadReferral = async () => {
       setReferralLoading(true);
-      setCreditTotal(0);
-      setCreditPending(0);
       try {
-        const storedVendorId =
-          typeof localStorage !== "undefined"
-            ? localStorage.getItem("aaspaas:vendor_id")?.trim() || null
-            : null;
-        const vendorIdForCredits = vendor?.id ?? storedVendorId;
-
-        if (vendor?.id) {
-          const { data } = await supabase
-            .from("vendors")
-            .select("referral_code")
-            .eq("id", vendor.id)
-            .maybeSingle();
-          if (cancelled) return;
-          const fromDb = data?.referral_code?.trim() || null;
-          setReferralCode(fromDb ?? vendor?.referral_code?.trim() ?? resolveFallback());
-
-          if (vendorIdForCredits) {
-            const { data: credits } = await supabase
-              .from("vendor_credits")
-              .select("amount, disbursed")
-              .eq("vendor_id", vendorIdForCredits);
-            if (!cancelled && credits?.length) {
-              let total = 0;
-              let pending = 0;
-              for (const row of credits) {
-                const amt = Number(row.amount) || 0;
-                total += amt;
-                if (!row.disbursed) pending += amt;
-              }
-              setCreditTotal(total);
-              setCreditPending(pending);
-            }
-          }
-          return;
-        }
-
         const phone = (userPhone ?? "").trim();
         if (phone) {
           const { data } = await supabase
@@ -444,11 +435,9 @@ export function VendorSettingsReferEarn({
             .eq("phone", phone)
             .maybeSingle();
           if (cancelled) return;
-          const fromDb = data?.referral_code?.trim() || null;
-          setReferralCode(fromDb ?? resolveFallback());
+          setReferralCode(data?.referral_code?.trim() || resolveFallback());
           return;
         }
-
         if (!cancelled) setReferralCode(resolveFallback());
       } catch {
         if (!cancelled) setReferralCode(resolveFallback());
@@ -556,6 +545,9 @@ export function VendorSettings({
   onShopOpenChange,
   referEarnVisible = false,
   userPhone,
+  activeOffer,
+  referralCredits,
+  menuItems: initialMenuItems,
 }: Props) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
@@ -564,7 +556,7 @@ export function VendorSettings({
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
   const [cancelReasonsChanged, setCancelReasonsChanged] = useState(false);
   const [savingReasons, setSavingReasons] = useState(false);
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems);
   const [menuLoading, setMenuLoading] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
   const [editDraft, setEditDraft] = useState({
@@ -657,6 +649,8 @@ export function VendorSettings({
     toast.success(s.review_reply_sent);
   };
 
+  // Initial menu comes from the parent's batch fetch; loadMenu only re-runs
+  // after in-panel mutations (add/edit/delete/toggle/voice/scan).
   const loadMenu = useCallback(async () => {
     setMenuLoading(true);
     const { data } = await supabase
@@ -667,10 +661,6 @@ export function VendorSettings({
     setMenuItems(data ?? []);
     setMenuLoading(false);
   }, [vendor.id]);
-
-  useEffect(() => {
-    void loadMenu();
-  }, [loadMenu]);
 
   useEffect(() => {
     setCancelReasons([
@@ -1166,7 +1156,7 @@ export function VendorSettings({
         </SheetContent>
       </Sheet>
 
-      <VendorSettingsOffers vendorId={vendor.id} />
+      <VendorSettingsOffers vendorId={vendor.id} activeOffer={activeOffer} />
 
       {Capacitor.isNativePlatform() && (
         <SettingsCollapsible
@@ -1186,7 +1176,11 @@ export function VendorSettings({
           onToggle={() => setReferOpen((o) => !o)}
           nested
         >
-          <VendorSettingsReferEarn vendor={vendor} userPhone={userPhone} />
+          <VendorSettingsReferEarn
+            vendor={vendor}
+            userPhone={userPhone}
+            referralCredits={referralCredits}
+          />
         </SettingsCollapsible>
       )}
 

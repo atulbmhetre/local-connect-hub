@@ -22,7 +22,9 @@ export const ACTIVE_ORDER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * PostgREST `.or()` filter for `requests`. Vendor: `sent` (48h) + `seen` (24h).
- * User: also includes `fulfilled` (any age). Omits `done`. Timestamps quoted for ISO colons.
+ * User: also includes `expired` (48h, so the customer sees why the order
+ * stalled and can dismiss it) and `fulfilled` (any age). Omits `done`.
+ * Timestamps quoted for ISO colons.
  */
 export function buildRequestsActiveWindowOrFilter(
   role: "vendor" | "user" = "vendor",
@@ -31,7 +33,9 @@ export function buildRequestsActiveWindowOrFilter(
   const since48h = new Date(nowMs - 48 * 60 * 60 * 1000).toISOString();
   const since24h = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
   const base = `and(status.eq.sent,created_at.gte."${since48h}"),and(status.eq.seen,created_at.gte."${since24h}"),and(status.eq.accepted,created_at.gte."${since48h}"),and(status.eq.cancelled,created_at.gte."${since48h}")`;
-  if (role === "user") return `${base},status.eq.fulfilled`;
+  if (role === "user") {
+    return `${base},and(status.eq.expired,created_at.gte."${since48h}"),status.eq.fulfilled`;
+  }
   return base;
 }
 

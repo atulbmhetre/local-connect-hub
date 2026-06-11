@@ -1,12 +1,40 @@
 import { test, expect } from '@playwright/test';
-import { loginAsAdmin, APP_URL } from './helpers/browser-setup';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { loginAsAdmin, waitForSettingsAdminReady, APP_URL } from './helpers/browser-setup';
+import {
+  supabase,
+  createTestCustomer,
+  cleanupTestData,
+  cleanupTestVendors,
+  getActiveCategoryByServiceMode,
+  seedVendorCategory,
+  TEST_CUSTOMER_PHONE,
+  TEST_SESSION,
+} from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
-let testVendor: any;
+let helpVendor: { id: string; service_mode: string };
 
 test.beforeAll(async () => {
-  testVendor = await createTestVendor();
+  const helpCategory = await getActiveCategoryByServiceMode('help');
+  const helpPhone = `99007${Date.now().toString().slice(-5)}`;
+  const { data, error } = await supabase
+    .from('vendors')
+    .insert({
+      name: `Help Vendor ${TEST_SESSION}`,
+      shop_name: `Help Shop ${TEST_SESSION}`,
+      phone: helpPhone,
+      category: helpCategory.label,
+      service_mode: 'help',
+      latitude: 18.5204,
+      longitude: 73.8567,
+      is_active: true,
+      vendor_note: `test_session:${TEST_SESSION}`,
+    })
+    .select('id, service_mode')
+    .single();
+  if (error) throw error;
+  helpVendor = data;
+  await seedVendorCategory(helpVendor.id, helpCategory);
   await createTestCustomer();
 });
 
@@ -20,7 +48,7 @@ test.afterAll(async () => {
 test('HEALTH-01: admin settings shows ADMIN section', async ({ page }) => {
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   await expect(page.getByTestId('settings-tab-admin')).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 5000 });
 });
@@ -28,7 +56,7 @@ test('HEALTH-01: admin settings shows ADMIN section', async ({ page }) => {
 test('HEALTH-02: admin sees App Health card title', async ({ page }) => {
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   const healthTitle = page.getByText('Admin — App Health');
   const alreadyVisible = await healthTitle.isVisible({ timeout: 2000 }).catch(() => false);
   if (!alreadyVisible) {
@@ -111,14 +139,10 @@ test('HEALTH-08: platform health — avg vendor rating query works', async () =>
 // ─── AI BRIDGE ────────────────────────────────────────────────────────────
 
 test('AIBRIDGE-01: help order accepted — status = accepted in DB', async () => {
-  await supabase.from('vendors')
-    .update({ service_mode: 'help' })
-    .eq('id', testVendor.id);
-
   const { data: order } = await supabase
     .from('requests')
     .insert({
-      vendor_id: testVendor.id,
+      vendor_id: helpVendor.id,
       user_phone: TEST_CUSTOMER_PHONE,
       device_id: TEST_DEVICE_ID,
       message: 'Help request for AI bridge test',
@@ -148,7 +172,7 @@ test('AIBRIDGE-02: customer notified when vendor accepts help — notification c
   const { data: order } = await supabase
     .from('requests')
     .insert({
-      vendor_id: testVendor.id,
+      vendor_id: helpVendor.id,
       user_phone: TEST_CUSTOMER_PHONE,
       device_id: TEST_DEVICE_ID,
       message: 'AI bridge notification test',
@@ -210,7 +234,7 @@ test('AIBRIDGE-05: help order vendor has service_mode = help', async () => {
   const { data } = await supabase
     .from('vendors')
     .select('service_mode')
-    .eq('id', testVendor.id)
+    .eq('id', helpVendor.id)
     .single();
 
   expect(data?.service_mode).toBe('help');

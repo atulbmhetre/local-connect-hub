@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, loginAsAdmin, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsAdmin, waitForSettingsAdminReady, APP_URL } from './helpers/browser-setup';
 import {
   supabase,
   createTestVendor,
@@ -8,7 +8,7 @@ import {
   seedBronzeVendorVerification,
   seedDefaultVendorVerification,
   seedVendorCategory,
-  getActiveCategoryByLabel,
+  getFirstActiveCategory,
   TEST_CUSTOMER_PHONE,
   TEST_SESSION,
   TEST_ADMIN_PHONE,
@@ -55,7 +55,12 @@ test.afterAll(async () => {
 test('ADMIN-01: admin panel visible for admin phone', async ({ page }) => {
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
+  const debugUrl = page.url();
+  const debugPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
+  const debugAdminLoaded = await page.evaluate(() => document.querySelector('[data-testid="settings-screen"]')?.getAttribute('data-admin-config-loaded'));
+  const debugIsAdminVisible = await page.evaluate(() => !!document.querySelector('[data-testid="settings-tab-admin"]'));
+  console.log('DEBUG:', { debugUrl, debugPhone, debugAdminLoaded, debugIsAdminVisible });
   await expect(page.getByTestId('settings-tab-admin')).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 5000 });
 });
@@ -63,7 +68,7 @@ test('ADMIN-01: admin panel visible for admin phone', async ({ page }) => {
 test('ADMIN-02: admin panel not visible for non-admin phone', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   await expect(page.getByTestId('settings-tab-admin')).not.toBeVisible({ timeout: 3000 });
   await expect(page.getByTestId('admin-panel')).not.toBeVisible({ timeout: 3000 });
 });
@@ -71,7 +76,7 @@ test('ADMIN-02: admin panel not visible for non-admin phone', async ({ page }) =
 test('ADMIN-03: admin sees platform health section', async ({ page }) => {
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   await expect(await ensureAdminHealthVisible(page)).toBeVisible({ timeout: 5000 });
 });
 
@@ -81,7 +86,7 @@ test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', as
   await supabase.from('vendors').update({ is_manual_verified: false }).eq('id', testVendor.id);
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   await ensureAdminHealthVisible(page);
 
   const modBtn = page.getByRole('button', { name: /Vendor Moderation/i }).first();
@@ -126,7 +131,7 @@ test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ p
   await supabase.from('vendors').update({ is_banned: false, ban_reason: null }).eq('id', testVendor.id);
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   await ensureAdminHealthVisible(page);
 
   const modBtn = page.getByRole('button', { name: /Vendor Moderation/i }).first();
@@ -202,7 +207,7 @@ test('ADMIN-08: warn customer — warn_count increments in DB', async ({ page })
   }, { onConflict: 'phone' });
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   await ensureAdminHealthVisible(page);
 
   const modBtn = page.getByRole('button', { name: /Vendor Moderation/i }).first();
@@ -266,7 +271,7 @@ test('ADMIN-10: app_config whitelisted keys readable and updatable', async () =>
 test('ADMIN-NEG-01: non-admin phone cannot access admin panel UI', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   await expect(page.getByTestId('settings-tab-admin')).not.toBeVisible({ timeout: 3000 });
   await expect(page.getByTestId('admin-panel')).not.toBeVisible({ timeout: 3000 });
 });
@@ -282,6 +287,7 @@ test('ADMIN-NEG-02: banned vendor cannot go live — is_active blocked', async (
 // ─── TRUST LEVEL & VERIFICATION CHECKLIST ──────────────────────────────────
 
 test('ADMIN-12: vendor with Bronze checks shows Bronze trust badge in admin list', async ({ page }) => {
+  const primaryCategory = await getFirstActiveCategory();
   const bronzePhone = `99012${Date.now().toString().slice(-5)}`;
   const shopName = `Bronze Shop ${TEST_SESSION}`;
   const { data: bronzeVendor, error } = await supabase
@@ -290,8 +296,8 @@ test('ADMIN-12: vendor with Bronze checks shows Bronze trust badge in admin list
       name: 'Bronze Owner',
       shop_name: shopName,
       phone: bronzePhone,
-      category: 'Grocery',
-      service_mode: 'delivery',
+      category: primaryCategory.label,
+      service_mode: primaryCategory.service_mode,
       vendor_type: 'shop',
       latitude: 18.5204,
       longitude: 73.8567,
@@ -303,13 +309,12 @@ test('ADMIN-12: vendor with Bronze checks shows Bronze trust badge in admin list
     .single();
   expect(error).toBeNull();
 
-  const grocery = await getActiveCategoryByLabel('Grocery');
-  await seedVendorCategory(bronzeVendor!.id, grocery);
+  await seedVendorCategory(bronzeVendor!.id, primaryCategory);
   await seedBronzeVendorVerification(bronzeVendor!.id);
 
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   await openVendorModeration(page);
 
   const searchInput = page.getByPlaceholder(/search/i).first();
@@ -321,6 +326,7 @@ test('ADMIN-12: vendor with Bronze checks shows Bronze trust badge in admin list
 });
 
 test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts row', async ({ page }) => {
+  const primaryCategory = await getFirstActiveCategory();
   const verifyPhone = `99013${Date.now().toString().slice(-5)}`;
   const shopName = `Verify Shop ${TEST_SESSION}`;
   const { data: verifyVendor, error } = await supabase
@@ -329,8 +335,8 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
       name: 'Verify Owner',
       shop_name: shopName,
       phone: verifyPhone,
-      category: 'Grocery',
-      service_mode: 'delivery',
+      category: primaryCategory.label,
+      service_mode: primaryCategory.service_mode,
       vendor_type: 'shop',
       latitude: 18.5204,
       longitude: 73.8567,
@@ -342,13 +348,12 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
     .single();
   expect(error).toBeNull();
 
-  const grocery = await getActiveCategoryByLabel('Grocery');
-  await seedVendorCategory(verifyVendor!.id, grocery);
+  await seedVendorCategory(verifyVendor!.id, primaryCategory);
   await seedDefaultVendorVerification(verifyVendor!.id);
 
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await waitForSettingsAdminReady(page);
   await openVendorModeration(page);
 
   const searchInput = page.getByPlaceholder(/search/i).first();

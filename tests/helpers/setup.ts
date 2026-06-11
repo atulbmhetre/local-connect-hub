@@ -39,6 +39,20 @@ export async function createTestVendor() {
   return data;
 }
 
+export async function getActiveCategoryByServiceMode(serviceMode: string) {
+  const { data, error } = await supabase
+    .from('categories')
+    .select('id, label, emoji, service_mode')
+    .eq('is_active', true)
+    .eq('service_mode', serviceMode)
+    .order('sort_order', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error(`No active category found for service_mode: ${serviceMode}`);
+  return data;
+}
+
 export async function getFirstActiveCategory() {
   const { data, error } = await supabase
     .from('categories')

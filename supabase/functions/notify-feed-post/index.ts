@@ -148,6 +148,16 @@ serve(async (req) => {
       Date.now() - 30 * 24 * 60 * 60 * 1000,
     ).toISOString();
 
+    // Recipient selection — coarse geo proximity, not exact distance:
+    // - ±0.45° is a square bounding box of roughly ~50 km in each direction
+    //   (lat: ~50 km; lng: ~47 km at Pune's latitude). No radius refinement
+    //   is applied afterwards, so box corners reach up to ~69 km.
+    // - last_location_at > 30 days ago keeps out devices with stale locations
+    //   (e.g. user moved cities and hasn't opened the app since).
+    // - Devices with NULL last_lat/last_lng/last_location_at are deliberately
+    //   excluded: unknown-location devices must not receive posts from cities
+    //   they may not be in. Location is written by saveUserDeviceLocationSilently
+    //   after push token registration (src/lib/pushNotifications.ts).
     const { data: devices, error: devicesError } = await supabase
       .from("user_devices")
       .select("user_phone, fcm_token")
