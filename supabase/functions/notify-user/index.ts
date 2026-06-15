@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
+import { buildFcmData } from "../_shared/notification-routes.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -89,6 +90,7 @@ serve(async (req) => {
     }
 
     let sent = 0;
+    const fcmData = buildFcmData(payload, title, body);
 
     for (const fcmToken of tokens) {
       try {
@@ -107,10 +109,7 @@ serve(async (req) => {
                   title,
                   body,
                 },
-                data: {
-                  title,
-                  body,
-                },
+                data: fcmData,
                 android: {
                   priority: "high",
                   notification: {

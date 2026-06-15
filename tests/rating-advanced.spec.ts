@@ -13,7 +13,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await cleanupTestVendors();
   await supabase.from('vendor_reviews').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
-  await supabase.from('user_notifications').delete().eq('user_phone', ADMIN_PHONE).eq('type', 'low_rating_alert');
+  await supabase.from('user_notifications').delete().eq('user_phone', ADMIN_PHONE).eq('type', 'admin_alert');
   await cleanupTestData();
 });
 
@@ -92,7 +92,7 @@ test('RV-05: low rating admin alert fires when avg < 2.0 and count >= 5', async 
   if (shouldAlert) {
     await supabase.from('user_notifications').insert({
       user_phone: ADMIN_PHONE,
-      type: 'low_rating_alert',
+      type: 'admin_alert',
       title: 'Low Rating Alert',
       body: `Vendor rating dropped to ${vendor?.avg_rating}`,
       route: 'admin',
@@ -108,7 +108,7 @@ test('RV-05: low rating admin alert fires when avg < 2.0 and count >= 5', async 
   await assertVendorField(testVendor.id, 'low_rating_admin_notified', true);
   await assertRowExists('user_notifications', {
     user_phone: ADMIN_PHONE,
-    type: 'low_rating_alert',
+    type: 'admin_alert',
   });
 });
 
@@ -123,7 +123,7 @@ test('RV-06: low rating alert NOT fired twice — flag prevents repeat', async (
     .from('user_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_phone', ADMIN_PHONE)
-    .eq('type', 'low_rating_alert');
+    .eq('type', 'admin_alert');
 
   const { data: vendor } = await supabase
     .from('vendors')
@@ -135,7 +135,7 @@ test('RV-06: low rating alert NOT fired twice — flag prevents repeat', async (
   if (!vendor?.low_rating_admin_notified) {
     await supabase.from('user_notifications').insert({
       user_phone: ADMIN_PHONE,
-      type: 'low_rating_alert',
+      type: 'admin_alert',
       title: 'Low Rating Alert',
       body: 'Should not fire again',
     });
@@ -145,17 +145,56 @@ test('RV-06: low rating alert NOT fired twice — flag prevents repeat', async (
     .from('user_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_phone', ADMIN_PHONE)
-    .eq('type', 'low_rating_alert');
+    .eq('type', 'admin_alert');
 
   expect(after).toBe(before);
 });
 
 test('RV-07: low rating flag resets when avg recovers above 3.5', async () => {
-  // Simulate recovery
+  await supabase.from('vendor_reviews').delete().eq('vendor_id', testVendor.id);
+
   await supabase
     .from('vendors')
-    .update({ avg_rating: 3.8, low_rating_admin_notified: false })
+    .update({ avg_rating: 1.8, review_count: 0, low_rating_admin_notified: true })
     .eq('id', testVendor.id);
+
+  for (let i = 0; i < 4; i++) {
+    const { data: order } = await supabase
+      .from('requests')
+      .insert({
+        vendor_id: testVendor.id,
+        user_phone: TEST_CUSTOMER_PHONE,
+        message: `RV-07 recovery order ${i}`,
+        status: 'done',
+      })
+      .select()
+      .single();
+
+    await supabase.from('vendor_reviews').insert({
+      vendor_id: testVendor.id,
+      request_id: order!.id,
+      user_phone: TEST_CUSTOMER_PHONE,
+      rating: 4,
+      service_mode: 'delivery',
+    });
+  }
+
+  // Mirrors syncVendorRatingFromReviews recovery branch (avg > 3.5 clears flag)
+  const { data: reviews } = await supabase
+    .from('vendor_reviews')
+    .select('rating')
+    .eq('vendor_id', testVendor.id);
+
+  const avg = (reviews ?? []).reduce((sum, r) => sum + r.rating, 0) / (reviews?.length ?? 1);
+  const avgRating = Math.round(avg * 10) / 10;
+  const update: { avg_rating: number; review_count: number; low_rating_admin_notified?: boolean } = {
+    avg_rating: avgRating,
+    review_count: reviews?.length ?? 0,
+  };
+  if (avgRating > 3.5) {
+    update.low_rating_admin_notified = false;
+  }
+  await supabase.from('vendors').update(update).eq('id', testVendor.id);
 
   const { data } = await supabase
     .from('vendors')

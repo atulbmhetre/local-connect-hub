@@ -114,25 +114,47 @@ test('RV-DB-02: 1-star rating submitted — vendor_reviews row created with corr
 
 // ─── VENDOR REPLY ──────────────────────────────────────────────────────────
 
-test('RV-REPLY-01: vendor can see and respond to a review — DB assert', async ({ page }) => {
+test('RV-REPLY-01: vendor can see and respond to a review — UI flow', async ({ page }) => {
   const order = await seedFulfilledOrder('RV-REPLY-01 review');
-  // Seed a review directly
+  const responseText = 'Thank you for your feedback!';
+
   await supabase.from('vendor_reviews').insert({
     vendor_id: testVendor.id,
     request_id: order!.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     rating: 4,
+    review_text: 'Great delivery',
     service_mode: 'delivery',
   });
-  // Vendor navigates to settings to respond
+
   await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await page.waitForLoadState('networkidle');
-  // DB assert — review exists
-  const { data } = await supabase.from('vendor_reviews').select('rating, vendor_response').eq('request_id', order!.id).single();
+  await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
+
+  const reviewsHeader = page.getByRole('button', { name: /My Reviews/i });
+  await reviewsHeader.scrollIntoViewIfNeeded();
+  await expect(reviewsHeader).toBeVisible({ timeout: 8000 });
+  await reviewsHeader.click();
+
+  await expect(page.getByText('Great delivery')).toBeVisible({ timeout: 8000 });
+  await page.getByRole('button', { name: 'Respond' }).click();
+  await page.getByPlaceholder('Write a reply...').fill(responseText);
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  await expect(page.getByText('Reply sent')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByText(responseText)).toBeVisible({ timeout: 5000 });
+
+  const { data } = await supabase
+    .from('vendor_reviews')
+    .select('rating, vendor_response, vendor_responded_at')
+    .eq('request_id', order!.id)
+    .single();
+
   expect(data?.rating).toBe(4);
-  expect(data?.vendor_response).toBeNull();
+  expect(data?.vendor_response).toBe(responseText);
+  expect(data?.vendor_responded_at).not.toBeNull();
 });
 
 // ─── NEGATIVE CASES ────────────────────────────────────────────────────────

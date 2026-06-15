@@ -340,6 +340,21 @@ export function ParchiSheet({
       const selectedSlot =
         effectiveVendor?.service_mode === "delivery" ? deliverySlot : null;
 
+      if (effectiveVendor?.service_mode === "delivery") {
+        const slotDeadline = getDeliverySlotDeadline(selectedSlot);
+        if (slotDeadline != null && new Date(slotDeadline) < new Date()) {
+          toast.error(s.parchi_slot_expired);
+          return;
+        }
+      }
+
+      if (effectiveVendor?.service_mode === "appointment") {
+        if (appointmentTimestamp != null && new Date(appointmentTimestamp) < new Date()) {
+          toast.error(s.parchi_appointment_expired);
+          return;
+        }
+      }
+
       setSending(true);
       const device_id = getDeviceId();
       const { data: inserted, error } = await supabase
@@ -380,6 +395,8 @@ export function ParchiSheet({
         vendor_id: v.id,
         category: v.category,
         message: notifyBody,
+        type: "new_order",
+        request_id: inserted.id,
       });
       const vendorPhone = v.phone?.trim();
       if (vendorPhone) {

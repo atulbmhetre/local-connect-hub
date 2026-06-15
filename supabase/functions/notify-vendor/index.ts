@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
+import { buildVendorFcmData } from "../_shared/notification-routes.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -86,6 +87,13 @@ serve(async (req) => {
     const tokenResponse = await client.getAccessToken();
     const accessToken = tokenResponse.token;
 
+    const fcmData = buildVendorFcmData(
+      record,
+      String(vendorId ?? ""),
+      notificationTitle,
+      message,
+    );
+
     const fcmRes = await fetch(
       `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
       {
@@ -101,10 +109,7 @@ serve(async (req) => {
               title: notificationTitle,
               body: message,
             },
-            data: {
-              title: notificationTitle,
-              body: message,
-            },
+            data: fcmData,
             android: {
               priority: "high",
               notification: {

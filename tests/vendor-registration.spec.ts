@@ -1,11 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
   supabase,
   cleanupTestData, cleanupTestVendors,
+  createTestVendor,
   getFirstActiveCategory,
-  seedDefaultVendorVerification,
-  seedVendorCategory,
+  invokeRegisterVendorRpc,
+  deleteVendorRegistrationArtifacts,
   TEST_VENDOR_PHONE,
+  TEST_ADMIN_PHONE,
   TEST_SESSION,
 } from './helpers/setup';
 import {
@@ -15,34 +18,17 @@ import {
   assertNotificationCreated,
 } from './helpers/db-assert';
 
-const ADMIN_PHONE = '8888169446';
+const ADMIN_PHONE = TEST_ADMIN_PHONE;
 let testVendorId: string;
 
 test.beforeAll(async () => {
-  // Create test vendor upfront — all tests share this vendor
-  const { data, error } = await supabase
-    .from('vendors')
-    .insert({
-      name: 'Test Owner',
-      shop_name: `Test Shop ${TEST_SESSION}`,
-      phone: TEST_VENDOR_PHONE,
-      category: 'Grocery',
-      service_mode: 'delivery',
-      latitude: 18.5204,
-      longitude: 73.8567,
-      upi_id: 'testvendor@upi',
-      verification_status: 'identity_linked',
-      is_active: false,
-      vendor_note: `test_session:${TEST_SESSION}`,
-    })
-    .select()
-    .single();
-  if (error) throw new Error(`beforeAll vendor creation failed: ${error.message}`);
-  testVendorId = data.id;
-
-  const category = await getFirstActiveCategory();
-  await seedVendorCategory(testVendorId, category, { is_primary: true });
-  await seedDefaultVendorVerification(testVendorId);
+  const vendor = await createTestVendor({
+    name: 'Test Owner',
+    shop_name: `Test Shop ${TEST_SESSION}`,
+    phone: TEST_VENDOR_PHONE,
+    is_active: false,
+  });
+  testVendorId = vendor.id;
 });
 
 test.afterAll(async () => {
@@ -54,47 +40,73 @@ test.afterAll(async () => {
 // ─── REGISTRATION ─────────────────────────────────────────────────────────
 
 test('VR-01b: admin notified after new vendor registration', async () => {
-  await supabase.from('user_notifications').insert({
-    user_phone: ADMIN_PHONE,
-    type: 'new_vendor',
-    title: 'New Vendor Registered',
-    body: `Test Shop ${TEST_SESSION} has registered`,
-    route: 'admin',
-    route_params: { vendor_id: testVendorId },
+  const phone = `99001${Date.now().toString().slice(-5)}`;
+  const category = await getFirstActiveCategory();
+  const ownerName = 'VR01b Test Owner';
+  const shopName = `VR01b Shop ${TEST_SESSION}`;
+
+  const registerResult = await invokeRegisterVendorRpc({
+    phone,
+    name: ownerName,
+    shop_name: shopName,
+    category: category.label,
+    service_mode: category.service_mode,
+    is_active: false,
   });
-  await assertNotificationCreated(ADMIN_PHONE, 'new_vendor');
+  expect(registerResult.error).toBeUndefined();
+  expect(registerResult.vendorId).toBeTruthy();
+  const vendorId = registerResult.vendorId!;
+
+  const { data: adminConfig } = await supabase
+    .from('app_config')
+    .select('value')
+    .eq('key', 'admin_phone')
+    .maybeSingle();
+  const adminPhone = adminConfig?.value?.trim() || ADMIN_PHONE;
+
+  await supabase.from('user_notifications').insert({
+    user_phone: adminPhone,
+    type: 'new_vendor',
+    title: '🏪 New vendor registered',
+    body: `${ownerName} — ${category.label} (${category.service_mode})`,
+    route: 'vendor',
+    route_params: { vendor_id: vendorId },
+    is_informational: true,
+  });
+
+  const notification = await assertNotificationCreated(adminPhone, 'new_vendor');
+  expect(notification.route).toBe('vendor');
+  expect((notification.route_params as { vendor_id?: string })?.vendor_id).toBe(vendorId);
+
+  await deleteVendorRegistrationArtifacts(vendorId);
 });
 
-test('VR-02: duplicate phone check — app detects existing phone before insert', async () => {
-  // Use a completely isolated phone for this test — no shared state
-  const isolatedPhone = `77002${Date.now().toString().slice(-5)}`;
-
-  // Insert first vendor with this phone
-  const { data: first, error: firstError } = await supabase
+test('VR-02: duplicate phone — register_vendor returns 23505, no second row created', async () => {
+  const category = await getFirstActiveCategory();
+  const { count: beforeCount } = await supabase
     .from('vendors')
-    .insert({
-      name: 'First Vendor',
-      phone: isolatedPhone,
-      service_mode: 'delivery',
-      vendor_note: `test_session:${TEST_SESSION}`,
-    })
-    .select()
-    .single();
+    .select('id', { count: 'exact', head: true })
+    .eq('phone', TEST_VENDOR_PHONE);
+  expect(beforeCount).toBe(1);
 
-  expect(firstError).toBeNull();
+  const duplicateResult = await invokeRegisterVendorRpc({
+    phone: TEST_VENDOR_PHONE,
+    name: 'Duplicate Attempt',
+    shop_name: 'Duplicate Shop',
+    category: category.label,
+    service_mode: category.service_mode,
+    is_active: false,
+  });
 
-  // App-level check: query by phone before second insert
-  const { data: phoneCheck } = await supabase
+  expect(duplicateResult.vendorId).toBeUndefined();
+  expect(duplicateResult.error).toBeDefined();
+  expect(duplicateResult.error?.code).toBe('23505');
+
+  const { count: afterCount } = await supabase
     .from('vendors')
-    .select('id')
-    .eq('phone', isolatedPhone)
-    .limit(1);
-
-  const isDuplicate = (phoneCheck?.length ?? 0) > 0;
-  expect(isDuplicate).toBe(true);
-
-  // Cleanup
-  await supabase.from('vendors').delete().eq('id', first.id);
+    .select('id', { count: 'exact', head: true })
+    .eq('phone', TEST_VENDOR_PHONE);
+  expect(afterCount).toBe(1);
 });
 
 // ─── VERIFICATION STATES ──────────────────────────────────────────────────
@@ -323,16 +335,34 @@ test('RF-04: self-referral detection — same phone blocked', async () => {
   await assertRowNotExists('referrals', { referee_id: TEST_VENDOR_PHONE });
 });
 
-test('RF-06: referral_enabled = false hides refer & earn', async () => {
-  const { data } = await supabase
+test('RF-06: referral_enabled = false hides refer & earn', async ({ page }) => {
+  const { data: before } = await supabase
     .from('app_config')
     .select('value')
     .eq('key', 'referral_enabled')
     .single();
+  const priorValue = before?.value ?? 'true';
 
-  // Config key exists and is readable by app
-  expect(data).not.toBeNull();
-  expect(['true', 'false', '0', '1']).toContain(data!.value);
+  await supabase
+    .from('app_config')
+    .upsert({ key: 'referral_enabled', value: 'false' }, { onConflict: 'key' });
+
+  try {
+    await page.goto(APP_URL);
+    await page.evaluate(() => localStorage.clear());
+    await page.goto(`${APP_URL}/vendor`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText('Referral Code (optional)')).not.toBeVisible();
+
+    await loginAsVendor(page, TEST_VENDOR_PHONE, testVendorId, `device_rf06_${TEST_SESSION}`);
+    await page.goto(`${APP_URL}/settings`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText('🎁 Refer & Earn')).not.toBeVisible();
+  } finally {
+    await supabase
+      .from('app_config')
+      .upsert({ key: 'referral_enabled', value: priorValue }, { onConflict: 'key' });
+  }
 });
 
 // ─── ADMIN AUDIT LOG ──────────────────────────────────────────────────────

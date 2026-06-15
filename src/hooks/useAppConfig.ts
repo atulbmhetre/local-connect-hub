@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 export interface AppConfig {
-  paymentsEnabled: boolean;
   vendorTrialDays: number;
   subscriptionPriceInr: number;
   helpCallLimitSeconds: number;
@@ -26,10 +25,10 @@ export interface AppConfig {
   referralUserCredit: number;
   referralVeteranThresholdMonths: number;
   helpAcceptTimeoutHours: number;
+  aiCategoryConfidenceThreshold: number;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
-  paymentsEnabled: false,
   vendorTrialDays: 30,
   subscriptionPriceInr: 99,
   helpCallLimitSeconds: 300,
@@ -53,10 +52,10 @@ const DEFAULT_CONFIG: AppConfig = {
   referralUserCredit: 2.5,
   referralVeteranThresholdMonths: 12,
   helpAcceptTimeoutHours: 2,
+  aiCategoryConfidenceThreshold: 0.85,
 };
 
 const BOOLEAN_KEYS = new Set<keyof AppConfig>([
-  "paymentsEnabled",
   "referralEnabled",
   "localizationEnabled",
   "langHindiEnabled",
@@ -66,7 +65,6 @@ const BOOLEAN_KEYS = new Set<keyof AppConfig>([
 const STRING_KEYS = new Set<keyof AppConfig>(["appBaseUrl"]);
 
 const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
-  payments_enabled: "paymentsEnabled",
   vendor_trial_days: "vendorTrialDays",
   subscription_price_inr: "subscriptionPriceInr",
   help_call_limit_seconds: "helpCallLimitSeconds",
@@ -90,6 +88,7 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   referral_user_credit: "referralUserCredit",
   referral_veteran_threshold_months: "referralVeteranThresholdMonths",
   help_accept_timeout_hours: "helpAcceptTimeoutHours",
+  ai_category_confidence_threshold: "aiCategoryConfidenceThreshold",
 };
 
 for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {

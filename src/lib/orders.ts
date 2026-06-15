@@ -11,6 +11,7 @@ export type OrderRequestRow = {
   cancel_reason?: string | null;
   delivery_address?: string | null;
   delivery_slot?: string | null;
+  delivery_slot_deadline?: string | null;
   appointment_time?: string | null;
   appointment_status?: string | null;
   updated_at?: string | null;

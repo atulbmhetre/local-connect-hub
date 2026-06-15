@@ -15,6 +15,7 @@ import PrivacyPolicy from "./pages/PrivacyPolicy.tsx";
 import LocalFeed from "./pages/LocalFeed.tsx";
 import LiveTracking from "./pages/LiveTracking.tsx";
 import { ReferralRedirect } from "@/components/ReferralRedirect";
+import { PushNavigationBridge } from "@/components/PushNavigationBridge";
 
 const SettingsPage = lazy(() => import("./pages/Settings.tsx"));
 const LedgerView = lazy(() => import("./pages/LedgerView.tsx"));
@@ -70,6 +71,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <PushNavigationBridge />
           <NativeBackButtonHandler />
           <LanguageProvider>
             <Routes>

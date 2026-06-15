@@ -34,6 +34,16 @@ import { cn } from "@/lib/utils";
 import { saveNotification } from "@/lib/notifications";
 import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
 
+const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
+
+function radarResolutionAlreadyMarked(vendorId: string): boolean {
+  try {
+    return sessionStorage.getItem(`${RESOLUTION_SESSION_PREFIX}${vendorId}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
 // DB migration (run if not applied): ALTER TABLE vendors ADD COLUMN IF NOT EXISTS low_rating_admin_notified boolean DEFAULT false;
 
 
@@ -107,6 +117,12 @@ export function RatingSheet({
   const mode = serviceMode.trim().toLowerCase();
 
   const isDelivery = mode === "delivery";
+  const isAppointment = mode === "appointment";
+  const submitLabel = isDelivery
+    ? s.rating_btnDelivered
+    : isAppointment
+      ? s.rating_btnAppointmentCompleted
+      : s.rating_btnHelped;
 
   const busy = loading !== false;
 
@@ -115,7 +131,7 @@ export function RatingSheet({
     try {
       const available = await SpeechRecognition.available();
       if (!available.available) {
-        toast.error("Voice not available on this device");
+        toast.error(s.rating_voiceUnavailable);
         return;
       }
       await SpeechRecognition.requestPermissions();
@@ -142,74 +158,82 @@ export function RatingSheet({
 
 
   const handleRate = useCallback(async () => {
-
     setLoading("rate");
 
-    const rpc = isDelivery ? "increment_vendor_delivered" : "increment_vendor_helped";
+    const { data: existingReview } = await supabase
+      .from("vendor_reviews")
+      .select("id")
+      .eq("request_id", requestId)
+      .maybeSingle();
 
-    const { error } = await supabase.rpc(rpc, { p_vendor_id: vendorId });
+    if (existingReview) {
+      setLoading(false);
+      toast.error(s.rating_errCouldNotSave);
+      onDismiss();
+      return;
+    }
 
-    if (!error && stars > 0) {
+    const deviceId = getDeviceId();
+    const userPhone = getUserPhone();
 
-      const deviceId = getDeviceId();
+    const { error: insertError } = await supabase.from("vendor_reviews").insert({
+      vendor_id: vendorId,
+      request_id: requestId,
+      user_phone: userPhone,
+      device_id: deviceId,
+      rating: stars,
+      review_text: reviewText.trim() || null,
+      service_mode: serviceMode,
+    });
 
-      const userPhone = getUserPhone();
+    if (insertError) {
+      setLoading(false);
+      toast.error(s.rating_errCouldNotSave);
+      onDismiss();
+      return;
+    }
 
-      await supabase.from("vendor_reviews").insert({
+    if (!radarResolutionAlreadyMarked(vendorId)) {
+      const rpc = isDelivery ? "increment_vendor_delivered" : "increment_vendor_helped";
+      const { error: rpcError } = await supabase.rpc(rpc, { p_vendor_id: vendorId });
 
-        vendor_id: vendorId,
-
-        request_id: requestId,
-
-        user_phone: userPhone,
-
-        device_id: deviceId,
-
-        rating: stars,
-
-        review_text: reviewText.trim() || null,
-
-        service_mode: serviceMode,
-
-      });
-
-      await syncVendorRatingFromReviews(vendorId, {
-        shopName,
-        alertAdmin: true,
-      });
-
-      if (stars <= 2) {
-        void invokeNotifyVendor({
-          vendor_id: vendorId,
-          notification_title: s.review_lowRatingNotifTitle,
-          message: s.review_lowRatingNotifBody,
-        });
-        const phone = vendorPhone?.trim();
-        if (phone) {
-          saveNotification({
-            userPhone: phone,
-            type: "order_update",
-            title: s.review_lowRatingNotifTitle,
-            body: s.review_lowRatingNotifBody,
-            route: "vendor",
-            routeParams: { order_id: requestId },
-            isInformational: false,
-          });
-        }
+      if (rpcError) {
+        setLoading(false);
+        toast.error(s.rating_errCouldNotSave);
+        onDismiss();
+        return;
       }
+    }
 
+    await syncVendorRatingFromReviews(vendorId, {
+      shopName,
+      alertAdmin: true,
+    });
+
+    if (stars <= 2) {
+      void invokeNotifyVendor({
+        vendor_id: vendorId,
+        notification_title: s.review_lowRatingNotifTitle,
+        message: s.review_lowRatingNotifBody,
+        request_id: requestId,
+        type: "order_update",
+      });
+      const phone = vendorPhone?.trim();
+      if (phone) {
+        saveNotification({
+          userPhone: phone,
+          type: "order_update",
+          title: s.review_lowRatingNotifTitle,
+          body: s.review_lowRatingNotifBody,
+          route: "vendor",
+          routeParams: { order_id: requestId },
+          isInformational: false,
+        });
+      }
     }
 
     setLoading(false);
-
-    if (error) {
-
-      toast.error(s.rating_errCouldNotSave);
-
-    }
-
     onDismiss();
-
   }, [
 
     isDelivery,
@@ -237,22 +261,27 @@ export function RatingSheet({
 
 
   const handleIssue = useCallback(async () => {
-
     setLoading("issue");
 
-    const { error } = await supabase.rpc("increment_vendor_issues", { p_vendor_id: vendorId });
+    const { data: existingReview } = await supabase
+      .from("vendor_reviews")
+      .select("id")
+      .eq("request_id", requestId)
+      .maybeSingle();
 
-    setLoading(false);
-
-    if (error) {
-
-      toast.error(s.rating_errCouldNotSaveFeedback);
-
+    if (!existingReview && !radarResolutionAlreadyMarked(vendorId)) {
+      const { error } = await supabase.rpc("increment_vendor_issues", { p_vendor_id: vendorId });
+      if (error) {
+        setLoading(false);
+        toast.error(s.rating_errCouldNotSaveFeedback);
+        onDismiss();
+        return;
+      }
     }
 
+    setLoading(false);
     onDismiss();
-
-  }, [vendorId, onDismiss, s.rating_errCouldNotSaveFeedback]);
+  }, [vendorId, requestId, onDismiss, s.rating_errCouldNotSaveFeedback]);
 
 
 
@@ -263,9 +292,7 @@ export function RatingSheet({
       open={isOpen}
 
       onOpenChange={(open) => {
-
-        if (!open && !busy) return;
-
+        if (!open && !busy) onDismiss();
       }}
 
     >
@@ -346,7 +373,7 @@ export function RatingSheet({
             className="w-full rounded-2xl bg-brand text-white py-4 font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
           >
             {loading === "rate" ? <Loader2 className="h-5 w-5 animate-spin shrink-0" /> : null}
-            {isDelivery ? s.rating_btnDelivered : s.rating_btnHelped}
+            {submitLabel}
           </button>
           <button
             type="button"

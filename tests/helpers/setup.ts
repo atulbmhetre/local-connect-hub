@@ -19,24 +19,87 @@ export const TEST_VENDOR_PHONE = `99000${Date.now().toString().slice(-5)}`;
 export const TEST_CUSTOMER_PHONE = `88000${Date.now().toString().slice(-5)}`;
 export const TEST_ADMIN_PHONE = '8888169446';
 
-export async function createTestVendor() {
+export type RegisterVendorRpcOptions = {
+  name?: string;
+  shop_name?: string;
+  category?: string;
+  phone?: string;
+  upi_id?: string;
+  service_mode?: string;
+  vendor_type?: string;
+  vendor_note?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  referral_code?: string;
+  profile_status?: 'draft' | 'complete';
+  category_ids?: string[];
+  category_service_modes?: string[];
+  /** Preserved from legacy factory; register_vendor always inserts is_active=false. */
+  is_active?: boolean;
+};
+
+export async function invokeRegisterVendorRpc(
+  opts: RegisterVendorRpcOptions = {},
+): Promise<{ vendorId?: string; error?: { code?: string; message: string } }> {
+  const categoryRow = await getFirstActiveCategory();
+  const categoryIds = opts.category_ids ?? [categoryRow.id];
+  const serviceModes = opts.category_service_modes ?? [categoryRow.service_mode];
+  const phone = opts.phone ?? TEST_VENDOR_PHONE;
+
+  const { data, error } = await supabase.rpc('register_vendor', {
+    p_name: opts.name ?? `Test Vendor ${TEST_SESSION}`,
+    p_shop_name: opts.shop_name ?? `Test Shop ${TEST_SESSION}`,
+    p_category: opts.category ?? categoryRow.label,
+    p_phone: phone,
+    p_upi_id: opts.upi_id ?? 'testvendor@upi',
+    p_service_mode: opts.service_mode ?? categoryRow.service_mode,
+    p_vendor_type: opts.vendor_type ?? 'shop',
+    p_vendor_note: opts.vendor_note ?? `test_session:${TEST_SESSION}`,
+    p_latitude: opts.latitude ?? 18.5204,
+    p_longitude: opts.longitude ?? 73.8567,
+    p_referral_code:
+      opts.referral_code ??
+      `T${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 4)}`.toUpperCase(),
+    p_profile_status: opts.profile_status ?? 'complete',
+    p_category_ids: categoryIds,
+    p_category_service_modes: serviceModes,
+  });
+
+  if (error) {
+    return { error: { code: error.code, message: error.message } };
+  }
+  return { vendorId: data as string };
+}
+
+export async function createTestVendor(opts: RegisterVendorRpcOptions = {}) {
+  const result = await invokeRegisterVendorRpc(opts);
+  if (result.error) throw new Error(result.error.message);
+
+  const vendorId = result.vendorId!;
+  if (opts.is_active !== false) {
+    await supabase
+      .from('vendors')
+      .update({ is_active: opts.is_active ?? true })
+      .eq('id', vendorId);
+  }
+
   const { data, error } = await supabase
     .from('vendors')
-    .insert({
-      name: `Test Vendor ${TEST_SESSION}`,
-      shop_name: `Test Shop ${TEST_SESSION}`,
-      phone: TEST_VENDOR_PHONE,
-      category: 'Grocery',
-      service_mode: 'delivery',
-      latitude: 18.5204,
-      longitude: 73.8567,
-      is_active: true,
-      vendor_note: `test_session:${TEST_SESSION}`
-    })
-    .select()
+    .select('*')
+    .eq('id', vendorId)
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function deleteVendorRegistrationArtifacts(vendorId: string) {
+  await supabaseAdmin.from('vendor_categories').delete().eq('vendor_id', vendorId);
+  await supabaseAdmin.from('vendor_verification').delete().eq('vendor_id', vendorId);
+  await supabase
+    .from('user_notifications')
+    .delete()
+    .contains('route_params', { vendor_id: vendorId });
+  await supabase.from('vendors').delete().eq('id', vendorId);
 }
 
 export async function getActiveCategoryByServiceMode(serviceMode: string) {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Tag,
   Megaphone,
@@ -12,8 +13,9 @@ import {
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { distanceKm, supabase } from "@/lib/supabase";
+import { distanceKm, isValidPhone, supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
 import { feedAuthorLabel } from "@/lib/khataDisplay";
@@ -21,6 +23,9 @@ import { uploadFeedImage } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
 import { SettingsSectionLabel, SettingsCard } from "@/components/settings/SettingsSection";
 import { NotificationBell } from "@/components/NotificationBell";
+import { useLanguage } from "@/lib/language";
+import { strings } from "@/lib/strings";
+type FeedStrings = typeof strings.en;
 const MAX_CONTENT = 200;
 const FLAG_HIDE_THRESHOLD = 5;
 const FEED_CACHE_KEY = "aaspaas:feed_cache";
@@ -71,7 +76,11 @@ type FeedPost = {
   flagged_count: number;
   is_hidden: boolean;
   created_at: string;
+  recommended_vendor_id: string | null;
+  recommended_vendor_name: string | null;
+  recommended_vendor_phone: string | null;
   vendors: { shop_name: string; category: string | null } | null;
+  recommended_vendor: { shop_name: string } | null;
 };
 
 type FeedReply = {
@@ -80,6 +89,11 @@ type FeedReply = {
   user_phone: string;
   content: string;
   created_at: string;
+};
+
+type VendorSearchHit = {
+  id: string;
+  shop_name: string;
 };
 
 type FeedCategory = {
@@ -134,7 +148,7 @@ function writeFeedCache(posts: FeedPost[]) {
 function buildFeedQuery(coords: GeoCoords | null) {
   let query = supabase
     .from("feed_posts")
-    .select("*, vendors(shop_name, category)")
+    .select("*, vendors(shop_name, category), recommended_vendor:vendors!recommended_vendor_id(shop_name)")
     .eq("is_hidden", false)
     .or("expires_at.is.null,expires_at.gt.now()")
     .or("starts_at.is.null,starts_at.lte.now()")
@@ -162,7 +176,14 @@ function filterPostsByLocation(posts: FeedPost[], coords: GeoCoords): FeedPost[]
   });
 }
 
-function expiryBadgeLabel(expiresAt: string | null): string | null {
+function expiryBadgeLabel(
+  expiresAt: string | null,
+  s: {
+    feed_expiresTonight: string;
+    feed_expiresTomorrow: string;
+    feed_expiresInDays: (days: number) => string;
+  },
+): string | null {
   if (!expiresAt) return null;
   const exp = new Date(expiresAt);
   const now = new Date();
@@ -171,14 +192,48 @@ function expiryBadgeLabel(expiresAt: string | null): string | null {
   const dayDiff = Math.round(
     (startOfExp.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000),
   );
-  if (dayDiff <= 0) return "Expires tonight";
-  if (dayDiff === 1) return "Expires tomorrow";
-  return `Expires in ${dayDiff} days`;
+  if (dayDiff <= 0) return s.feed_expiresTonight;
+  if (dayDiff === 1) return s.feed_expiresTomorrow;
+  return s.feed_expiresInDays(dayDiff);
 }
 
+function feedPostedTimeLabel(
+  createdAt: string,
+  s: {
+    feed_postedMinutesAgo: (minutes: number) => string;
+    feed_postedHoursAgo: (hours: number) => string;
+    feed_postedYesterday: string;
+  },
+): string {
+  const t = new Date(createdAt).getTime();
+  if (!Number.isFinite(t)) return "";
+  const diffMs = Math.max(0, Date.now() - t);
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 60) {
+    return s.feed_postedMinutesAgo(Math.max(1, diffMin));
+  }
+  const diffHr = Math.floor(diffMs / 3_600_000);
+  if (diffHr < 24) {
+    return s.feed_postedHoursAgo(Math.max(1, diffHr));
+  }
+  const postDate = new Date(createdAt);
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (postDate.toDateString() === yesterday.toDateString()) {
+    return s.feed_postedYesterday;
+  }
+  return postDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
+type LocationHighlightState = { highlightPostId?: string };
+
 export default function LocalFeed() {
+  const location = useLocation();
+  const highlightPostId = (location.state as LocationHighlightState | null)?.highlightPostId;
+  const { s } = useLanguage();
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [flashPostId, setFlashPostId] = useState<string | null>(null);
   const [showCompose, setShowCompose] = useState(false);
   const [composeType, setComposeType] = useState<PostType>("announcement");
   const [composeContent, setComposeContent] = useState("");
@@ -190,6 +245,16 @@ export default function LocalFeed() {
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set());
   const [flaggingId, setFlaggingId] = useState<string | null>(null);
+  const [vendorSearchQuery, setVendorSearchQuery] = useState("");
+  const [vendorSearchResults, setVendorSearchResults] = useState<VendorSearchHit[]>([]);
+  const [vendorSearchLoading, setVendorSearchLoading] = useState(false);
+  const [recommendedVendorId, setRecommendedVendorId] = useState<string | null>(null);
+  const [recommendedVendorShopName, setRecommendedVendorShopName] = useState<string | null>(
+    null,
+  );
+  const [showManualVendor, setShowManualVendor] = useState(false);
+  const [recommendedVendorName, setRecommendedVendorName] = useState("");
+  const [recommendedVendorPhone, setRecommendedVendorPhone] = useState("");
 
   const [categories, setCategories] = useState<FeedCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -212,6 +277,43 @@ export default function LocalFeed() {
         setVendor(data ?? null);
       });
   }, []);
+
+  useEffect(() => {
+    if (!showCompose || composeType !== "recommendation") return;
+    const q = vendorSearchQuery.trim();
+    if (q.length < 2 || recommendedVendorId) {
+      setVendorSearchResults([]);
+      setVendorSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setVendorSearchLoading(true);
+      void supabase
+        .from("vendors")
+        .select("id, shop_name")
+        .eq("is_active", true)
+        .ilike("shop_name", `%${q}%`)
+        .order("shop_name", { ascending: true })
+        .limit(5)
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          setVendorSearchLoading(false);
+          if (error) {
+            console.error("vendorSearch", error);
+            setVendorSearchResults([]);
+            return;
+          }
+          setVendorSearchResults((data ?? []) as VendorSearchHit[]);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [vendorSearchQuery, showCompose, composeType, recommendedVendorId]);
 
   const fetchPosts = useCallback(async () => {
     const cached = readFeedCache();
@@ -267,7 +369,7 @@ export default function LocalFeed() {
       writeFeedCache(nextPosts);
     } catch (error) {
       console.error("fetchPosts", error);
-      toast.error("Could not load feed");
+      toast.error(s.feed_errLoad);
       if (!showingCached) {
         setPosts([]);
       }
@@ -315,6 +417,16 @@ export default function LocalFeed() {
     }
   }, [categories, selectedCategory]);
 
+  useEffect(() => {
+    if (!highlightPostId || loading) return;
+    const el = document.getElementById(`feed-post-${highlightPostId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashPostId(highlightPostId);
+    const t = window.setTimeout(() => setFlashPostId(null), 2000);
+    return () => window.clearTimeout(t);
+  }, [highlightPostId, loading, posts.length]);
+
   const selectedCategoryMeta = selectedCategory
     ? categories.find((c) => c.id === selectedCategory) ?? null
     : null;
@@ -347,7 +459,7 @@ export default function LocalFeed() {
 
     if (error) {
       console.error("loadReplies", error);
-      toast.error("Could not load replies");
+      toast.error(s.feed_errLoadReplies);
       return;
     }
     setReplies((prev) => ({ ...prev, [postId]: (data ?? []) as FeedReply[] }));
@@ -370,7 +482,7 @@ export default function LocalFeed() {
   const submitReply = async (postId: string) => {
     const phone = getUserPhone();
     if (!phone) {
-      toast.error("Add your phone in Settings first");
+      toast.error(s.feed_phoneRequired);
       return;
     }
     const content = (replyDrafts[postId] ?? "").trim();
@@ -384,7 +496,7 @@ export default function LocalFeed() {
 
     if (error) {
       console.error("submitReply", error);
-      toast.error("Could not send reply");
+      toast.error(s.feed_errSendReply);
       return;
     }
 
@@ -395,40 +507,32 @@ export default function LocalFeed() {
   const flagPost = async (postId: string) => {
     const phone = getUserPhone();
     if (!phone) {
-      toast.error("Add your phone in Settings first");
+      toast.error(s.feed_phoneRequired);
       return;
     }
 
     setFlaggingId(postId);
-    const { error: flagErr } = await supabase.from("feed_flags").insert({
-      post_id: postId,
-      flagged_by_phone: phone,
+    const { error } = await supabase.rpc("increment_flag_count", {
+      p_post_id: postId,
+      p_user_phone: phone,
     });
 
-    if (flagErr) {
-      console.error("flagPost", flagErr);
-      setFlaggingId(null);
-      toast.error("Could not report post");
+    setFlaggingId(null);
+
+    if (error) {
+      console.error("flagPost", error);
+      if (error.code === "23505") {
+        toast.error(s.feed_alreadyFlagged);
+        return;
+      }
+      toast.error(s.feed_errReportPost);
       return;
     }
 
     const post = posts.find((p) => p.id === postId);
     const newCount = (post?.flagged_count ?? 0) + 1;
-    const { error: updErr } = await supabase
-      .from("feed_posts")
-      .update({
-        flagged_count: newCount,
-        ...(newCount >= FLAG_HIDE_THRESHOLD ? { is_hidden: true } : {}),
-      })
-      .eq("id", postId);
 
-    setFlaggingId(null);
-
-    if (updErr) {
-      console.error("flagPost update", updErr);
-    }
-
-    toast.success("Post reported");
+    toast.success(s.feed_reportedSuccess);
     if (newCount >= FLAG_HIDE_THRESHOLD) {
       setPosts((prev) => prev.filter((p) => p.id !== postId));
     } else {
@@ -444,6 +548,39 @@ export default function LocalFeed() {
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
     setComposeType("announcement");
+    setVendorSearchQuery("");
+    setVendorSearchResults([]);
+    setVendorSearchLoading(false);
+    setRecommendedVendorId(null);
+    setRecommendedVendorShopName(null);
+    setShowManualVendor(false);
+    setRecommendedVendorName("");
+    setRecommendedVendorPhone("");
+  };
+
+  const selectRecommendedVendor = (vendor: VendorSearchHit) => {
+    setRecommendedVendorId(vendor.id);
+    setRecommendedVendorShopName(vendor.shop_name);
+    setVendorSearchQuery(vendor.shop_name);
+    setVendorSearchResults([]);
+    setShowManualVendor(false);
+    setRecommendedVendorName("");
+    setRecommendedVendorPhone("");
+  };
+
+  const clearRecommendedVendor = () => {
+    setRecommendedVendorId(null);
+    setRecommendedVendorShopName(null);
+    setVendorSearchQuery("");
+    setVendorSearchResults([]);
+  };
+
+  const toggleManualVendor = () => {
+    setShowManualVendor((prev) => {
+      const next = !prev;
+      if (next) clearRecommendedVendor();
+      return next;
+    });
   };
 
   const openCompose = () => {
@@ -459,22 +596,41 @@ export default function LocalFeed() {
   const submitPost = async () => {
     const phone = getUserPhone() || vendor?.phone || null;
     if (!phone) {
-      toast.error("Add your phone in Settings first");
+      toast.error(s.feed_phoneRequired);
       return;
     }
 
     const content = composeContent.trim();
     if (!content) {
-      toast.error("Write something to post");
+      toast.error(s.feed_errEmptyPost);
       return;
     }
     if (content.length > MAX_CONTENT) {
-      toast.error(`Max ${MAX_CONTENT} characters`);
+      toast.error(s.feed_errMaxChars(MAX_CONTENT));
       return;
     }
 
-    if (composeType === "announcement" && !imageFile) {
-      toast.error("Image is required for announcements");
+    if (composeType === "recommendation" && showManualVendor) {
+      const manualName = recommendedVendorName.trim();
+      const manualPhone = recommendedVendorPhone.trim();
+      if (!manualName) {
+        toast.error(s.feed_recommendVendor_name);
+        return;
+      }
+      if (!isValidPhone(manualPhone)) {
+        toast.error(s.vendor_phone_invalid);
+        return;
+      }
+    }
+
+    let lat: number | null = null;
+    let lng: number | null = null;
+    try {
+      const pos = await getPosition();
+      lat = pos.coords.latitude;
+      lng = pos.coords.longitude;
+    } catch {
+      toast.error(s.feed_locationRequired);
       return;
     }
 
@@ -486,7 +642,7 @@ export default function LocalFeed() {
         imageUrl = await uploadFeedImage(imageFile, "announcements");
       } catch (err) {
         console.error("uploadFeedImage", err);
-        toast.error("Image upload failed");
+        toast.error(s.feed_errImageUpload);
         setSubmitting(false);
         return;
       }
@@ -497,25 +653,28 @@ export default function LocalFeed() {
         ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
         : null;
 
-    let lat: number | null = null;
-    let lng: number | null = null;
-    try {
-      const pos = await getPosition();
-      lat = pos.coords.latitude;
-      lng = pos.coords.longitude;
-    } catch {
-      const vLat = vendor?.latitude;
-      const vLng = vendor?.longitude;
-      if (vLat != null && vLng != null && Number.isFinite(vLat) && Number.isFinite(vLng)) {
-        lat = vLat;
-        lng = vLng;
-      } else {
-        lat = null;
-        lng = null;
-      }
-    }
+    const recommendationFields =
+      composeType === "recommendation"
+        ? recommendedVendorId
+          ? {
+              recommended_vendor_id: recommendedVendorId,
+              recommended_vendor_name: null,
+              recommended_vendor_phone: null,
+            }
+          : showManualVendor
+            ? {
+                recommended_vendor_id: null,
+                recommended_vendor_name: recommendedVendorName.trim(),
+                recommended_vendor_phone: recommendedVendorPhone.trim(),
+              }
+            : {
+                recommended_vendor_id: null,
+                recommended_vendor_name: null,
+                recommended_vendor_phone: null,
+              }
+        : {};
 
-    const { data: newPost, error } = await supabase
+    const { error } = await supabase
       .from("feed_posts")
       .insert({
         user_phone: phone,
@@ -526,43 +685,20 @@ export default function LocalFeed() {
         image_url: imageUrl,
         lat,
         lng,
-      })
-      .select("id")
-      .single();
+        ...recommendationFields,
+      });
 
     setSubmitting(false);
 
     if (error) {
       console.error("submitPost", error);
-      toast.error("Could not post");
+      toast.error(s.feed_errPost);
       return;
-    }
-
-    // Use the same phone as the insert (includes vendor?.phone fallback).
-    const authorPhone = phone;
-    if (lat != null && lng != null && authorPhone && newPost?.id) {
-      const notifyTitle =
-        composeType === "announcement"
-          ? "📢 Announcement near you"
-          : "💬 Recommendation near you";
-      void supabase.functions
-        .invoke("notify-feed-post", {
-          body: {
-            post_id: newPost.id,
-            post_type: composeType,
-            title: notifyTitle,
-            body: content.substring(0, 100),
-            lat,
-            lng,
-            author_phone: authorPhone,
-          },
-        })
-        .catch(() => {});
     }
 
     closeCompose();
     await fetchPosts();
-    toast.success("Posted!");
+    toast.success(s.feed_postedSuccess);
   };
 
   const onImagePick = (file: File | undefined) => {
@@ -577,8 +713,8 @@ export default function LocalFeed() {
       <div className="space-y-3 pb-24" data-testid="feed-screen">
       <header className="flex items-start justify-between gap-3 px-4 pt-2">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Local Feed</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">📍 Near You</p>
+          <h1 className="text-2xl font-bold text-foreground">{s.nav_feed}</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">{s.feed_nearYou}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <NotificationBell />
@@ -587,7 +723,7 @@ export default function LocalFeed() {
             data-testid="feed-post-btn"
             onClick={openCompose}
             className="h-12 w-12 shrink-0 grid place-items-center rounded-full bg-brand text-page-bg shadow-lg active:scale-[0.98] transition-transform"
-            aria-label="New post"
+            aria-label={s.feed_newPostAria}
           >
             <Plus className="h-5 w-5" />
           </button>
@@ -618,33 +754,41 @@ export default function LocalFeed() {
           </div>
           {selectedCategoryMeta && (
             <p className="text-xs text-muted-foreground">
-              Showing {selectedCategoryMeta.label} offers · All announcements & recommendations
+              {s.feed_categoryFilterHint(selectedCategoryMeta.label)}
             </p>
           )}
         </div>
       )}
 
       {loading ? (
-        <ul className="flex flex-col gap-3 pb-4 px-4" aria-busy="true" aria-label="Loading feed">
+        <ul className="flex flex-col gap-3 pb-4 px-4" aria-busy="true" aria-label={s.feed_loadingAria}>
           {Array.from({ length: 4 }, (_, i) => (
             <FeedPostSkeleton key={i} />
           ))}
         </ul>
       ) : visiblePosts.length === 0 ? (
         <p className="text-center text-muted-foreground py-12 px-4">
-          No posts near you yet. Be the first to post!
+          {s.feed_empty}
         </p>
       ) : (
         <ul className="flex flex-col gap-3 pb-4">
           {visiblePosts.map((post) => (
-            <li key={post.id}>
+            <li
+              key={post.id}
+              id={`feed-post-${post.id}`}
+              className={cn(
+                "rounded-2xl transition-shadow",
+                flashPostId === post.id && "ring-2 ring-brand shadow-md",
+              )}
+            >
               {post.type === "offer" && (
-                <OfferCard post={post} viewerPhone={viewerPhone} />
+                <OfferCard post={post} viewerPhone={viewerPhone} s={s} />
               )}
               {post.type === "announcement" && (
                 <AnnouncementCard
                   post={post}
                   viewerPhone={viewerPhone}
+                  s={s}
                   onFlag={() => void flagPost(post.id)}
                   flagging={flaggingId === post.id}
                 />
@@ -653,6 +797,7 @@ export default function LocalFeed() {
                 <RecommendationCard
                   post={post}
                   viewerPhone={viewerPhone}
+                  s={s}
                   expanded={expandedReplies.has(post.id)}
                   replies={replies[post.id] ?? []}
                   loadingReplies={loadingReplies.has(post.id)}
@@ -662,6 +807,8 @@ export default function LocalFeed() {
                   }
                   onToggleReplies={() => void toggleReplies(post.id)}
                   onSendReply={() => void submitReply(post.id)}
+                  onFlag={() => void flagPost(post.id)}
+                  flagging={flaggingId === post.id}
                 />
               )}
             </li>
@@ -674,34 +821,34 @@ export default function LocalFeed() {
           <button
             type="button"
             className="absolute inset-0 bg-black/50"
-            aria-label="Close"
+            aria-label={s.feed_closeAria}
             onClick={closeCompose}
           />
           <div className="relative z-10 mx-auto w-full max-w-md rounded-t-2xl border border-border bg-card p-5 pb-8 shadow-lg max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display font-semibold text-lg">New post</h2>
+              <h2 className="font-display font-semibold text-lg">{s.feed_composeTitle}</h2>
               <button
                 type="button"
                 onClick={closeCompose}
                 className="h-9 w-9 grid place-items-center rounded-lg border border-border"
-                aria-label="Close"
+                aria-label={s.feed_closeAria}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <SettingsSectionLabel>Post type</SettingsSectionLabel>
+            <SettingsSectionLabel>{s.feed_postTypeLabel}</SettingsSectionLabel>
             <div className="flex flex-wrap gap-2 mb-4 px-4">
               <TypeChip
                 active={composeType === "announcement"}
                 onClick={() => setComposeType("announcement")}
-                label="Announcement"
+                label={s.feed_typeAnnouncement}
                 icon={Megaphone}
               />
               <TypeChip
                 active={composeType === "recommendation"}
                 onClick={() => setComposeType("recommendation")}
-                label="Recommendation"
+                label={s.feed_typeRecommendation}
                 icon={HelpCircle}
               />
             </div>
@@ -712,10 +859,8 @@ export default function LocalFeed() {
                 onChange={(e) => setComposeContent(e.target.value.slice(0, MAX_CONTENT))}
                 placeholder={
                   composeType === "announcement"
-                    ? "Share something with your neighbourhood..."
-                    : composeType === "recommendation"
-                      ? "What are you recommending? e.g. 'Great chai at Sharma Tea Stall'"
-                      : "What's happening nearby?"
+                    ? s.feed_composePlaceholderAnnouncement
+                    : s.feed_composePlaceholderRecommendation
                 }
                 className="min-h-[100px] mb-1 border-0 bg-transparent focus-visible:ring-0"
                 maxLength={MAX_CONTENT}
@@ -725,10 +870,103 @@ export default function LocalFeed() {
               {composeContent.length}/{MAX_CONTENT}
             </p>
 
+            {composeType === "recommendation" && (
+              <div className="mb-4 px-4 space-y-3">
+                <SettingsSectionLabel>{s.feed_recommendVendor_label}</SettingsSectionLabel>
+
+                {!showManualVendor && (
+                  <div className="space-y-2">
+                    <Input
+                      value={vendorSearchQuery}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setVendorSearchQuery(value);
+                        if (recommendedVendorId) {
+                          setRecommendedVendorId(null);
+                          setRecommendedVendorShopName(null);
+                        }
+                      }}
+                      placeholder={s.feed_recommendVendor_search}
+                      className="rounded-xl"
+                      disabled={!!recommendedVendorId}
+                    />
+                    {recommendedVendorId && recommendedVendorShopName && (
+                      <div className="flex items-center justify-between gap-2 rounded-xl border border-brand/30 bg-brand/10 px-3 py-2">
+                        <span className="text-sm font-medium text-foreground truncate">
+                          {recommendedVendorShopName}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={clearRecommendedVendor}
+                          className="shrink-0 text-xs font-semibold text-muted-foreground hover:text-foreground"
+                          aria-label={s.feed_closeAria}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                    {vendorSearchLoading && (
+                      <div className="flex justify-center py-1">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                    {!recommendedVendorId && vendorSearchResults.length > 0 && (
+                      <ul className="rounded-xl border border-surface-border overflow-hidden">
+                        {vendorSearchResults.map((vendor) => (
+                          <li key={vendor.id}>
+                            <button
+                              type="button"
+                              onClick={() => selectRecommendedVendor(vendor)}
+                              className="w-full text-left px-3 py-2.5 text-sm hover:bg-muted/60 border-b border-surface-border last:border-b-0"
+                            >
+                              {vendor.shop_name}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={toggleManualVendor}
+                  className={cn(
+                    "w-full rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors",
+                    showManualVendor
+                      ? "border-brand bg-brand/10 text-brand"
+                      : "border-surface-border text-muted-foreground",
+                  )}
+                >
+                  {s.feed_recommendVendor_notOnApp}
+                </button>
+
+                {showManualVendor && (
+                  <div className="space-y-2">
+                    <Input
+                      value={recommendedVendorName}
+                      onChange={(e) => setRecommendedVendorName(e.target.value)}
+                      placeholder={s.feed_recommendVendor_name}
+                      className="rounded-xl"
+                    />
+                    <Input
+                      value={recommendedVendorPhone}
+                      onChange={(e) =>
+                        setRecommendedVendorPhone(e.target.value.replace(/\D/g, "").slice(0, 10))
+                      }
+                      placeholder={s.feed_recommendVendor_phone}
+                      className="rounded-xl"
+                      inputMode="numeric"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             {composeType === "announcement" && (
               <div className="mb-4">
                 <FeedImagePicker
-                  label="Photo (required)"
+                  label={s.feed_noImageHint}
                   previewUrl={imagePreview}
                   onPick={(file) => onImagePick(file)}
                 />
@@ -743,10 +981,10 @@ export default function LocalFeed() {
               {submitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Posting…
+                  {s.feed_posting}
                 </>
               ) : (
-                "Post"
+                s.feed_postButton
               )}
             </Button>
           </div>
@@ -801,26 +1039,31 @@ function TypeChip({
 function OfferCard({
   post,
   viewerPhone,
+  s,
 }: {
   post: FeedPost;
   viewerPhone: string | null;
+  s: FeedStrings;
 }) {
-  const expiry = expiryBadgeLabel(post.expires_at);
+  const expiry = expiryBadgeLabel(post.expires_at, s);
+  const postedAt = feedPostedTimeLabel(post.created_at, s);
   return (
     <article
       data-testid="feed-post-card"
       className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4"
     >
       <span className="inline-block text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 px-2 py-0.5 mb-2">
-        Offer
+        {s.feed_typeOffer}
       </span>
       <p className="text-[10px] text-muted-foreground font-medium mb-2">
+        {postedAt}
+        {postedAt ? " · " : ""}
         {feedAuthorLabel(post.user_phone, viewerPhone)}
       </p>
       <div className="flex items-start gap-2 mb-2">
         <Tag className="h-4 w-4 text-brand shrink-0 mt-0.5" />
         <p className="font-semibold text-foreground">
-          {post.vendors?.shop_name ?? "Local vendor"}
+          {post.vendors?.shop_name ?? s.feed_localVendor}
         </p>
       </div>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
@@ -845,23 +1088,29 @@ function OfferCard({
 function AnnouncementCard({
   post,
   viewerPhone,
+  s,
   onFlag,
   flagging,
 }: {
   post: FeedPost;
   viewerPhone: string | null;
+  s: FeedStrings;
   onFlag: () => void;
   flagging: boolean;
 }) {
+  const expiry = expiryBadgeLabel(post.expires_at, s);
+  const postedAt = feedPostedTimeLabel(post.created_at, s);
   return (
     <article
       data-testid="feed-post-card"
       className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative"
     >
       <span className="inline-block text-xs font-semibold rounded-full bg-blue-500/20 text-blue-400 px-2 py-0.5 mb-2">
-        Announcement
+        {s.feed_typeAnnouncement}
       </span>
       <p className="text-[10px] text-muted-foreground font-medium mb-2">
+        {postedAt}
+        {postedAt ? " · " : ""}
         {feedAuthorLabel(post.user_phone, viewerPhone)}
       </p>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
@@ -874,13 +1123,18 @@ function AnnouncementCard({
           className="w-full rounded-xl border border-border object-cover max-h-56 mb-3"
         />
       )}
+      {expiry && (
+        <span className="inline-block mt-3 text-[11px] font-medium rounded-full bg-brand/10 text-brand px-2.5 py-0.5">
+          {expiry}
+        </span>
+      )}
       <button
         type="button"
         data-testid="feed-flag-btn"
         onClick={onFlag}
         disabled={flagging}
         className="absolute bottom-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-        aria-label="Report post"
+        aria-label={s.feed_reportPostAria}
       >
         {flagging ? (
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -892,9 +1146,49 @@ function AnnouncementCard({
   );
 }
 
+type RecommendedVendorRadarLink =
+  | { ok: true; categoryLabel: string }
+  | { ok: false; offline: boolean };
+
+async function resolveRecommendedVendorRadarLink(
+  vendorId: string,
+): Promise<RecommendedVendorRadarLink> {
+  const { data: vendor, error } = await supabase
+    .from("vendors")
+    .select("is_active, category")
+    .eq("id", vendorId)
+    .single();
+
+  if (error || !vendor || !vendor.is_active) {
+    return { ok: false, offline: true };
+  }
+
+  let categoryLabel = String(vendor.category ?? "").trim();
+  if (!categoryLabel) {
+    const { data: vcRows } = await supabase
+      .from("vendor_categories")
+      .select("is_primary, categories(label)")
+      .eq("vendor_id", vendorId)
+      .eq("status", "approved");
+
+    const rows = vcRows ?? [];
+    const primary = rows.find((row) => row.is_primary === true) ?? rows[0];
+    const cat = primary?.categories;
+    const resolved = Array.isArray(cat) ? cat[0] : cat;
+    categoryLabel = String((resolved as { label?: string } | null)?.label ?? "").trim();
+  }
+
+  if (!categoryLabel) {
+    return { ok: false, offline: false };
+  }
+
+  return { ok: true, categoryLabel };
+}
+
 function RecommendationCard({
   post,
   viewerPhone,
+  s,
   expanded,
   replies,
   loadingReplies,
@@ -902,9 +1196,12 @@ function RecommendationCard({
   onReplyDraftChange,
   onToggleReplies,
   onSendReply,
+  onFlag,
+  flagging,
 }: {
   post: FeedPost;
   viewerPhone: string | null;
+  s: FeedStrings;
   expanded: boolean;
   replies: FeedReply[];
   loadingReplies: boolean;
@@ -912,31 +1209,97 @@ function RecommendationCard({
   onReplyDraftChange: (v: string) => void;
   onToggleReplies: () => void;
   onSendReply: () => void;
+  onFlag: () => void;
+  flagging: boolean;
 }) {
+  const navigate = useNavigate();
+  const [linkingVendor, setLinkingVendor] = useState(false);
+  const postedAt = feedPostedTimeLabel(post.created_at, s);
+  const linkedShopName = post.recommended_vendor?.shop_name ?? null;
+
+  const handleRecommendedVendorTap = async () => {
+    const vendorId = post.recommended_vendor_id;
+    if (!vendorId || linkingVendor) return;
+    setLinkingVendor(true);
+    try {
+      const result = await resolveRecommendedVendorRadarLink(vendorId);
+      if (!result.ok) {
+        if (result.offline) {
+          toast.error(s.radar_vendorWentOffline);
+        } else {
+          navigate("/radar", { state: { highlightVendorId: vendorId } });
+        }
+        return;
+      }
+      navigate(`/radar?q=${encodeURIComponent(result.categoryLabel)}`, {
+        state: { highlightVendorId: vendorId },
+      });
+    } finally {
+      setLinkingVendor(false);
+    }
+  };
+
   return (
     <article
       data-testid="feed-post-card"
-      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4"
+      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative"
     >
       <span className="inline-block text-xs font-semibold rounded-full bg-purple-500/20 text-purple-400 px-2 py-0.5 mb-2">
-        Recommendation
+        {s.feed_typeRecommendation}
       </span>
       <p className="text-[10px] text-muted-foreground font-medium mb-2">
+        {postedAt}
+        {postedAt ? " · " : ""}
         {feedAuthorLabel(post.user_phone, viewerPhone)}
       </p>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
         {post.content}
       </p>
-      <div className="flex justify-end">
+      {post.recommended_vendor_id && linkedShopName && (
+        <button
+          type="button"
+          onClick={() => void handleRecommendedVendorTap()}
+          disabled={linkingVendor}
+          className="inline-flex items-center gap-1.5 mb-3 rounded-full border border-brand/30 bg-brand/10 px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/15 disabled:opacity-60"
+        >
+          <Tag className="h-3.5 w-3.5" />
+          {linkedShopName}
+        </button>
+      )}
+      {!post.recommended_vendor_id && post.recommended_vendor_name && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <span className="text-sm font-medium text-foreground">
+            {post.recommended_vendor_name}
+          </span>
+          <span className="inline-block text-[10px] font-semibold rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+            {s.feed_notOnAaspaas}
+          </span>
+        </div>
+      )}
+      <div className="flex justify-end pr-10">
         <button
           type="button"
           onClick={onToggleReplies}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700"
         >
           <MessageCircle className="h-4 w-4" />
-          Reply
+          {s.feed_reply}
         </button>
       </div>
+      <button
+        type="button"
+        data-testid="feed-flag-btn"
+        onClick={onFlag}
+        disabled={flagging}
+        className="absolute bottom-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+        aria-label={s.feed_reportPostAria}
+      >
+        {flagging ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Flag className="h-4 w-4" />
+        )}
+      </button>
 
       {expanded && (
         <div className="mt-4 ml-4 border-l-2 border-surface-border pl-3 space-y-3">
@@ -945,7 +1308,7 @@ function RecommendationCard({
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : replies.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center">No replies yet</p>
+            <p className="text-xs text-muted-foreground text-center">{s.feed_noRepliesYet}</p>
           ) : (
             <ul className="space-y-2">
               {replies.map((r) => (
@@ -966,7 +1329,7 @@ function RecommendationCard({
               type="text"
               value={replyDraft}
               onChange={(e) => onReplyDraftChange(e.target.value)}
-              placeholder="Write a reply…"
+              placeholder={s.feed_replyPlaceholder}
               className="flex-1 rounded-xl border border-input bg-background px-3 py-2 text-sm"
               maxLength={200}
               onKeyDown={(e) => {
@@ -977,7 +1340,7 @@ function RecommendationCard({
               }}
             />
             <Button size="sm" onClick={onSendReply}>
-              Send
+              {s.feed_sendReply}
             </Button>
           </div>
         </div>

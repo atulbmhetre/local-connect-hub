@@ -12,6 +12,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { navigateFromNotification } from "@/lib/notificationNavigation";
 
 export type UserNotification = {
   id: string;
@@ -26,46 +27,6 @@ export type UserNotification = {
   read_at: string | null;
   created_at: string;
 };
-
-const ROUTE_PATHS: Record<string, string> = {
-  vendor: "/vendor",
-  "my-orders": "/my-orders",
-  settings: "/settings",
-};
-
-function resolveRoutePath(route: string | null): string {
-  if (!route?.trim()) return "/";
-  const key = route.trim().replace(/^\//, "");
-  return ROUTE_PATHS[key] ?? `/${key}`;
-}
-
-function navigateFromNotification(
-  navigate: ReturnType<typeof useNavigate>,
-  route: string | null,
-  routeParams: Record<string, string> | null,
-): void {
-  const path = resolveRoutePath(route);
-  const key = route?.trim().replace(/^\//, "") ?? "";
-  const params = routeParams ?? {};
-
-  if (key === "my-orders" && params.order_id) {
-    navigate(path, { state: { highlightOrderId: params.order_id } });
-    return;
-  }
-  if (key === "vendor" && params.order_id) {
-    navigate(path, { state: { highlightOrderId: params.order_id } });
-    return;
-  }
-  if (key === "vendor" && params.vendor_id) {
-    navigate(path, { state: { highlightVendorId: params.vendor_id } });
-    return;
-  }
-  if (key === "settings" && params.vendor_id) {
-    navigate(path, { state: { highlightVendorId: params.vendor_id } });
-    return;
-  }
-  navigate(path);
-}
 
 function formatBadgeCount(n: number): string {
   return n > 9 ? "9+" : String(n);

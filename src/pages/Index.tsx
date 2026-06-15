@@ -588,7 +588,16 @@ const Index = () => {
               <button
                 key={savedId}
                 type="button"
-                onClick={() => {
+                onClick={async () => {
+                  const { data } = await supabase
+                    .from("vendors")
+                    .select("is_active")
+                    .eq("id", vendor.id)
+                    .single();
+                  if (!data?.is_active) {
+                    toast.error(s.radar_vendorWentOffline);
+                    return;
+                  }
                   setNeighbourSheetVendor(vendor);
                   setNeighbourSheetSaved({ nickname, category });
                   setNeighbourSheetOpen(true);
@@ -608,15 +617,17 @@ const Index = () => {
                       {emojiForVendorCategory(category, categories)}
                     </span>
                   )}
-                  {vendor.is_active && (
-                    <span
-                      className="absolute bottom-1 right-1 h-2 w-2 rounded-full bg-brand ring-2 ring-card"
-                      aria-label="Online"
-                    />
-                  )}
                 </div>
                 <div className="min-w-0 flex-1 py-0.5">
-                  <p className="font-semibold text-sm truncate">{nickname}</p>
+                  <p className="font-semibold text-sm truncate inline-flex items-center gap-1.5 max-w-full">
+                    <span className="truncate">{nickname}</span>
+                    {vendor.is_active === true && (
+                      <span
+                        className="h-2 w-2 rounded-full bg-brand shrink-0"
+                        aria-label="Online"
+                      />
+                    )}
+                  </p>
                   <p className="text-[11px] text-muted-foreground truncate">{category}</p>
                 </div>
               </button>

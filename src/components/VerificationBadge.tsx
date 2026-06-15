@@ -2,8 +2,11 @@ import { ShieldCheck, AlertTriangle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Vendor } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
+import { strings } from "@/lib/strings";
 
 export type VerificationDisplayTier = "green" | "yellow" | "red";
+
+type VerificationStrings = typeof strings.en;
 
 /**
  * Single source of truth for trust tier UI. Reads only from the vendor row:
@@ -19,23 +22,25 @@ export function vendorTier(v: Vendor): VerificationDisplayTier {
   return "red";
 }
 
-const COPY: Record<
+export function getVerificationCopy(s: VerificationStrings): Record<
   VerificationDisplayTier,
   { label: string; sub: string }
-> = {
-  green: {
-    label: "Verified Professional",
-    sub: "Admin-approved verified business",
-  },
-  yellow: {
-    label: "Identity Submitted",
-    sub: "Submitted for review — awaiting admin approval",
-  },
-  red: {
-    label: "Unverified",
-    sub: "No verified identity signals on file",
-  },
-};
+> {
+  return {
+    green: {
+      label: s.vendor_verified_pro,
+      sub: s.verification_green_sub,
+    },
+    yellow: {
+      label: s.verification_yellow_label,
+      sub: s.verification_yellow_sub,
+    },
+    red: {
+      label: s.settings_unverified,
+      sub: s.verification_red_sub,
+    },
+  };
+}
 
 export const VerificationBadge = ({
   vendor,
@@ -50,12 +55,8 @@ export const VerificationBadge = ({
 }) => {
   const { s } = useLanguage();
   const tier = vendorTier(vendor);
-  const label =
-    tier === "green"
-      ? s.vendor_verified_pro
-      : tier === "red"
-        ? s.settings_unverified
-        : COPY[tier].label;
+  const copy = getVerificationCopy(s);
+  const { label, sub } = copy[tier];
   const Icon = tier === "green" ? ShieldCheck : tier === "yellow" ? Clock : AlertTriangle;
 
   const tone =
@@ -72,7 +73,7 @@ export const VerificationBadge = ({
   if (!showLabel) {
     return (
       <span
-        title={`${label} — ${COPY[tier].sub}`}
+        title={`${label} — ${sub}`}
         className={cn(
           "inline-grid place-items-center rounded-full ring-1 p-1 shrink-0",
           tone,
@@ -100,4 +101,5 @@ export const VerificationBadge = ({
   );
 };
 
-export const verificationCopy = COPY;
+/** @deprecated Use getVerificationCopy(s) with useLanguage() instead. */
+export const verificationCopy = getVerificationCopy(strings.en);

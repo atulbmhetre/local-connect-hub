@@ -50,12 +50,37 @@ function getUserTrustBadge(trust: TrustInfo | undefined): { label: string; class
   return { label: "🔴 Risky User", className: "text-red-600 dark:text-red-500" };
 }
 
+function getKhataCreditBadge(
+  outstanding: number,
+  amberLimit: number,
+  redLimit: number,
+  labels: { creditAmber: string; creditRed: string },
+): { label: string; className: string } | null {
+  if (redLimit > 0 && outstanding >= redLimit) {
+    return {
+      label: labels.creditRed,
+      className:
+        "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30",
+    };
+  }
+  if (amberLimit > 0 && outstanding >= amberLimit) {
+    return {
+      label: labels.creditAmber,
+      className:
+        "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+    };
+  }
+  return null;
+}
+
 type Props = {
   vendorId: string;
   serviceMode?: "help" | "delivery" | "appointment" | null;
   onUnreadCount?: (n: number) => void;
   /** From the parent's vendor row; replaces a redundant per-mount vendors fetch. */
   shopName: string;
+  khataAmberLimit: number;
+  khataRedLimit: number;
   cancelReasons: (string | null | undefined)[];
 };
 
@@ -80,13 +105,34 @@ function maskPhoneLast4(phone: string): string {
   return `••••${digits.slice(-4)}`;
 }
 
+function countUnreadIncomingOrders(
+  orderList: Pick<OrderRequestRow, "status">[],
+  serviceMode: "help" | "delivery" | "appointment" | null | undefined,
+): number {
+  if (serviceMode === "delivery" || serviceMode === "appointment") {
+    return orderList.filter((r) => r.status === "sent" || r.status === "seen").length;
+  }
+  return orderList.filter((r) => r.status === "sent").length;
+}
+
 type LocationHighlightState = { highlightOrderId?: string };
+
+function canShowBillButton(r: OrderRequestRow): boolean {
+  const billableStatus = r.status === "accepted" || r.status === "fulfilled";
+  if (!billableStatus) return false;
+  if (r.appointment_time) {
+    return r.appointment_status === "confirmed";
+  }
+  return true;
+}
 
 export function IncomingOrdersSection({
   vendorId,
   serviceMode,
   onUnreadCount,
   shopName,
+  khataAmberLimit,
+  khataRedLimit,
   cancelReasons,
 }: Props) {
   const location = useLocation();
@@ -138,6 +184,9 @@ export function IncomingOrdersSection({
   const [requestIdsDismissBlockedByKhata, setRequestIdsDismissBlockedByKhata] = useState<
     Set<string>
   >(() => new Set());
+  const [khataOutstandingByPhone, setKhataOutstandingByPhone] = useState<Map<string, number>>(
+    () => new Map(),
+  );
   const [ledgerOrderId, setLedgerOrderId] = useState<string | null>(null);
   const [ledgerUserPhone, setLedgerUserPhone] = useState<string | null>(null);
   const [ledgerAmount, setLedgerAmount] = useState("");
@@ -236,7 +285,7 @@ export function IncomingOrdersSection({
     setMarkingBillPaidId(billId);
     const { error } = await supabase
       .from("order_bills")
-      .update({ payment_status: "paid" })
+      .update({ payment_status: "paid", paid_at: new Date().toISOString() })
       .eq("id", billId);
     setMarkingBillPaidId(null);
     if (error) {
@@ -252,34 +301,40 @@ export function IncomingOrdersSection({
   };
 
   const refreshUnpaidKhataDismissBlocks = useCallback(
-    async (terminalIds: string[]) => {
-      if (terminalIds.length === 0) {
+    async (terminalIds: string[], orderPhones: string[]) => {
+      if (khataAmberLimit <= 0) {
         setRequestIdsDismissBlockedByKhata(new Set());
+        setKhataOutstandingByPhone(new Map());
         return;
       }
 
-      const { data: khataTxs } = await supabase
-        .from("khata_transactions")
-        .select("request_id, user_phone")
-        .eq("vendor_id", vendorId)
-        .eq("payment_mode", "khata")
-        .in("request_id", terminalIds);
-
-      if (!khataTxs?.length) {
-        setRequestIdsDismissBlockedByKhata(new Set());
-        return;
-      }
-
-      const phones = [
+      const normalizedOrderPhones = [
         ...new Set(
-          khataTxs
-            .map((t) => t.user_phone)
+          orderPhones
+            .map((p) => p?.trim())
             .filter((p): p is string => typeof p === "string" && p.length > 0),
         ),
       ];
 
+      let khataTxs: { request_id: string | null; user_phone: string | null }[] = [];
+      if (terminalIds.length > 0) {
+        const { data } = await supabase
+          .from("khata_transactions")
+          .select("request_id, user_phone")
+          .eq("vendor_id", vendorId)
+          .eq("payment_mode", "khata")
+          .in("request_id", terminalIds);
+        khataTxs = data ?? [];
+      }
+
+      const txPhones = khataTxs
+        .map((t) => t.user_phone)
+        .filter((p): p is string => typeof p === "string" && p.length > 0);
+      const phones = [...new Set([...normalizedOrderPhones, ...txPhones])];
+
       if (phones.length === 0) {
         setRequestIdsDismissBlockedByKhata(new Set());
+        setKhataOutstandingByPhone(new Map());
         return;
       }
 
@@ -288,6 +343,19 @@ export function IncomingOrdersSection({
         .select("user_phone, total_outstanding")
         .eq("vendor_id", vendorId)
         .in("user_phone", phones);
+
+      const outstandingMap = new Map<string, number>();
+      for (const row of ledgerRows ?? []) {
+        if (typeof row.user_phone === "string" && row.user_phone.length > 0) {
+          outstandingMap.set(row.user_phone, Number(row.total_outstanding) || 0);
+        }
+      }
+      setKhataOutstandingByPhone(outstandingMap);
+
+      if (!khataTxs.length) {
+        setRequestIdsDismissBlockedByKhata(new Set());
+        return;
+      }
 
       const unpaidPhones = new Set(
         (ledgerRows ?? [])
@@ -309,7 +377,7 @@ export function IncomingOrdersSection({
 
       setRequestIdsDismissBlockedByKhata(blocked);
     },
-    [vendorId],
+    [vendorId, khataAmberLimit],
   );
 
   const autoDismissStaleFulfilledOnLoad = useCallback(
@@ -379,14 +447,17 @@ export function IncomingOrdersSection({
         );
       }
       setRequestIdsWithLedger(withLedger);
-      await refreshUnpaidKhataDismissBlocks(terminalIds);
+      await refreshUnpaidKhataDismissBlocks(
+        terminalIds,
+        list.map((r) => r.user_phone).filter((p): p is string => !!p?.trim()),
+      );
 
       let activeList = await autoDismissStaleFulfilledOnLoad(list, withLedger);
       await loadTrustForOrders(activeList);
       if (!mounted.current) return;
       setRows(activeList);
       void loadBillsForOrders(activeList.map((r) => r.id));
-      onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
+      onUnreadCount?.(countUnreadIncomingOrders(activeList, serviceMode));
 
       if (!opts?.silent) setLoading(false);
 
@@ -425,18 +496,22 @@ export function IncomingOrdersSection({
         } else {
           setRequestIdsWithLedger(new Set());
         }
-        await refreshUnpaidKhataDismissBlocks(refreshedTerminalIds);
+        await refreshUnpaidKhataDismissBlocks(
+          refreshedTerminalIds,
+          refreshedList.map((r) => r.user_phone).filter((p): p is string => !!p?.trim()),
+        );
         activeList = await autoDismissStaleFulfilledOnLoad(refreshedList, withLedger);
         await loadTrustForOrders(activeList);
         if (!mounted.current) return;
         setRows(activeList);
         void loadBillsForOrders(activeList.map((r) => r.id));
-        onUnreadCount?.(activeList.filter((r) => r.status === "sent").length);
+        onUnreadCount?.(countUnreadIncomingOrders(activeList, serviceMode));
       }
     },
     [
       vendorId,
       onUnreadCount,
+      serviceMode,
       isHelpMode,
       autoDismissStaleFulfilledOnLoad,
       refreshUnpaidKhataDismissBlocks,
@@ -514,6 +589,8 @@ export function IncomingOrdersSection({
         user_phone: userPhone,
         title: s.incoming_helpAcceptedNotifyTitle,
         body: s.incoming_helpAcceptedNotifyBody,
+        type: "order_accepted",
+        order_id: id,
       });
       saveNotification({
         userPhone,
@@ -527,7 +604,7 @@ export function IncomingOrdersSection({
     }
     setRows((prev) => {
       const next = prev.map((r) => (r.id === id ? { ...r, status: "accepted" } : r));
-      onUnreadCount?.(next.filter((r) => r.status === "sent").length);
+      onUnreadCount?.(countUnreadIncomingOrders(next, serviceMode));
       return next;
     });
   };
@@ -557,6 +634,8 @@ export function IncomingOrdersSection({
         user_phone: phone,
         title: s.incoming_orderAcceptedTitle,
         body: s.incoming_orderAcceptedBody,
+        type: "order_update",
+        order_id: id,
       });
       saveNotification({
         userPhone: phone,
@@ -584,11 +663,16 @@ export function IncomingOrdersSection({
       toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
       return;
     }
+    if (serviceMode === "delivery") {
+      void supabase.rpc("recalculate_vendor_on_time_rate", { p_vendor_id: vendorId });
+    }
     if (userPhone) {
       void invokeNotifyUser({
         user_phone: userPhone,
         title: s.incoming_orderFulfilledNotifyTitle,
         body: s.incoming_orderFulfilledNotifyBody,
+        type: "order_update",
+        order_id: id,
       });
       saveNotification({
         userPhone,
@@ -638,6 +722,8 @@ export function IncomingOrdersSection({
         user_phone: userPhone,
         title: s.incoming_bookingConfirmedNotifyTitle,
         body: s.incoming_bookingConfirmedNotifyBody,
+        type: "order_update",
+        order_id: id,
       });
       saveNotification({
         userPhone,
@@ -699,6 +785,8 @@ export function IncomingOrdersSection({
         user_phone: userPhone,
         title,
         body,
+        type: "order_update",
+        order_id: declineOrderId,
       });
       saveNotification({
         userPhone,
@@ -765,53 +853,62 @@ export function IncomingOrdersSection({
 
     try {
       setLedgerSubmitting(true);
-      const vendorPart = ledgerVendorNote.trim();
-      const combinedNote = ledgerOrderNote
-        ? `${ledgerOrderNote}${vendorPart ? ` — ${vendorPart}` : ""}`
-        : vendorPart || null;
+      const vendorNote = ledgerVendorNote.trim();
 
-      const { error } = await supabase.from("khata_transactions").insert({
-        vendor_id: vendorId,
-        user_phone: ledgerUserPhone,
-        amount,
-        note: combinedNote,
-        payment_mode: "khata",
-        request_id: ledgerOrderId,
-        created_at: new Date().toISOString(),
+      const { data: billId, error } = await supabase.rpc("insert_bill_with_items", {
+        p_order_id: ledgerOrderId,
+        p_vendor_id: vendorId,
+        p_customer_phone: ledgerUserPhone,
+        p_total: amount,
+        p_payment_mode: "khata",
+        p_payment_status: "unpaid",
+        p_notes: vendorNote || null,
+        p_items: [
+          {
+            name: vendorNote || s.khata_defaultItemName,
+            quantity: 1,
+            unit_price: amount,
+            unit: null,
+          },
+        ],
       });
 
-      if (error) {
-        toast.error(error.message);
+      if (error || !billId) {
+        toast.error(error?.message ?? s.bill_sendFailed);
         return;
       }
 
-      const { data: existing } = await supabase
-        .from("khata_ledger")
-        .select("total_outstanding")
-        .eq("vendor_id", vendorId)
-        .eq("user_phone", ledgerUserPhone)
-        .single();
-
-      const currentOutstanding = existing?.total_outstanding ?? 0;
-
-      await supabase.from("khata_ledger").upsert(
-        {
-          vendor_id: vendorId,
-          user_phone: ledgerUserPhone,
-          total_outstanding: currentOutstanding + amount,
-          last_updated: new Date().toISOString(),
-        },
-        { onConflict: "vendor_id,user_phone" },
-      );
+      const title = s.bill_notifTitle;
+      const body = `${shopName}: ₹${amount} — khata`;
+      void invokeNotifyUser({
+        user_phone: ledgerUserPhone,
+        title,
+        body,
+        type: "bill",
+        order_id: ledgerOrderId,
+      });
+      saveNotification({
+        userPhone: ledgerUserPhone,
+        type: "bill",
+        title,
+        body,
+        route: "my-orders",
+        routeParams: { order_id: ledgerOrderId },
+        isInformational: false,
+      });
 
       const terminalIds = rows
         .filter((r) => r.status === "fulfilled" || r.status === "done")
         .map((r) => r.id);
-      await refreshUnpaidKhataDismissBlocks(terminalIds);
+      await refreshUnpaidKhataDismissBlocks(
+        terminalIds,
+        rows.map((r) => r.user_phone).filter((p): p is string => !!p?.trim()),
+      );
 
       setRequestIdsWithLedger((prev) => new Set(prev).add(ledgerOrderId));
+      void loadBillsForOrders(rows.map((r) => r.id));
       closeLedgerSheet();
-      toast.success("Ledger entry added");
+      toast.success(s.khata_entryAdded);
     } finally {
       setLedgerSubmitting(false);
     }
@@ -893,6 +990,8 @@ export function IncomingOrdersSection({
         user_phone: userPhone,
         title,
         body,
+        type: "order_update",
+        order_id: declineOrderId,
       });
       saveNotification({
         userPhone,
@@ -936,7 +1035,7 @@ export function IncomingOrdersSection({
     );
   };
 
-  const unread = rows.filter((r) => r.status === "sent").length;
+  const unread = countUnreadIncomingOrders(rows, serviceMode);
 
   const filteredRows = useMemo(() => {
     if (!searchQuery.trim()) return rows;
@@ -1101,17 +1200,43 @@ export function IncomingOrdersSection({
                 )}
               </div>
               {r.user_phone && (
-                <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {maskPhoneLast4(r.user_phone.trim())}
+                  </span>
+                  {khataAmberLimit > 0 &&
+                    (() => {
+                      const phone = r.user_phone.trim();
+                      if (!khataOutstandingByPhone.has(phone)) return null;
+                      const outstanding = khataOutstandingByPhone.get(phone) ?? 0;
+                      const creditBadge = getKhataCreditBadge(
+                        outstanding,
+                        khataAmberLimit,
+                        khataRedLimit,
+                        { creditAmber: s.khata_creditAmber, creditRed: s.khata_creditRed },
+                      );
+                      if (!creditBadge) return null;
+                      return (
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full text-[10px] font-semibold px-2 py-0.5 border",
+                            creditBadge.className,
+                          )}
+                        >
+                          {creditBadge.label}
+                        </span>
+                      );
+                    })()}
                   {(() => {
                     const trustBadge = getUserTrustBadge(trustByPhone[r.user_phone.trim()]);
                     if (!trustBadge) return null;
                     return (
-                      <p className={cn("text-xs font-normal", trustBadge.className)}>
+                      <span className={cn("text-xs font-normal", trustBadge.className)}>
                         {trustBadge.label}
-                      </p>
+                      </span>
                     );
                   })()}
-                </>
+                </div>
               )}
               {r.status === "cancelled" && r.cancel_reason && (
                 <span className="inline-flex rounded-full bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 border border-border">
@@ -1243,6 +1368,17 @@ export function IncomingOrdersSection({
                 </div>
               )}
 
+              {(r.status === "cancelled" || r.appointment_status === "declined") && (
+                <button
+                  type="button"
+                  disabled={markingId === r.id}
+                  onClick={() => void dismissOrder(r.id)}
+                  className="w-full rounded-lg border border-border bg-muted/40 text-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                >
+                  {markingId === r.id ? s.incoming_saving : "✅ Dismiss"}
+                </button>
+              )}
+
               {!r.appointment_time && isHelpMode && r.status === "sent" && (
                   <button
                     type="button"
@@ -1282,57 +1418,6 @@ export function IncomingOrdersSection({
                       {s.cancelOrder}
                     </button>
                   )}
-                  {(r.status === "accepted" || r.status === "fulfilled") && (
-                    <>
-                      <button
-                        type="button"
-                        data-testid="incoming-bill-btn"
-                        onClick={() => {
-                          setBillRequestId(r.id);
-                          setBillUserPhone(r.user_phone);
-                        }}
-                        className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold py-2.5 active:scale-[0.99]"
-                      >
-                        {s.bill_title}
-                      </button>
-                      {billsByRequestId[r.id] && (
-                        <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-xs font-semibold text-foreground">
-                              {s.bill_total}: ₹{billsByRequestId[r.id].total_amount.toFixed(2)}
-                            </p>
-                            <span className="text-[10px] text-muted-foreground">
-                              {billsByRequestId[r.id].payment_mode === "cash"
-                                ? s.bill_cash
-                                : billsByRequestId[r.id].payment_mode === "upi"
-                                  ? s.bill_upi
-                                  : s.bill_khata}
-                              {" · "}
-                              {billsByRequestId[r.id].payment_status === "paid"
-                                ? "✅ Paid"
-                                : "⏳ Unpaid"}
-                            </span>
-                          </div>
-                          {(billsByRequestId[r.id].payment_mode === "cash" ||
-                            billsByRequestId[r.id].payment_mode === "upi") &&
-                            billsByRequestId[r.id].payment_status === "unpaid" && (
-                              <button
-                                type="button"
-                                disabled={markingBillPaidId === billsByRequestId[r.id].id}
-                                onClick={() =>
-                                  void markOrderBillPaid(billsByRequestId[r.id].id, r.id)
-                                }
-                                className="w-full rounded-lg bg-brand/15 text-brand border border-brand/40 text-xs font-semibold py-2 disabled:opacity-50"
-                              >
-                                {markingBillPaidId === billsByRequestId[r.id].id
-                                  ? s.incoming_saving
-                                  : s.khata_markPaid}
-                              </button>
-                            )}
-                        </div>
-                      )}
-                    </>
-                  )}
                   {r.status === "accepted" && (
                     <button
                       type="button"
@@ -1358,15 +1443,70 @@ export function IncomingOrdersSection({
                 </>
               )}
 
+              {canShowBillButton(r) && (
+                <>
+                  <button
+                    type="button"
+                    data-testid="incoming-bill-btn"
+                    onClick={() => {
+                      setBillRequestId(r.id);
+                      setBillUserPhone(r.user_phone);
+                    }}
+                    className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold py-2.5 active:scale-[0.99]"
+                  >
+                    {s.bill_title}
+                  </button>
+                  {billsByRequestId[r.id] && (
+                    <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold text-foreground">
+                          {s.bill_total}: ₹{billsByRequestId[r.id].total_amount.toFixed(2)}
+                        </p>
+                        <span className="text-[10px] text-muted-foreground">
+                          {billsByRequestId[r.id].payment_mode === "cash"
+                            ? s.bill_cash
+                            : billsByRequestId[r.id].payment_mode === "upi"
+                              ? s.bill_upi
+                              : s.bill_khata}
+                          {" · "}
+                          {billsByRequestId[r.id].payment_status === "paid"
+                            ? s.bill_statusPaid
+                            : s.bill_statusUnpaid}
+                        </span>
+                      </div>
+                      {(billsByRequestId[r.id].payment_mode === "cash" ||
+                        billsByRequestId[r.id].payment_mode === "upi") &&
+                        billsByRequestId[r.id].payment_status === "unpaid" && (
+                          <button
+                            type="button"
+                            disabled={markingBillPaidId === billsByRequestId[r.id].id}
+                            onClick={() =>
+                              void markOrderBillPaid(billsByRequestId[r.id].id, r.id)
+                            }
+                            className="w-full rounded-lg bg-brand/15 text-brand border border-brand/40 text-xs font-semibold py-2 disabled:opacity-50"
+                          >
+                            {markingBillPaidId === billsByRequestId[r.id].id
+                              ? s.incoming_saving
+                              : s.khata_markPaid}
+                          </button>
+                        )}
+                    </div>
+                  )}
+                </>
+              )}
+
               {(r.status === "fulfilled" || r.status === "done") && (
                 <div className="space-y-2">
-                  {canAddToLedger && r.user_phone && !requestIdsWithLedger.has(r.id) && (
+                  {canAddToLedger &&
+                    r.user_phone &&
+                    !requestIdsWithLedger.has(r.id) &&
+                    !billsByRequestId[r.id] && (
                     <button
                       type="button"
                       onClick={() => openLedgerSheet(r)}
                       className="w-full rounded-lg border border-primary/50 text-primary text-xs font-semibold py-2 active:scale-[0.99]"
                     >
-                      📒 Add to Ledger
+                      {s.khata_addToLedger}
                     </button>
                   )}
                   {(() => {
@@ -1388,7 +1528,7 @@ export function IncomingOrdersSection({
                         </button>
                         {dismissBlockedByKhata && (
                           <p className="text-[10px] text-muted-foreground text-center mt-1">
-                            Settle ledger dues first
+                            {s.khata_settleDuesFirst}
                           </p>
                         )}
                       </div>
@@ -1531,7 +1671,7 @@ export function IncomingOrdersSection({
         >
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
           <SheetHeader className="text-left">
-            <SheetTitle>Add to Ledger</SheetTitle>
+            <SheetTitle>{s.khata_addToLedgerTitle}</SheetTitle>
           </SheetHeader>
           <div className="mt-4 space-y-4">
             <div>
@@ -1594,7 +1734,7 @@ export function IncomingOrdersSection({
               onClick={() => void confirmLedgerEntry()}
               className="w-full rounded-xl bg-primary text-primary-foreground py-3 font-semibold disabled:opacity-50"
             >
-              {ledgerSubmitting ? s.incoming_saving : "Add to Ledger (Unpaid)"}
+              {ledgerSubmitting ? s.incoming_saving : s.khata_addToLedgerSubmit}
             </button>
           </div>
           </div>
@@ -1679,6 +1819,8 @@ export function IncomingOrdersSection({
           vendorId={vendorId}
           userPhone={billUserPhone}
           shopName={shopName}
+          khataAmberLimit={khataAmberLimit}
+          khataRedLimit={khataRedLimit}
         />
       )}
       </div>

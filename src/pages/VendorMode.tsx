@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useAppConfig } from "@/hooks/useAppConfig";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
+import {
+  getReferralCode,
+  isReferralEnabled,
+  referralCodeFromPhone,
+} from "@/lib/referral";
 import {
   supabase,
   SUPABASE_URL,
@@ -20,6 +25,10 @@ import {
   useServiceModeLabel,
   invokeNotifyUser,
   invokeNotifyAdmin,
+  invokeRegisterVendor,
+  invokeAttachPendingCategory,
+  invokeSuggestCategory,
+  type CategorySuggestionResult,
 } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
@@ -54,6 +63,7 @@ import { registerPushToken } from "../lib/pushNotifications";
 import { saveNotification } from "@/lib/notifications";
 import { checkAndNotifyAdminGreenReady } from "@/lib/vendorGreenReady";
 import { NotificationBell } from "@/components/NotificationBell";
+import { Textarea } from "@/components/ui/textarea";
 
 import { Capacitor } from "@capacitor/core";
 import {
@@ -139,12 +149,7 @@ function categoryServiceModeChipLabel(
   }
 }
 
-const UPI_FORMAT_RE = /^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/;
 const MAX_REG_CATEGORIES = 5;
-
-function isValidUpiRegistrationFormat(upi: string): boolean {
-  return UPI_FORMAT_RE.test(upi.trim());
-}
 
 function isAppointmentToday(iso: string): boolean {
   const d = new Date(iso);
@@ -184,6 +189,17 @@ type BlockingOfflineOrder = {
 function orderShouldNotifyVendorOffline(order: BlockingOfflineOrder): boolean {
   if (order.status === "accepted") return true;
   return order.appointment_status === "confirmed";
+}
+
+function orderShouldNotifyPendingVendorOffline(
+  order: BlockingOfflineOrder,
+  serviceMode: string | null | undefined,
+): boolean {
+  if (order.status !== "sent" && order.status !== "seen") return false;
+  if (orderShouldNotifyVendorOffline(order)) return false;
+  const mode = serviceMode ?? "help";
+  if (mode === "help") return false;
+  return orderBlocksGoingOffline(order, mode);
 }
 
 async function fetchBlockingActiveOrders(
@@ -280,6 +296,9 @@ function vendorPhotoCopy(
 
 const VendorMode = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const highlightVendorId = (location.state as { highlightVendorId?: string } | null)
+    ?.highlightVendorId;
   const { s } = useLanguage();
   const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
@@ -312,10 +331,22 @@ const VendorMode = () => {
   const [regCategories, setRegCategories] = useState<RegCategoryRow[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [regCategoriesLoading, setRegCategoriesLoading] = useState(false);
+  const [businessDescription, setBusinessDescription] = useState("");
+  const [categorySuggesting, setCategorySuggesting] = useState(false);
+  const [categorySuggestion, setCategorySuggestion] =
+    useState<CategorySuggestionResult | null>(null);
+  const [showManualCategories, setShowManualCategories] = useState(false);
+  const [extraRegCategories, setExtraRegCategories] = useState<RegCategoryRow[]>([]);
+  const [pendingNewCategoryCreate, setPendingNewCategoryCreate] = useState<{
+    description: string;
+    category_name: string;
+    service_mode: string;
+  } | null>(null);
   /** help | delivery | appointment — empty until selected or inferred from category. */
   const [serviceMode, setServiceMode] = useState<ServiceModeValue>("");
   const [vendorNote, setVendorNote] = useState("");
   const [referralCodeInput, setReferralCodeInput] = useState("");
+  const [referralEnabled, setReferralEnabled] = useState(false);
   const [upi, setUpi] = useState("");
   const [upiBlurred, setUpiBlurred] = useState(false);
   const [phone, setPhone] = useState("");
@@ -356,6 +387,12 @@ const VendorMode = () => {
 
   useEffect(() => {
     localStorage.setItem("aaspaas:role", "vendor");
+  }, []);
+
+  useEffect(() => {
+    void isReferralEnabled().then(setReferralEnabled);
+    const stored = getReferralCode();
+    if (stored) setReferralCodeInput(stored);
   }, []);
 
   // Broadcast vendor "live" state so the BottomNav can pulse the Vendor tab.
@@ -460,6 +497,15 @@ const VendorMode = () => {
   }, [vendorId, vendor?.id]);
 
   useEffect(() => {
+    if (!highlightVendorId || !vendor?.id || highlightVendorId !== vendor.id) return;
+    const el =
+      document.getElementById("vendor-verification-banner") ??
+      document.getElementById("vendor-incoming-orders");
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [highlightVendorId, vendor?.id, loading]);
+
+  useEffect(() => {
     if (
       Capacitor.isNativePlatform() &&
       vendorId &&
@@ -558,16 +604,27 @@ const VendorMode = () => {
 
   // ---- registration ----
   const phoneOk = isValidPhone(phone);
-  const upiFmtOk = isValidUpiRegistrationFormat(upi);
+  const upiFmtOk = isValidUpi(upi);
   const upiFormatError =
     upiBlurred && upi.trim().length > 0 && !upiFmtOk ? s.vendor_upi_id_format_invalid : undefined;
 
+  const allRegCategories = useMemo(() => {
+    const map = new Map<string, RegCategoryRow>();
+    for (const c of [...regCategories, ...extraRegCategories]) {
+      map.set(c.id, c);
+    }
+    return [...map.values()];
+  }, [regCategories, extraRegCategories]);
+
   const primaryCategory =
     selectedCategoryIds.length > 0
-      ? regCategories.find((c) => c.id === selectedCategoryIds[0]) ?? null
+      ? allRegCategories.find((c) => c.id === selectedCategoryIds[0]) ?? null
       : null;
-  const effectiveCategory = primaryCategory?.label ?? "";
-  const categoryOk = selectedCategoryIds.length > 0 && effectiveCategory.length > 1;
+  const effectiveCategory =
+    primaryCategory?.label ?? pendingNewCategoryCreate?.category_name ?? "";
+  const categoryOk =
+    (selectedCategoryIds.length > 0 && effectiveCategory.length > 1) ||
+    pendingNewCategoryCreate != null;
   const nameOk = name.trim().length > 1 && !looksLikeGibberish(name);
   const shopOk = shopName.trim().length > 1 && !looksLikeGibberish(shopName);
   const homeShopInvalid =
@@ -583,9 +640,67 @@ const VendorMode = () => {
       setServiceMode("");
       return;
     }
-    const first = regCategories.find((c) => c.id === selectedCategoryIds[0]);
+    const first = allRegCategories.find((c) => c.id === selectedCategoryIds[0]);
     if (first) setServiceMode(first.service_mode as ServiceModeValue);
-  }, [selectedCategoryIds, regCategories]);
+  }, [selectedCategoryIds, allRegCategories]);
+
+  const selectCategoryFromSuggestion = (
+    id: string,
+    label: string,
+    emoji: string | null | undefined,
+    serviceModeValue: string,
+  ) => {
+    setExtraRegCategories((prev) => {
+      if (prev.some((c) => c.id === id)) return prev;
+      return [
+        ...prev,
+        {
+          id,
+          label,
+          emoji: emoji ?? "✨",
+          service_mode: serviceModeValue,
+        },
+      ];
+    });
+    setSelectedCategoryIds([id]);
+    setServiceMode(serviceModeValue as ServiceModeValue);
+    setCategorySuggestion(null);
+    setPendingNewCategoryCreate(null);
+    setShowManualCategories(false);
+  };
+
+  const handleFindCategory = async () => {
+    const desc = businessDescription.trim();
+    if (desc.length < 3) {
+      toast.error(s.vendor_specify_hint);
+      return;
+    }
+    setCategorySuggesting(true);
+    setCategorySuggestion(null);
+    setPendingNewCategoryCreate(null);
+    const result = await invokeSuggestCategory({ description: desc });
+    setCategorySuggesting(false);
+    if (!result.success) {
+      toast.error(result.error ?? s.vendor_understanding);
+      setShowManualCategories(true);
+      return;
+    }
+    setCategorySuggestion(result);
+    if (result.outcome === "low_confidence") {
+      setShowManualCategories(true);
+    }
+  };
+
+  const confirmNewCategorySuggestion = () => {
+    if (!categorySuggestion?.category_name || !businessDescription.trim()) return;
+    setPendingNewCategoryCreate({
+      description: businessDescription.trim(),
+      category_name: categorySuggestion.category_name,
+      service_mode: categorySuggestion.service_mode ?? "help",
+    });
+    setCategorySuggestion(null);
+    toast.success(s.category_suggest_new(categorySuggestion.category_name));
+  };
 
   const toggleRegCategory = (categoryId: string) => {
     setSelectedCategoryIds((prev) => {
@@ -740,7 +855,7 @@ const VendorMode = () => {
 
     if (error) {
       setSavingShopDetails(false);
-      toast.error("Failed to update shop details");
+      toast.error(s.vendor_update_failed);
       return;
     }
 
@@ -871,37 +986,64 @@ const VendorMode = () => {
     setLoading(true);
     setError(null);
 
-    const initialStatus: VerificationStatus = "identity_linked";
-
     const primaryServiceMode =
-      (primaryCategory?.service_mode as ServiceModeValue) || serviceMode;
+      (pendingNewCategoryCreate?.service_mode as ServiceModeValue) ||
+      (primaryCategory?.service_mode as ServiceModeValue) ||
+      serviceMode;
 
-    const { data, error } = await supabase
-      .from("vendors")
-      .insert({
-        name: name.trim(),
-        shop_name: resolveRegistrationShopName(vendorType, name, shopName),
-        category: effectiveCategory,
-        upi_id: upi.trim(),
-        phone: phone.trim(),
-        is_active: false,
-        service_mode: primaryServiceMode,
-        vendor_type: vendorType,
-        vendor_note: vendorNote.trim() || null,
-        latitude: coords?.lat ?? null,
-        longitude: coords?.lng ?? null,
-        verification_status: initialStatus,
-        upi_verified: false,
-        is_manual_verified: false,
-        shop_photo_url: null,
-        photo_selfie: null,
-        referral_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
-      })
-      .select()
-      .single();
-    if (error) {
+    const profileStatus: "draft" | "complete" =
+      vendorType === "visiting"
+        ? "complete"
+        : coords?.lat != null && coords?.lng != null
+          ? "complete"
+          : "draft";
+
+    if ((vendorType === "shop" || vendorType === "home") && !coords) {
+      toast(s.vendor_gps_missing_draft);
+    }
+
+    const categoryIdsForRpc = [...selectedCategoryIds];
+    const categoryServiceModes = categoryIdsForRpc.map((categoryId) => {
+      const cat = allRegCategories.find((c) => c.id === categoryId);
+      return cat?.service_mode ?? primaryServiceMode;
+    });
+
+    const registerResult = await invokeRegisterVendor({
+      name: name.trim(),
+      shop_name: resolveRegistrationShopName(vendorType, name, shopName),
+      category: effectiveCategory,
+      phone: phone.trim(),
+      upi_id: upi.trim(),
+      service_mode: primaryServiceMode,
+      vendor_type: vendorType,
+      vendor_note: vendorNote.trim() || null,
+      latitude: coords?.lat ?? null,
+      longitude: coords?.lng ?? null,
+      referral_code: referralCodeFromPhone(phone.trim()),
+      profile_status: profileStatus,
+      category_ids: categoryIdsForRpc,
+      category_service_modes: categoryServiceModes,
+    });
+
+    if (!registerResult.ok) {
       setLoading(false);
-      if (isDuplicateVendorPhoneError(error)) {
+      if (isDuplicateVendorPhoneError(registerResult)) {
+        const phoneValue = phone.trim();
+        const { data: existingVendor } = await supabase
+          .from("vendors")
+          .select("is_banned, deletion_requested_at, phone")
+          .eq("phone", phoneValue)
+          .single();
+        if (
+          existingVendor &&
+          (existingVendor.is_banned ||
+            existingVendor.deletion_requested_at != null ||
+            existingVendor.phone.startsWith("deleted_"))
+        ) {
+          toast.error(s.vendor_lookup_unavailable);
+          setError(null);
+          return;
+        }
         toast.error(s.vendor_duplicate_phone);
         setError(null);
         setHighlightAlreadyRegistered(true);
@@ -911,63 +1053,80 @@ const VendorMode = () => {
         window.setTimeout(() => setHighlightAlreadyRegistered(false), 2500);
         return;
       }
-      setError(error.message);
+      setError(registerResult.error);
       return;
     }
-    const newVendorId = data.id;
 
-    const needsReview = selectedCategoryIds.length >= 3;
-    const { error: vendorCategoriesError } = await supabase.from("vendor_categories").insert(
-      selectedCategoryIds.map((categoryId, index) => {
-        const cat = regCategories.find((c) => c.id === categoryId);
-        return {
-          vendor_id: newVendorId,
-          category_id: categoryId,
-          is_primary: index === 0,
-          status: "approved",
-          needs_review: needsReview,
-          service_mode: cat?.service_mode ?? primaryServiceMode,
-        };
-      }),
-    );
-    if (vendorCategoriesError) {
-      console.error("vendor_categories insert", vendorCategoriesError);
+    const newVendorId = registerResult.vendorId;
+    let resolvedPrimaryServiceMode = primaryServiceMode;
+    let resolvedCategoryLabel = effectiveCategory;
+
+    if (pendingNewCategoryCreate) {
+      const created = await invokeSuggestCategory({
+        description: pendingNewCategoryCreate.description,
+        vendor_id: newVendorId,
+        create_pending: true,
+      });
+      if (created.success && created.category_id) {
+        resolvedPrimaryServiceMode = (created.service_mode ??
+          pendingNewCategoryCreate.service_mode) as ServiceModeValue;
+        resolvedCategoryLabel =
+          created.category_name ?? pendingNewCategoryCreate.category_name;
+
+        const attachResult = await invokeAttachPendingCategory({
+          vendorId: newVendorId,
+          categoryId: created.category_id,
+          serviceMode: resolvedPrimaryServiceMode,
+        });
+        if (!attachResult.ok) {
+          console.error("attach_pending_category failed", attachResult.error);
+        } else {
+          const { error: vendorUpdateError } = await supabase
+            .from("vendors")
+            .update({
+              category: resolvedCategoryLabel,
+              service_mode: resolvedPrimaryServiceMode,
+            })
+            .eq("id", newVendorId);
+          if (vendorUpdateError) {
+            console.error("vendor update after pending create", vendorUpdateError);
+          }
+        }
+
+        if (created.outcome === "new_auto_approved") {
+          toast.success(
+            s.category_approved_body.replace(
+              "{label}",
+              created.category_name ?? pendingNewCategoryCreate.category_name,
+            ),
+          );
+        }
+      } else {
+        console.error(
+          "pending category create failed",
+          created.error ?? s.vendor_category_create_failed,
+        );
+      }
     }
 
-    const { error: verificationError } = await supabase.from("vendor_verification").insert([
-      {
-        vendor_id: newVendorId,
-        check_type: "upi_format",
-        status: "passed",
-        checked_by: "system",
-        is_latest: true,
-      },
-      {
-        vendor_id: newVendorId,
-        check_type: "upi_pennydrop",
-        status: "dormant",
-        checked_by: "system",
-        is_latest: true,
-      },
-      {
-        vendor_id: newVendorId,
-        check_type: "aadhaar_digilocker",
-        status: "dormant",
-        checked_by: "system",
-        is_latest: true,
-      },
-    ]);
-    if (verificationError) {
-      console.error("vendor_verification insert", verificationError);
+    const { data: vendorRow, error: vendorFetchError } = await supabase
+      .from("vendors")
+      .select("*")
+      .eq("id", newVendorId)
+      .single();
+    if (vendorFetchError || !vendorRow) {
+      setLoading(false);
+      setError(vendorFetchError?.message ?? "Could not load registered vendor");
+      return;
     }
 
     setLoading(false);
     localStorage.setItem(STORAGE_KEY, newVendorId);
     notifyVendorIdChanged();
     setVendorId(newVendorId);
-    setVendor(data as Vendor);
-    const adminTitle = "🏪 New vendor registered";
-    const adminBody = `${name.trim()} — ${effectiveCategory} (${primaryServiceMode})`;
+    setVendor(vendorRow as Vendor);
+    const adminTitle = s.vendor_admin_notify_title;
+    const adminBody = `${name.trim()} — ${resolvedCategoryLabel} (${resolvedPrimaryServiceMode})`;
     void invokeNotifyAdmin(adminTitle, adminBody, { vendor_id: newVendorId });
     const { data: adminConfig } = await supabase
       .from("app_config")
@@ -977,7 +1136,7 @@ const VendorMode = () => {
     const adminPhone = adminConfig?.value?.trim() || "8888169446";
     saveNotification({
       userPhone: adminPhone,
-      type: "verification_update",
+      type: "new_vendor",
       title: adminTitle,
       body: adminBody,
       route: "vendor",
@@ -997,8 +1156,14 @@ const VendorMode = () => {
             referral_code: referralCodeInput.trim(),
           }),
         });
-        const referralBody = (await referralResp.json()) as { success?: boolean };
-        if (referralResp.ok && referralBody.success) {
+        const referralBody = (await referralResp.json()) as {
+          success?: boolean;
+          ok?: boolean;
+          reason?: string;
+        };
+        if (referralBody.reason === "already_referred") {
+          toast.error(s.referral_already_used);
+        } else if (referralResp.ok && referralBody.success) {
           toast.success(s.referral_code_applied);
         } else {
           toast.error(s.referral_code_invalid);
@@ -1031,7 +1196,13 @@ const VendorMode = () => {
       const variants = [digits, `+91${digits}`, `91${digits}`, `+91 ${digits}`];
       let found: Vendor | null = null;
       for (const v of variants) {
-        const { data, error } = await supabase.from("vendors").select("*").eq("phone", v).maybeSingle();
+        const { data, error } = await supabase
+          .from("vendors")
+          .select("*")
+          .eq("phone", v)
+          .eq("is_banned", false)
+          .is("deletion_requested_at", null)
+          .maybeSingle();
         if (error) continue;
         if (data) {
           found = data as Vendor;
@@ -1039,6 +1210,10 @@ const VendorMode = () => {
         }
       }
       if (found) {
+        if (found.phone.startsWith("deleted_")) {
+          toast.error(s.vendor_lookup_unavailable);
+          return;
+        }
         localStorage.setItem(STORAGE_KEY, found.id);
         notifyVendorIdChanged();
         setVendorId(found.id);
@@ -1124,28 +1299,57 @@ const VendorMode = () => {
     return true;
   };
 
-  const notifyUsersVendorOffline = (orders: BlockingOfflineOrder[]) => {
-    const notifyByPhone = new Map<string, string>();
+  const notifyUsersVendorOffline = (
+    orders: BlockingOfflineOrder[],
+    serviceMode: string | null | undefined,
+  ) => {
+    const activeByPhone = new Map<string, string>();
+    const pendingByPhone = new Map<string, string>();
     for (const order of orders) {
-      if (!orderShouldNotifyVendorOffline(order)) continue;
       const userPhone = order.user_phone?.trim();
-      if (!userPhone || notifyByPhone.has(userPhone)) continue;
-      notifyByPhone.set(userPhone, order.id);
+      if (!userPhone) continue;
+      if (orderShouldNotifyVendorOffline(order)) {
+        if (!activeByPhone.has(userPhone)) activeByPhone.set(userPhone, order.id);
+        continue;
+      }
+      if (orderShouldNotifyPendingVendorOffline(order, serviceMode)) {
+        if (!pendingByPhone.has(userPhone)) pendingByPhone.set(userPhone, order.id);
+      }
     }
 
-    const title = s.user_vendor_offline_title;
-    const body = s.user_vendor_offline_body;
-    for (const [userPhone, orderId] of notifyByPhone) {
+    for (const [userPhone, orderId] of activeByPhone) {
       void invokeNotifyUser({
         user_phone: userPhone,
-        title,
-        body,
+        title: s.user_vendor_offline_title,
+        body: s.user_vendor_offline_body,
+        type: "order_update",
+        order_id: orderId,
       });
       saveNotification({
         userPhone,
         type: "order_update",
-        title,
-        body,
+        title: s.user_vendor_offline_title,
+        body: s.user_vendor_offline_body,
+        route: "my-orders",
+        routeParams: { order_id: orderId },
+        isInformational: false,
+      });
+    }
+
+    for (const [userPhone, orderId] of pendingByPhone) {
+      if (activeByPhone.has(userPhone)) continue;
+      void invokeNotifyUser({
+        user_phone: userPhone,
+        title: s.goOffline_pendingOrderNotify_title,
+        body: s.goOffline_pendingOrderNotify_body,
+        type: "order_update",
+        order_id: orderId,
+      });
+      saveNotification({
+        userPhone,
+        type: "order_update",
+        title: s.goOffline_pendingOrderNotify_title,
+        body: s.goOffline_pendingOrderNotify_body,
         route: "my-orders",
         routeParams: { order_id: orderId },
         isInformational: false,
@@ -1188,7 +1392,7 @@ const VendorMode = () => {
     setOfflineBlockingOrders([]);
     const ok = await applyActiveState(false);
     if (ok && ordersToNotify.length > 0) {
-      notifyUsersVendorOffline(ordersToNotify);
+      notifyUsersVendorOffline(ordersToNotify, vendor.service_mode);
     }
   };
 
@@ -1503,45 +1707,204 @@ const VendorMode = () => {
                 {s.vendor_categories_selected(selectedCategoryIds.length)}
               </span>
             </div>
-            {regCategoriesLoading ? (
-              <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {s.vendor_understanding}
-              </p>
-            ) : regCategories.length === 0 ? (
-              <p className="mt-2 text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
-            ) : (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {regCategories.map((cat) => {
-                  const selected = selectedCategoryIds.includes(cat.id);
-                  const atMax = selectedCategoryIds.length >= MAX_REG_CATEGORIES;
-                  const disabled = !selected && atMax;
-                  return (
+
+            <Textarea
+              value={businessDescription}
+              onChange={(e) => setBusinessDescription(e.target.value)}
+              placeholder={s.category_describe_placeholder}
+              className="mt-2 min-h-[72px] resize-none"
+            />
+            <button
+              type="button"
+              onClick={() => void handleFindCategory()}
+              disabled={categorySuggesting || businessDescription.trim().length < 3}
+              className="mt-2 w-full rounded-xl bg-brand px-3 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            >
+              {categorySuggesting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {s.category_finding}
+                </>
+              ) : (
+                s.category_findButton
+              )}
+            </button>
+
+            {categorySuggestion?.outcome === "high_existing" &&
+              categorySuggestion.category_id && (
+                <div className="mt-3 rounded-2xl border border-brand/40 bg-brand/10 p-3 space-y-2">
+                  <p className="text-sm font-semibold text-foreground">
+                    {s.category_suggestion(categorySuggestion.category_name ?? "")}
+                  </p>
+                  {categorySuggestion.reasoning && (
+                    <p className="text-xs text-muted-foreground">{categorySuggestion.reasoning}</p>
+                  )}
+                  <div className="flex gap-2">
                     <button
-                      key={cat.id}
                       type="button"
-                      disabled={disabled}
-                      onClick={() => toggleRegCategory(cat.id)}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                        selected
-                          ? "border-primary bg-primary/20 text-foreground ring-1 ring-primary/30"
-                          : "border-border bg-card text-foreground",
-                        disabled && "opacity-40 cursor-not-allowed",
-                      )}
+                      onClick={() =>
+                        selectCategoryFromSuggestion(
+                          categorySuggestion.category_id!,
+                          categorySuggestion.category_name ?? "",
+                          categorySuggestion.emoji,
+                          categorySuggestion.service_mode ?? "help",
+                        )
+                      }
+                      className="flex-1 rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
                     >
-                      <span>
-                        {cat.emoji} {getLabel(cat.label)}
-                      </span>
-                      <span className="text-[10px] font-normal text-muted-foreground">
-                        {categoryServiceModeChipLabel(cat.service_mode, s)}
-                      </span>
+                      {s.category_confirm}
                     </button>
-                  );
-                })}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategorySuggestion(null);
+                        setShowManualCategories(true);
+                      }}
+                      className="flex-1 rounded-xl border border-border px-3 py-2 text-xs font-semibold"
+                    >
+                      {s.category_chooseDifferently}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            {categorySuggestion?.outcome === "medium_existing" &&
+              categorySuggestion.category_id && (
+                <div className="mt-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 space-y-2">
+                  <p className="text-sm font-semibold text-foreground">
+                    {s.category_didYouMean(categorySuggestion.category_name ?? "")}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectCategoryFromSuggestion(
+                          categorySuggestion.category_id!,
+                          categorySuggestion.category_name ?? "",
+                          categorySuggestion.emoji,
+                          categorySuggestion.service_mode ?? "help",
+                        )
+                      }
+                      className="flex-1 rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
+                    >
+                      {s.category_yes}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategorySuggestion(null);
+                        setShowManualCategories(true);
+                      }}
+                      className="flex-1 rounded-xl border border-border px-3 py-2 text-xs font-semibold"
+                    >
+                      {s.category_no}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            {(categorySuggestion?.outcome === "new_suggested" ||
+              categorySuggestion?.outcome === "medium_new") && (
+              <div className="mt-3 rounded-2xl border border-border bg-muted/40 p-3 space-y-2">
+                <p className="text-sm font-semibold text-foreground">
+                  {s.category_suggest_new(categorySuggestion.category_name ?? "")}
+                </p>
+                {categorySuggestion.reasoning && (
+                  <p className="text-xs text-muted-foreground">{categorySuggestion.reasoning}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={confirmNewCategorySuggestion}
+                  className="w-full rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
+                >
+                  {s.category_confirm}
+                </button>
               </div>
             )}
-            {selectedCategoryIds.length === 0 && (
+
+            {categorySuggestion?.outcome === "low_confidence" && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-muted-foreground">{s.category_notSure}</p>
+                <div className="flex flex-wrap gap-2">
+                  {(categorySuggestion.top_picks ?? []).map((pick) => (
+                    <button
+                      key={pick.id}
+                      type="button"
+                      onClick={() =>
+                        selectCategoryFromSuggestion(
+                          pick.id,
+                          pick.label,
+                          pick.emoji,
+                          pick.service_mode,
+                        )
+                      }
+                      className="rounded-full border border-border bg-card px-3 py-1.5 text-sm font-medium"
+                    >
+                      {pick.emoji} {getLabel(pick.label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {pendingNewCategoryCreate && (
+              <p className="mt-2 text-xs font-medium text-brand">
+                {s.category_suggest_new(pendingNewCategoryCreate.category_name)}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowManualCategories((v) => !v)}
+              className="mt-3 text-xs font-medium text-muted-foreground hover:text-foreground underline"
+            >
+              {s.category_browseManual}
+            </button>
+
+            {showManualCategories && (
+              <>
+                {regCategoriesLoading ? (
+                  <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {s.vendor_understanding}
+                  </p>
+                ) : allRegCategories.length === 0 ? (
+                  <p className="mt-2 text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
+                ) : (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {allRegCategories.map((cat) => {
+                      const selected = selectedCategoryIds.includes(cat.id);
+                      const atMax = selectedCategoryIds.length >= MAX_REG_CATEGORIES;
+                      const disabled = !selected && atMax;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => toggleRegCategory(cat.id)}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                            selected
+                              ? "border-primary bg-primary/20 text-foreground ring-1 ring-primary/30"
+                              : "border-border bg-card text-foreground",
+                            disabled && "opacity-40 cursor-not-allowed",
+                          )}
+                        >
+                          <span>
+                            {cat.emoji} {getLabel(cat.label)}
+                          </span>
+                          <span className="text-[10px] font-normal text-muted-foreground">
+                            {categoryServiceModeChipLabel(cat.service_mode, s)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+
+            {selectedCategoryIds.length === 0 && !pendingNewCategoryCreate && (
               <p className="mt-2 text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
             )}
           </div>
@@ -1580,17 +1943,19 @@ const VendorMode = () => {
             </p>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs text-gray-400">{s.vendor_referralCodeLabel}</label>
-            <input
-              type="text"
-              value={referralCodeInput}
-              onChange={(e) => setReferralCodeInput(e.target.value.toUpperCase().trim())}
-              placeholder={s.vendor_referralCodePlaceholder}
-              maxLength={10}
-              className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
-            />
-          </div>
+          {referralEnabled && (
+            <div className="space-y-1">
+              <label className="text-xs text-gray-400">{s.vendor_referralCodeLabel}</label>
+              <input
+                type="text"
+                value={referralCodeInput}
+                onChange={(e) => setReferralCodeInput(e.target.value.toUpperCase().trim())}
+                placeholder={s.vendor_referralCodePlaceholder}
+                maxLength={10}
+                className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
+              />
+            </div>
+          )}
 
           {vendorType !== "" && vendorType !== "visiting" && (
             <>
@@ -1682,7 +2047,7 @@ const VendorMode = () => {
 
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Phone
+              {s.vendor_lookup_phone_label}
             </label>
             <div className="mt-1 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
               <span className="text-sm text-muted-foreground font-medium">+91</span>
@@ -1855,12 +2220,14 @@ const VendorMode = () => {
             </div>
           )}
 
-          <div>
+          <div id="vendor-incoming-orders">
             <IncomingOrdersSection
               vendorId={vendor.id}
               serviceMode={vendor.service_mode ?? "help"}
               onUnreadCount={(n) => setUnreadCount(n)}
               shopName={vendor.shop_name}
+              khataAmberLimit={vendor.khata_amber_limit ?? 0}
+              khataRedLimit={vendor.khata_red_limit ?? 0}
               cancelReasons={[
                 vendor.cancel_reason_1,
                 vendor.cancel_reason_2,
@@ -2057,7 +2424,9 @@ const VendorMode = () => {
                 </div>
               </div>
 
-              <VendorPostRegistrationGuidance vendor={vendor} />
+              <div id="vendor-verification-banner">
+                <VendorPostRegistrationGuidance vendor={vendor} />
+              </div>
 
               {/* Shop info */}
               <div className="rounded-2xl bg-muted/60 p-4 text-sm space-y-2 mt-4">

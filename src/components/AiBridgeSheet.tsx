@@ -11,12 +11,12 @@ import {
 import {
   VerificationBadge,
   vendorTier,
-  verificationCopy,
+  getVerificationCopy,
 } from "@/components/VerificationBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import {
   emojiForVendorCategory,
-  fetchAiBridgeBrief,
+  buildVendorBrief,
   invokeInitiateCall,
   useCategoryLabel,
   type Vendor,
@@ -94,6 +94,7 @@ export function AiBridgeSheet({
   const getLabel = useCategoryLabel();
   const vendorRow = useMemo(() => asVendor(vendor), [vendor]);
   const tier = vendorTier(vendorRow);
+  const verificationCopy = getVerificationCopy(s);
 
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefText, setBriefText] = useState<string | null>(null);
@@ -123,7 +124,7 @@ export function AiBridgeSheet({
     setBriefFailed(false);
     setBriefText(null);
 
-    const result = await fetchAiBridgeBrief({
+    const result = await buildVendorBrief({
       vendor_name: vendor.name?.trim() ? vendor.name : vendor.shop_name,
       shop_name: vendor.shop_name,
       category: vendor.category,

@@ -213,10 +213,10 @@ test('AIBRIDGE-03: AI bridge call goes via edge function — not direct client c
   const { data } = await supabase
     .from('app_config')
     .select('value')
-    .eq('key', 'payments_enabled')
+    .eq('key', 'help_call_limit_seconds')
     .single();
 
-  // payments_enabled config readable — app config is accessible
+  // app_config readable — edge function config is accessible
   expect(data).not.toBeNull();
 });
 

@@ -49,7 +49,7 @@ export function TrustWarningBanner({ tier, context, className }: TrustWarningBan
         {context === "radar" && (
           <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
             <ShieldAlert className="h-4 w-4 text-warning" />
-            <span className="text-xs text-warning font-semibold">Pending</span>
+            <span className="text-xs text-warning font-semibold">{s.radar_trustPending}</span>
           </span>
         )}
         <p className="text-xs text-warning font-semibold">{s.trust_warning_yellow}</p>

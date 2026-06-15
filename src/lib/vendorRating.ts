@@ -12,7 +12,13 @@ export async function syncVendorRatingFromReviews(
     .select("rating")
     .eq("vendor_id", vendorId);
 
-  if (!reviews?.length) return;
+  if (!reviews?.length) {
+    await supabase
+      .from("vendors")
+      .update({ avg_rating: null, review_count: 0, low_rating_admin_notified: false })
+      .eq("id", vendorId);
+    return;
+  }
 
   const avg = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
   const avgRating = Math.round(avg * 10) / 10;
@@ -27,7 +33,7 @@ export async function syncVendorRatingFromReviews(
     review_count: reviewCount,
   };
 
-  if (avgRating > 3.0) {
+  if (avgRating > 3.5) {
     update.low_rating_admin_notified = false;
   }
 

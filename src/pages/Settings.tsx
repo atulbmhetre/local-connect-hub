@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
   ShieldCheck,
@@ -44,6 +44,8 @@ import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { logAdminAction } from "@/lib/adminAudit";
 import { getDeviceId } from "@/lib/deviceId";
+import { maskPhoneLast4 } from "@/lib/khataDisplay";
+import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
 import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
 import { useAppConfig } from "@/hooks/useAppConfig";
@@ -362,6 +364,10 @@ const DEV_MENU_PIN_DEFAULT = "1947";
 const ADMIN_CONFIG_WHITELIST = [
   "referral_enabled",
   "help_accept_timeout_hours",
+  "help_accept_timeout_minutes",
+  "help_near_deadline_minutes",
+  "delivery_near_deadline_minutes",
+  "appointment_near_deadline_minutes",
   "vendor_stopped_minutes",
   "location_ping_seconds",
   "referral_user_credit",
@@ -369,7 +375,9 @@ const ADMIN_CONFIG_WHITELIST = [
   "referral_vendor_credit_m1",
   "referral_vendor_credit_m2",
   "referral_vendor_credit_m3",
+  "referral_veteran_threshold_months",
   "dev_menu_pin",
+  "feed_notification_radius_km",
 ] as const;
 
 type AdminConfigKey = (typeof ADMIN_CONFIG_WHITELIST)[number];
@@ -377,6 +385,10 @@ type AdminConfigKey = (typeof ADMIN_CONFIG_WHITELIST)[number];
 const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
   referral_enabled: "referral_enabled",
   help_accept_timeout_hours: "help_accept_timeout_hours",
+  help_accept_timeout_minutes: "help_accept_timeout_minutes",
+  help_near_deadline_minutes: "help_near_deadline_minutes",
+  delivery_near_deadline_minutes: "delivery_near_deadline_minutes",
+  appointment_near_deadline_minutes: "Appointment Near-Deadline Warning (minutes)",
   vendor_stopped_minutes: "vendor_stopped_minutes",
   location_ping_seconds: "location_ping_seconds",
   referral_user_credit: "referral_user_credit",
@@ -384,7 +396,9 @@ const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
   referral_vendor_credit_m1: "referral_vendor_credit_m1",
   referral_vendor_credit_m2: "referral_vendor_credit_m2",
   referral_vendor_credit_m3: "referral_vendor_credit_m3",
+  referral_veteran_threshold_months: "Referral veteran threshold (months)",
   dev_menu_pin: "dev_menu_pin",
+  feed_notification_radius_km: "Feed notification radius (km)",
 };
 
 function buildVerifyAutoChecks(
@@ -469,10 +483,14 @@ async function checkNativePermissionStatuses(): Promise<NativePermissionStatuses
 
 const Settings = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const highlightVendorId = (location.state as { highlightVendorId?: string } | null)
+    ?.highlightVendorId;
+  const [flashVendorId, setFlashVendorId] = useState<string | null>(null);
   const { lang, setLang, s } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const { config } = useAppConfig();
-  const [referEarnVisible, setReferEarnVisible] = useState(true);
+  const [referEarnVisible, setReferEarnVisible] = useState(false);
   const languageOptions = useMemo(
     () =>
       (Object.entries(LANGUAGE_LABELS) as [Language, string][]).filter(([code]) => {
@@ -534,7 +552,10 @@ const Settings = () => {
       emoji: string;
       service_mode: string;
       ai_confidence: string | null;
+      ai_confidence_score: number | null;
+      ai_reasoning: string | null;
       suggested_by_vendor_id: string | null;
+      suggested_vendor_name: string | null;
     }[]
   >([]);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -617,6 +638,19 @@ const Settings = () => {
     useFeedNotificationsEnabled();
   const [activeTab, setActiveTab] = useState<"settings" | "admin">("settings");
   const [pendingCatOpen, setPendingCatOpen] = useState(false);
+  const [lowRatingsOpen, setLowRatingsOpen] = useState(false);
+  const [lowRatings, setLowRatings] = useState<
+    {
+      id: string;
+      vendor_id: string;
+      shop_name: string;
+      rating: number;
+      review_text: string | null;
+      user_phone: string | null;
+      created_at: string;
+    }[]
+  >([]);
+  const [lowRatingDeletingId, setLowRatingDeletingId] = useState<string | null>(null);
   const [vendorModerationOpen, setVendorModerationOpen] = useState(false);
   const [adminConfigOpen, setAdminConfigOpen] = useState(false);
   const [adminConfigValues, setAdminConfigValues] = useState<Partial<Record<AdminConfigKey, string>>>(
@@ -986,17 +1020,107 @@ const Settings = () => {
   const loadPendingCategories = async () => {
     const { data } = await supabase
       .from("categories")
-      .select("id, label, emoji, service_mode, ai_confidence, suggested_by_vendor_id")
-      .eq("pending_review", true)
-      .eq("is_active", false)
+      .select(
+        "id, label, emoji, service_mode, ai_confidence, ai_confidence_score, ai_reasoning, suggested_by_vendor_id, status, pending_review",
+      )
+      .or("status.eq.pending_review,and(pending_review.eq.true,is_active.eq.false)")
       .order("created_at", { ascending: false });
-    setPendingCategories(data ?? []);
+
+    const rows = data ?? [];
+    const vendorIds = [
+      ...new Set(
+        rows
+          .map((r) => r.suggested_by_vendor_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      ),
+    ];
+    const vendorNameById = new Map<string, string>();
+    if (vendorIds.length > 0) {
+      const { data: vendors } = await supabase
+        .from("vendors")
+        .select("id, shop_name")
+        .in("id", vendorIds);
+      for (const v of vendors ?? []) {
+        vendorNameById.set(v.id, v.shop_name ?? "Vendor");
+      }
+    }
+
+    setPendingCategories(
+      rows.map((cat) => ({
+        id: cat.id,
+        label: cat.label,
+        emoji: cat.emoji,
+        service_mode: cat.service_mode,
+        ai_confidence: cat.ai_confidence,
+        ai_confidence_score: cat.ai_confidence_score,
+        ai_reasoning: cat.ai_reasoning,
+        suggested_by_vendor_id: cat.suggested_by_vendor_id,
+        suggested_vendor_name: cat.suggested_by_vendor_id
+          ? vendorNameById.get(cat.suggested_by_vendor_id) ?? null
+          : null,
+      })),
+    );
   };
 
   useEffect(() => {
     if (!isAdmin) return;
     void loadPendingCategories();
   }, [isAdmin]);
+
+  const loadLowRatings = async () => {
+    const { data, error } = await supabase
+      .from("vendor_reviews")
+      .select("id, vendor_id, rating, review_text, user_phone, created_at, vendors(shop_name)")
+      .lte("rating", 2)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error("loadLowRatings", error);
+      setLowRatings([]);
+      return;
+    }
+
+    setLowRatings(
+      (data ?? []).map((row) => {
+        const vendor = row.vendors as { shop_name: string | null } | null;
+        return {
+          id: row.id,
+          vendor_id: row.vendor_id,
+          shop_name: vendor?.shop_name?.trim() || "Vendor",
+          rating: row.rating,
+          review_text: row.review_text,
+          user_phone: row.user_phone,
+          created_at: row.created_at,
+        };
+      }),
+    );
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadLowRatings();
+  }, [isAdmin]);
+
+  const deleteLowRating = async (row: (typeof lowRatings)[number]) => {
+    setLowRatingDeletingId(row.id);
+    setLowRatings((prev) => prev.filter((r) => r.id !== row.id));
+
+    const { error } = await supabase.from("vendor_reviews").delete().eq("id", row.id);
+    if (error) {
+      console.error("deleteLowRating", error);
+      toast.error(error.message);
+      setLowRatingDeletingId(null);
+      void loadLowRatings();
+      return;
+    }
+
+    await syncVendorRatingFromReviews(row.vendor_id, {
+      shopName: row.shop_name,
+      alertAdmin: false,
+    });
+    setLowRatingDeletingId(null);
+  };
 
   const loadFlaggedUsers = async () => {
     const { data, error } = await supabase
@@ -1063,12 +1187,14 @@ const Settings = () => {
         vendor_id: vendorId,
         notification_title: title,
         message: body,
+        type: "account_restored",
       });
     } else {
       void invokeNotifyUser({
         user_phone: phone,
         title,
         body,
+        type: "account_restored",
       });
     }
     saveNotification({
@@ -1118,6 +1244,7 @@ const Settings = () => {
       user_phone: phone,
       title,
       body,
+      type: "account_warning",
     });
     saveNotification({
       userPhone: phone,
@@ -1172,6 +1299,7 @@ const Settings = () => {
       vendor_id: v.id,
       notification_title: title,
       message: body,
+      type: "account_banned",
     });
     if (v.phone?.trim()) {
       saveNotification({
@@ -1236,6 +1364,7 @@ const Settings = () => {
       user_phone: bannedPhone,
       title: s.user_banned_title,
       body: s.user_banned_body,
+      type: "account_banned",
     });
     saveNotification({
       userPhone: bannedPhone,
@@ -1278,7 +1407,11 @@ const Settings = () => {
     setPendingAction(cat.id);
     const { error } = await supabase
       .from("categories")
-      .update({ is_active: true, pending_review: false })
+      .update({
+        is_active: true,
+        pending_review: false,
+        status: "active",
+      })
       .eq("id", cat.id);
     setPendingAction(null);
     if (error) {
@@ -1294,20 +1427,15 @@ const Settings = () => {
     setPendingAction(cat.id);
     const { error: updateError } = await supabase
       .from("categories")
-      .update({ pending_review: false, is_active: false })
-      .eq("id", cat.id);
-    if (updateError) {
-      setPendingAction(null);
-      toast.error("Update failed: " + updateError.message);
-      return;
-    }
-    const { error: deleteError } = await supabase
-      .from("categories")
-      .delete()
+      .update({
+        pending_review: false,
+        is_active: false,
+        status: "rejected",
+      })
       .eq("id", cat.id);
     setPendingAction(null);
-    if (deleteError) {
-      toast.error("Delete failed: " + deleteError.message);
+    if (updateError) {
+      toast.error("Update failed: " + updateError.message);
       return;
     }
     await notifyCategoryVendor(cat, "rejected");
@@ -1315,7 +1443,16 @@ const Settings = () => {
     await loadPendingCategories();
   };
 
-  const confidenceBadgeClass = (confidence: string | null) => {
+  const confidenceBadgeClass = (confidence: string | null, score: number | null) => {
+    if (score != null && Number.isFinite(score)) {
+      if (score >= 0.85) {
+        return "bg-green-500/10 text-green-700 border border-green-500/30";
+      }
+      if (score >= 0.5) {
+        return "bg-amber-500/10 text-amber-700 border border-amber-500/30";
+      }
+      return "bg-destructive/10 text-destructive border border-destructive/30";
+    }
     if (confidence === "high") {
       return "bg-green-500/10 text-green-700 border border-green-500/30";
     }
@@ -1385,6 +1522,7 @@ const Settings = () => {
       vendor_id: vendorId,
       notification_title: payload.title,
       message: payload.body,
+      type: payload.type,
     });
     const vendorPhone = phone?.trim();
     if (vendorPhone) {
@@ -1516,6 +1654,17 @@ const Settings = () => {
       return a.shop_name.localeCompare(b.shop_name);
     });
   }, [vendorList, vendorSearch]);
+
+  useEffect(() => {
+    if (!highlightVendorId || !isAdmin) return;
+    setVendorModerationOpen(true);
+    const el = document.getElementById(`admin-vendor-${highlightVendorId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashVendorId(highlightVendorId);
+    const t = window.setTimeout(() => setFlashVendorId(null), 2000);
+    return () => window.clearTimeout(t);
+  }, [highlightVendorId, isAdmin, vendorList.length]);
 
   // Hidden gesture: tap the page title 7× to open PIN gate for developer menu.
   const tapTitle = () => {
@@ -1865,16 +2014,6 @@ const Settings = () => {
         )}
         </SettingsCollapsible>
 
-        {referEarnVisible && !vendorId && (
-        <SettingsCollapsible
-          label={s.vendor_referEarn}
-          open={referOpen}
-          onToggle={() => setReferOpen((o) => !o)}
-          nested
-        >
-          <VendorSettingsReferEarn vendor={vendor} userPhone={userPhone} />
-        </SettingsCollapsible>
-        )}
 
         <SettingsCollapsible
           label={s.settings_preferences}
@@ -2058,18 +2197,6 @@ const Settings = () => {
                 </div>
               </SettingsRow>
             </SettingsCard>
-            <SettingsCard className="mx-0 mb-0 border-surface-border">
-              <SettingsRow
-                label={s.settings_feedNotifications}
-                sublabel={s.settings_feedNotificationsHint}
-              >
-                <Switch
-                  className="data-[state=checked]:bg-brand"
-                  checked={feedNotificationsEnabled}
-                  onCheckedChange={onFeedNotificationsChange}
-                />
-              </SettingsRow>
-            </SettingsCard>
           </SettingsParentCollapsible>
 
           <AlertDialog
@@ -2093,6 +2220,19 @@ const Settings = () => {
           </AlertDialog>
         </>
       )}
+
+      <SettingsCard className="mx-4 mb-3 border-surface-border">
+        <SettingsRow
+          label={s.settings_feedNotifications}
+          sublabel={s.settings_feedNotificationsHint}
+        >
+          <Switch
+            className="data-[state=checked]:bg-brand"
+            checked={feedNotificationsEnabled}
+            onCheckedChange={onFeedNotificationsChange}
+          />
+        </SettingsRow>
+      </SettingsCard>
 
       <SettingsParentCollapsible
         label={s.settings_connection_privacy}
@@ -2308,7 +2448,11 @@ const Settings = () => {
                 {filteredVendors.map((v) => (
                   <div
                     key={v.id}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-border p-3"
+                    id={`admin-vendor-${v.id}`}
+                    className={cn(
+                      "flex items-center justify-between gap-3 rounded-2xl border border-border p-3 transition-shadow",
+                      flashVendorId === v.id && "ring-2 ring-brand shadow-md",
+                    )}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -2511,12 +2655,24 @@ const Settings = () => {
                       </span>
                       {cat.ai_confidence && (
                         <span
-                          className={`rounded-full text-[10px] font-semibold px-2 py-0.5 ${confidenceBadgeClass(cat.ai_confidence)}`}
+                          className={`rounded-full text-[10px] font-semibold px-2 py-0.5 ${confidenceBadgeClass(cat.ai_confidence, cat.ai_confidence_score)}`}
                         >
-                          {cat.ai_confidence}
+                          {cat.ai_confidence_score != null
+                            ? `${Math.round(cat.ai_confidence_score * 100)}%`
+                            : cat.ai_confidence}
                         </span>
                       )}
                     </div>
+                    {cat.ai_reasoning && (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {cat.ai_reasoning}
+                      </p>
+                    )}
+                    {cat.suggested_vendor_name && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Suggested by {cat.suggested_vendor_name}
+                      </p>
+                    )}
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -2533,6 +2689,63 @@ const Settings = () => {
                         className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                       >
                         ❌ {s.admin_reject}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SettingsCollapsible>
+
+          <SettingsCollapsible
+            label={`${s.admin_lowRatings_title} (${lowRatings.length})`}
+            open={lowRatingsOpen}
+            onToggle={() => setLowRatingsOpen((o) => !o)}
+          >
+            {lowRatings.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{s.admin_lowRatings_empty}</p>
+            ) : (
+              <div className="space-y-3">
+                {lowRatings.map((review) => (
+                  <div
+                    key={review.id}
+                    className="rounded-2xl border border-border p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <p className="text-sm font-semibold">{review.shop_name}</p>
+                        <p className="text-sm" aria-label={`${review.rating} stars`}>
+                          {"⭐".repeat(review.rating)}
+                          {"☆".repeat(Math.max(0, 5 - review.rating))}
+                        </p>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {review.review_text?.trim()
+                            ? `"${review.review_text.trim()}"`
+                            : s.admin_lowRatings_noComment}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground tabular-nums">
+                          {review.user_phone?.trim()
+                            ? maskPhoneLast4(review.user_phone.trim())
+                            : "—"}
+                          {" · "}
+                          {new Date(review.created_at).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void deleteLowRating(review)}
+                        disabled={lowRatingDeletingId === review.id}
+                        className="shrink-0 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        {lowRatingDeletingId === review.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin inline" />
+                        ) : (
+                          s.admin_lowRatings_delete
+                        )}
                       </button>
                     </div>
                   </div>
@@ -2930,7 +3143,7 @@ const Settings = () => {
               </div>
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                  Referred by
+                  {s.referral_referred_by}
                 </p>
                 <p className="text-xs text-foreground">
                   {verifyReferrerLabel ?? "…"}

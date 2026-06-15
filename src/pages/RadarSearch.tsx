@@ -1,7 +1,7 @@
 ﻿import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { NotificationBell } from "@/components/NotificationBell";
 import {
@@ -11,7 +11,6 @@ import {
   Shield,
   ShieldAlert,
   Loader2,
-  Clock,
   Siren,
   ChevronDown,
   Zap,
@@ -24,6 +23,7 @@ import {
   distanceKm,
   displayName,
   useCategoryLabel,
+  invokeSuggestCategory,
 } from "@/lib/supabase";
 import {
   RadarVendorCard,
@@ -32,18 +32,31 @@ import {
 } from "@/components/RadarVendorCard";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
+import { cn } from "@/lib/utils";
 import {
   Collapsible,
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { useLanguage } from "@/lib/language";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import {
   compareRadarResults,
   computeTrustLevelsByVendor,
   type TrustLevel,
   type VendorVerificationRow,
 } from "@/lib/trustLevel";
+import {
+  FIRE_EMERGENCY_LABELS,
+  MEDICAL_EMERGENCY_LABELS,
+  ROADSIDE_EMERGENCY_LABELS,
+  isOfficialEmergencyCategory,
+  isAmbulanceEmergencySearch,
+  isPharmacyMedicalSearch,
+  resolveCanonicalTerm,
+  showGovHelpAlongsideRadiusExpand,
+  termForGovEmergencyHelp,
+} from "@/lib/categories";
 
 export type RadarMenuItem = {
   name: string;
@@ -59,43 +72,14 @@ export type RadarVendorResult = Vendor & {
   menuPreview: RadarMenuItem[];
   hasActiveOrder: boolean;
   hasFulfilledOrder: boolean;
+  fulfilledRequestId: string | null;
   isSavedNeighbour: boolean;
 };
 
 type Ranked = { vendor: RadarVendorResult; dist: number | null };
 
-// Strict resolver mirrors Home: maps free-text/voice to canonical category labels.
-// TODO Phase 2: Replace KNOWN_CATEGORIES with DB lookup from categories table
-// Alias resolution should be driven by a categories_aliases table in Supabase
-// so new vendor categories get searchable without code changes
-const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
-  { label: "Mechanic", aliases: ["mechanic", "garage", "repair", "engine", "car repair", "bike repair"] },
-  { label: "Towing", aliases: ["towing", "tow", "tow truck", "breakdown", "crane"] },
-  { label: "Tyre Service", aliases: ["tyre", "tire", "puncture", "flat tyre", "wheel"] },
-  { label: "Key Maker", aliases: ["key", "keymaker", "locksmith", "duplicate key", "lock"] },
-  { label: "Ambulance", aliases: ["ambulance", "emergency", "108"] },
-  {
-    label: "Fire Brigade",
-    aliases: ["fire station", "fire brigade", "agni shaman", "agnishaman", "fire emergency"],
-  },
-  { label: "Pharmacy", aliases: ["pharmacy", "medical", "medicine", "chemist", "drug store", "tablet"] },
-  { label: "Nursing", aliases: ["nursing", "nurse", "home care", "caretaker", "patient care"] },
-  { label: "Plumber", aliases: ["plumber", "plumbing", "leak", "pipe", "tap", "water"] },
-  { label: "Electrician", aliases: ["electrician", "electric", "wiring", "current", "fuse", "power"] },
-  { label: "Security", aliases: ["security", "guard", "watchman", "bouncer"] },
-];
-
-function resolveCategory(term: string): string | null {
-  const t = term.toLowerCase().trim();
-  for (const c of KNOWN_CATEGORIES) {
-    if (c.label.toLowerCase() === t) return c.label;
-    if (c.aliases.some((a) => t.includes(a))) return c.label;
-  }
-  return null;
-}
-
 function resolveCategoryIdsForTerm(term: string, categories: Category[]): string[] {
-  const resolvedLabel = resolveCategory(term);
+  const resolvedLabel = resolveCanonicalTerm(term);
   if (resolvedLabel) {
     const exact = categories.find(
       (c) => c.label.toLowerCase() === resolvedLabel.toLowerCase(),
@@ -147,64 +131,42 @@ function buildVendorCategoriesMap(
   return out;
 }
 
-/** Default geofence; user can widen to 25 km or 50 km before the failsafe UI. */
-const NEAR_RADIUS_KM = 15;
-const MAX_RADIUS_KM = 50;
-/** ~55 km at Indian latitudes; slightly wider than max 50 km search radius. */
+/** ~55 km at Indian latitudes; slightly wider than max search radius. */
 const BBOX_DELTA_DEG = 0.5;
 const GPS_TIMEOUT_MS = 10_000;
 
-const MEDICAL = new Set(["Ambulance", "Pharmacy", "Nursing"]);
-const ROADSIDE = new Set(["Mechanic", "Towing", "Tyre Service"]);
-const FIRE = new Set(["Fire Brigade"]);
+type LocationHighlightState = { highlightVendorId?: string };
 
-/** Only these searches show official emergency helplines in EmptyStateFailsafe. */
-const OFFICIAL_EMERGENCY_CATEGORIES = new Set([
-  "Ambulance",
-  "Nursing",
-  "Pharmacy",
-  "Mechanic",
-  "Towing",
-  "Tyre Service",
-  "Fire Brigade",
-]);
-
-function isOfficialEmergencyCategory(term: string): boolean {
-  const raw = term.trim().toLowerCase();
-  if (/\bhospitals?\b/.test(raw)) return true;
-  if (raw === "medical") return true;
-  const resolved = resolveCategory(term);
-  if (resolved && OFFICIAL_EMERGENCY_CATEGORIES.has(resolved)) return true;
-  const t = term.trim().toLowerCase();
-  if (!t) return false;
-  for (const label of OFFICIAL_EMERGENCY_CATEGORIES) {
-    if (label.toLowerCase() === t) return true;
-  }
-  return false;
-}
-
-/** Map vague medical searches to a category that triggers 108 in govt help UI. */
-function termForGovEmergencyHelp(term: string): string {
-  const t = term.trim().toLowerCase();
-  if (/\bhospitals?\b/.test(t)) return "Ambulance";
-  if (t === "medical") return "Ambulance";
-  return term;
-}
-
-/** When radar is empty before 50km, show official lines + radius expand (not only after max radius). */
-function showGovHelpAlongsideRadiusExpand(term: string): boolean {
-  const t = term.trim().toLowerCase();
-  if (/\bhospitals?\b/.test(t)) return true;
-  if (t === "medical") return true;
-  const r = resolveCategory(term);
-  if (!r) return false;
-  return r === "Fire Brigade" || r === "Ambulance" || r === "Nursing";
+function RadarVendorCardSkeleton() {
+  return (
+    <div
+      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-pulse"
+      aria-hidden
+    >
+      <div className="flex items-start gap-3">
+        <div className="h-12 w-12 rounded-xl bg-muted shrink-0" />
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="h-4 w-3/5 rounded-md bg-muted" />
+          <div className="h-3 w-2/5 rounded-md bg-muted" />
+          <div className="h-3 w-1/3 rounded-md bg-muted" />
+        </div>
+      </div>
+      <div className="mt-4 h-10 w-full rounded-xl bg-muted" />
+    </div>
+  );
 }
 
 const RadarSearch = () => {
   const { s } = useLanguage();
+  const { config } = useAppConfig();
+  const nearRadius = config.radarCityRadiusKm ?? 15;
+  const maxRadius = config.radarHighwayRadiusKm ?? 50;
+  const midRadius = Math.round((nearRadius + maxRadius) / 2);
   const getCategoryLabel = useCategoryLabel();
   const navigate = useNavigate();
+  const location = useLocation();
+  const highlightVendorId = (location.state as LocationHighlightState | null)?.highlightVendorId;
+  const [flashVendorId, setFlashVendorId] = useState<string | null>(null);
   const [params] = useSearchParams();
   const term = (params.get("q") ?? "").trim();
 
@@ -213,7 +175,7 @@ const RadarSearch = () => {
   const [locationDenied, setLocationDenied] = useState(false);
   const [scanning, setScanning] = useState(true);
   /** Active search radius in km (15 â†’ optional 25 / 50). */
-  const [searchRadiusKm, setSearchRadiusKm] = useState(NEAR_RADIUS_KM);
+  const [searchRadiusKm, setSearchRadiusKm] = useState(nearRadius);
   const [results, setResults] = useState<Ranked[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -225,6 +187,9 @@ const RadarSearch = () => {
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
   /** Bumped when neighbours_dirty is consumed so isSaved re-reads session flags. */
   const [neighboursSyncTick, setNeighboursSyncTick] = useState(0);
+  const [suggestedCategoryName, setSuggestedCategoryName] = useState<string | null>(null);
+  const [unknownTermBrowse, setUnknownTermBrowse] = useState(false);
+  const [ambulanceEmergencyOnly, setAmbulanceEmergencyOnly] = useState(false);
   /** Monotonic id so a stale in-flight fetch can never overwrite newer results. */
   const fetchSeqRef = useRef(0);
 
@@ -251,13 +216,16 @@ const RadarSearch = () => {
     };
   }, []);
 
-  const expanded = searchRadiusKm > NEAR_RADIUS_KM;
+  const expanded = searchRadiusKm > nearRadius;
   const locating = !coordsTried;
   const locationBlocked = coordsTried && coords == null;
 
   useLayoutEffect(() => {
-    setSearchRadiusKm(NEAR_RADIUS_KM);
-  }, [term]);
+    setSearchRadiusKm(nearRadius);
+    setSuggestedCategoryName(null);
+    setUnknownTermBrowse(false);
+    setAmbulanceEmergencyOnly(false);
+  }, [term, nearRadius]);
 
   const requestLocation = useCallback(() => {
     setCoordsTried(false);
@@ -266,6 +234,9 @@ const RadarSearch = () => {
     setScanning(true);
     setError(null);
     setResults([]);
+    setSuggestedCategoryName(null);
+    setUnknownTermBrowse(false);
+    setAmbulanceEmergencyOnly(false);
 
     if (!("geolocation" in navigator)) {
       setCoordsTried(true);
@@ -319,13 +290,49 @@ const RadarSearch = () => {
         setError(null);
       }
       try {
-        if (!opts.silent) {
-          await new Promise((r) => setTimeout(r, 900));
-        }
-
         let vendorIdFilter: string[] | null = null;
         if (term) {
-          const categoryIds = resolveCategoryIdsForTerm(term, categories);
+          if (isAmbulanceEmergencySearch(term)) {
+            if (isCurrent()) {
+              setResults([]);
+              setAmbulanceEmergencyOnly(true);
+              setUnknownTermBrowse(false);
+              setSuggestedCategoryName(null);
+            }
+            return;
+          }
+
+          if (isCurrent()) setAmbulanceEmergencyOnly(false);
+
+          let categoryIds = resolveCategoryIdsForTerm(term, categories);
+          let aiSuggestedName: string | null = null;
+
+          if (categoryIds.length === 0 && !resolveCanonicalTerm(term)) {
+            const result = await invokeSuggestCategory({ description: term });
+            const threshold = config.aiCategoryConfidenceThreshold ?? 0.85;
+            if (
+              result.success &&
+              result.outcome === "high_existing" &&
+              result.category_id &&
+              (result.confidence ?? 0) >= threshold
+            ) {
+              categoryIds = [result.category_id];
+              aiSuggestedName = result.category_name ?? null;
+            } else {
+              if (isCurrent()) {
+                setResults([]);
+                setUnknownTermBrowse(true);
+                setSuggestedCategoryName(null);
+              }
+              return;
+            }
+          }
+
+          if (isCurrent()) {
+            setUnknownTermBrowse(false);
+            setSuggestedCategoryName(aiSuggestedName);
+          }
+
           if (categoryIds.length === 0) {
             if (isCurrent()) setResults([]);
             return;
@@ -341,6 +348,10 @@ const RadarSearch = () => {
             if (isCurrent()) setResults([]);
             return;
           }
+        } else if (isCurrent()) {
+          setAmbulanceEmergencyOnly(false);
+          setUnknownTermBrowse(false);
+          setSuggestedCategoryName(null);
         }
 
         let q = supabase
@@ -348,6 +359,7 @@ const RadarSearch = () => {
           .select("*, verification_status")
           .eq("is_active", true)
           .eq("is_banned", false)
+          .eq("profile_status", "complete")
           .gte("latitude", coords.lat - BBOX_DELTA_DEG)
           .lte("latitude", coords.lat + BBOX_DELTA_DEG)
           .gte("longitude", coords.lng - BBOX_DELTA_DEG)
@@ -360,13 +372,19 @@ const RadarSearch = () => {
         const { data, error: fetchError } = await q.limit(80);
         if (fetchError) throw fetchError;
 
-        const bboxVendors = (data ?? []).filter(
+        let bboxVendors = (data ?? []).filter(
           (v) =>
             v.latitude != null &&
             v.longitude != null &&
             v.latitude !== 0 &&
             v.longitude !== 0,
         ) as Vendor[];
+
+        if (!term) {
+          bboxVendors = bboxVendors.filter(
+            (v) => String(v.service_mode ?? "").trim().toLowerCase() === "help",
+          );
+        }
 
         const vendorIds = bboxVendors.map((v) => v.id);
 
@@ -375,6 +393,7 @@ const RadarSearch = () => {
         const menuByVendor = new Map<string, RadarMenuItem[]>();
         let activeOrderVendorIds = new Set<string>();
         let fulfilledVendorIds = new Set<string>();
+        const fulfilledRequestByVendor = new Map<string, string>();
         let savedVendorIds = new Set<string>();
 
         if (vendorIds.length > 0) {
@@ -388,6 +407,26 @@ const RadarSearch = () => {
             userPhone != null
               ? savedQuery.eq("user_phone", userPhone)
               : savedQuery.eq("device_id", deviceId);
+
+          let activeQuery = supabase
+            .from("requests")
+            .select("vendor_id")
+            .in("vendor_id", vendorIds)
+            .in("status", ["sent", "seen"]);
+          activeQuery =
+            userPhone != null
+              ? activeQuery.or(`user_phone.eq.${userPhone},device_id.eq.${deviceId}`)
+              : activeQuery.eq("device_id", deviceId);
+
+          let fulfilledQuery = supabase
+            .from("requests")
+            .select("id, vendor_id")
+            .in("vendor_id", vendorIds)
+            .eq("status", "fulfilled");
+          fulfilledQuery =
+            userPhone != null
+              ? fulfilledQuery.or(`user_phone.eq.${userPhone},device_id.eq.${deviceId}`)
+              : fulfilledQuery.eq("device_id", deviceId);
 
           const [verResult, vcResult, menuResult, activeResult, fulfilledResult, savedResult] =
             await Promise.all([
@@ -407,18 +446,8 @@ const RadarSearch = () => {
                 .in("vendor_id", vendorIds)
                 .eq("is_available", true)
                 .order("sort_order", { ascending: true }),
-              supabase
-                .from("requests")
-                .select("vendor_id")
-                .eq("device_id", deviceId)
-                .in("vendor_id", vendorIds)
-                .in("status", ["sent", "seen"]),
-              supabase
-                .from("requests")
-                .select("vendor_id")
-                .eq("device_id", deviceId)
-                .in("vendor_id", vendorIds)
-                .eq("status", "fulfilled"),
+              activeQuery,
+              fulfilledQuery,
               savedQuery,
             ]);
 
@@ -446,7 +475,12 @@ const RadarSearch = () => {
             }
           }
           activeOrderVendorIds = new Set((activeResult.data ?? []).map((r) => r.vendor_id));
-          fulfilledVendorIds = new Set((fulfilledResult.data ?? []).map((r) => r.vendor_id));
+          for (const row of fulfilledResult.data ?? []) {
+            fulfilledVendorIds.add(row.vendor_id);
+            if (!fulfilledRequestByVendor.has(row.vendor_id)) {
+              fulfilledRequestByVendor.set(row.vendor_id, row.id);
+            }
+          }
           savedVendorIds = new Set((savedResult.data ?? []).map((r) => r.vendor_id));
         }
 
@@ -460,6 +494,7 @@ const RadarSearch = () => {
             menuPreview: menuByVendor.get(v.id) ?? [],
             hasActiveOrder: activeOrderVendorIds.has(v.id),
             hasFulfilledOrder: fulfilledVendorIds.has(v.id),
+            fulfilledRequestId: fulfilledRequestByVendor.get(v.id) ?? null,
             isSavedNeighbour: savedVendorIds.has(v.id),
           },
           dist: distanceKm(coords, { lat: v.latitude!, lng: v.longitude! }),
@@ -487,7 +522,7 @@ const RadarSearch = () => {
         if (!opts.silent && isCurrent()) setScanning(false);
       }
     },
-    [coords, coordsTried, term, searchRadiusKm, categories, categoriesLoaded, s.radar_connection_error],
+    [coords, coordsTried, term, searchRadiusKm, categories, categoriesLoaded, s.radar_connection_error, config.aiCategoryConfidenceThreshold],
   );
 
   // Run search only when GPS coordinates AND the category lookup are ready.
@@ -516,8 +551,8 @@ const RadarSearch = () => {
 
   const headline = useMemo(() => {
     if (term) return displayName(term);
-    return s.radar_all_emergencies;
-  }, [term, s.radar_all_emergencies]);
+    return s.radar_sos_headline;
+  }, [term, s.radar_sos_headline]);
 
   const savedByVendorId = useMemo(() => {
     void neighboursSyncTick;
@@ -529,9 +564,20 @@ const RadarSearch = () => {
     );
   }, [results, neighboursSyncTick]);
 
+  useEffect(() => {
+    if (!highlightVendorId || scanning || results.length === 0) return;
+    if (!results.some(({ vendor }) => vendor.id === highlightVendorId)) return;
+    const el = document.getElementById(`radar-vendor-card-${highlightVendorId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashVendorId(highlightVendorId);
+    const t = window.setTimeout(() => setFlashVendorId(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [highlightVendorId, scanning, results]);
+
   return (
     <AppShell theme="dark">
-      {locating || (scanning && coords) ? (
+      {locating ? (
         <div className="min-h-[80vh] bg-page-bg flex flex-col items-center justify-center p-6 text-white relative animate-fade-in">
           {/* Back */}
           <button
@@ -585,9 +631,20 @@ const RadarSearch = () => {
                 {s.radar_live}
               </p>
               <h1 className="font-display text-lg font-bold capitalize">{term ? getCategoryLabel(term) : headline}</h1>
+              {!term && (
+                <p className="text-[11px] text-muted-foreground mt-1 px-2 leading-snug">
+                  {s.radar_sos_subtitle}
+                </p>
+              )}
             </div>
             <NotificationBell />
           </header>
+
+          {suggestedCategoryName && (
+            <p className="text-center text-sm text-brand mb-2 px-4">
+              {s.radar_suggestedCategory(getCategoryLabel(suggestedCategoryName))}
+            </p>
+          )}
 
           <div className="relative h-32 w-32 mx-auto mb-3">
             <div className="absolute inset-0 rounded-full border-2 border-brand-border" />
@@ -600,9 +657,21 @@ const RadarSearch = () => {
           </div>
 
           <p className="text-center text-xs uppercase tracking-[0.25em] text-brand mb-2">
-            {results.length} {results.length === 1 ? s.radar_match : s.radar_matches}{s.radar_found}
+            {scanning ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {s.radar_searching_within}
+                {searchRadiusKm}
+                {s.radar_km}
+              </span>
+            ) : (
+              <>
+                {results.length} {results.length === 1 ? s.radar_match : s.radar_matches}
+                {s.radar_found}
+              </>
+            )}
           </p>
-          {expanded && results.length > 0 && (
+          {expanded && results.length > 0 && !scanning && (
             <p className="text-center text-[11px] text-muted-foreground mb-4">
               {s.radar_showing_within}{searchRadiusKm}{s.radar_km}.
             </p>
@@ -652,58 +721,117 @@ const RadarSearch = () => {
         </div>
       )}
 
+      {/* Ambulance / accident / emergency — 108 only, no vendor search */}
+      {!locationBlocked && !scanning && !error && ambulanceEmergencyOnly && (
+        <section className="mt-4 px-4 pb-4">
+          <GovEmergencyServices term={term} defaultOpen />
+        </section>
+      )}
+
+      {/* Unknown term — browse categories */}
+      {!locationBlocked && !scanning && !error && unknownTermBrowse && (
+        <section className="mt-4 px-4 pb-8">
+          <p className="text-center text-sm text-muted-foreground mb-4 leading-relaxed">
+            {s.radar_unknownTerm(term)}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {categories.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => navigate(`/radar?q=${encodeURIComponent(c.label)}`)}
+                className="rounded-xl border border-surface-border bg-surface p-3 flex flex-col items-center gap-1.5 active:scale-[0.98] transition-transform"
+              >
+                <span className="text-2xl" aria-hidden>
+                  {c.emoji}
+                </span>
+                <span className="text-xs font-semibold text-center leading-tight">
+                  {getCategoryLabel(c.label)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Vendor fetch skeleton */}
+      {!locationBlocked && scanning && !error && (
+        <section className="mt-4 pb-4">
+          {[0, 1, 2, 3].map((i) => (
+            <RadarVendorCardSkeleton key={i} />
+          ))}
+        </section>
+      )}
+
       {/* Results */}
       {!locationBlocked && !scanning && !error && results.length > 0 && (
         <section className="space-y-3 mt-4 pb-4">
           {results.map(({ vendor, dist }, i) => (
-            <RadarVendorCard
+            <div
               key={vendor.id}
-              vendor={vendor}
-              dist={dist}
-              index={i}
-              userNeed={term}
-              categories={vendor.categories}
-              trustLevel={vendor.trustLevel}
-              menuItems={vendor.menuPreview}
-              isSaved={savedByVendorId[vendor.id] ?? false}
-              hasOrdered={vendor.hasActiveOrder}
-              hasFulfilledOrder={vendor.hasFulfilledOrder}
-              onOrder={() => {}}
-              onAiBridge={() => {}}
-              onSave={() => {}}
-              onOrderCancelled={() => void fetchVendors({ silent: true })}
-            />
+              id={`radar-vendor-card-${vendor.id}`}
+              className={cn(
+                flashVendorId === vendor.id &&
+                  "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse rounded-2xl",
+              )}
+            >
+              <RadarVendorCard
+                vendor={vendor}
+                dist={dist}
+                index={i}
+                userNeed={term}
+                categories={vendor.categories}
+                trustLevel={vendor.trustLevel}
+                menuItems={vendor.menuPreview}
+                isSaved={savedByVendorId[vendor.id] ?? false}
+                hasOrdered={vendor.hasActiveOrder}
+                hasFulfilledOrder={vendor.hasFulfilledOrder}
+                fulfilledRequestId={vendor.fulfilledRequestId}
+                onOrderCancelled={() => void fetchVendors({ silent: true })}
+              />
+            </div>
           ))}
-          {isOfficialEmergencyCategory(term) && <GovEmergencyServices term={term} />}
+          {isPharmacyMedicalSearch(term) && (
+            <a
+              href="tel:104"
+              className="mx-4 flex items-center justify-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-4 py-3 text-sm text-brand font-medium active:scale-[0.99] transition-transform"
+            >
+              <PhoneCall className="h-4 w-4 shrink-0" />
+              {s.radar_medical_helpline}
+            </a>
+          )}
+          {isOfficialEmergencyCategory(term) && !isPharmacyMedicalSearch(term) && (
+            <GovEmergencyServices term={term} />
+          )}
         </section>
       )}
 
-      {/* 0 results before 50 km: widen only; failsafe comes after 50 km if still empty. */}
+      {/* 0 results before max radius: widen only; failsafe comes after max radius if still empty. */}
       {!locationBlocked &&
         !scanning &&
         !error &&
+        !unknownTermBrowse &&
+        !ambulanceEmergencyOnly &&
         results.length === 0 &&
-        searchRadiusKm < MAX_RADIUS_KM && (
+        searchRadiusKm < maxRadius && (
         <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4">
           <p className="text-center font-display text-lg font-semibold text-white">
-            {searchRadiusKm === NEAR_RADIUS_KM
-              ? s.radar_no_helpers_15
-              : `${s.radar_no_helpers_15.replace('15', String(searchRadiusKm))}`}
+            {s.radar_no_helpers.replace("{radius}", String(searchRadiusKm))}
           </p>
           <div className="flex flex-col sm:flex-row gap-2">
-            {searchRadiusKm < 25 && (
+            {searchRadiusKm < midRadius && (
               <button
                 type="button"
-                onClick={() => setSearchRadiusKm(25)}
+                onClick={() => setSearchRadiusKm(midRadius)}
                 className="flex-1 rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
               >
                 {s.radar_expand_25}
               </button>
             )}
-            {searchRadiusKm < 50 && (
+            {searchRadiusKm < maxRadius && (
               <button
                 type="button"
-                onClick={() => setSearchRadiusKm(50)}
+                onClick={() => setSearchRadiusKm(maxRadius)}
                 className="flex-1 rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
               >
                 {s.radar_expand_50}
@@ -718,12 +846,14 @@ const RadarSearch = () => {
         </div>
       )}
 
-      {/* True empty state — no private responders even at 50 km. */}
+      {/* True empty state — no private responders even at max radius. */}
       {!locationBlocked &&
         !scanning &&
         !error &&
+        !unknownTermBrowse &&
+        !ambulanceEmergencyOnly &&
         results.length === 0 &&
-        searchRadiusKm >= MAX_RADIUS_KM && (
+        searchRadiusKm >= maxRadius && (
         <div className="text-center py-12 px-6 mx-4">
           <p className="text-4xl mb-2" aria-hidden>
             🔍
@@ -768,48 +898,6 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
 };
 
 
-// Trust indicator that proves a vendor is actively at their post.
-// Reads the live `last_updated` timestamp from Supabase and labels the gap.
-const SignalFreshness = ({ lastUpdated }: { lastUpdated: string | null }) => {
-  const { s } = useLanguage();
-  if (!lastUpdated) {
-    return (
-      <span className="inline-flex items-center gap-1 text-gray-400 font-semibold">
-        <span className="h-2 w-2 rounded-full bg-gray-500" />
-        {s.radar_signal_unknown}
-      </span>
-    );
-  }
-  const ageMin = Math.max(
-    0,
-    Math.round((Date.now() - new Date(lastUpdated).getTime()) / 60000),
-  );
-  if (ageMin < 30) {
-    return (
-      <span className="inline-flex items-center text-brand font-semibold">
-        <span className="relative flex h-2 w-2 mr-1 shrink-0">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-        </span>
-        {s.radar_signal_strong}
-      </span>
-    );
-  }
-  const label =
-    ageMin < 60
-      ? `${ageMin}${s.radar_mins_ago}`
-      : ageMin < 60 * 24
-        ? `${Math.round(ageMin / 60)}${s.radar_h_ago}`
-        : `${Math.round(ageMin / (60 * 24))}${s.radar_d_ago}`;
-  return (
-    <span className="inline-flex items-center gap-1 text-gray-400 font-semibold">
-      <span className="h-2 w-2 rounded-full bg-gray-500 shrink-0 mr-1" />
-      <Clock className="h-3 w-3" />
-      {s.radar_last_active}{label}
-    </span>
-  );
-};
-
 // Collapsible government & emergency services panel rendered below the
 // vendor results. Primary number shifts based on the searched category:
 // Fire â†’ 101, Medical â†’ 108, Roadside â†’ 1033, Security/Default â†’ 112.
@@ -822,10 +910,10 @@ const GovEmergencyServices = ({
   defaultOpen?: boolean;
 }) => {
   const { s } = useLanguage();
-  const resolved = resolveCategory(termForGovEmergencyHelp(term));
-  const isMedical = resolved ? MEDICAL.has(resolved) : false;
-  const isRoadside = resolved ? ROADSIDE.has(resolved) : false;
-  const isFire = resolved ? FIRE.has(resolved) : false;
+  const resolved = resolveCanonicalTerm(termForGovEmergencyHelp(term));
+  const isMedical = resolved ? MEDICAL_EMERGENCY_LABELS.has(resolved) : false;
+  const isRoadside = resolved ? ROADSIDE_EMERGENCY_LABELS.has(resolved) : false;
+  const isFire = resolved ? FIRE_EMERGENCY_LABELS.has(resolved) : false;
 
   type Line = { label: string; number: string; tagline: string; href: string };
   const lines: Line[] = [];

@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+import { supabase, invokeNotifyVendor } from "@/lib/supabase";
+import { saveNotification } from "@/lib/notifications";
+import { strings, type Language } from "@/lib/strings";
 
 const REFERRAL_STORAGE_KEY = "aaspaas:referral_code";
 const REFERRAL_PATH_RE = /\/r\/([^/?#]+)/;
@@ -17,7 +19,7 @@ export function generateUserReferralCode(phone?: string): string {
   return `USER${n}`;
 }
 
-/** Stable vendor referral code from phone when DB has no referral_code yet: AASP + last 4 digits. */
+/** Stable vendor referral code from phone: AASP + last 4 digits (registration + Refer & Earn). */
 export function referralCodeFromPhone(phone: string): string {
   const tail = lastFourPhoneDigits(phone);
   if (tail) return `AASP${tail}`;
@@ -45,9 +47,22 @@ export function checkAndStoreReferral(): void {
   try {
     const code = extractReferralCodeFromUrl();
     if (!code) return;
-    localStorage.setItem(REFERRAL_STORAGE_KEY, code);
+    localStorage.setItem(REFERRAL_STORAGE_KEY, code.toUpperCase());
   } catch {
     // never throws
+  }
+}
+
+export async function isReferralEnabled(): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from("app_config")
+      .select("value")
+      .eq("key", "referral_enabled")
+      .maybeSingle();
+    return String(data?.value ?? "").trim().toLowerCase() === "true";
+  } catch {
+    return false;
   }
 }
 
@@ -69,19 +84,38 @@ async function getReferralUserCreditAmount(): Promise<number> {
   return cachedReferralUserCredit;
 }
 
+function referralNotifyCopy(): { title: string; body: (amount: number) => string } {
+  try {
+    const stored = localStorage.getItem("aaspaas:language");
+    const lang: Language = stored === "hi" || stored === "mr" ? stored : "en";
+    return strings[lang];
+  } catch {
+    return strings.en;
+  }
+}
+
 /** Returns true if referral was applied; false on missing code, invalid code, or duplicate. */
 export async function recordUserReferral(phone: string, deviceId: string): Promise<boolean> {
   try {
+    if (!(await isReferralEnabled())) return false;
+
     const stored = getReferralCode();
     if (!stored) return false;
 
     const { data: vendor, error: vendorError } = await supabase
       .from("vendors")
-      .select("id")
+      .select("id, phone")
       .eq("referral_code", stored)
       .maybeSingle();
 
     if (vendorError || !vendor) return false;
+
+    const normalise = (p: string) => p.replace(/\D/g, "").slice(-10);
+    const vendorPhone = vendor.phone ?? "";
+    if (normalise(vendorPhone) === normalise(phone)) {
+      console.warn("Self-referral blocked");
+      return false;
+    }
 
     const { error: userError } = await supabase.from("app_users").insert({
       phone,
@@ -121,6 +155,35 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
     });
 
     if (creditError) return false;
+
+    const { error: referralUpdateError } = await supabase
+      .from("referrals")
+      .update({ credits_created: true })
+      .eq("id", referral.id);
+
+    if (referralUpdateError) return false;
+
+    // Session 42B violation: client-triggered notify — move to DB trigger post-launch.
+    const notifyStrings = referralNotifyCopy();
+    void invokeNotifyVendor({
+      vendor_id: vendor.id,
+      type: "referral_credit",
+      notification_title: notifyStrings.feed_referralCredit_title,
+      message: notifyStrings.feed_referralCredit_body(creditAmount),
+      route: "vendor",
+      route_params: { vendor_id: vendor.id },
+    });
+
+    // Inbox row — mirrors process-vendor-referral edge fn pattern (Session 44)
+    // Client-side write — known Session 42B violation, move to DB trigger post-launch
+    saveNotification({
+      userPhone: vendorPhone,
+      type: "referral_credit",
+      title: notifyStrings.feed_referralCredit_title,
+      body: notifyStrings.feed_referralCredit_body(creditAmount),
+      route: "vendor",
+      routeParams: { vendor_id: vendor.id },
+    });
 
     try {
       localStorage.removeItem(REFERRAL_STORAGE_KEY);

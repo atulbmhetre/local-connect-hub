@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  REFERRAL_CREDIT_BODY,
+  REFERRAL_CREDIT_TITLE,
+  REFERRAL_VETERAN_BODY,
+  REFERRAL_VETERAN_TITLE,
+} from "./constants.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -51,6 +57,78 @@ function normalizePhone(phone: string | null | undefined): string | null {
     digits = digits.slice(1);
   }
   return digits.length > 0 ? digits : null;
+}
+
+function formatCreditAmount(amount: number): string {
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+}
+
+async function isReferralEnabled(
+  supabase: ReturnType<typeof createClient>,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("app_config")
+    .select("value")
+    .eq("key", "referral_enabled")
+    .maybeSingle();
+  return String(data?.value ?? "").trim().toLowerCase() === "true";
+}
+
+async function notifyReferrer(
+  supabase: ReturnType<typeof createClient>,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  vendorId: string,
+  title: string,
+  body: string,
+  informational = false,
+): Promise<void> {
+  try {
+    await fetch(`${supabaseUrl}/functions/v1/notify-vendor`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        record: {
+          vendor_id: vendorId,
+          notification_title: title,
+          message: body,
+          type: "referral_credit",
+        },
+      }),
+    });
+  } catch (err) {
+    console.error("process-vendor-referral notify-vendor failed", err);
+  }
+
+  try {
+    const { data: vendorRow } = await supabase
+      .from("vendors")
+      .select("phone")
+      .eq("id", vendorId)
+      .maybeSingle();
+
+    const vendorPhone = vendorRow?.phone?.trim();
+    if (!vendorPhone) return;
+
+    const { error: inboxError } = await supabase.from("user_notifications").insert({
+      user_phone: vendorPhone,
+      type: "referral_credit",
+      title,
+      body,
+      route: "vendor",
+      route_params: { vendor_id: vendorId },
+      is_informational: informational,
+      is_read: false,
+    });
+    if (inboxError) {
+      console.error("process-vendor-referral inbox insert failed", inboxError);
+    }
+  } catch (err) {
+    console.error("process-vendor-referral inbox insert failed", err);
+  }
 }
 
 async function loadReferralConfig(
@@ -123,9 +201,13 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+    if (!(await isReferralEnabled(supabase))) {
+      return jsonResponse({ skipped: true });
+    }
+
     const { data: referrer, error: referrerError } = await supabase
       .from("vendors")
-      .select("id, created_at, phone")
+      .select("id, last_updated, phone")
       .eq("referral_code", referral_code)
       .maybeSingle();
 
@@ -168,7 +250,7 @@ serve(async (req) => {
 
     const referralConfig = await loadReferralConfig(supabase);
 
-    const referrerCreated = new Date(referrer.created_at);
+    const referrerCreated = new Date(referrer.last_updated);
     const veteranCutoff = new Date();
     veteranCutoff.setMonth(
       veteranCutoff.getMonth() - referralConfig.veteranMonths,
@@ -189,8 +271,15 @@ serve(async (req) => {
       .select("id")
       .single();
 
-    if (referralError || !referral) {
+    if (referralError) {
+      if (referralError.code === "23505") {
+        return jsonResponse({ ok: false, reason: "already_referred" });
+      }
       console.error("process-vendor-referral referral insert failed", referralError);
+      return jsonResponse({ success: false, error: "Failed to create referral" });
+    }
+
+    if (!referral) {
       return jsonResponse({ success: false, error: "Failed to create referral" });
     }
 
@@ -239,6 +328,27 @@ serve(async (req) => {
         console.error("process-vendor-referral referral update failed", updateError);
         return jsonResponse({ success: false, error: "Failed to update referral" });
       }
+
+      const totalCredit =
+        referralConfig.m1 + referralConfig.m2 + referralConfig.m3;
+      await notifyReferrer(
+        supabase,
+        supabaseUrl,
+        serviceRoleKey,
+        referrer.id,
+        REFERRAL_CREDIT_TITLE,
+        REFERRAL_CREDIT_BODY(formatCreditAmount(totalCredit)),
+      );
+    } else {
+      await notifyReferrer(
+        supabase,
+        supabaseUrl,
+        serviceRoleKey,
+        referrer.id,
+        REFERRAL_VETERAN_TITLE,
+        REFERRAL_VETERAN_BODY,
+        true,
+      );
     }
 
     return jsonResponse({

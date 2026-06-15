@@ -85,13 +85,14 @@ BEGIN
       AND now() >= r.delivery_slot_deadline
         - (delivery_near_deadline_minutes || ' minutes')::interval
       AND now() < r.delivery_slot_deadline
-    RETURNING r.id, r.user_phone, r.vendor_id
+    RETURNING r.id, r.user_phone, r.vendor_id, r.delivery_slot
   ),
   representatives AS (
     SELECT DISTINCT ON (user_phone, vendor_id)
       id,
       user_phone,
-      vendor_id
+      vendor_id,
+      delivery_slot
     FROM marked
     ORDER BY user_phone, vendor_id, id
   )
@@ -109,7 +110,7 @@ BEGIN
     rep.user_phone,
     'order_near_deadline_unseen',
     'Delivery window soon',
-    'Your vendor has not seen your order yet. The delivery window is approaching.',
+    'Your vendor has not seen your ' || COALESCE(rep.delivery_slot, 'delivery') || ' order yet. The delivery window is closing soon.',
     'my-orders',
     jsonb_build_object('order_id', rep.id),
     rep.id,
@@ -153,13 +154,14 @@ BEGIN
       AND now() >= r.delivery_slot_deadline
         - (delivery_near_deadline_minutes || ' minutes')::interval
       AND now() < r.delivery_slot_deadline
-    RETURNING r.id, r.user_phone, r.vendor_id
+    RETURNING r.id, r.user_phone, r.vendor_id, r.delivery_slot
   ),
   representatives AS (
     SELECT DISTINCT ON (user_phone, vendor_id)
       id,
       user_phone,
-      vendor_id
+      vendor_id,
+      delivery_slot
     FROM marked
     ORDER BY user_phone, vendor_id, id
   )
@@ -177,7 +179,7 @@ BEGIN
     rep.user_phone,
     'order_near_deadline_unconfirmed',
     'Delivery window soon',
-    'Your vendor saw your order but has not accepted it. The delivery window is approaching.',
+    'Your vendor saw your ' || COALESCE(rep.delivery_slot, 'delivery') || ' order but has not accepted it. The delivery window is closing soon.',
     'my-orders',
     jsonb_build_object('order_id', rep.id),
     rep.id,

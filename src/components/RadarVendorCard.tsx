@@ -14,7 +14,7 @@ import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { VerificationBadge, vendorTier, verificationCopy } from "@/components/VerificationBadge";
+import { VerificationBadge, vendorTier, getVerificationCopy } from "@/components/VerificationBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -37,25 +37,6 @@ function writeResolutionMarked(vendorId: string) {
     sessionStorage.setItem(`${RESOLUTION_SESSION_PREFIX}${vendorId}`, "1");
   } catch {
     /* ignore quota / private mode */
-  }
-}
-
-const CALLED_SESSION_PREFIX = "aaspaas:called:";
-const PARCHI_SESSION_PREFIX = "aaspaas:parchi:";
-
-function readCalledVendor(vendorId: string): boolean {
-  try {
-    return sessionStorage.getItem(`${CALLED_SESSION_PREFIX}${vendorId}`) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeCalledVendor(vendorId: string) {
-  try {
-    sessionStorage.setItem(`${CALLED_SESSION_PREFIX}${vendorId}`, "1");
-  } catch {
-    /* ignore */
   }
 }
 
@@ -153,14 +134,14 @@ const VendorReputationLine = ({
     .trim()
     .toLowerCase();
 
-  if (mode === "help") {
+  if (mode === "help" || mode === "appointment") {
     const n = totalHelpedOverride ?? vendor.total_helped ?? 0;
     if (n <= 0) return null;
     return (
       <div className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90">
         <span className="inline-flex items-center gap-1 shrink-0">
           <HeartHandshake className="h-3.5 w-3.5 opacity-80" />
-          <span className="font-semibold">Helped</span>
+          <span className="font-semibold">{s.radar_stat_helped}</span>
         </span>
         <span>
           {s.radar_helped}
@@ -180,7 +161,7 @@ const VendorReputationLine = ({
       <div className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90">
         <span className="inline-flex items-center gap-1 shrink-0">
           <Package className="h-3.5 w-3.5 opacity-80" />
-          <span className="font-semibold">Delivered</span>
+          <span className="font-semibold">{s.radar_stat_delivered}</span>
         </span>
         <span>
           <span className="font-semibold tabular-nums text-brand">{d}</span>
@@ -303,13 +284,12 @@ const VendorTypeLabel = ({ vendorType }: { vendorType: Vendor["vendor_type"] }) 
 
 type Props = {
   vendor: Vendor;
-  onOrder: (vendor: Vendor) => void;
-  onAiBridge: (vendor: Vendor) => void;
-  onSave: (vendor: Vendor) => void;
   isSaved: boolean;
   hasOrdered: boolean;
   /** Batch-fetched by the parent so the card renders complete on first paint. */
   hasFulfilledOrder: boolean;
+  /** Fulfilled request id for this customer+vendor pair (batch-fetched by parent). */
+  fulfilledRequestId?: string | null;
   /** Menu preview (first 5 available items), batch-fetched by the parent. */
   menuItems: { name: string; price: number; unit: string | null; is_available: boolean }[];
   categories: { label: string; emoji: string }[];
@@ -323,12 +303,10 @@ type Props = {
 
 export function RadarVendorCard({
   vendor,
-  onOrder,
-  onAiBridge,
-  onSave,
   isSaved,
   hasOrdered,
   hasFulfilledOrder,
+  fulfilledRequestId = null,
   menuItems,
   categories,
   trustLevel,
@@ -340,6 +318,7 @@ export function RadarVendorCard({
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
   const tier = vendorTier(vendor);
+  const verificationCopy = getVerificationCopy(s);
   const serviceMode = String(vendor.service_mode ?? "")
     .trim()
     .toLowerCase();
@@ -358,7 +337,10 @@ export function RadarVendorCard({
   );
   const [resolutionSessionTick, setResolutionSessionTick] = useState(0);
   const [deliveryActiveFromDb, setDeliveryActiveFromDb] = useState(false);
-  const [deliveryFulfilledFromDb, setDeliveryFulfilledFromDb] = useState(hasFulfilledOrder);
+  const [serviceFulfilledFromDb, setServiceFulfilledFromDb] = useState(hasFulfilledOrder);
+  const [serviceFulfilledRequestId, setServiceFulfilledRequestId] = useState<string | null>(
+    fulfilledRequestId,
+  );
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
   const [rateCardOpen, setRateCardOpen] = useState(false);
   const [rateCardLoading, setRateCardLoading] = useState(false);
@@ -385,8 +367,16 @@ export function RadarVendorCard({
     setDeliveredCount(vendor.total_delivered ?? 0);
     setResolutionMarked(readResolutionMarked(vendor.id));
     setSavedVendorLocked(isSaved || readSessionSaved(vendor.id));
-    setDeliveryFulfilledFromDb(hasFulfilledOrder);
-  }, [vendor.id, vendor.total_delivered, vendor.total_helped, isSaved, hasFulfilledOrder]);
+    setServiceFulfilledFromDb(hasFulfilledOrder);
+    setServiceFulfilledRequestId(fulfilledRequestId);
+  }, [
+    vendor.id,
+    vendor.total_delivered,
+    vendor.total_helped,
+    isSaved,
+    hasFulfilledOrder,
+    fulfilledRequestId,
+  ]);
 
   const refreshActiveOrderFromDb = useCallback(async () => {
     if ((serviceMode !== "delivery" && serviceMode !== "appointment") || isOwnVendor) {
@@ -394,13 +384,18 @@ export function RadarVendorCard({
       return;
     }
     const device_id = getDeviceId();
-    const { data } = await supabase
+    const userPhone = getUserPhone();
+    let activeQuery = supabase
       .from("requests")
       .select("id, status")
-      .eq("device_id", device_id)
       .eq("vendor_id", vendor.id)
       .in("status", ["sent", "seen"])
       .limit(1);
+    activeQuery =
+      userPhone != null
+        ? activeQuery.or(`user_phone.eq.${userPhone},device_id.eq.${device_id}`)
+        : activeQuery.eq("device_id", device_id);
+    const { data } = await activeQuery;
     const active =
       !!data?.length && data.every((row) => row.status === "sent" || row.status === "seen");
     setDeliveryActiveFromDb(active);
@@ -411,21 +406,29 @@ export function RadarVendorCard({
     onOrderCancelled();
   }, [onOrderCancelled]);
 
-  const refreshFulfilledFromDb = useCallback(async () => {
-    if (serviceMode !== "delivery" || isOwnVendor) {
-      setDeliveryFulfilledFromDb(false);
+  const refreshServiceFulfilledFromDb = useCallback(async () => {
+    if (isOwnVendor) {
+      setServiceFulfilledFromDb(false);
+      setServiceFulfilledRequestId(null);
       return;
     }
     const device_id = getDeviceId();
-    const { data } = await supabase
+    const userPhone = getUserPhone();
+    let fulfilledQuery = supabase
       .from("requests")
       .select("id")
-      .eq("device_id", device_id)
       .eq("vendor_id", vendor.id)
       .eq("status", "fulfilled")
       .limit(1);
-    setDeliveryFulfilledFromDb(!!data?.length);
-  }, [vendor.id, serviceMode, isOwnVendor]);
+    fulfilledQuery =
+      userPhone != null
+        ? fulfilledQuery.or(`user_phone.eq.${userPhone},device_id.eq.${device_id}`)
+        : fulfilledQuery.eq("device_id", device_id);
+    const { data } = await fulfilledQuery;
+    const row = data?.[0];
+    setServiceFulfilledFromDb(!!row);
+    setServiceFulfilledRequestId(row?.id ?? null);
+  }, [vendor.id, isOwnVendor]);
 
   const refreshSavedNeighbourFromDb = useCallback(async () => {
     if (isOwnVendor) return;
@@ -451,10 +454,10 @@ export function RadarVendorCard({
   const refreshOnVisibility = useCallback(async () => {
     await Promise.all([
       refreshActiveOrderFromDb(),
-      refreshFulfilledFromDb(),
+      refreshServiceFulfilledFromDb(),
       refreshSavedNeighbourFromDb(),
     ]);
-  }, [refreshActiveOrderFromDb, refreshFulfilledFromDb, refreshSavedNeighbourFromDb]);
+  }, [refreshActiveOrderFromDb, refreshServiceFulfilledFromDb, refreshSavedNeighbourFromDb]);
 
   // Initial order/fulfilled/saved state is batch-fetched by the parent before
   // the card renders; only refetch after an in-card interaction (tick) or on
@@ -466,8 +469,8 @@ export function RadarVendorCard({
 
   useEffect(() => {
     if (resolutionSessionTick === 0) return;
-    void refreshFulfilledFromDb();
-  }, [refreshFulfilledFromDb, resolutionSessionTick]);
+    void refreshServiceFulfilledFromDb();
+  }, [refreshServiceFulfilledFromDb, resolutionSessionTick]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -479,10 +482,22 @@ export function RadarVendorCard({
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [refreshOnVisibility]);
 
-  const showResolution =
-    !isOwnVendor &&
-    ((serviceMode === "help" && readCalledVendor(vendor.id)) ||
-      (serviceMode === "delivery" && deliveryFulfilledFromDb));
+  useEffect(() => {
+    if (!serviceFulfilledRequestId) return;
+    void (async () => {
+      const { data } = await supabase
+        .from("vendor_reviews")
+        .select("id")
+        .eq("request_id", serviceFulfilledRequestId)
+        .maybeSingle();
+      if (data) {
+        writeResolutionMarked(vendor.id);
+        setResolutionMarked(true);
+      }
+    })();
+  }, [serviceFulfilledRequestId, vendor.id]);
+
+  const showResolution = !isOwnVendor && serviceFulfilledFromDb;
 
   const showSendOrderSection = !isOwnVendor && (serviceMode === "delivery" || serviceMode === "appointment");
 
@@ -502,10 +517,18 @@ export function RadarVendorCard({
         ? "ring-warning/40"
         : "ring-destructive/30";
 
-  const handleConnect = useCallback(() => {
-    onAiBridge(vendor);
+  const handleConnect = useCallback(async () => {
+    const { data } = await supabase
+      .from("vendors")
+      .select("is_active")
+      .eq("id", vendor.id)
+      .single();
+    if (!data?.is_active) {
+      toast.error(s.radar_vendorWentOffline);
+      return;
+    }
     setAiSheetOpen(true);
-  }, [onAiBridge, vendor]);
+  }, [vendor, s.radar_vendorWentOffline]);
 
   const handleSaveVendor = useCallback(async () => {
     if (savedVendorLocked || isSaved) return;
@@ -531,7 +554,6 @@ export function RadarVendorCard({
       if (error.code === "23505") {
         writeSessionSaved(vendor.id);
         setSavedVendorLocked(true);
-        onSave(vendor);
         markNeighboursDirty();
         toast.success(`✅ ${s.radar_saved_success}`);
         return;
@@ -541,10 +563,9 @@ export function RadarVendorCard({
     }
     writeSessionSaved(vendor.id);
     setSavedVendorLocked(true);
-    onSave(vendor);
     markNeighboursDirty();
     toast.success(`✅ ${s.radar_saved_success}`);
-  }, [isSaved, onSave, savedVendorLocked, vendor, s]);
+  }, [isSaved, savedVendorLocked, vendor, s]);
 
   const handleUnsaveVendor = useCallback(async () => {
     if (!savedVendorLocked && !isSaved) return;
@@ -565,8 +586,23 @@ export function RadarVendorCard({
 
   const handleResolution = useCallback(async () => {
     if (resolutionMarked || resolutionBusy) return;
-    const kind = serviceMode === "delivery" ? "delivery" : "help";
-    const rpc = kind === "help" ? "increment_vendor_helped" : "increment_vendor_delivered";
+
+    const requestId = serviceFulfilledRequestId;
+    if (requestId) {
+      const { data: existingReview } = await supabase
+        .from("vendor_reviews")
+        .select("id")
+        .eq("request_id", requestId)
+        .maybeSingle();
+      if (existingReview) {
+        writeResolutionMarked(vendor.id);
+        setResolutionMarked(true);
+        return;
+      }
+    }
+
+    const isDelivery = serviceMode === "delivery";
+    const rpc = isDelivery ? "increment_vendor_delivered" : "increment_vendor_helped";
     setResolutionBusy(true);
     const { error } = await supabase.rpc(rpc, { p_vendor_id: vendor.id });
     setResolutionBusy(false);
@@ -576,22 +612,37 @@ export function RadarVendorCard({
     }
     writeResolutionMarked(vendor.id);
     setResolutionMarked(true);
-    if (kind === "help") setHelpCount((c) => c + 1);
-    else setDeliveredCount((c) => c + 1);
+    if (isDelivery) setDeliveredCount((c) => c + 1);
+    else setHelpCount((c) => c + 1);
     toast.success(s.radar_thank_community);
-  }, [resolutionMarked, resolutionBusy, serviceMode, vendor.id, s]);
+  }, [
+    resolutionMarked,
+    resolutionBusy,
+    serviceMode,
+    serviceFulfilledRequestId,
+    vendor.id,
+    s,
+  ]);
 
-  const openParchi = useCallback(() => {
-    onOrder(vendor);
+  const openParchi = useCallback(async () => {
+    const { data } = await supabase
+      .from("vendors")
+      .select("is_active")
+      .eq("id", vendor.id)
+      .single();
+    if (!data?.is_active) {
+      toast.error(s.radar_vendorWentOffline);
+      return;
+    }
     setParchiOpen(true);
-  }, [onOrder, vendor]);
+  }, [vendor, s.radar_vendorWentOffline]);
 
   const serviceModePill =
     serviceMode === "delivery"
-      ? "🚚 Delivery"
+      ? s.radar_pill_delivery
       : serviceMode === "appointment"
-        ? "📅 Booking"
-        : "🚶 Help";
+        ? s.radar_pill_appointment
+        : s.radar_pill_help;
 
   return (
     <div
@@ -618,19 +669,30 @@ export function RadarVendorCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-start gap-1.5 min-w-0">
             <div className="min-w-0 flex-1">
-              <h3 className="text-base font-bold text-foreground break-words leading-snug">
-                {vendor.shop_name}
+              <h3 className="text-base font-bold text-foreground break-words leading-snug inline-flex items-center gap-1.5 flex-wrap">
+                <span>{vendor.shop_name}</span>
+                {vendor.is_active === true && (
+                  <span
+                    className="h-2 w-2 rounded-full bg-brand shrink-0"
+                    aria-label="Online"
+                  />
+                )}
               </h3>
               {readIsOwnVendorCard(vendor.id, vendor.phone) && (
                 <span className="text-[10px] font-medium text-muted-foreground">• You</span>
               )}
             </div>
             <span className="inline-flex items-center gap-1 shrink-0 flex-wrap justify-end">
-              <TrustLevelBadge level={trustLevel} />
-              <VerificationBadge vendor={vendor} />
-              <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
-                {verificationCopy[tier].label}
-              </span>
+              {vendor.is_manual_verified === true ? (
+                <TrustLevelBadge level={trustLevel} />
+              ) : (
+                <>
+                  <VerificationBadge vendor={vendor} />
+                  <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+                    {verificationCopy[tier].label}
+                  </span>
+                </>
+              )}
             </span>
           </div>
           <VendorTypeLabel vendorType={vendor.vendor_type} />
@@ -650,7 +712,9 @@ export function RadarVendorCard({
             {dist != null ? (
               <span className="text-xs bg-surface-border rounded-full px-2 py-0.5 inline-flex items-center gap-1 text-muted-foreground">
                 <MapPin className="h-3 w-3" />
-                {dist < 1 ? `${Math.round(dist * 1000)} mtr away` : `${dist.toFixed(1)} km away`}
+                {dist < 1
+                  ? s.radar_distance_mtr.replace("{value}", String(Math.round(dist * 1000)))
+                  : s.radar_distance_km.replace("{value}", dist.toFixed(1))}
               </span>
             ) : (
               <span className="text-xs text-muted-foreground">{s.radar_location_unknown}</span>
@@ -669,11 +733,12 @@ export function RadarVendorCard({
             <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-brand-muted ring-1 ring-brand/30 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:text-brand">
               <span className="inline-flex items-center gap-1">
                 <Clock className="h-3 w-3" />
-                <span>ETA</span>
+                <span>{s.radar_eta_label}</span>
               </span>
-              {s.radar_est_arrival}
-              {Math.max(1, Math.round(dist * 2))}
-              {s.radar_min}
+              {s.radar_eta_minutes.replace(
+                "{minutes}",
+                String(Math.max(1, Math.round(dist * 2))),
+              )}
             </div>
           )}
         </div>
@@ -707,7 +772,7 @@ export function RadarVendorCard({
               onClick={() => void openRateCard()}
               className="text-[11px] text-muted-foreground hover:text-foreground text-left pt-1"
             >
-              {serviceMode === "delivery" ? "View full menu →" : "View full rate card →"}
+              {serviceMode === "delivery" ? s.radar_viewFullMenu : s.radar_viewFullRateCard}
             </button>
           )}
           {menuItems.length > 3 && (
@@ -723,8 +788,8 @@ export function RadarVendorCard({
           <SheetHeader className="text-left">
             <SheetTitle>
               {serviceMode === "delivery"
-                ? `Menu — ${vendor.shop_name}`
-                : `Rate Card — ${vendor.shop_name}`}
+                ? `${s.radar_menuLabel} — ${vendor.shop_name}`
+                : `${s.radar_rateCardLabel} — ${vendor.shop_name}`}
             </SheetTitle>
           </SheetHeader>
           <div className="mt-4">
@@ -753,7 +818,7 @@ export function RadarVendorCard({
 
           {vendor.vendor_note && (
             <div className="mt-4 text-xs text-muted-foreground">
-              <span className="font-semibold">About</span>
+              <span className="font-semibold">{s.radar_aboutLabel}</span>
               <span className="text-muted-foreground"> · </span>
               <span>{vendor.vendor_note}</span>
             </div>
@@ -763,24 +828,28 @@ export function RadarVendorCard({
             type="button"
             onClick={() => {
               setRateCardOpen(false);
-              openParchi();
+              void openParchi();
             }}
             className="mt-5 w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform"
           >
-            Connect
+            {serviceMode === "appointment"
+              ? s.radar_cta_book
+              : serviceMode === "delivery"
+                ? s.radar_cta_order
+                : s.radar_cta_connect}
           </button>
         </SheetContent>
       </Sheet>
 
       {showConnectAiBridge && (
-        <button
-          type="button"
-          onClick={handleConnect}
-          className="mt-3 w-full rounded-xl bg-brand text-white py-2.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
-        >
-          <Phone className="h-4 w-4" />
-          {s.radar_connect_ai}
-        </button>
+          <button
+            type="button"
+            onClick={() => void handleConnect()}
+            className="mt-3 w-full rounded-xl bg-brand text-white py-2.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
+          >
+            <Phone className="h-4 w-4" />
+            {s.radar_cta_connect}
+          </button>
       )}
 
       <AiBridgeSheet
@@ -790,10 +859,6 @@ export function RadarVendorCard({
         callerPhone={getUserPhone() ?? ""}
         userNeed={userNeed}
         distanceKm={dist}
-        onCallSuccess={(vendorId) => {
-          writeCalledVendor(vendorId);
-          setResolutionSessionTick((n) => n + 1);
-        }}
       />
 
       {showSendOrderSection &&
@@ -814,7 +879,7 @@ export function RadarVendorCard({
             </span>
             <button
               type="button"
-              onClick={openParchi}
+              onClick={() => void openParchi()}
               className="font-semibold text-green-700 dark:text-brand underline underline-offset-2 hover:opacity-90"
             >
               {serviceMode === "appointment" ? s.radar_book_again : s.radar_send_new_order}
@@ -824,12 +889,10 @@ export function RadarVendorCard({
           <button
             type="button"
             data-testid="radar-vendor-card-order-btn"
-            onClick={openParchi}
+            onClick={() => void openParchi()}
             className="mt-2 w-full rounded-xl bg-brand text-white py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform"
           >
-            {serviceMode === "appointment"
-              ? `📅 ${s.radar_book_service}`
-              : `📋 ${s.radar_send_order}`}
+            {serviceMode === "appointment" ? s.radar_cta_book : s.radar_cta_order}
           </button>
         ))}
 
@@ -849,7 +912,9 @@ export function RadarVendorCard({
             ? `✅ ${s.radar_marked}`
             : serviceMode === "delivery"
               ? `📦 ${s.radar_delivered_on_time}`
-              : `✅ ${s.radar_he_helped}`}
+              : serviceMode === "appointment"
+                ? `✅ ${s.radar_vendor_served}`
+                : `✅ ${s.radar_vendor_helped}`}
         </button>
       )}
 

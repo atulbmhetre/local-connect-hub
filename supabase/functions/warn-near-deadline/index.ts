@@ -13,11 +13,13 @@ type PendingPushRow = {
   id: string;
   user_phone: string | null;
   vendor_id: string;
+  delivery_slot: string | null;
 };
 
 type InboxRow = {
   title: string;
   body: string;
+  type: string;
 };
 
 serve(async (req) => {
@@ -38,7 +40,7 @@ serve(async (req) => {
 
     const { data: pending, error: pendingError } = await supabase
       .from("requests")
-      .select("id, user_phone, vendor_id")
+      .select("id, user_phone, vendor_id, delivery_slot")
       .eq("near_deadline_push_sent", false)
       .not("near_deadline_warned_at", "is", null);
 
@@ -60,7 +62,7 @@ serve(async (req) => {
 
     const notifyByCustomerVendor = new Map<
       string,
-      { userPhone: string; orderIds: string[]; title: string; body: string }
+      { userPhone: string; orderIds: string[]; title: string; body: string; type: string }
     >();
 
     for (const row of rows) {
@@ -76,7 +78,7 @@ serve(async (req) => {
 
       const { data: inboxRows, error: inboxError } = await supabase
         .from("user_notifications")
-        .select("title, body")
+        .select("title, body, type")
         .eq("related_id", row.id)
         .in("type", [
           "order_near_deadline_unseen",
@@ -96,6 +98,7 @@ serve(async (req) => {
         orderIds: [row.id],
         title: inbox.title,
         body: inbox.body,
+        type: inbox.type,
       });
     }
 
@@ -114,6 +117,8 @@ serve(async (req) => {
             user_phone: userPhone,
             title: payload.title,
             body: payload.body,
+            type: payload.type,
+            order_id: payload.orderIds[0],
           }),
         });
         if (!res.ok) {

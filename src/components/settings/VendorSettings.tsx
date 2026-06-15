@@ -39,10 +39,7 @@ import {
 } from "@/lib/pushNotifications";
 import { formatTimeAgo } from "@/lib/orders";
 import { ledgerCycleStartInputValue } from "@/lib/khataDisplay";
-import {
-  generateUserReferralCode,
-  referralCodeFromPhone,
-} from "@/lib/referral";
+import { referralCodeFromPhone } from "@/lib/referral";
 import { getUserPhone } from "@/lib/userIdentity";
 import { uploadFeedImage } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
@@ -116,11 +113,18 @@ function offerDateToEndIso(dateStr: string) {
 export function VendorSettingsOffers({
   vendorId,
   activeOffer: initialActiveOffer,
+  vendorLatitude,
+  vendorLongitude,
+  shopName,
 }: {
   vendorId: string;
   /** Batch-fetched by the parent; refetched locally only after posting an offer. */
   activeOffer: VendorActiveOffer | null;
+  vendorLatitude: number | null;
+  vendorLongitude: number | null;
+  shopName: string;
 }) {
+  const { s } = useLanguage();
   const [activeOffer, setActiveOffer] = useState<VendorActiveOffer | null>(initialActiveOffer);
   const [offerText, setOfferText] = useState("");
   const [offerStartsAt, setOfferStartsAt] = useState("");
@@ -212,16 +216,32 @@ export function VendorSettingsOffers({
         return;
       }
     }
-    const { error } = await supabase.from("feed_posts").insert({
-      type: "offer",
-      vendor_id: vendorId,
-      user_phone: phone,
-      content,
-      is_hidden: false,
-      starts_at: offerDateToStartIso(offerStartsAt),
-      expires_at: offerDateToEndIso(offerEndsAt),
-      image_url: imageUrl,
-    });
+    const lat = vendorLatitude;
+    const lng = vendorLongitude;
+    if (
+      lat == null ||
+      lng == null ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng)
+    ) {
+      toast.error("Shop location is required to post offers");
+      setOfferLoading(false);
+      return;
+    }
+    const { error } = await supabase
+      .from("feed_posts")
+      .insert({
+        type: "offer",
+        vendor_id: vendorId,
+        user_phone: phone,
+        content,
+        is_hidden: false,
+        starts_at: offerDateToStartIso(offerStartsAt),
+        expires_at: offerDateToEndIso(offerEndsAt),
+        image_url: imageUrl,
+        lat,
+        lng,
+      });
     setOfferLoading(false);
     if (error) {
       console.error("postOffer", error);
@@ -398,59 +418,23 @@ export function VendorSettingsReferEarn({
   const { s } = useLanguage();
   const { config } = useAppConfig();
 
-  // Vendor code resolves synchronously: vendor.referral_code is already in the
-  // prop (the old vendors.referral_code refetch was redundant).
-  const vendorCode = vendor?.id
+  const resolvedVendorCode = vendor?.id
     ? vendor.referral_code?.trim() ||
       referralCodeFromPhone((vendor.phone ?? userPhone ?? "").trim())
     : null;
-  const [referralCode, setReferralCode] = useState<string | null>(vendorCode);
-  const [referralLoading, setReferralLoading] = useState(!vendorCode);
+  const [referralCode, setReferralCode] = useState<string | null>(resolvedVendorCode);
   const creditTotal = referralCredits?.total ?? 0;
   const creditPending = referralCredits?.pending ?? 0;
 
   useEffect(() => {
-    if (vendor?.id) {
-      setReferralCode(
-        vendor.referral_code?.trim() ||
-          referralCodeFromPhone((vendor.phone ?? userPhone ?? "").trim()),
-      );
-      setReferralLoading(false);
-      return;
-    }
-
-    // Plain-user case (rendered standalone in Settings without a vendor).
-    let cancelled = false;
-    const resolveFallback = (): string =>
-      generateUserReferralCode((userPhone ?? "").trim() || undefined);
-
-    const loadReferral = async () => {
-      setReferralLoading(true);
-      try {
-        const phone = (userPhone ?? "").trim();
-        if (phone) {
-          const { data } = await supabase
-            .from("app_users")
-            .select("referral_code")
-            .eq("phone", phone)
-            .maybeSingle();
-          if (cancelled) return;
-          setReferralCode(data?.referral_code?.trim() || resolveFallback());
-          return;
-        }
-        if (!cancelled) setReferralCode(resolveFallback());
-      } catch {
-        if (!cancelled) setReferralCode(resolveFallback());
-      } finally {
-        if (!cancelled) setReferralLoading(false);
-      }
-    };
-
-    void loadReferral();
-    return () => {
-      cancelled = true;
-    };
+    if (!vendor?.id) return;
+    setReferralCode(
+      vendor.referral_code?.trim() ||
+        referralCodeFromPhone((vendor.phone ?? userPhone ?? "").trim()),
+    );
   }, [vendor?.id, vendor?.phone, vendor?.referral_code, userPhone]);
+
+  if (!vendor?.id) return null;
 
   const referLink =
     referralCode != null ? `${config.appBaseUrl}/r/${referralCode}` : null;
@@ -461,18 +445,16 @@ export function VendorSettingsReferEarn({
       await navigator.clipboard.writeText(referralCode);
       toast.success(s.vendor_referCodeCopied);
     } catch {
-      toast.error("Could not copy");
+      toast.error(s.referral_copy_failed);
     }
   };
 
   const shareReferLink = async () => {
-    if (!referLink) return;
-    const message = vendor?.shop_name
-      ? `Order from ${vendor.shop_name} on Aaspaas! ${referLink}`
-      : `Get help around you, now! Download Aaspaas: ${referLink}`;
+    if (!referLink || !referralCode) return;
+    const message = s.referral_share_text(referralCode, referLink);
     if (navigator.share) {
       try {
-        await navigator.share({ text: message });
+        await navigator.share({ title: s.referral_share_title, text: message });
         return;
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
@@ -484,9 +466,7 @@ export function VendorSettingsReferEarn({
 
   return (
     <>
-      {referralLoading ? (
-        <p className="text-sm text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
-      ) : referralCode != null ? (
+      {referralCode != null ? (
         <div className="px-4 py-3.5 space-y-3">
           <button
             type="button"
@@ -590,6 +570,53 @@ export function VendorSettings({
     ledgerCycleStartInputValue(vendor.ledger_cycle_start),
   );
   const [savingLedgerCycleStart, setSavingLedgerCycleStart] = useState(false);
+  const [khataCreditOpen, setKhataCreditOpen] = useState(false);
+  const [khataDraftOn, setKhataDraftOn] = useState(false);
+  const [khataEditMode, setKhataEditMode] = useState(false);
+  const [khataAmberInput, setKhataAmberInput] = useState("");
+  const [khataRedInput, setKhataRedInput] = useState("");
+  const [savingKhataLimits, setSavingKhataLimits] = useState(false);
+  const [capturingDraftLocation, setCapturingDraftLocation] = useState(false);
+
+  const completeDraftProfile = async () => {
+    setCapturingDraftLocation(true);
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+        });
+      });
+      const latitude = pos.coords.latitude;
+      const longitude = pos.coords.longitude;
+      const { error } = await supabase
+        .from("vendors")
+        .update({
+          latitude,
+          longitude,
+          profile_status: "complete",
+        })
+        .eq("id", vendor.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      onVendorUpdated({
+        ...vendor,
+        latitude,
+        longitude,
+        profile_status: "complete",
+      });
+    } catch {
+      toast.error(s.vendor_gps_missing_draft);
+    } finally {
+      setCapturingDraftLocation(false);
+    }
+  };
+
+  const khataEnabled = (Number(vendor.khata_amber_limit) || 0) > 0;
+  const khataSwitchOn = khataEnabled || khataDraftOn;
+  const showKhataLimitInputs = khataDraftOn || khataEditMode;
 
   const aiBridgeVendor: AiBridgeVendor = {
     id: vendor.id,
@@ -681,6 +708,13 @@ export function VendorSettings({
     setLedgerCycleStart(ledgerCycleStartInputValue(vendor.ledger_cycle_start));
   }, [vendor.ledger_cycle_start]);
 
+  useEffect(() => {
+    if (khataEnabled) {
+      setKhataAmberInput(String(vendor.khata_amber_limit ?? ""));
+      setKhataRedInput(String(vendor.khata_red_limit ?? ""));
+    }
+  }, [khataEnabled, vendor.khata_amber_limit, vendor.khata_red_limit]);
+
   const saveLedgerCycleStart = async (date: string) => {
     if (!date || savingLedgerCycleStart) return;
     setSavingLedgerCycleStart(true);
@@ -695,6 +729,75 @@ export function VendorSettings({
     }
     onVendorUpdated({ ...vendor, ledger_cycle_start: date });
     toast.success("Ledger cycle start updated.");
+  };
+
+  const handleKhataToggle = async (checked: boolean) => {
+    if (checked) {
+      setKhataDraftOn(true);
+      setKhataEditMode(true);
+      setKhataAmberInput("");
+      setKhataRedInput("");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("khata_ledger")
+      .select("id")
+      .eq("vendor_id", vendor.id)
+      .gt("total_outstanding", 0)
+      .limit(1);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    if (data?.length) {
+      toast.error(s.khata_disableBlocked);
+      return;
+    }
+
+    setSavingKhataLimits(true);
+    const { error: updateError } = await supabase
+      .from("vendors")
+      .update({ khata_amber_limit: 0, khata_red_limit: 0 })
+      .eq("id", vendor.id);
+    setSavingKhataLimits(false);
+
+    if (updateError) {
+      toast.error(updateError.message);
+      return;
+    }
+
+    onVendorUpdated({ ...vendor, khata_amber_limit: 0, khata_red_limit: 0 });
+    setKhataDraftOn(false);
+    setKhataEditMode(false);
+    setKhataAmberInput("");
+    setKhataRedInput("");
+  };
+
+  const saveKhataLimits = async () => {
+    const amber = parseFloat(khataAmberInput);
+    const red = parseFloat(khataRedInput);
+    if (!Number.isFinite(amber) || !Number.isFinite(red) || amber <= 0 || red <= amber) {
+      toast.error(s.khata_limitInvalid);
+      return;
+    }
+
+    setSavingKhataLimits(true);
+    const { error } = await supabase
+      .from("vendors")
+      .update({ khata_amber_limit: amber, khata_red_limit: red })
+      .eq("id", vendor.id);
+    setSavingKhataLimits(false);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    onVendorUpdated({ ...vendor, khata_amber_limit: amber, khata_red_limit: red });
+    setKhataDraftOn(false);
+    setKhataEditMode(false);
   };
 
   const saveCancelReasons = async () => {
@@ -870,7 +973,27 @@ export function VendorSettings({
   const serviceModeLabel = s.settings_check7.replace(/\s*\(.*$/, "").replace(/\s+is correct$/i, "");
 
   return (
-    <SettingsParentCollapsible
+    <>
+      {vendor.profile_status === "draft" && (
+        <div className="mx-4 mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-2">
+          <p className="text-sm font-semibold text-amber-400">{s.vendor_draft_banner_title}</p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {s.vendor_draft_banner_body}
+          </p>
+          <button
+            type="button"
+            disabled={capturingDraftLocation}
+            onClick={() => void completeDraftProfile()}
+            className="w-full rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-sm font-semibold py-2.5 active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {capturingDraftLocation ? (
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+            ) : null}
+            {s.vendor_draft_banner_cta}
+          </button>
+        </div>
+      )}
+      <SettingsParentCollapsible
       label="MY SHOP"
       open={shopOpen}
       onToggle={() => onShopOpenChange(!shopOpen)}
@@ -1156,7 +1279,13 @@ export function VendorSettings({
         </SheetContent>
       </Sheet>
 
-      <VendorSettingsOffers vendorId={vendor.id} activeOffer={activeOffer} />
+      <VendorSettingsOffers
+        vendorId={vendor.id}
+        activeOffer={activeOffer}
+        vendorLatitude={vendor.latitude}
+        vendorLongitude={vendor.longitude}
+        shopName={vendor.shop_name}
+      />
 
       {Capacitor.isNativePlatform() && (
         <SettingsCollapsible
@@ -1248,6 +1377,111 @@ export function VendorSettings({
       </SettingsCollapsible>
 
       <SettingsCollapsible
+        label={s.khata_creditSettings}
+        open={khataCreditOpen}
+        onToggle={() => setKhataCreditOpen((o) => !o)}
+        nested
+      >
+        <div className="px-4 py-3.5 space-y-3">
+          <SettingsRow label={s.khata_enableKhata}>
+            <Switch
+              className="data-[state=checked]:bg-brand"
+              checked={khataSwitchOn}
+              disabled={savingKhataLimits}
+              onCheckedChange={(checked) => void handleKhataToggle(checked)}
+            />
+          </SettingsRow>
+
+          {!khataSwitchOn && (
+            <p className="text-xs text-muted-foreground">{s.khata_disabledHint}</p>
+          )}
+
+          {khataEnabled && !showKhataLimitInputs && (
+            <div className="rounded-xl border border-surface-border bg-surface/80 px-3 py-2.5 space-y-1">
+              <p className="text-xs text-foreground">
+                {s.khata_amberLimit}:{" "}
+                <span className="font-semibold tabular-nums">
+                  ₹{Number(vendor.khata_amber_limit).toFixed(0)}
+                </span>
+              </p>
+              <p className="text-xs text-foreground">
+                {s.khata_redLimit}:{" "}
+                <span className="font-semibold tabular-nums">
+                  ₹{Number(vendor.khata_red_limit).toFixed(0)}
+                </span>
+              </p>
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setKhataEditMode(true);
+                    setKhataAmberInput(String(vendor.khata_amber_limit ?? ""));
+                    setKhataRedInput(String(vendor.khata_red_limit ?? ""));
+                  }}
+                  className="text-xs font-semibold text-brand active:opacity-80"
+                >
+                  {s.review_edit}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showKhataLimitInputs && (
+            <div className="space-y-2">
+              <label className="block">
+                <span className="text-xs text-muted-foreground">{s.khata_amberLimit}</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={khataAmberInput}
+                  disabled={savingKhataLimits}
+                  onChange={(e) => setKhataAmberInput(e.target.value)}
+                  className="mt-1 w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs text-muted-foreground">{s.khata_redLimit}</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={khataRedInput}
+                  disabled={savingKhataLimits}
+                  onChange={(e) => setKhataRedInput(e.target.value)}
+                  className="mt-1 w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                />
+              </label>
+              <div className="flex justify-end gap-2 pt-1">
+                {khataEnabled && (
+                  <button
+                    type="button"
+                    disabled={savingKhataLimits}
+                    onClick={() => {
+                      setKhataEditMode(false);
+                      setKhataAmberInput(String(vendor.khata_amber_limit ?? ""));
+                      setKhataRedInput(String(vendor.khata_red_limit ?? ""));
+                    }}
+                    className="text-xs font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
+                  >
+                    {s.settings_cancel}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={savingKhataLimits}
+                  onClick={() => void saveKhataLimits()}
+                  className="text-xs font-semibold text-brand active:opacity-80 disabled:opacity-50"
+                >
+                  {savingKhataLimits ? s.incoming_saving : s.menu_save}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </SettingsCollapsible>
+
+      <SettingsCollapsible
         label={`⭐ ${s.review_myReviews} (${reviews.length})`}
         open={showReviews}
         onToggle={() => {
@@ -1282,6 +1516,9 @@ export function VendorSettings({
                       &quot;{r.review_text}&quot;
                     </p>
                   )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    — {s.review_anonymous}
+                  </p>
                   <p className="text-[10px] text-muted-foreground mt-1">
                     {formatTimeAgo(r.created_at)}
                   </p>
@@ -1359,5 +1596,6 @@ export function VendorSettings({
         />
       )}
     </SettingsParentCollapsible>
+    </>
   );
 }

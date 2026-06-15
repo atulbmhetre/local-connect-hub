@@ -38,6 +38,8 @@ type Props = {
   vendorId: string;
   userPhone: string | null;
   shopName: string;
+  khataAmberLimit: number;
+  khataRedLimit: number;
 };
 
 type BillItem = {
@@ -65,6 +67,8 @@ export function BillSheet({
   vendorId,
   userPhone,
   shopName,
+  khataAmberLimit,
+  khataRedLimit,
 }: Props) {
   const { s } = useLanguage();
   const [items, setItems] = useState<BillItem[]>([newBillItem()]);
@@ -74,6 +78,8 @@ export function BillSheet({
   const [notes, setNotes] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [currentOutstanding, setCurrentOutstanding] = useState<number | null>(null);
+  const [loadingOutstanding, setLoadingOutstanding] = useState(false);
   const validItems = useMemo(
     () => items.filter((i) => i.description.trim() && i.unit_price > 0),
     [items],
@@ -83,6 +89,52 @@ export function BillSheet({
     () => validItems.reduce((sum, i) => sum + i.quantity * i.unit_price, 0),
     [validItems],
   );
+
+  const projectedOutstanding =
+    currentOutstanding != null ? currentOutstanding + totalAmount : null;
+  const showKhataRedWarning =
+    paymentMode === "khata" &&
+    khataAmberLimit > 0 &&
+    userPhone != null &&
+    projectedOutstanding != null &&
+    khataRedLimit > 0 &&
+    projectedOutstanding >= khataRedLimit;
+  const showKhataAmberWarning =
+    paymentMode === "khata" &&
+    khataAmberLimit > 0 &&
+    userPhone != null &&
+    projectedOutstanding != null &&
+    !showKhataRedWarning &&
+    projectedOutstanding >= khataAmberLimit;
+
+  const fetchKhataOutstanding = useCallback(async () => {
+    if (!userPhone || khataAmberLimit <= 0) {
+      setCurrentOutstanding(null);
+      return;
+    }
+    setLoadingOutstanding(true);
+    const { data, error } = await supabase
+      .from("khata_ledger")
+      .select("total_outstanding")
+      .eq("vendor_id", vendorId)
+      .eq("user_phone", userPhone)
+      .maybeSingle();
+    setLoadingOutstanding(false);
+    if (error) {
+      setCurrentOutstanding(0);
+      return;
+    }
+    setCurrentOutstanding(Number(data?.total_outstanding) || 0);
+  }, [vendorId, userPhone, khataAmberLimit]);
+
+  const selectPaymentMode = (mode: "cash" | "upi" | "khata") => {
+    setPaymentMode(mode);
+    if (mode === "khata") {
+      void fetchKhataOutstanding();
+    } else {
+      setCurrentOutstanding(null);
+    }
+  };
 
   const updateItem = (id: string, patch: Partial<BillItem>) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
@@ -105,6 +157,8 @@ export function BillSheet({
         setSending(false);
         setIsListening(false);
         setIsProcessingImage(false);
+        setCurrentOutstanding(null);
+        setLoadingOutstanding(false);
         onClose();
       }
     },
@@ -124,7 +178,7 @@ export function BillSheet({
     try {
       const available = await SpeechRecognition.available();
       if (!available.available) {
-        toast.error("Voice not available");
+        toast.error(s.bill_voiceUnavailable);
         return;
       }
       await SpeechRecognition.requestPermissions();
@@ -247,7 +301,7 @@ export function BillSheet({
       .neq("payment_status", "paid");
   };
 
-  const executeSendBill = async () => {
+  const executeSendBill = async (opts?: { isReplace?: boolean }) => {
     const rpcItems = validItems.map((i) => ({
       name: i.description.trim(),
       quantity: i.quantity,
@@ -272,52 +326,17 @@ export function BillSheet({
       return;
     }
 
-    if (paymentMode === "khata" && userPhone) {
-      const { data: orderRow } = await supabase
-        .from("requests")
-        .select("message")
-        .eq("id", requestId)
-        .maybeSingle();
-      const orderMessage = orderRow?.message?.trim();
-      const khataNote = orderMessage || "Bill from order";
-
-      await supabase.from("khata_transactions").insert({
-        vendor_id: vendorId,
-        user_phone: userPhone,
-        amount: totalAmount,
-        note: khataNote,
-        payment_mode: "khata",
-        request_id: requestId,
-        created_at: new Date().toISOString(),
-      });
-
-      const { data: existing } = await supabase
-        .from("khata_ledger")
-        .select("total_outstanding")
-        .eq("vendor_id", vendorId)
-        .eq("user_phone", userPhone)
-        .single();
-
-      const currentOutstanding = existing?.total_outstanding ?? 0;
-
-      await supabase.from("khata_ledger").upsert(
-        {
-          vendor_id: vendorId,
-          user_phone: userPhone,
-          total_outstanding: currentOutstanding + totalAmount,
-          last_updated: new Date().toISOString(),
-        },
-        { onConflict: "vendor_id,user_phone" },
-      );
-    }
-
     if (userPhone) {
       const title = s.bill_notifTitle;
-      const body = `${shopName}: ₹${totalAmount} — ${paymentMode}`;
+      const body = opts?.isReplace
+        ? s.bill_updated.replace("{shopName}", shopName)
+        : `${shopName}: ₹${totalAmount} — ${paymentMode}`;
       void invokeNotifyUser({
         user_phone: userPhone,
         title,
         body,
+        type: "bill",
+        order_id: requestId,
       });
       saveNotification({
         userPhone,
@@ -363,7 +382,7 @@ export function BillSheet({
     setReplaceDialogOpen(false);
     setSending(true);
     await voidExistingUnpaidBills();
-    await executeSendBill();
+    await executeSendBill({ isReplace: true });
   };
 
   return (
@@ -424,7 +443,7 @@ export function BillSheet({
                   <div className="flex items-center gap-2 rounded-xl border border-red-500/50 bg-red-500/10 px-3 py-2 shrink-0">
                     <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
                     <span className="text-xs font-semibold text-red-500 whitespace-nowrap">
-                      Listening... speak now
+                      {s.bill_listening}
                     </span>
                   </div>
                 ) : (
@@ -439,6 +458,10 @@ export function BillSheet({
                 ))}
             </div>
           </div>
+
+          <p className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5 text-[11px] leading-snug text-warning mb-3">
+            {s.bill_editWarning}
+          </p>
 
         <SettingsCard className="mx-0 mb-3">
             {items.map((item, idx) => {
@@ -531,7 +554,7 @@ export function BillSheet({
           <div className="flex flex-wrap gap-2 mt-3" data-testid="bill-payment-mode-select">
             <button
               type="button"
-              onClick={() => setPaymentMode("cash")}
+              onClick={() => selectPaymentMode("cash")}
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
                 paymentMode === "cash"
@@ -543,7 +566,7 @@ export function BillSheet({
             </button>
             <button
               type="button"
-              onClick={() => setPaymentMode("upi")}
+              onClick={() => selectPaymentMode("upi")}
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
                 paymentMode === "upi"
@@ -555,7 +578,7 @@ export function BillSheet({
             </button>
             <button
               type="button"
-              onClick={() => setPaymentMode("khata")}
+              onClick={() => selectPaymentMode("khata")}
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
                 paymentMode === "khata"
@@ -570,6 +593,22 @@ export function BillSheet({
           {paymentMode === "khata" && (
             <p className="text-[11px] text-muted-foreground text-center">
               {s.bill_khataHint}
+            </p>
+          )}
+
+          {showKhataRedWarning && (
+            <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-[11px] leading-snug text-red-600 dark:text-red-400">
+              {s.khata_billWillExceedRed}
+            </p>
+          )}
+          {showKhataAmberWarning && (
+            <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+              {s.khata_billWillExceedAmber}
+            </p>
+          )}
+          {paymentMode === "khata" && khataAmberLimit > 0 && userPhone && loadingOutstanding && (
+            <p className="text-[11px] text-muted-foreground text-center">
+              {s.incoming_saving}
             </p>
           )}
 
@@ -588,7 +627,7 @@ export function BillSheet({
             onClick={() => void sendBill()}
             className="w-full rounded-2xl bg-brand text-white py-4 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:pointer-events-none"
           >
-            {sending ? "..." : s.bill_send}
+            {sending ? s.incoming_saving : s.bill_send}
           </button>
         </div>
         </div>

@@ -4,6 +4,8 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 import { Geolocation } from "@capacitor/geolocation";
 import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
+import { getAppNavigate } from "@/lib/appNavigate";
+import { handlePushNotificationData } from "@/lib/notificationNavigation";
 
 const VENDOR_ID_KEY = "aaspaas:vendor_id";
 export const VENDOR_SOUND_KEY = "aaspaas:vendor_sound";
@@ -42,6 +44,7 @@ async function showForegroundNotification(notification: PushNotificationSchema):
   const title =
     notification.title ?? (notification.data?.title as string | undefined) ?? "Aaspaas";
   const body = notification.body ?? (notification.data?.body as string | undefined) ?? "";
+  const extra = notification.data ?? {};
   try {
     await LocalNotifications.schedule({
       notifications: [
@@ -51,12 +54,19 @@ async function showForegroundNotification(notification: PushNotificationSchema):
           title,
           body,
           channelId: "order_alert",
+          extra,
         },
       ],
     });
   } catch (err) {
     console.error("Foreground local notification failed", err);
   }
+}
+
+function navigateFromPushData(data: Record<string, unknown> | undefined): void {
+  const navigate = getAppNavigate();
+  if (!navigate) return;
+  handlePushNotificationData(navigate, data);
 }
 
 async function handleLocationPing(data: Record<string, string> | undefined): Promise<void> {
@@ -126,7 +136,11 @@ async function setupPushListeners(
   });
 
   await PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
-    console.info("Push tapped", action);
+    navigateFromPushData(action.notification.data as Record<string, unknown> | undefined);
+  });
+
+  await LocalNotifications.addListener("localNotificationActionPerformed", (action) => {
+    navigateFromPushData(action.notification.extra as Record<string, unknown> | undefined);
   });
 }
 

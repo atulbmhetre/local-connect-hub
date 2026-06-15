@@ -127,6 +127,9 @@ export async function invokeNotifyVendor(record: {
   message?: string;
   notification_title?: string;
   request_id?: string;
+  type?: string;
+  route?: string;
+  route_params?: Record<string, string>;
 }): Promise<void> {
   try {
     await supabase.functions.invoke("notify-vendor", {
@@ -137,11 +140,66 @@ export async function invokeNotifyVendor(record: {
   }
 }
 
+export type CategorySuggestionOutcome =
+  | "high_existing"
+  | "medium_existing"
+  | "new_suggested"
+  | "medium_new"
+  | "new_pending"
+  | "new_auto_approved"
+  | "low_confidence";
+
+export type CategorySuggestionResult = {
+  success: boolean;
+  outcome?: CategorySuggestionOutcome;
+  category_id?: string;
+  category_name?: string;
+  service_mode?: string;
+  confidence?: number;
+  reasoning?: string;
+  emoji?: string | null;
+  requires_confirm?: boolean;
+  pending_review?: boolean;
+  top_picks?: Array<{
+    id: string;
+    label: string;
+    emoji: string | null;
+    service_mode: string;
+  }>;
+  error?: string;
+};
+
+export async function invokeSuggestCategory(body: {
+  description: string;
+  vendor_id?: string;
+  create_pending?: boolean;
+}): Promise<CategorySuggestionResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke("suggest-category", {
+      body,
+    });
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return (data ?? { success: false, error: "empty_response" }) as CategorySuggestionResult;
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "suggest_category_failed",
+    };
+  }
+}
+
 /** Best-effort push to user devices; never throws. */
 export function invokeNotifyUser(payload: {
   user_phone: string;
   title: string;
   body: string;
+  type?: string;
+  order_id?: string;
+  post_id?: string;
+  route?: string;
+  route_params?: Record<string, string>;
 }): void {
   void supabase.functions.invoke("notify-user", { body: payload }).catch(() => {});
 }
@@ -251,10 +309,14 @@ export type Vendor = {
   review_count?: number | null;
   /** First day of current ledger/financial year (date). */
   ledger_cycle_start?: string | null;
+  /** Khata credit enabled when khata_amber_limit > 0. */
+  khata_amber_limit?: number;
+  khata_red_limit?: number;
   is_banned?: boolean;
   ban_reason?: string | null;
   vendor_type?: "shop" | "home" | "visiting" | null;
   photo_selfie?: string | null;
+  profile_status?: "draft" | "complete";
 };
 
 export type RequestRow = {
@@ -331,54 +393,7 @@ export type CategoryClassification = {
   is_government?: boolean;
 };
 
-// Local category aliases for fuzzy matching user-entered "Other" services.
-const KNOWN_CATEGORIES: { label: string; aliases: string[] }[] = [
-  {
-    label: "Beautician",
-    aliases: [
-      "butisian",
-      "beautician",
-      "parlour",
-      "parlor",
-      "beauty",
-      "salon",
-      "therapist",
-      "therapy",
-      "massage",
-      "spa",
-      "beauty parlour",
-      "mehendi",
-      "makeup artist",
-      "nail art",
-      "facial",
-      "waxing",
-    ],
-  },
-  {
-    label: "Grocery Store",
-    aliases: ["kirana", "grocery", "general store", "dukan", "dukkan"],
-  },
-  {
-    label: "Mechanic",
-    aliases: ["mikanik", "mechanic", "garage", "repair", "engine", "car repair", "bike repair"],
-  },
-  { label: "Towing", aliases: ["towing", "tow", "tow truck", "breakdown", "crane"] },
-  { label: "Tyre Service", aliases: ["tyre", "tire", "puncture", "flat tyre", "wheel"] },
-  { label: "Key Maker", aliases: ["key", "keymaker", "locksmith", "duplicate key", "lock"] },
-  { label: "Ambulance", aliases: ["ambulance", "emergency", "108"] },
-  {
-    label: "Pharmacy",
-    aliases: ["dawai", "dawa", "medicine", "pharmacy", "chemist", "medical", "drug store", "tablet"],
-  },
-  { label: "Nursing", aliases: ["nurse", "nursing", "caretaker", "home care", "patient care"] },
-  { label: "Plumber", aliases: ["plumber", "pipe", "nal wala", "water", "plumbing", "leak", "tap"] },
-  { label: "Electrician", aliases: ["bijli", "electrician", "light wala", "current wala", "electric", "wiring", "fuse", "power"] },
-  { label: "Security", aliases: ["security", "guard", "watchman", "bouncer"] },
-  {
-    label: "Fire Brigade",
-    aliases: ["fire station", "fire brigade", "agni shaman", "agnishaman", "fire emergency"],
-  },
-];
+import { resolveCanonicalTerm } from "@/lib/categories";
 
 const HINDI_BY_CANONICAL: Record<string, string> = {
   Beautician: "ब्यूटीशियन",
@@ -396,15 +411,6 @@ const HINDI_BY_CANONICAL: Record<string, string> = {
   "Fire Brigade": "फायर ब्रिगेड",
   Other: "अन्य",
 };
-
-function resolveKnownCategory(rawInput: string): string | null {
-  const t = rawInput.toLowerCase().trim();
-  for (const c of KNOWN_CATEGORIES) {
-    if (c.label.toLowerCase() === t) return c.label;
-    if (c.aliases.some((a) => t.includes(a))) return c.label;
-  }
-  return null;
-}
 
 function emojiForCanonical(canonical: string) {
   const cat = CATEGORIES.find((c) => c.label.toLowerCase() === canonical.toLowerCase());
@@ -442,7 +448,7 @@ async function classificationFromCanonical(
 async function defaultClassification(
   rawInput: string,
 ): Promise<CategoryClassification> {
-  const resolved = resolveKnownCategory(rawInput);
+  const resolved = resolveCanonicalTerm(rawInput);
   if (resolved) return classificationFromCanonical(resolved);
 
   return classificationFromCanonical("Other");
@@ -452,7 +458,7 @@ export async function classifyCategory(rawInput: string): Promise<CategoryClassi
   const input = rawInput.trim();
   if (!input) return defaultClassification(rawInput);
 
-  const localMatch = resolveKnownCategory(rawInput);
+  const localMatch = resolveCanonicalTerm(rawInput);
   if (localMatch) return classificationFromCanonical(localMatch);
 
   try {
@@ -523,7 +529,7 @@ export async function classifySearchTermForRadar(
   const term = rawInput.trim();
   if (!term) return { outcome: "fallback", query: "" };
 
-  const localCanon = resolveKnownCategory(rawInput);
+  const localCanon = resolveCanonicalTerm(rawInput);
   if (localCanon) {
     await serviceModeForCanonical(localCanon);
     return { outcome: "canonical", query: localCanon };
@@ -579,7 +585,7 @@ export type AiBridgeBriefResult =
   | { ok: true; brief: string }
   | { ok: false; error: string };
 
-export async function fetchAiBridgeBrief(payload: {
+export async function buildVendorBrief(payload: {
   vendor_name: string;
   shop_name: string;
   category: string;
@@ -636,10 +642,95 @@ export function distanceMeters(
   return distanceKm(a, b) * 1000;
 }
 
-// Lightweight UPI format check: handle@provider, handle 2-256 chars total.
-const UPI_RE = /^[a-zA-Z0-9._-]{2,}@[a-zA-Z]{2,}$/;
+// UPI format check: handle@provider (2–256 chars before @, 2–64 letter TLD).
+const UPI_RE = /^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/;
 export function isValidUpi(upi: string) {
   return UPI_RE.test(upi.trim());
+}
+
+export type RegisterVendorParams = {
+  name: string;
+  shop_name: string;
+  category: string;
+  phone: string;
+  upi_id: string;
+  service_mode: string;
+  vendor_type: string;
+  vendor_note: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  referral_code: string;
+  profile_status: "draft" | "complete";
+  category_ids: string[];
+  category_service_modes: string[];
+};
+
+export type RegisterVendorResult =
+  | { ok: true; vendorId: string }
+  | { ok: false; error: string; code?: string };
+
+/** Atomic vendor registration RPC. referral_code must be referralCodeFromPhone(phone). */
+export async function invokeRegisterVendor(
+  params: RegisterVendorParams,
+): Promise<RegisterVendorResult> {
+  try {
+    const { data, error } = await supabase.rpc("register_vendor", {
+      p_name: params.name,
+      p_shop_name: params.shop_name,
+      p_category: params.category,
+      p_phone: params.phone,
+      p_upi_id: params.upi_id,
+      p_service_mode: params.service_mode,
+      p_vendor_type: params.vendor_type,
+      p_vendor_note: params.vendor_note,
+      p_latitude: params.latitude,
+      p_longitude: params.longitude,
+      p_referral_code: params.referral_code,
+      p_profile_status: params.profile_status,
+      p_category_ids: params.category_ids,
+      p_category_service_modes: params.category_service_modes,
+    });
+    if (error) {
+      return { ok: false, error: error.message, code: error.code };
+    }
+    const vendorId = typeof data === "string" ? data : null;
+    if (!vendorId) {
+      return { ok: false, error: "register_vendor_empty_response" };
+    }
+    return { ok: true, vendorId };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "register_vendor_failed",
+    };
+  }
+}
+
+export type AttachPendingCategoryResult =
+  | { ok: true }
+  | { ok: false; error: string; code?: string };
+
+export async function invokeAttachPendingCategory(params: {
+  vendorId: string;
+  categoryId: string;
+  serviceMode: string;
+}): Promise<AttachPendingCategoryResult> {
+  try {
+    const { error } = await supabase.rpc("attach_pending_category", {
+      p_vendor_id: params.vendorId,
+      p_category_id: params.categoryId,
+      p_service_mode: params.serviceMode,
+    });
+    if (error) {
+      return { ok: false, error: error.message, code: error.code };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "attach_pending_category_failed",
+    };
+  }
 }
 
 // Indian phone heuristic: optional +91, 10 digits starting 6-9.

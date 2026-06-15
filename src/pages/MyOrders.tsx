@@ -5,7 +5,7 @@ import {
   supabase,
   invokeNotifyVendor,
   distanceMeters,
-  fetchAiBridgeBrief,
+  buildVendorBrief,
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
 } from "@/lib/supabase";
@@ -44,6 +44,20 @@ import { saveNotification } from "@/lib/notifications";
 import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
 
 const MAX_LEN = 200;
+
+function fulfilledOrderCtaLabel(
+  serviceMode: string | null | undefined,
+  labels: {
+    myOrders_delivered: string;
+    myOrders_appointmentFulfilled: string;
+    rating_btnHelped: string;
+  },
+): string {
+  const mode = String(serviceMode ?? "delivery").trim().toLowerCase();
+  if (mode === "appointment") return labels.myOrders_appointmentFulfilled;
+  if (mode === "delivery") return labels.myOrders_delivered;
+  return labels.rating_btnHelped;
+}
 
 type RowWithShop = OrderRequestRow & {
   vendors: { shop_name: string; service_mode: string | null; phone: string | null } | null;
@@ -153,6 +167,9 @@ const userStatusLabel = (
 ) => {
   if (r.appointment_status === "confirmed") return s.myOrders_apptConfirmed;
   if (r.appointment_status === "declined") return s.myOrders_apptDeclined;
+  if (r.status === "accepted" && r.vendors?.service_mode === "delivery") {
+    return s.status_accepted_delivery;
+  }
   if (r.status === "accepted" && r.vendors?.service_mode === "help") {
     return s.status_accepted;
   }
@@ -182,6 +199,30 @@ function isHelpAcceptDelayed(
   const t = new Date(iso).getTime();
   if (!Number.isFinite(t)) return false;
   return Date.now() - t >= timeoutHours * 60 * 60 * 1000;
+}
+
+function isDeliveryAcceptedOverdue(
+  r: Pick<OrderRequestRow, "status" | "delivery_slot_deadline"> & {
+    vendors?: { service_mode: string | null } | null;
+  },
+): boolean {
+  if (r.status !== "accepted" || r.vendors?.service_mode !== "delivery") return false;
+  const deadline = r.delivery_slot_deadline;
+  if (deadline == null || String(deadline).trim() === "") return false;
+  const t = new Date(deadline).getTime();
+  if (!Number.isFinite(t)) return false;
+  return t < Date.now();
+}
+
+function isBookingConfirmedOverdue(
+  r: Pick<OrderRequestRow, "appointment_time" | "appointment_status">,
+): boolean {
+  if (r.appointment_status !== "confirmed") return false;
+  const time = r.appointment_time;
+  if (time == null || String(time).trim() === "") return false;
+  const t = new Date(time).getTime();
+  if (!Number.isFinite(t)) return false;
+  return t < Date.now();
 }
 
 function stripLocationTag(message: string): string {
@@ -449,7 +490,7 @@ const MyOrders = () => {
     let listQuery = supabase
       .from("requests")
       .select(
-        "id, device_id, vendor_id, message, status, created_at, updated_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, delivery_address, is_edited, vendors(shop_name, service_mode, phone)",
+        "id, device_id, vendor_id, message, status, created_at, updated_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, delivery_slot_deadline, delivery_address, is_edited, vendors(shop_name, service_mode, phone)",
       )
       .neq("status", "done")
       .order("created_at", { ascending: false });
@@ -692,7 +733,7 @@ const MyOrders = () => {
       setAiBriefFailed(false);
       setAiBriefText(null);
 
-      const result = await fetchAiBridgeBrief({
+      const result = await buildVendorBrief({
         vendor_name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
         shop_name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
         category: "help",
@@ -781,6 +822,7 @@ const MyOrders = () => {
         notification_title: s.myOrders_userCancelledNotifyTitle,
         message: s.myOrders_userCancelledNotifyBody,
         request_id: r.id,
+        type: "order_update",
       });
       saveNotification({
         userPhone: vendorPhone,
@@ -811,6 +853,7 @@ const MyOrders = () => {
         notification_title: s.myOrders_userCancelledNotifyTitle,
         message: s.myOrders_userCancelledNotifyBody,
         request_id: r.id,
+        type: "order_update",
       });
       saveNotification({
         userPhone: vendorPhone,
@@ -1018,6 +1061,7 @@ const MyOrders = () => {
         notification_title: notificationTitle,
         message: notificationBody,
         request_id: editOrder.id,
+        type: "order_update",
       });
     }
 
@@ -1194,8 +1238,48 @@ const MyOrders = () => {
                   ? cancelledOrderStatusLabel(r, s)
                   : r.status === "accepted" && r.vendors?.service_mode === "help"
                     ? s.status_accepted
-                    : userStatusLabel(r, s)}
+                    : r.status === "accepted" && r.vendors?.service_mode === "delivery"
+                      ? s.status_accepted_delivery
+                      : userStatusLabel(r, s)}
               </span>
+              {isDeliveryAcceptedOverdue(r) && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
+                  <p className="text-[11px] text-amber-400 text-center leading-snug font-semibold">
+                    {s.delivery_accepted_overdue_title}
+                  </p>
+                  <p className="text-[11px] text-amber-400 text-center leading-snug">
+                    {s.delivery_accepted_overdue_body}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="order-dismiss-btn"
+                    disabled={markingId === r.id}
+                    onClick={() => void markDone(r.id)}
+                    className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
+                  </button>
+                </div>
+              )}
+              {isBookingConfirmedOverdue(r) && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
+                  <p className="text-[11px] text-amber-400 text-center leading-snug font-semibold">
+                    {s.booking_confirmed_overdue_title}
+                  </p>
+                  <p className="text-[11px] text-amber-400 text-center leading-snug">
+                    {s.booking_confirmed_overdue_body}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="order-dismiss-btn"
+                    disabled={markingId === r.id}
+                    onClick={() => void markDone(r.id)}
+                    className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
+                  </button>
+                </div>
+              )}
               <p className="text-sm text-foreground/90 leading-snug whitespace-pre-wrap break-words">
                 {stripLocationTag(r.message)}
               </p>
@@ -1580,15 +1664,29 @@ const MyOrders = () => {
                   </button>
                 ) : null}
                 {r.status === "fulfilled" ? (
-                  <button
-                    type="button"
-                    data-testid="order-rate-btn"
-                    disabled={markingId === r.id}
-                    onClick={() => handleFulfilledDismiss(r)}
-                    className="w-full rounded-2xl bg-brand text-page-bg text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {markingId === r.id ? s.myOrders_saving : s.myOrders_delivered}
-                  </button>
+                  myReviews[r.id] ? (
+                    <button
+                      type="button"
+                      data-testid="order-dismiss-btn"
+                      disabled={markingId === r.id}
+                      onClick={() => void markDone(r.id)}
+                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                    >
+                      {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="order-rate-btn"
+                      disabled={markingId === r.id}
+                      onClick={() => handleFulfilledDismiss(r)}
+                      className="w-full rounded-2xl bg-brand text-page-bg text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                    >
+                      {markingId === r.id
+                        ? s.myOrders_saving
+                        : fulfilledOrderCtaLabel(r.vendors?.service_mode, s)}
+                    </button>
+                  )
                 ) : null}
                 {r.status !== "cancelled" &&
                   !r.appointment_time &&
@@ -1655,7 +1753,7 @@ const MyOrders = () => {
               onChange={(e) => setEditMessage(e.target.value.slice(0, MAX_LEN))}
               rows={4}
               className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary pr-20"
-              placeholder="Your order message"
+              placeholder={s.editOrder_messagePlaceholder}
             />
             <button
               type="button"
