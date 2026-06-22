@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertRowExists } from './helpers/db-assert';
 
 let testVendor: any;
@@ -12,13 +12,13 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await supabase.from('user_notifications').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
-  await supabase.from('user_flags').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('user_flags').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
   await cleanupTestData();
 });
 
 test('TRUST-01: new user starts with trust_score = 100', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('users')
     .select('trust_score')
     .eq('phone', TEST_CUSTOMER_PHONE)
@@ -28,7 +28,7 @@ test('TRUST-01: new user starts with trust_score = 100', async () => {
 });
 
 test('TRUST-02: warn_count starts at 0', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('users')
     .select('warn_count')
     .eq('phone', TEST_CUSTOMER_PHONE)
@@ -38,17 +38,14 @@ test('TRUST-02: warn_count starts at 0', async () => {
 });
 
 test('AD-05: admin warns customer — warn_count increments', async () => {
-  const { error } = await supabase
-    .from('users')
-    .update({
-      warn_count: 1,
-      last_warned_at: new Date().toISOString(),
-    })
-    .eq('phone', TEST_CUSTOMER_PHONE);
+  const { error } = await supabase.rpc('admin_warn_user', {
+    p_admin_phone: ADMIN_PHONE,
+    p_user_phone: TEST_CUSTOMER_PHONE,
+  });
 
   expect(error).toBeNull();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('users')
     .select('warn_count, last_warned_at')
     .eq('phone', TEST_CUSTOMER_PHONE)
@@ -58,7 +55,7 @@ test('AD-05: admin warns customer — warn_count increments', async () => {
   expect(data?.last_warned_at).not.toBeNull();
 
   // Admin action logged
-  await supabase.from('admin_actions').insert({
+  await supabaseAdmin.from('admin_actions').insert({
     admin_phone: ADMIN_PHONE,
     action_type: 'warn_user',
     target_type: 'user',
@@ -73,12 +70,12 @@ test('AD-05: admin warns customer — warn_count increments', async () => {
 });
 
 test('AD-07: customer with warn_count >= 3 is flagged as risky', async () => {
-  await supabase
+  await supabaseAdmin
     .from('users')
     .update({ warn_count: 3 })
     .eq('phone', TEST_CUSTOMER_PHONE);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('users')
     .select('warn_count')
     .eq('phone', TEST_CUSTOMER_PHONE)
@@ -90,14 +87,15 @@ test('AD-07: customer with warn_count >= 3 is flagged as risky', async () => {
 });
 
 test('AD-06: admin bans customer — is_banned = true', async () => {
-  const { error } = await supabase
-    .from('users')
-    .update({ is_banned: true, ban_reason: 'Test ban' })
-    .eq('phone', TEST_CUSTOMER_PHONE);
+  const { error } = await supabase.rpc('admin_ban_user', {
+    p_admin_phone: ADMIN_PHONE,
+    p_user_phone: TEST_CUSTOMER_PHONE,
+    p_reason: 'Test ban',
+  });
 
   expect(error).toBeNull();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('users')
     .select('is_banned, ban_reason')
     .eq('phone', TEST_CUSTOMER_PHONE)
@@ -108,7 +106,7 @@ test('AD-06: admin bans customer — is_banned = true', async () => {
 });
 
 test('SC-06: banned customer cannot place orders — is_banned check', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('users')
     .select('is_banned')
     .eq('phone', TEST_CUSTOMER_PHONE)
@@ -120,7 +118,7 @@ test('SC-06: banned customer cannot place orders — is_banned check', async () 
 });
 
 test('TRUST-03: user flag inserted correctly', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -131,7 +129,7 @@ test('TRUST-03: user flag inserted correctly', async () => {
     .select()
     .single();
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('user_flags')
     .insert({
       vendor_id: testVendor.id,
@@ -150,13 +148,16 @@ test('TRUST-03: user flag inserted correctly', async () => {
 });
 
 test('TRUST-04: trust score can be updated', async () => {
-  // Unban first for clean test
-  await supabase
+  await supabase.rpc('admin_unban_user', {
+    p_admin_phone: ADMIN_PHONE,
+    p_user_phone: TEST_CUSTOMER_PHONE,
+  });
+  await supabaseAdmin
     .from('users')
-    .update({ is_banned: false, trust_score: 75 })
+    .update({ trust_score: 75 })
     .eq('phone', TEST_CUSTOMER_PHONE);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('users')
     .select('trust_score')
     .eq('phone', TEST_CUSTOMER_PHONE)

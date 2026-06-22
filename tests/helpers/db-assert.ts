@@ -1,7 +1,7 @@
-import { supabase } from './setup';
+import { supabase, supabaseAdmin } from './setup';
 
 export async function assertNotificationCreated(userPhone: string, type: string) {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('user_notifications')
     .select()
     .eq('user_phone', userPhone)
@@ -15,7 +15,7 @@ export async function assertNotificationCreated(userPhone: string, type: string)
 }
 
 export async function assertRequestStatus(requestId: string, expectedStatus: string) {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('status')
     .eq('id', requestId)
@@ -37,7 +37,7 @@ export async function assertVendorField(vendorId: string, field: string, expecte
 }
 
 export async function assertRowExists(table: string, filters: Record<string, any>) {
-  let query = supabase.from(table).select('id');
+  let query = supabaseAdmin.from(table).select('id');
   for (const [key, value] of Object.entries(filters)) {
     query = query.eq(key, value) as any;
   }
@@ -49,7 +49,7 @@ export async function assertRowExists(table: string, filters: Record<string, any
 }
 
 export async function assertRowNotExists(table: string, filters: Record<string, any>) {
-  let query = supabase.from(table).select('id');
+  let query = supabaseAdmin.from(table).select('id');
   for (const [key, value] of Object.entries(filters)) {
     query = query.eq(key, value) as any;
   }

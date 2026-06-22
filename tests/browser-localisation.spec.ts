@@ -1,13 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import {
-  supabase,
-  createTestVendor,
-  cleanupTestData, cleanupTestVendors,
-  TEST_CUSTOMER_PHONE,
-  TEST_VENDOR_PHONE,
-  TEST_SESSION,
-} from './helpers/setup';
+import { supabase, supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_i18n_${TEST_SESSION}`;
 let testVendor: any;
@@ -21,10 +14,15 @@ test.afterAll(async () => {
   await cleanupTestData();
 });
 
+async function waitForHomeScreen(page: Page) {
+  await page.waitForSelector('[data-testid="home-screen"]', { timeout: 20000 });
+}
+
 async function setLanguage(page: Page, lang: 'en' | 'hi' | 'mr') {
   await page.evaluate((l: string) => localStorage.setItem('aaspaas:language', l), lang);
   await page.reload();
   await page.waitForLoadState('networkidle');
+  await waitForHomeScreen(page);
 }
 
 async function openPreferences(page: Page) {
@@ -39,7 +37,7 @@ async function openPreferences(page: Page) {
 // ─── FEATURE FLAGS ─────────────────────────────────────────────────────────
 
 test('I18N-01: localisation feature flags exist in app_config', async () => {
-  const { data } = await supabase.from('app_config')
+  const { data } = await supabaseAdmin.from('app_config')
     .select('key, value')
     .in('key', ['localizationEnabled', 'langHindiEnabled', 'langMarathiEnabled']);
   const keys = data?.map((r) => r.key) ?? [];
@@ -66,6 +64,7 @@ test('I18N-03: switching to Hindi — app reloads without crash', async ({ page 
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await setLanguage(page, 'hi');
   await page.goto(`${APP_URL}/`);
+  await waitForHomeScreen(page);
   await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 8000 });
 });
 
@@ -73,6 +72,7 @@ test('I18N-04: switching to Marathi — app reloads without crash', async ({ pag
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await setLanguage(page, 'mr');
   await page.goto(`${APP_URL}/`);
+  await waitForHomeScreen(page);
   await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 8000 });
 });
 
@@ -81,6 +81,7 @@ test('I18N-05: switching back to English from Hindi — app reloads correctly', 
   await setLanguage(page, 'hi');
   await setLanguage(page, 'en');
   await page.goto(`${APP_URL}/`);
+  await waitForHomeScreen(page);
   await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 8000 });
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
@@ -158,6 +159,7 @@ test('I18N-13: Hindi — no raw string keys visible on home screen', async ({ pa
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await setLanguage(page, 'hi');
   await page.goto(`${APP_URL}/`);
+  await waitForHomeScreen(page);
   await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 8000 });
   const content = await page.getByTestId('home-screen').textContent();
   expect(content).not.toMatch(/^[a-z]+_[a-z]+_[a-z]+$/m);
@@ -167,6 +169,7 @@ test('I18N-14: Marathi — no raw string keys visible on home screen', async ({ 
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await setLanguage(page, 'mr');
   await page.goto(`${APP_URL}/`);
+  await waitForHomeScreen(page);
   await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 8000 });
   const content = await page.getByTestId('home-screen').textContent();
   expect(content).not.toMatch(/^[a-z]+_[a-z]+_[a-z]+$/m);
@@ -192,6 +195,7 @@ test('I18N-16: language persists after page reload', async ({ page }) => {
   await setLanguage(page, 'mr');
   await page.reload();
   await page.waitForLoadState('networkidle');
+  await waitForHomeScreen(page);
   const lang = await page.evaluate(() => localStorage.getItem('aaspaas:language'));
   expect(lang).toBe('mr');
 });
@@ -207,6 +211,7 @@ test('I18N-17: language selector shows current language', async ({ page }) => {
 
 test('I18N-18: all 3 language options available in selector', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await waitForHomeScreen(page);
   await openPreferences(page);
   const langSelect = page.getByTestId('language-select');
   await expect(langSelect).toBeVisible({ timeout: 5000 });

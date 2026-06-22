@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, type VendorSubscriptionAppConfig } from "@/lib/supabase";
 
-export interface AppConfig {
+export interface AppConfig extends VendorSubscriptionAppConfig {
   vendorTrialDays: number;
   subscriptionPriceInr: number;
   helpCallLimitSeconds: number;
@@ -10,8 +10,6 @@ export interface AppConfig {
   vendorStoppedDistanceMeters: number;
   vendorStoppedMinutes: number;
   locationPingSeconds: number;
-  radarCityRadiusKm: number;
-  radarHighwayRadiusKm: number;
   maxOrderMessageChars: number;
   referralEnabled: boolean;
   localizationEnabled: boolean;
@@ -29,6 +27,9 @@ export interface AppConfig {
 }
 
 const DEFAULT_CONFIG: AppConfig = {
+  payments_enabled: "false",
+  vendor_subscription_price: "99",
+  razorpay_key_id: "",
   vendorTrialDays: 30,
   subscriptionPriceInr: 99,
   helpCallLimitSeconds: 300,
@@ -37,8 +38,6 @@ const DEFAULT_CONFIG: AppConfig = {
   vendorStoppedDistanceMeters: 200,
   vendorStoppedMinutes: 10,
   locationPingSeconds: 60,
-  radarCityRadiusKm: 15,
-  radarHighwayRadiusKm: 50,
   maxOrderMessageChars: 200,
   referralEnabled: false,
   localizationEnabled: true,
@@ -62,7 +61,12 @@ const BOOLEAN_KEYS = new Set<keyof AppConfig>([
   "langMarathiEnabled",
 ]);
 
-const STRING_KEYS = new Set<keyof AppConfig>(["appBaseUrl"]);
+const STRING_KEYS = new Set<keyof AppConfig>([
+  "appBaseUrl",
+  "payments_enabled",
+  "vendor_subscription_price",
+  "razorpay_key_id",
+]);
 
 const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   vendor_trial_days: "vendorTrialDays",
@@ -73,8 +77,6 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   vendor_stopped_distance_meters: "vendorStoppedDistanceMeters",
   vendor_stopped_minutes: "vendorStoppedMinutes",
   location_ping_seconds: "locationPingSeconds",
-  radar_city_radius_km: "radarCityRadiusKm",
-  radar_highway_radius_km: "radarHighwayRadiusKm",
   max_order_message_chars: "maxOrderMessageChars",
   referral_enabled: "referralEnabled",
   localization_enabled: "localizationEnabled",
@@ -89,6 +91,9 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   referral_veteran_threshold_months: "referralVeteranThresholdMonths",
   help_accept_timeout_hours: "helpAcceptTimeoutHours",
   ai_category_confidence_threshold: "aiCategoryConfidenceThreshold",
+  payments_enabled: "payments_enabled",
+  vendor_subscription_price: "vendor_subscription_price",
+  razorpay_key_id: "razorpay_key_id",
 };
 
 for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {

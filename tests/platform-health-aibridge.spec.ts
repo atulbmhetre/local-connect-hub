@@ -1,23 +1,27 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin, waitForSettingsAdminReady, APP_URL } from './helpers/browser-setup';
 import {
-  supabase,
-  createTestCustomer,
   cleanupTestData,
   cleanupTestVendors,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
   TEST_CUSTOMER_PHONE,
   TEST_SESSION,
+  supabaseAdmin,
 } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 let helpVendor: { id: string; service_mode: string };
 
 test.beforeAll(async () => {
+  await supabaseAdmin.from('app_config').upsert(
+    { key: 'help_call_limit_seconds', value: '300' },
+    { onConflict: 'key' },
+  );
+
   const helpCategory = await getActiveCategoryByServiceMode('help');
   const helpPhone = `99007${Date.now().toString().slice(-5)}`;
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: `Help Vendor ${TEST_SESSION}`,
@@ -35,7 +39,10 @@ test.beforeAll(async () => {
   if (error) throw error;
   helpVendor = data;
   await seedVendorCategory(helpVendor.id, helpCategory);
-  await createTestCustomer();
+  const { error: customerError } = await supabaseAdmin
+    .from('users')
+    .insert({ phone: TEST_CUSTOMER_PHONE });
+  if (customerError) throw customerError;
 });
 
 test.afterAll(async () => {
@@ -67,7 +74,7 @@ test('HEALTH-02: admin sees App Health card title', async ({ page }) => {
 });
 
 test('HEALTH-03: platform health metrics — active vendors count readable from DB', async () => {
-  const { count } = await supabase
+  const { count } = await supabaseAdmin
     .from('vendors')
     .select('*', { count: 'exact', head: true })
     .eq('is_active', true)
@@ -79,7 +86,7 @@ test('HEALTH-03: platform health metrics — active vendors count readable from 
 test('HEALTH-04: platform health — stuck orders (48h+) query works', async () => {
   const cutoff = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('requests')
     .select('id, status, created_at')
     .eq('status', 'accepted')
@@ -90,7 +97,7 @@ test('HEALTH-04: platform health — stuck orders (48h+) query works', async () 
 });
 
 test('HEALTH-05: platform health — risky users query works', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('users')
     .select('id, trust_score')
     .lt('trust_score', 25);
@@ -100,7 +107,7 @@ test('HEALTH-05: platform health — risky users query works', async () => {
 });
 
 test('HEALTH-06: platform health — unverified vendors query works', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('vendors')
     .select('id')
     .eq('is_manual_verified', false)
@@ -111,7 +118,7 @@ test('HEALTH-06: platform health — unverified vendors query works', async () =
 });
 
 test('HEALTH-07: platform health — total referrals count readable', async () => {
-  const { count, error } = await supabase
+  const { count, error } = await supabaseAdmin
     .from('referrals')
     .select('*', { count: 'exact', head: true });
 
@@ -120,7 +127,7 @@ test('HEALTH-07: platform health — total referrals count readable', async () =
 });
 
 test('HEALTH-08: platform health — avg vendor rating query works', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('vendors')
     .select('avg_rating')
     .not('avg_rating', 'is', null)
@@ -139,7 +146,7 @@ test('HEALTH-08: platform health — avg vendor rating query works', async () =>
 // ─── AI BRIDGE ────────────────────────────────────────────────────────────
 
 test('AIBRIDGE-01: help order accepted — status = accepted in DB', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: helpVendor.id,
@@ -151,13 +158,12 @@ test('AIBRIDGE-01: help order accepted — status = accepted in DB', async () =>
     .select()
     .single();
 
-  // Simulate vendor accept
-  await supabase
+  await supabaseAdmin
     .from('requests')
     .update({ status: 'accepted' })
     .eq('id', order.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('status')
     .eq('id', order.id)
@@ -165,11 +171,11 @@ test('AIBRIDGE-01: help order accepted — status = accepted in DB', async () =>
 
   expect(data?.status).toBe('accepted');
 
-  await supabase.from('requests').delete().eq('id', order.id);
+  await supabaseAdmin.from('requests').delete().eq('id', order.id);
 });
 
 test('AIBRIDGE-02: customer notified when vendor accepts help — notification created', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: helpVendor.id,
@@ -181,7 +187,7 @@ test('AIBRIDGE-02: customer notified when vendor accepts help — notification c
     .select()
     .single();
 
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     type: 'order_accepted',
     title: 'Help is on the way!',
@@ -190,7 +196,7 @@ test('AIBRIDGE-02: customer notified when vendor accepts help — notification c
     route_params: { order_id: order.id },
   });
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('user_notifications')
     .select('title, body')
     .eq('user_phone', TEST_CUSTOMER_PHONE)
@@ -201,7 +207,7 @@ test('AIBRIDGE-02: customer notified when vendor accepts help — notification c
 
   expect(data?.title).toBe('Help is on the way!');
 
-  await supabase.from('requests').delete().eq('id', order.id);
+  await supabaseAdmin.from('requests').delete().eq('id', order.id);
 });
 
 test('AIBRIDGE-03: AI bridge call goes via edge function — not direct client call', async () => {
@@ -210,7 +216,7 @@ test('AIBRIDGE-03: AI bridge call goes via edge function — not direct client c
   // We cannot test actual Exotel call in automated tests
   // But we verify the config that gates it exists
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'help_call_limit_seconds')
@@ -221,7 +227,7 @@ test('AIBRIDGE-03: AI bridge call goes via edge function — not direct client c
 });
 
 test('AIBRIDGE-04: vendor GPS ping config correct for help tracking', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'location_ping_seconds')
@@ -231,7 +237,7 @@ test('AIBRIDGE-04: vendor GPS ping config correct for help tracking', async () =
 });
 
 test('AIBRIDGE-05: help order vendor has service_mode = help', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendors')
     .select('service_mode')
     .eq('id', helpVendor.id)
@@ -244,7 +250,7 @@ test('AIBRIDGE-06: stopped vendor detection config exists', async () => {
   const keys = ['vendor_stopped_minutes', 'vendor_stopped_distance_meters'];
 
   for (const key of keys) {
-    const { data } = await supabase
+    const { data } = await supabaseAdmin
       .from('app_config')
       .select('value')
       .eq('key', key)

@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabase, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_apt_${TEST_SESSION}`;
 let apptVendor: any;
 
 test.beforeAll(async () => {
   // Create appointment-mode vendor
-  const { data, error } = await supabase.from('vendors').insert({
+  const { data, error } = await supabaseAdmin.from('vendors').insert({
     name: `Test Appt Vendor ${TEST_SESSION}`,
     shop_name: `Appt Shop ${TEST_SESSION}`,
     phone: `99000${Date.now().toString().slice(-5)}`,
@@ -31,7 +31,7 @@ test.afterAll(async () => {
 
 test('AP-01-BROWSER: appointment order inserted with correct fields', async ({ page }) => {
   const apptTime = new Date(Date.now() + 86400000).toISOString(); // tomorrow
-  const { error, data } = await supabase.from('requests').insert({
+  const { error, data } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -47,7 +47,7 @@ test('AP-01-BROWSER: appointment order inserted with correct fields', async ({ p
 
 test('AP-02-BROWSER: vendor confirms appointment — status accepted + DB assert', async ({ page }) => {
   const apptTime = new Date(Date.now() + 86400000).toISOString();
-  const { data: order } = await supabase.from('requests').insert({
+  const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -69,13 +69,13 @@ test('AP-02-BROWSER: vendor confirms appointment — status accepted + DB assert
   await page.getByTestId('incoming-accept-btn').first().click();
   await page.waitForTimeout(2000);
 
-  const { data: updated } = await supabase.from('requests').select('status, appointment_status').eq('id', order!.id).single();
+  const { data: updated } = await supabaseAdmin.from('requests').select('status, appointment_status').eq('id', order!.id).single();
   expect(updated?.appointment_status).toBe('confirmed');
 });
 
 test('AP-03-BROWSER: vendor declines appointment — uses incoming-decline-btn + DB assert', async ({ page }) => {
   const apptTime = new Date(Date.now() + 86400000).toISOString();
-  const { data: order } = await supabase.from('requests').insert({
+  const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -107,13 +107,13 @@ test('AP-03-BROWSER: vendor declines appointment — uses incoming-decline-btn +
   await confirmBtn.click();
   await page.waitForTimeout(2000);
 
-  const { data: updated } = await supabase.from('requests').select('status, appointment_status').eq('id', order!.id).single();
+  const { data: updated } = await supabaseAdmin.from('requests').select('status, appointment_status').eq('id', order!.id).single();
   expect(updated?.appointment_status).toBe('declined');
 });
 
 test('AP-04-BROWSER: vendor marks appointment done — DB assert', async ({ page }) => {
   const apptTime = new Date(Date.now() - 3600000).toISOString(); // 1 hour ago
-  const { data: order } = await supabase.from('requests').insert({
+  const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -135,13 +135,13 @@ test('AP-04-BROWSER: vendor marks appointment done — DB assert', async ({ page
   await page.getByTestId('incoming-done-btn').first().click();
   await page.waitForTimeout(2000);
 
-  const { data: updated } = await supabase.from('requests').select('status').eq('id', order!.id).single();
+  const { data: updated } = await supabaseAdmin.from('requests').select('status').eq('id', order!.id).single();
   expect(['fulfilled', 'done']).toContain(updated?.status);
 });
 
 test('AP-05-BROWSER: appointment shows in customer MyOrders with correct status badge', async ({ page }) => {
   const apptTime = new Date(Date.now() + 86400000).toISOString();
-  await supabase.from('requests').insert({
+  await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -159,7 +159,7 @@ test('AP-05-BROWSER: appointment shows in customer MyOrders with correct status 
 });
 
 test('AP-06-BROWSER: customer rates completed appointment — rating sheet UI + DB assert', async ({ page }) => {
-  const { data: order } = await supabase.from('requests').insert({
+  const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -188,7 +188,7 @@ test('AP-06-BROWSER: customer rates completed appointment — rating sheet UI + 
   await page.waitForTimeout(2000);
 
   // Assert by request_id — the unique constraint guarantees one row per order
-  const { data: review } = await supabase
+  const { data: review } = await supabaseAdmin
     .from('vendor_reviews')
     .select('rating, vendor_id')
     .eq('request_id', order!.id)
@@ -208,7 +208,7 @@ test('AP-06-BROWSER: customer rates completed appointment — rating sheet UI + 
 // ─── NEGATIVE CASES ────────────────────────────────────────────────────────
 
 test('AP-NEG-01: appointment without appointment_time is treated as regular order', async ({ page }) => {
-  const { data, error } = await supabase.from('requests').insert({
+  const { data, error } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -221,7 +221,7 @@ test('AP-NEG-01: appointment without appointment_time is treated as regular orde
 });
 
 test('AP-NEG-02: declined appointment cannot be confirmed again — DB constraint', async ({ page }) => {
-  const { data: order } = await supabase.from('requests').insert({
+  const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -232,11 +232,11 @@ test('AP-NEG-02: declined appointment cannot be confirmed again — DB constrain
   }).select().single();
 
   // Try to set confirmed on an already declined appointment
-  const { error } = await supabase.from('requests')
+  const { error } = await supabaseAdmin.from('requests')
     .update({ appointment_status: 'confirmed' })
     .eq('id', order!.id)
     .eq('appointment_status', 'pending'); // condition won't match
   // Update should affect 0 rows — status stays declined
-  const { data: check } = await supabase.from('requests').select('appointment_status').eq('id', order!.id).single();
+  const { data: check } = await supabaseAdmin.from('requests').select('appointment_status').eq('id', order!.id).single();
   expect(check?.appointment_status).toBe('declined');
 });

@@ -6,7 +6,7 @@ import { CategoryPicker } from "@/components/CategoryPicker";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { NeighbourSheet, type SavedVendorInfo } from "@/components/NeighbourSheet";
-import { Loader2, Mic, Search, X } from "lucide-react";
+import { Loader2, Mic, Search } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
@@ -22,13 +22,14 @@ import {
   useCategoryLabel,
 } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
-import { getUserPhone } from "@/lib/userIdentity";
+import { getUserPhone, hasBeenWelcomed, markWelcomed } from "@/lib/userIdentity";
 import { registerUserPushToken } from "@/lib/pushNotifications";
 import { buildRequestsActiveWindowOrFilter } from "@/lib/orders";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/SettingsSection";
 import { NotificationBell } from "@/components/NotificationBell";
+import { FirstOpenFlow } from "@/components/FirstOpenFlow";
 import { cn } from "@/lib/utils";
 
 type SavedNeighbourTile = {
@@ -45,23 +46,6 @@ type HelpOrderBanner = {
 };
 
 const HELP_ORDER_WINDOW_MS = 48 * 60 * 60 * 1000;
-const WELCOMED_KEY = "aaspaas:welcomed";
-
-function hasBeenWelcomed(): boolean {
-  try {
-    return localStorage.getItem(WELCOMED_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function markWelcomed(): void {
-  try {
-    localStorage.setItem(WELCOMED_KEY, "true");
-  } catch {
-    /* ignore */
-  }
-}
 
 function isVendorLocationStale(
   lastUpdated: string | null | undefined,
@@ -102,11 +86,7 @@ const Index = () => {
   const [userPhone, setUserPhone] = useState(() => getUserPhone());
   const [helpOrderBanner, setHelpOrderBanner] = useState<HelpOrderBanner | null>(null);
   const [helpBannerTick, setHelpBannerTick] = useState(0);
-  const [welcomeVisible, setWelcomeVisible] = useState(false);
-
-  useEffect(() => {
-    setWelcomeVisible(!hasBeenWelcomed() && !getUserPhone());
-  }, []);
+  const [welcomed, setWelcomed] = useState(() => hasBeenWelcomed());
 
   const loadSavedNeighbours = useCallback(async () => {
     const device_id = getDeviceId();
@@ -360,10 +340,21 @@ const Index = () => {
 
   // Navigate to the dedicated Radar screen with the search term in the URL.
   // Keeps Home as a pure entry point and lets Radar own all fetch/rank logic.
-  const goToRadar = (term: string) => {
+  const goToRadar = (term: string, mode?: Category["service_mode"]) => {
     const t = term.trim();
-    navigate(t ? `/radar?q=${encodeURIComponent(t)}` : "/radar");
+    const validMode = parseRadarMode(mode ?? null);
+    const params = new URLSearchParams();
+    if (t) params.set("q", t);
+    if (validMode) params.set("mode", validMode);
+    const qs = params.toString();
+    navigate(qs ? `/radar?${qs}` : "/radar");
   };
+
+  function parseRadarMode(raw: string | null): Category["service_mode"] | null {
+    const m = raw?.trim().toLowerCase();
+    if (m === "help" || m === "delivery" || m === "appointment") return m;
+    return null;
+  }
 
   /** AI classifier for typed / voice free text only (not Quick Assist / picker). */
   const runFreeTextSearch = async (raw: string) => {
@@ -411,19 +402,10 @@ const Index = () => {
     setAiSheetOpen(true);
   }, []);
 
-  const dismissWelcome = () => {
+  const completeFirstOpen = () => {
     markWelcomed();
-    setWelcomeVisible(false);
-  };
-
-  const handleWelcomeExplore = () => {
-    dismissWelcome();
-    document.getElementById("category-grid")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-  const handleWelcomeVendor = () => {
-    dismissWelcome();
-    navigate("/vendor");
+    setWelcomed(true);
+    setUserPhone(getUserPhone());
   };
 
   const startVoice = async () => {
@@ -460,45 +442,6 @@ const Index = () => {
         </div>
         <NotificationBell className="mt-6 mr-4" />
       </div>
-
-      {welcomeVisible && (
-        <div
-          data-testid="welcome-card"
-          className="mx-4 w-[calc(100%-2rem)] rounded-2xl border border-brand/40 bg-brand-muted p-4 relative"
-        >
-          <button
-            type="button"
-            onClick={dismissWelcome}
-            className="absolute top-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40"
-            aria-label="Dismiss"
-          >
-            <X className="h-4 w-4" />
-          </button>
-          <p className="text-2xl mb-2" aria-hidden>
-            🏘️
-          </p>
-          <p className="font-display font-bold text-foreground pr-10">{s.welcome_title}</p>
-          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{s.welcome_body}</p>
-          <div className="mt-4 flex flex-col gap-2">
-            <button
-              type="button"
-              data-testid="welcome-explore-btn"
-              onClick={handleWelcomeExplore}
-              className="w-full rounded-xl bg-brand text-page-bg py-3 font-semibold active:scale-[0.98]"
-            >
-              {s.welcome_explore}
-            </button>
-            <button
-              type="button"
-              data-testid="welcome-vendor-btn"
-              onClick={handleWelcomeVendor}
-              className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-foreground active:scale-[0.98]"
-            >
-              {s.welcome_vendor}
-            </button>
-          </div>
-        </div>
-      )}
 
       {helpOrderBanner &&
         (() => {
@@ -720,7 +663,7 @@ const Index = () => {
                   {group.categories.map((cat) => (
                     <button
                       key={cat.id}
-                      onClick={() => goToRadar(cat.label)}
+                      onClick={() => goToRadar(cat.label, cat.service_mode)}
                       className="flex-shrink-0 w-20 rounded-2xl bg-surface active:scale-95 transition-all flex flex-col items-center justify-center gap-1.5 border border-surface-border py-3 px-2"
                     >
                       <span className="text-3xl">{cat.emoji}</span>
@@ -739,14 +682,25 @@ const Index = () => {
       <CategoryPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onPick={(cat) => {
+        onPick={(label) => {
           setPickerOpen(false);
-          goToRadar(cat);
+          const cat = categories.find((c) => c.label === label);
+          goToRadar(label, cat?.service_mode);
         }}
         onMic={startVoice}
         categories={categories}
       />
       </div>
+      {!welcomed && (
+        <FirstOpenFlow
+          onComplete={completeFirstOpen}
+          onVendorRegister={() => {
+            markWelcomed();
+            setWelcomed(true);
+            navigate("/vendor");
+          }}
+        />
+      )}
     </AppShell>
   );
 };

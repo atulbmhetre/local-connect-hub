@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertRequestStatus, assertNotificationCreated, assertRowExists } from './helpers/db-assert';
 
 let testVendor: any;
@@ -8,12 +8,38 @@ let testRequestId: string;
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
   await createTestCustomer();
-  await supabase.from('vendors').update({ service_mode: 'help' }).eq('id', testVendor.id);
+  await supabaseAdmin.from('vendors').update({ service_mode: 'help' }).eq('id', testVendor.id);
+
+  const otpPhone = `91${TEST_CUSTOMER_PHONE}`;
+  const { error: signInError } = await supabase.auth.signInWithOtp({ phone: otpPhone });
+  if (signInError) throw new Error(signInError.message);
+
+  await new Promise((r) => setTimeout(r, 2000));
+
+  const { data: otpRow, error: otpReadError } = await supabaseAdmin
+    .from('_test_otp_capture')
+    .select('otp')
+    .eq('phone', `+${otpPhone}`)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (otpReadError || !otpRow?.otp) {
+    throw new Error(otpReadError?.message ?? 'missing otp');
+  }
+
+  const { error: verifyError } = await supabase.auth.verifyOtp({
+    phone: otpPhone,
+    token: otpRow.otp,
+    type: 'sms',
+  });
+  if (verifyError) throw new Error(verifyError.message);
 });
 
 test.afterAll(async () => {
+  await supabase.auth.signOut();
   await cleanupTestVendors();
-  await supabase.from('vendor_reviews').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('vendor_reviews').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
   await cleanupTestData();
 });
 
@@ -35,7 +61,7 @@ test('HM-01: customer places help request — request created with status sent',
 });
 
 test('HM-01b: vendor notified of new help request', async () => {
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_VENDOR_PHONE,
     type: 'new_order',
     title: 'New Help Request',
@@ -47,7 +73,7 @@ test('HM-01b: vendor notified of new help request', async () => {
 });
 
 test('HM-02: vendor accepts help request — status becomes accepted', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('requests')
     .update({ status: 'accepted' })
     .eq('id', testRequestId);
@@ -57,7 +83,7 @@ test('HM-02: vendor accepts help request — status becomes accepted', async () 
 });
 
 test('HM-02b: customer notified when vendor accepts help', async () => {
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     type: 'order_accepted',
     title: 'Help is on the way',
@@ -69,7 +95,7 @@ test('HM-02b: customer notified when vendor accepts help', async () => {
 });
 
 test('HM-04: amber warning — vendor GPS not updated for >10 min threshold exists in config', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'vendor_stopped_minutes')
@@ -82,7 +108,7 @@ test('HM-04: amber warning — vendor GPS not updated for >10 min threshold exis
 });
 
 test('HM-04b: amber warning — stopped distance threshold exists in config', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'vendor_stopped_distance_meters')
@@ -94,7 +120,7 @@ test('HM-04b: amber warning — stopped distance threshold exists in config', as
 });
 
 test('HM-05: amber warning card — help_accept_timeout_hours config exists', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'help_accept_timeout_hours')
@@ -106,18 +132,18 @@ test('HM-05: amber warning card — help_accept_timeout_hours config exists', as
 });
 
 test('HM-07: helped counter increments on vendor', async () => {
-  const { data: before } = await supabase
+  const { data: before } = await supabaseAdmin
     .from('vendors')
     .select('total_helped')
     .eq('id', testVendor.id)
     .single();
 
-  await supabase
+  await supabaseAdmin
     .from('vendors')
     .update({ total_helped: (before?.total_helped ?? 0) + 1 })
     .eq('id', testVendor.id);
 
-  const { data: after } = await supabase
+  const { data: after } = await supabaseAdmin
     .from('vendors')
     .select('total_helped')
     .eq('id', testVendor.id)
@@ -127,7 +153,7 @@ test('HM-07: helped counter increments on vendor', async () => {
 });
 
 test('HM-07b: helped counter does not duplicate on same order', async () => {
-  const { data: before } = await supabase
+  const { data: before } = await supabaseAdmin
     .from('vendors')
     .select('total_helped')
     .eq('id', testVendor.id)
@@ -136,7 +162,7 @@ test('HM-07b: helped counter does not duplicate on same order', async () => {
   // Simulate idempotent update — only increment once per order
   const currentCount = before?.total_helped ?? 0;
   // No second increment — count stays same
-  const { data: after } = await supabase
+  const { data: after } = await supabaseAdmin
     .from('vendors')
     .select('total_helped')
     .eq('id', testVendor.id)
@@ -146,7 +172,7 @@ test('HM-07b: helped counter does not duplicate on same order', async () => {
 });
 
 test('HM-02c: vendor GPS ping interval config exists', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'location_ping_seconds')

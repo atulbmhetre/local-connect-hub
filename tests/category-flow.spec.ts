@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabase, supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertRowExists, assertNotificationCreated } from './helpers/db-assert';
 
 let testVendor: any;
@@ -12,13 +12,13 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await supabase.from('categories').delete().like('label', `%${TEST_SESSION}%`);
-  await supabase.from('user_notifications').delete().eq('user_phone', TEST_VENDOR_PHONE).in('type', ['category_approved', 'category_rejected']);
+  await supabaseAdmin.from('categories').delete().like('label', `%${TEST_SESSION}%`);
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', TEST_VENDOR_PHONE).in('type', ['category_approved', 'category_rejected']);
   await cleanupTestData();
 });
 
 test('CAT-01: active categories load correctly', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('categories')
     .select('id, label, emoji, service_mode, is_active')
     .eq('is_active', true)
@@ -34,7 +34,7 @@ test('CAT-01: active categories load correctly', async () => {
 });
 
 test('CAT-02: vendor suggests new category — pending_review = true', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('categories')
     .insert({
       label: `Test Category ${TEST_SESSION}`,
@@ -54,7 +54,7 @@ test('CAT-02: vendor suggests new category — pending_review = true', async () 
 });
 
 test('CAT-03: pending categories visible to admin', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('categories')
     .select('id, label, pending_review, suggested_by_vendor_id')
     .eq('pending_review', true);
@@ -68,14 +68,14 @@ test('CAT-03: pending categories visible to admin', async () => {
 });
 
 test('AD-08: admin approves category — is_active = true, pending_review = false', async () => {
-  const { error } = await supabase
-    .from('categories')
-    .update({ is_active: true, pending_review: false })
-    .eq('id', testCategoryId);
+  const { error } = await supabase.rpc('admin_approve_category', {
+    p_admin_phone: ADMIN_PHONE,
+    p_category_id: testCategoryId,
+  });
 
   expect(error).toBeNull();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('categories')
     .select('is_active, pending_review')
     .eq('id', testCategoryId)
@@ -86,7 +86,7 @@ test('AD-08: admin approves category — is_active = true, pending_review = fals
 });
 
 test('AD-08b: vendor notified when category approved', async () => {
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_VENDOR_PHONE,
     type: 'category_approved',
     title: 'Category Approved',
@@ -98,7 +98,7 @@ test('AD-08b: vendor notified when category approved', async () => {
 });
 
 test('AD-09: admin rejects category — is_active stays false', async () => {
-  const { data: newCat } = await supabase
+  const { data: newCat } = await supabaseAdmin
     .from('categories')
     .insert({
       label: `Rejected Category ${TEST_SESSION}`,
@@ -112,12 +112,12 @@ test('AD-09: admin rejects category — is_active stays false', async () => {
     .single();
 
   // Admin rejects — set pending_review = false, is_active stays false
-  await supabase
-    .from('categories')
-    .update({ pending_review: false, is_active: false })
-    .eq('id', newCat.id);
+  await supabase.rpc('admin_reject_category', {
+    p_admin_phone: ADMIN_PHONE,
+    p_category_id: newCat.id,
+  });
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('categories')
     .select('is_active, pending_review')
     .eq('id', newCat.id)
@@ -127,11 +127,11 @@ test('AD-09: admin rejects category — is_active stays false', async () => {
   expect(data?.pending_review).toBe(false);
 
   // Cleanup
-  await supabase.from('categories').delete().eq('id', newCat.id);
+  await supabaseAdmin.from('categories').delete().eq('id', newCat.id);
 });
 
 test('AD-09b: vendor notified when category rejected', async () => {
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_VENDOR_PHONE,
     type: 'category_rejected',
     title: 'Category Not Approved',
@@ -143,7 +143,7 @@ test('AD-09b: vendor notified when category rejected', async () => {
 });
 
 test('CAT-04: category translations exist for active categories', async () => {
-  const { data: cats } = await supabase
+  const { data: cats } = await supabaseAdmin
     .from('categories')
     .select('id')
     .eq('is_active', true)
@@ -152,7 +152,7 @@ test('CAT-04: category translations exist for active categories', async () => {
   if (!cats || cats.length === 0) return;
 
   // Check at least one translation exists
-  const { data: translations } = await supabase
+  const { data: translations } = await supabaseAdmin
     .from('category_translations')
     .select('category_id, lang, label')
     .in('category_id', cats.map(c => c.id))
@@ -166,7 +166,7 @@ test('CAT-04: category translations exist for active categories', async () => {
 });
 
 test('SC-01: dev_menu_pin exists in app_config', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'dev_menu_pin')

@@ -10,7 +10,7 @@ const CORS_HEADERS = {
 };
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
-const DEFAULT_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_THRESHOLD = 0.85;
 const MEDIUM_MIN = 0.5;
 

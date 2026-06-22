@@ -1,9 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {
-  supabase,
-  cleanupTestData, cleanupTestVendors,
-  TEST_SESSION,
-} from './helpers/setup';
+import { cleanupTestData, cleanupTestVendors, TEST_SESSION } from './helpers/setup';
 import {
   supabaseAdmin,
   createModeVendor,
@@ -42,7 +38,7 @@ test.afterAll(async () => {
 });
 
 async function insertRequest(row: Record<string, unknown>) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
       device_id: DEVICE_ID,
@@ -99,7 +95,7 @@ test('EXP-03: appointment order with past appointment_time expires both statuses
 
   await invokeExpirePendingOrders();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('status, appointment_status')
     .eq('id', order.id)
@@ -175,7 +171,7 @@ test('EXP-06: delivery_slot_deadline matches slot rules on insert', async () => 
       delivery_slot_deadline: expected,
     });
 
-    const { data } = await supabase
+    const { data } = await supabaseAdmin
       .from('requests')
       .select('delivery_slot_deadline')
       .eq('id', order.id)

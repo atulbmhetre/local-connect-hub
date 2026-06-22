@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
-  supabase,
+  supabaseAdmin,
   createTestVendor,
   createTestCustomer,
   cleanupTestData, cleanupTestVendors,
@@ -31,7 +31,7 @@ test.afterAll(async () => {
 // ─── DELIVERY ORDER FLOW ──────────────────────────────────────────────────
 
 test('DM-01: customer places delivery order — request created with status sent', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -52,7 +52,7 @@ test('DM-01: customer places delivery order — request created with status sent
 });
 
 test('DM-01b: notification created for vendor after order placed', async () => {
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_VENDOR_PHONE,
     type: 'new_order',
     title: 'New Order',
@@ -64,7 +64,7 @@ test('DM-01b: notification created for vendor after order placed', async () => {
 });
 
 test('DM-02: vendor accepts order — status becomes accepted', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('requests')
     .update({ status: 'accepted' })
     .eq('id', testRequestId);
@@ -74,7 +74,7 @@ test('DM-02: vendor accepts order — status becomes accepted', async () => {
 });
 
 test('DM-02b: customer notified when vendor accepts', async () => {
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     type: 'order_accepted',
     title: 'Order Accepted',
@@ -86,7 +86,7 @@ test('DM-02b: customer notified when vendor accepts', async () => {
 });
 
 test('DM-04: vendor marks order done — status becomes done', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('requests')
     .update({ status: 'done' })
     .eq('id', testRequestId);
@@ -99,7 +99,7 @@ test('DM-04: vendor marks order done — status becomes done', async () => {
 
 test('ED-01: customer edits order — previous_message saved, is_edited = true', async () => {
   // Place a fresh editable order
-  const { data: newOrder } = await supabase
+  const { data: newOrder } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -110,7 +110,7 @@ test('ED-01: customer edits order — previous_message saved, is_edited = true',
     .select()
     .single();
 
-  const { data: updated, error } = await supabase
+  const { data: updated, error } = await supabaseAdmin
     .from('requests')
     .update({
       message: 'Updated message',
@@ -129,7 +129,7 @@ test('ED-01: customer edits order — previous_message saved, is_edited = true',
 
 test('ED-04: edit blocked after order accepted — status check prevents write', async () => {
   // Simulate accepted order — update should be rejected by checking status first
-  const { data: acceptedOrder } = await supabase
+  const { data: acceptedOrder } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -141,7 +141,7 @@ test('ED-04: edit blocked after order accepted — status check prevents write',
     .single();
 
   // Fetch current status (as app does before allowing edit)
-  const { data: fetched } = await supabase
+  const { data: fetched } = await supabaseAdmin
     .from('requests')
     .select('status')
     .eq('id', acceptedOrder.id)
@@ -154,7 +154,7 @@ test('ED-04: edit blocked after order accepted — status check prevents write',
 // ─── BILL / KHATA FLOW ────────────────────────────────────────────────────
 
 test('BK-01: vendor sends bill — order_bills row created', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('order_bills')
     .insert({
       request_id: testRequestId,
@@ -174,7 +174,7 @@ test('BK-01: vendor sends bill — order_bills row created', async () => {
 
 test('BK-02: duplicate bill blocked by unique constraint', async () => {
   // Try inserting second bill for same request_id
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('order_bills')
     .insert({
       request_id: testRequestId,
@@ -190,7 +190,7 @@ test('BK-02: duplicate bill blocked by unique constraint', async () => {
 });
 
 test('BK-04: mark bill as paid — payment_status becomes paid', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('order_bills')
     .update({ payment_status: 'paid', paid_at: new Date().toISOString() })
     .eq('request_id', testRequestId);
@@ -205,7 +205,7 @@ test('BK-04: mark bill as paid — payment_status becomes paid', async () => {
 // ─── RATING FLOW ─────────────────────────────────────────────────────────
 
 test('RV-01: customer submits rating — vendor_reviews row created', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('vendor_reviews')
     .insert({
       vendor_id: testVendor.id,
@@ -223,7 +223,7 @@ test('RV-01: customer submits rating — vendor_reviews row created', async () =
 });
 
 test('RV-03: duplicate rating blocked — unique constraint on request_id', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('vendor_reviews')
     .insert({
       vendor_id: testVendor.id,
@@ -241,7 +241,7 @@ test('RV-03: duplicate rating blocked — unique constraint on request_id', asyn
 // ─── VENDOR BAN FLOW ─────────────────────────────────────────────────────
 
 test('AD-01: vendor ban sets is_banned = true', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('vendors')
     .update({ is_banned: true, ban_reason: 'Test ban' })
     .eq('id', testVendor.id);
@@ -251,7 +251,7 @@ test('AD-01: vendor ban sets is_banned = true', async () => {
 });
 
 test('AD-03: banned vendor excluded from radar results', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendors')
     .select('id, shop_name, is_banned')
     .eq('is_banned', false)
@@ -262,7 +262,7 @@ test('AD-03: banned vendor excluded from radar results', async () => {
 });
 
 test('AD-04: vendor unban restores is_banned = false', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('vendors')
     .update({ is_banned: false, ban_reason: null })
     .eq('id', testVendor.id);
@@ -274,14 +274,14 @@ test('AD-04: vendor unban restores is_banned = false', async () => {
 // ─── REFERRAL FLOW ────────────────────────────────────────────────────────
 
 test('RF-03: duplicate referral blocked by unique constraint', async () => {
-  await supabase.from('referrals').insert({
+  await supabaseAdmin.from('referrals').insert({
     referee_id: TEST_CUSTOMER_PHONE,
     referee_type: 'user',
     status: 'pending',
     trigger_rule: 'active_once',
   });
 
-  const { error } = await supabase.from('referrals').insert({
+  const { error } = await supabaseAdmin.from('referrals').insert({
     referee_id: TEST_CUSTOMER_PHONE,
     referee_type: 'user',
     status: 'pending',
@@ -295,13 +295,13 @@ test('RF-03: duplicate referral blocked by unique constraint', async () => {
 // ─── SAVED VENDORS ────────────────────────────────────────────────────────
 
 test('NB-05: duplicate saved vendor blocked by unique constraint', async () => {
-  await supabase.from('saved_vendors').insert({
+  await supabaseAdmin.from('saved_vendors').insert({
     device_id: 'test-device-001',
     vendor_id: testVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
   });
 
-  const { error } = await supabase.from('saved_vendors').insert({
+  const { error } = await supabaseAdmin.from('saved_vendors').insert({
     device_id: 'test-device-001',
     vendor_id: testVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
@@ -315,7 +315,7 @@ test('NB-03: max 20 saved vendors — enforced at app level (DB count check)', a
   // Insert 20 saved vendors for customer
   const vendors = await Promise.all(
     Array.from({ length: 3 }).map((_, i) =>
-      supabase.from('vendors').insert({
+      supabaseAdmin.from('vendors').insert({
         name: `Bulk Test Vendor ${i}`,
         phone: `7700000000${i}`,
         service_mode: 'delivery',
@@ -325,7 +325,7 @@ test('NB-03: max 20 saved vendors — enforced at app level (DB count check)', a
   );
 
   // Count saved vendors for this customer
-  const { count } = await supabase
+  const { count } = await supabaseAdmin
     .from('saved_vendors')
     .select('*', { count: 'exact', head: true })
     .eq('user_phone', TEST_CUSTOMER_PHONE);

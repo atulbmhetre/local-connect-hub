@@ -1,0 +1,652 @@
+{
+  "summary": {
+    "total": 627,
+    "passed": 496,
+    "failed": 85,
+    "skipped": 38,
+    "didNotRun": 7,
+    "flaky": 1
+  },
+  "byType": {
+    "api-integration": {
+      "total": 182,
+      "failed": 47,
+      "passed": 135,
+      "skipped": 0
+    },
+    "browser": {
+      "total": 196,
+      "failed": 0,
+      "passed": 196,
+      "skipped": 0
+    },
+    "browser-requirements": {
+      "total": 214,
+      "failed": 36,
+      "passed": 178,
+      "skipped": 0
+    },
+    "phase-c-rls": {
+      "total": 11,
+      "failed": 0,
+      "passed": 11,
+      "skipped": 0
+    },
+    "phone-auth": {
+      "total": 4,
+      "failed": 1,
+      "passed": 3,
+      "skipped": 0
+    },
+    "subscription": {
+      "total": 58,
+      "failed": 2,
+      "passed": 56,
+      "skipped": 0
+    }
+  },
+  "failedWithErr": [
+    {
+      "file": "tests\\browser-account-recovery.spec.ts",
+      "line": "71",
+      "name": "Ç║ RECOV-03: returning user phone saved and order proceeds without recovery screen",
+      "type": "api-integration",
+      "error": "Error: expect(locator).not.toBeVisible() failed Locator:  getByTestId('parchi-sheet') Expected: not visible Received: visible Timeout:  15000ms"
+    },
+    {
+      "file": "tests\\browser-addresses-slots.spec.ts",
+      "line": "25",
+      "name": "Ç║ ADDR-01: address saved ΓÇö user_addresses row created",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeGreaterThan(expected) Expected: > 0 Received:   0"
+    },
+    {
+      "file": "tests\\browser-addresses-slots.spec.ts",
+      "line": "39",
+      "name": "Ç║ ADDR-02: address row visible in settings ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByText('Flat 4B') Expected: visible Timeout: 5000ms"
+    },
+    {
+      "file": "tests\\browser-addresses-slots.spec.ts",
+      "line": "57",
+      "name": "Ç║ ADDR-03: first saved address is_default = true ΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality Expected: true Received: undefined"
+    },
+    {
+      "file": "tests\\browser-addresses-slots.spec.ts",
+      "line": "75",
+      "name": "Ç║ ADDR-04: delete address removes row from DB ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 88 |   await supabase.from('user_addresses').delete().eq('id', addr.id);"
+    },
+    {
+      "file": "tests\\browser-addresses-slots.spec.ts",
+      "line": "98",
+      "name": "Ç║ ADDR-05: multiple addresses stored correctly ΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeGreaterThanOrEqual(expected) Expected: >= 2 Received:    0"
+    },
+    {
+      "file": "tests\\browser-addresses-slots.spec.ts",
+      "line": "135",
+      "name": "Ç║ SLOT-02: delivery_slot stored on request after order placement",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeNull() Received: {\"code\": \"42501\", \"details\": null, \"hint\": null, \"message\": \"new row violates row-level security policy for table \\\"requests\\\"\"}"
+    },
+    {
+      "file": "tests\\browser-addresses-slots.spec.ts",
+      "line": "155",
+      "name": "Ç║ SLOT-03: all slot values are valid strings ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeNull() Received: {\"code\": \"42501\", \"details\": null, \"hint\": null, \"message\": \"new row violates row-level security policy for table \\\"requests\\\"\"}"
+    },
+    {
+      "file": "tests\\browser-admin-flow.spec.ts",
+      "line": "135",
+      "name": "Ç║ ADMIN-05: ban vendor ΓÇö is_banned = true + audit log created",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeGreaterThan(expected) Expected: > 0 Received:   0"
+    },
+    {
+      "file": "tests\\browser-admin-flow.spec.ts",
+      "line": "266",
+      "name": "Ç║ ADMIN-09: admin action logged to admin_actions table",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeGreaterThan(expected) Expected: > 0 Received:   0"
+    },
+    {
+      "file": "tests\\browser-appointment-flow.spec.ts",
+      "line": "32",
+      "name": "Ç║ AP-01-BROWSER: appointment order inserted with correct fields",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality Expected: \"23505\" Received: \"42501\""
+    },
+    {
+      "file": "tests\\browser-feed-flow.spec.ts",
+      "line": "308",
+      "name": "Ç║ FD-FLAG-03: duplicate flag blocked by unique constraint ΓÇö DB assert",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality Expected: \"23505\" Received: \"42501\""
+    },
+    {
+      "file": "tests\\browser-feed-flow.spec.ts",
+      "line": "325",
+      "name": "Ç║ FD-FLAG-04: post auto-hidden when flagged_count reaches threshold ΓÇö DB assert",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeGreaterThanOrEqual(expected) Expected: >= 5 Received:    0"
+    },
+    {
+      "file": "tests\\browser-feed-flow.spec.ts",
+      "line": "349",
+      "name": "Ç║ FD-EXP-01: expired post not shown in feed ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 368 |     .eq('id', expired.id)"
+    },
+    {
+      "file": "tests\\browser-feed-flow.spec.ts",
+      "line": "376",
+      "name": "Ç║ FD-EXP-02: future scheduled post not shown yet ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 397 |     .eq('id', scheduled.id)"
+    },
+    {
+      "file": "tests\\browser-feed-flow.spec.ts",
+      "line": "416",
+      "name": "Ç║ FD-NEG-02: hidden post excluded from feed query ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality Expected: 0 Received: 1"
+    },
+    {
+      "file": "tests\\browser-firstopen-requirements.spec.ts",
+      "line": "138",
+      "name": "Ç║ FO-REQ-01 ΓÇö Pure customer restore ΓÇö phone found in users table",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByText('Welcome back! Your account has been restored.') Expected: visible Timeout: 15000ms"
+    },
+    {
+      "file": "tests\\browser-firstopen-requirements.spec.ts",
+      "line": "154",
+      "name": "Ç║ FO-REQ-02 ΓÇö No account found ΓÇö starts fresh",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByText('No account found. Starting fresh.') Expected: visible Timeout: 15000ms"
+    },
+    {
+      "file": "tests\\browser-incoming-orders-requirements.spec.ts",
+      "line": "420",
+      "name": "Ç║ IO-BOOK-01 ΓÇö Booking status=sent, appointment_status=pending",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('incoming-order-card').first() Expected: visible"
+    },
+    {
+      "file": "tests\\browser-incoming-orders-requirements.spec.ts",
+      "line": "441",
+      "name": "Ç║ IO-BOOK-02 ΓÇö Booking status=seen, appointment_status=pending (after bulk seen)",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('incoming-order-card').first() Expected: visible"
+    },
+    {
+      "file": "tests\\browser-incoming-orders-requirements.spec.ts",
+      "line": "463",
+      "name": "Ç║ IO-BOOK-03 ΓÇö Booking status=seen, appointment_status=confirmed",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('incoming-order-card').first() Expected: visible"
+    },
+    {
+      "file": "tests\\browser-incoming-orders-requirements.spec.ts",
+      "line": "488",
+      "name": "Ç║ IO-BOOK-04 ΓÇö Booking status=seen, appointment_status=declined",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('incoming-order-card').first() Expected: visible"
+    },
+    {
+      "file": "tests\\browser-incoming-orders-requirements.spec.ts",
+      "line": "515",
+      "name": "Ç║ IO-BOOK-05 ΓÇö Vendor badge for booking mode",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('incoming-order-card').first() Expected: visible"
+    },
+    {
+      "file": "tests\\browser-incoming-orders-requirements.spec.ts",
+      "line": "542",
+      "name": "Ç║ IO-CROSS-01 ΓÇö No customer notification on bulk seen (delivery)",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('incoming-order-card').first() Expected: visible"
+    },
+    {
+      "file": "tests\\browser-incoming-orders-requirements.spec.ts",
+      "line": "556",
+      "name": "Ç║ IO-CROSS-02 ΓÇö Mark Done creates fulfilled status + customer notification",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('incoming-order-card').first() Expected: visible"
+    },
+    {
+      "file": "tests\\browser-incoming-orders-requirements.spec.ts",
+      "line": "582",
+      "name": "Ç║ IO-CROSS-03 ΓÇö Vendor decline creates cancelled status + customer notification",
+      "type": "browser-requirements",
+      "error": "Error: page.waitForTimeout: Test timeout of 45000ms exceeded. > 218 |   await page.waitForTimeout(1500);"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "48",
+      "name": "Ç║ BK-UI-01: vendor send bill button visible on accepted order",
+      "type": "api-integration",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('incoming-order-card').first() Expected: visible Timeout: 15000ms"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "60",
+      "name": "Ç║ BK-UI-02: bill sheet opens when send bill clicked ΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('incoming-order-card').first() Expected: visible Timeout: 15000ms"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "73",
+      "name": "Ç║ BK-DB-01: khata bill seeded directly ΓÇö order_bills row exists",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 75 |   const bill = await seedKhataBill(order!.id, 250);"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "81",
+      "name": "Ç║ BK-DB-02: khata bill creates ledger entry with correct outstanding",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 83 |   await seedKhataBill(order!.id, 500);"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "94",
+      "name": "Ç║ BK-UI-03: ledger screen accessible for vendor ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 96 |   await seedKhataBill(order!.id, 300);"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "103",
+      "name": "Ç║ BK-UI-04: ledger balance visible on ledger screen ΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 105 |   await seedKhataBill(order!.id, 750);"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "117",
+      "name": "Ç║ BK-DB-03: partial payment reduces balance not zeroes it",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 119 |   await seedKhataBill(order!.id, 1000);"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "140",
+      "name": "Ç║ BK-DB-04: full payment zeroes ledger balance ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 142 |   await seedKhataBill(order!.id, 200);"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "157",
+      "name": "Ç║ BK-NEG-01: duplicate bill for same order ΓÇö void old on replace",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 159 |   await seedKhataBill(order!.id, 300);"
+    },
+    {
+      "file": "tests\\browser-khata-flow.spec.ts",
+      "line": "184",
+      "name": "Ç║ BK-NEG-02: bill payment mode options ΓÇö cash, UPI, khata all valid",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 188 |       request_id: order!.id,"
+    },
+    {
+      "file": "tests\\browser-khata-requirements.spec.ts",
+      "line": "433",
+      "name": "Ç║ KB-REQ-10 ΓÇö Customer name shown in ledger when vendor has added it",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByText('Sunita') Expected: visible Timeout: 10000ms"
+    },
+    {
+      "file": "tests\\browser-khata-requirements.spec.ts",
+      "line": "507",
+      "name": "Ç║ KB-REQ-13 ΓÇö Customer notified when vendor marks bill paid",
+      "type": "browser-requirements",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality Expected: true Received: false"
+    },
+    {
+      "file": "tests\\browser-notification-requirements.spec.ts",
+      "line": "413",
+      "name": "Ç║ NT-COPY-01 ΓÇö Vendor accepts delivery order ΓåÆ customer notification has correct copy",
+      "type": "browser-requirements",
+      "error": "Error: expect(received).not.toBeNull() Received: null"
+    },
+    {
+      "file": "tests\\browser-notification-requirements.spec.ts",
+      "line": "610",
+      "name": "Ç║ NT-VEN-01 ΓÇö Vendor bell shows new order notification",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByRole('button', { name: 'Notifications' }).locator('span.rounded-full.bg-brand') Expected: visible"
+    },
+    {
+      "file": "tests\\browser-notification-requirements.spec.ts",
+      "line": "628",
+      "name": "Ç║ NT-VEN-02 ΓÇö Vendor bell clears after read",
+      "type": "browser-requirements",
+      "error": "Error Context: test-results\\browser-notification-requi-da217-ndor-bell-clears-after-read\\error-context.md"
+    },
+    {
+      "file": "tests\\browser-order-flow.spec.ts",
+      "line": "88",
+      "name": "Ç║ RA-01: radar loads and shows vendor cards ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "Error: page.waitForLoadState: Test timeout of 45000ms exceeded. > 93 |   await page.waitForLoadState('networkidle');"
+    },
+    {
+      "file": "tests\\browser-radar-requirements.spec.ts",
+      "line": "180",
+      "name": "Ç║ RAD-01a ΓÇö Search \"kirana\" resolves to Grocery vendors",
+      "type": "browser-requirements",
+      "error": "Error: page.waitForLoadState: Test timeout of 45000ms exceeded. > 139 |   await page.waitForLoadState('networkidle');"
+    },
+    {
+      "file": "tests\\browser-radar-requirements.spec.ts",
+      "line": "187",
+      "name": "Ç║ RAD-01b ΓÇö Search \"mikanik\" resolves to Mechanic vendors (Hindi alias)",
+      "type": "browser-requirements",
+      "error": "Error: page.waitForLoadState: Test timeout of 45000ms exceeded. > 139 |   await page.waitForLoadState('networkidle');"
+    },
+    {
+      "file": "tests\\browser-radar-requirements.spec.ts",
+      "line": "197",
+      "name": "Ç║ RAD-05a ΓÇö Empty search shows help vendors only",
+      "type": "browser-requirements",
+      "error": "Error: page.waitForLoadState: Test timeout of 45000ms exceeded. > 139 |   await page.waitForLoadState('networkidle');"
+    },
+    {
+      "file": "tests\\browser-radar-requirements.spec.ts",
+      "line": "206",
+      "name": "Ç║ RAD-05b ΓÇö SOS page shows correct subtitle ΓöÇΓöÇΓöÇ",
+      "type": "browser-requirements",
+      "error": "Error: page.waitForLoadState: Test timeout of 45000ms exceeded. > 139 |   await page.waitForLoadState('networkidle');"
+    },
+    {
+      "file": "tests\\browser-radar-requirements.spec.ts",
+      "line": "215",
+      "name": "Ç║ RAD-07a ΓÇö Online vendor shows green dot ΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "browser-requirements",
+      "error": "Error: page.waitForLoadState: Test timeout of 45000ms exceeded. > 139 |   await page.waitForLoadState('networkidle');"
+    },
+    {
+      "file": "tests\\browser-radar-requirements.spec.ts",
+      "line": "259",
+      "name": "Ç║ RAD-09b ΓÇö Manually verified vendor shows trust tier badge only",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('radar-vendor-card').filter({ hasText: '!RAD-verified-bronze-1782134547931' }).getByText('≡ƒÑë Bronze', { exact: true }) Expected: visible Timeout: 10000ms"
+    },
+    {
+      "file": "tests\\browser-rating-flow.spec.ts",
+      "line": "30",
+      "name": "Ç║ RV-UI-01: rating sheet opens on fulfilled order in MyOrders",
+      "type": "api-integration",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('order-card').first() Expected: visible Timeout: 8000ms"
+    },
+    {
+      "file": "tests\\browser-rating-flow.spec.ts",
+      "line": "41",
+      "name": "Ç║ RV-UI-02: all 5 stars are visible on rating sheet ΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "Error Context: test-results\\browser-rating-flow-RV-UI--31472-are-visible-on-rating-sheet\\error-context.md Call log:"
+    },
+    {
+      "file": "tests\\browser-rating-flow.spec.ts",
+      "line": "53",
+      "name": "Ç║ RV-UI-03: submit button disabled until star selected",
+      "type": "api-integration",
+      "error": "Error Context: test-results\\browser-rating-flow-RV-UI--07887-isabled-until-star-selected\\error-context.md Call log:"
+    },
+    {
+      "file": "tests\\browser-rating-flow.spec.ts",
+      "line": "68",
+      "name": "Ç║ RV-UI-04: skip button dismisses rating sheet without DB write",
+      "type": "api-integration",
+      "error": "Error Context: test-results\\browser-rating-flow-RV-UI--303b2-ting-sheet-without-DB-write\\error-context.md Call log:"
+    },
+    {
+      "file": "tests\\browser-rating-flow.spec.ts",
+      "line": "85",
+      "name": "Ç║ RV-DB-01: 5-star rating submitted ΓÇö vendor_reviews row created",
+      "type": "api-integration",
+      "error": "Error Context: test-results\\browser-rating-flow-RV-DB--637ec--vendor-reviews-row-created\\error-context.md Call log:"
+    },
+    {
+      "file": "tests\\browser-rating-flow.spec.ts",
+      "line": "100",
+      "name": "Ç║ RV-DB-02: 1-star rating submitted ΓÇö vendor_reviews row created with correct rating",
+      "type": "api-integration",
+      "error": "Error Context: test-results\\browser-rating-flow-RV-DB--3fd55-created-with-correct-rating\\error-context.md Call log:"
+    },
+    {
+      "file": "tests\\browser-rating-flow.spec.ts",
+      "line": "117",
+      "name": "Ç║ RV-REPLY-01: vendor can see and respond to a review ΓÇö UI flow",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 123 |     request_id: order!.id,"
+    },
+    {
+      "file": "tests\\browser-rating-flow.spec.ts",
+      "line": "163",
+      "name": "Ç║ RV-NEG-01: duplicate rating for same order blocked ΓÇö unique constraint",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 168 |     request_id: order!.id,"
+    },
+    {
+      "file": "tests\\browser-rating-flow.spec.ts",
+      "line": "187",
+      "name": "Ç║ RV-NEG-02: rate button not shown on sent order card",
+      "type": "api-integration",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('order-card').filter({ hasText: 'Sent order no rate btn' }).first() Expected: visible Timeout: 8000ms"
+    },
+    {
+      "file": "tests\\browser-referrals-requirements.spec.ts",
+      "line": "382",
+      "name": "Ç║ RF-REQ-09 ΓÇö User referral creates 1 credit row for referrer vendor",
+      "type": "browser-requirements",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality Expected: true Received: false"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "240",
+      "name": "Ç║ SET-REQ-03 ΓÇö Account standing shows good status for new customer",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('account-standing-row').getByText('Account in good standing') Expected: visible Timeout: 10000ms"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "254",
+      "name": "Ç║ SET-REQ-04 ΓÇö Banned customer sees banned indicator in account standing",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('account-standing-row').getByText('Account Suspended ΓÇö contact support') Expected: visible"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "267",
+      "name": "Ç║ SET-REQ-05 ΓÇö Warned customer (warn_count=2) sees warning indicator",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('account-standing-row').getByText('Account standing: Fair') Expected: visible"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "309",
+      "name": "Ç║ SET-REQ-08 ΓÇö Vendor Settings shows MY SHOP section",
+      "type": "browser-requirements",
+      "error": "Error: expect.toBeVisible: Target page, context or browser has been closed > 162 |   await expect(page.getByRole('button', { name: L.shopInfo })).toBeVisible({ timeout: 20000 });"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "335",
+      "name": "Ç║ SET-REQ-10 ΓÇö Refer & Earn hidden when referral_enabled=false",
+      "type": "browser-requirements",
+      "error": "Error: expect.toBeVisible: Target page, context or browser has been closed > 162 |   await expect(page.getByRole('button', { name: L.shopInfo })).toBeVisible({ timeout: 20000 });"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "345",
+      "name": "Ç║ SET-REQ-11 ΓÇö Refer & Earn visible when referral_enabled=true",
+      "type": "browser-requirements",
+      "error": "Error: expect.toBeVisible: Target page, context or browser has been closed > 162 |   await expect(page.getByRole('button', { name: L.shopInfo })).toBeVisible({ timeout: 20000 });"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "365",
+      "name": "Ç║ SET-REQ-13 ΓÇö Vendor khata settings section visible",
+      "type": "browser-requirements",
+      "error": "Error: expect.toBeVisible: Target page, context or browser has been closed > 162 |   await expect(page.getByRole('button', { name: L.shopInfo })).toBeVisible({ timeout: 20000 });"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "381",
+      "name": "Ç║ SET-REQ-14 ΓÇö Vendor My Reviews section shows submitted reviews",
+      "type": "browser-requirements",
+      "error": "Error: expect.toBeVisible: Target page, context or browser has been closed > 162 |   await expect(page.getByRole('button', { name: L.shopInfo })).toBeVisible({ timeout: 20000 });"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "428",
+      "name": "Ç║ SET-REQ-15 ΓÇö Admin sees Admin tab in Settings",
+      "type": "browser-requirements",
+      "error": "Error Context: test-results\\browser-settings-requireme-98867--sees-Admin-tab-in-Settings\\error-context.md"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "455",
+      "name": "Ç║ SET-REQ-17 ΓÇö Admin config UPSERT ΓÇö saves new key that does not exist in DB",
+      "type": "browser-requirements",
+      "error": "Error: page.reload: net::ERR_NETWORK_IO_SUSPENDED Call log:"
+    },
+    {
+      "file": "tests\\browser-settings-requirements.spec.ts",
+      "line": "506",
+      "name": "Ç║ SET-REQ-20 ΓÇö Admin can delete a low-rated review",
+      "type": "browser-requirements",
+      "error": "Error: expect(received).toBeTruthy() Received: false"
+    },
+    {
+      "file": "tests\\browser-ux.spec.ts",
+      "line": "25",
+      "name": "Ç║ UX-TAP-01: parchi submit button is tap-friendly (ΓëÑ44px height)",
+      "type": "api-integration",
+      "error": "Error: page.waitForLoadState: Test timeout of 45000ms exceeded."
+    },
+    {
+      "file": "tests\\browser-ux.spec.ts",
+      "line": "423",
+      "name": "Ç║ UX-CARD-01: radar card shows category chips, home type label, Bronze badge",
+      "type": "api-integration",
+      "error": "Error: expect(locator).toBeVisible() failed Locator: getByTestId('radar-vendor-card').filter({ hasText: '!CARD-1782138225793' }) Expected: visible Timeout: 15000ms"
+    },
+    {
+      "file": "tests\\browser-vendor-edit.spec.ts",
+      "line": "90",
+      "name": "Ç║ VE-01: vendor can change vendor_type from shop to home and save",
+      "type": "api-integration",
+      "error": "(error not captured in log)"
+    },
+    {
+      "file": "tests\\browser-vendor-edit.spec.ts",
+      "line": "101",
+      "name": "Ç║ VE-02: vendor can add a second category in edit sheet",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeNull() Received: {\"code\": \"42501\", \"details\": null, \"hint\": null, \"message\": \"new row violates row-level security policy for table \\\"vendor_menu_items\\\"\"}"
+    },
+    {
+      "file": "tests\\browser-vendor-edit.spec.ts",
+      "line": "116",
+      "name": "Ç║ VE-03: selecting 3+ categories sets needs_review on vendor_categories rows",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeNull() Received: {\"code\": \"42501\", \"details\": null, \"hint\": null, \"message\": \"new row violates row-level security policy for table \\\"vendor_menu_items\\\"\"}"
+    },
+    {
+      "file": "tests\\browser-vendor-menu.spec.ts",
+      "line": "80",
+      "name": "Ç║ MENU-04: add menu item directly to DB ΓÇö row readable",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeNull() Received: {\"code\": \"42501\", \"details\": null, \"hint\": null, \"message\": \"new row violates row-level security policy for table \\\"vendor_menu_items\\\"\"}"
+    },
+    {
+      "file": "tests\\browser-vendor-menu.spec.ts",
+      "line": "99",
+      "name": "Ç║ MENU-05: delete menu item ΓÇö row removed from DB ΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 114 |     .eq('id', item.id);"
+    },
+    {
+      "file": "tests\\browser-vendor-menu.spec.ts",
+      "line": "124",
+      "name": "Ç║ MENU-06: edit menu item ΓÇö price updated in DB ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 139 |     .eq('id', item.id);"
+    },
+    {
+      "file": "tests\\browser-vendor-menu.spec.ts",
+      "line": "150",
+      "name": "Ç║ MENU-07: menu item is_available toggle works ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "api-integration",
+      "error": "TypeError: Cannot read properties of null (reading 'id') > 166 |     .eq('id', item.id);"
+    },
+    {
+      "file": "tests\\browser-vendor-menu.spec.ts",
+      "line": "177",
+      "name": "Ç║ MENU-08: multiple menu items for vendor ΓÇö all returned",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBeGreaterThanOrEqual(expected) Expected: >= 3 Received:    0"
+    },
+    {
+      "file": "tests\\browser-vendor-mode-requirements.spec.ts",
+      "line": "236",
+      "name": "Ç║ VM-01 ΓÇö Vendor goes online ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "browser-requirements",
+      "error": "Error: expect(locator).toHaveText(expected) failed Locator:  getByTestId('vendor-status-badge') Expected: \"Ready to Help\" Received: \"Offline\" Timeout:  10000ms"
+    },
+    {
+      "file": "tests\\browser-vendor-mode-requirements.spec.ts",
+      "line": "284",
+      "name": "Ç║ VM-04 ΓÇö Vendor goes offline with today's sent delivery order ΓÇö customer notified",
+      "type": "browser-requirements",
+      "error": "Error: expect(received).toBeGreaterThan(expected) Expected: > 0 Received:   0"
+    },
+    {
+      "file": "tests\\browser-vendor-mode-requirements.spec.ts",
+      "line": "331",
+      "name": "Ç║ VM-06 ΓÇö Vendor goes offline with today's sent booking ΓÇö customer notified",
+      "type": "browser-requirements",
+      "error": "Error: expect(received).toBeGreaterThan(expected) Expected: > 0 Received:   0"
+    },
+    {
+      "file": "tests\\browser-vendor-registration.spec.ts",
+      "line": "49",
+      "name": "Ç║ VR-E2E-01: shop vendor registers without GPS as draft via browser form",
+      "type": "api-integration",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality Expected: 1 Received: 0"
+    },
+    {
+      "file": "tests\\phone-auth-phase-b.spec.ts",
+      "line": "95",
+      "name": "Ç║ PHASE-B-03: Wrong OTP is rejected ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "phone-auth",
+      "error": "Error: SMS rate limit exceeded Received: [AuthApiError: SMS rate limit exceeded]"
+    },
+    {
+      "file": "tests\\subscription-db.spec.ts",
+      "line": "62",
+      "name": "Ç║ SUB-DB-03: all 4 subscription app_config keys exist ΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "subscription",
+      "error": "Error: expect(received).toContain(expected) // indexOf > 70 |     expect(foundKeys).toContain(key);"
+    },
+    {
+      "file": "tests\\subscription-db.spec.ts",
+      "line": "74",
+      "name": "Ç║ SUB-DB-04: vendor_trial_days is a valid number ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "type": "subscription",
+      "error": "Error: expect(received).toBeGreaterThan(expected) Expected: > 0 Received:   NaN"
+    }
+  ]
+}

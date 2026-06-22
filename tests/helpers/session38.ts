@@ -1,6 +1,7 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import { supabase, TEST_SESSION } from './setup';
+import { supabaseAdmin, TEST_SESSION } from './setup';
+
+export { supabaseAdmin };
 
 dotenv.config({ path: '.env.test' });
 
@@ -8,13 +9,11 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const serviceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.VITE_SUPABASE_ANON_KEY!;
 
-export const supabaseAdmin: SupabaseClient = createClient(supabaseUrl, serviceRoleKey);
-
 /** Mirrors PhoneEntrySheet checkExistingAccount (null when no row or total_orders <= 0). */
 export async function checkExistingAccount(
   phone: string,
 ): Promise<{ total_orders: number; completed_orders: number } | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('users')
     .select('total_orders, completed_orders')
     .eq('phone', phone)
@@ -136,7 +135,7 @@ export async function createModeVendor(
   serviceMode: 'help' | 'delivery' | 'appointment',
   phone: string,
 ) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: `Vendor ${serviceMode} ${TEST_SESSION}`,

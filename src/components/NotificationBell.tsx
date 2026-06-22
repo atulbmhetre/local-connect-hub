@@ -53,7 +53,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
       .from("user_notifications")
       .select("id", { count: "exact", head: true })
       .eq("user_phone", userPhone)
-      .eq("is_read", false);
+      .is("read_at", null);
     if (error) {
       console.error("NotificationBell unread count", error);
       return;
@@ -115,8 +115,20 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
       return;
     }
     setUnreadCount(0);
-    void loadTray(userPhone);
+    setNotifications((prev) =>
+      prev.map((n) => (!n.is_read ? { ...n, is_read: true, read_at: now } : n)),
+    );
+    await loadTray(userPhone);
   }, [loadTray]);
+
+  const handleMarkAllRead = useCallback(async () => {
+    const userPhone = getUserPhone();
+    if (!userPhone) {
+      console.error("NotificationBell mark all read: no user phone");
+      return;
+    }
+    await markAllRead(userPhone);
+  }, [markAllRead]);
 
   const dismissNotification = useCallback(
     async (n: UserNotification) => {
@@ -221,10 +233,13 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (!phone) return;
+    const userPhone = getUserPhone();
+    if (userPhone) setPhone(userPhone);
+    const activePhone = userPhone ?? phone;
+    if (!activePhone) return;
     if (next) {
-      void loadTray(phone);
-      void markInformationalRead(phone);
+      void loadTray(activePhone);
+      void markInformationalRead(activePhone);
     }
   };
 
@@ -263,7 +278,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
           "relative h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-border bg-card text-foreground active:opacity-90",
           className,
         )}
-        aria-label="Notifications"
+        aria-label={s.notif_bell_aria_label}
       >
         <Bell className="h-5 w-5" />
         {vendorDualBadges ? (
@@ -304,13 +319,13 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
         >
           <SheetHeader className="px-4 pt-4 pb-2 border-b border-border text-left shrink-0">
             <div className="flex items-center justify-between gap-2 pr-8">
-              <SheetTitle className="text-foreground">Notifications</SheetTitle>
+              <SheetTitle className="text-foreground">{s.notif_bell_title}</SheetTitle>
               {(unreadCount > 0 || notifications.length > 0) && (
                 <div className="flex items-center gap-3 shrink-0">
                   {unreadCount > 0 && (
                     <button
                       type="button"
-                      onClick={() => phone && void markAllRead(phone)}
+                      onClick={() => void handleMarkAllRead()}
                       className="text-xs font-medium text-brand hover:underline"
                     >
                       {s.notifications_mark_all_read}
@@ -332,15 +347,15 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
 
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {loading && notifications.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">Loading…</p>
+              <p className="text-sm text-muted-foreground text-center py-8">{s.notif_bell_loading}</p>
             ) : notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="h-16 w-16 rounded-full bg-muted border border-border grid place-items-center mb-4">
                   <Bell className="h-8 w-8 text-muted-foreground" />
                 </div>
-                <p className="text-sm font-medium text-foreground">No notifications yet</p>
+                <p className="text-sm font-medium text-foreground">{s.notif_bell_empty_title}</p>
                 <p className="text-xs text-muted-foreground mt-1 max-w-[240px]">
-                  Order updates and alerts will show up here.
+                  {s.notif_bell_empty_body}
                 </p>
               </div>
             ) : (
@@ -372,7 +387,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
                     </button>
                     <button
                       type="button"
-                      aria-label="Dismiss notification"
+                      aria-label={s.notif_bell_dismiss_aria}
                       onClick={(e) => {
                         e.stopPropagation();
                         void dismissNotification(n);

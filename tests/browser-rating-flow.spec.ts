@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabase, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_rating_${TEST_SESSION}`;
 let testVendor: any;
@@ -15,7 +15,7 @@ test.afterAll(async () => {
 });
 
 async function seedFulfilledOrder(message = 'Rating test order') {
-  const { data } = await supabase.from('requests').insert({
+  const { data } = await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -76,7 +76,7 @@ test('RV-UI-04: skip button dismisses rating sheet without DB write', async ({ p
   // Sheet should close
   await expect(page.getByTestId('rating-sheet')).not.toBeVisible({ timeout: 3000 });
   // DB assert — no review row created
-  const { data } = await supabase.from('vendor_reviews').select('id').eq('request_id', order!.id);
+  const { data } = await supabaseAdmin.from('vendor_reviews').select('id').eq('request_id', order!.id);
   expect(data?.length).toBe(0);
 });
 
@@ -92,7 +92,7 @@ test('RV-DB-01: 5-star rating submitted — vendor_reviews row created', async (
   await page.getByTestId('rating-star-5').click();
   await page.getByTestId('rating-submit-btn').click();
   await page.waitForTimeout(2000);
-  const { data } = await supabase.from('vendor_reviews').select('rating').eq('request_id', order!.id).maybeSingle();
+  const { data } = await supabaseAdmin.from('vendor_reviews').select('rating').eq('request_id', order!.id).maybeSingle();
   if (data) expect(data.rating).toBe(5);
   else await expect(page.getByTestId('rating-sheet')).not.toBeVisible({ timeout: 3000 });
 });
@@ -107,7 +107,7 @@ test('RV-DB-02: 1-star rating submitted — vendor_reviews row created with corr
   await page.getByTestId('rating-star-1').click();
   await page.getByTestId('rating-submit-btn').click();
   await page.waitForTimeout(2000);
-  const { data } = await supabase.from('vendor_reviews').select('rating').eq('request_id', order!.id).maybeSingle();
+  const { data } = await supabaseAdmin.from('vendor_reviews').select('rating').eq('request_id', order!.id).maybeSingle();
   if (data) expect(data.rating).toBe(1);
   else await expect(page.getByTestId('rating-sheet')).not.toBeVisible({ timeout: 3000 });
 });
@@ -118,7 +118,7 @@ test('RV-REPLY-01: vendor can see and respond to a review — UI flow', async ({
   const order = await seedFulfilledOrder('RV-REPLY-01 review');
   const responseText = 'Thank you for your feedback!';
 
-  await supabase.from('vendor_reviews').insert({
+  await supabaseAdmin.from('vendor_reviews').insert({
     vendor_id: testVendor.id,
     request_id: order!.id,
     user_phone: TEST_CUSTOMER_PHONE,
@@ -139,14 +139,15 @@ test('RV-REPLY-01: vendor can see and respond to a review — UI flow', async ({
   await reviewsHeader.click();
 
   await expect(page.getByText('Great delivery')).toBeVisible({ timeout: 8000 });
-  await page.getByRole('button', { name: 'Respond' }).click();
+  const reviewCard = page.locator('div.rounded-xl').filter({ hasText: 'Great delivery' });
+  await reviewCard.getByRole('button', { name: /Respond/i }).click();
   await page.getByPlaceholder('Write a reply...').fill(responseText);
   await page.getByRole('button', { name: 'Send' }).click();
 
   await expect(page.getByText('Reply sent')).toBeVisible({ timeout: 8000 });
   await expect(page.getByText(responseText)).toBeVisible({ timeout: 5000 });
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendor_reviews')
     .select('rating, vendor_response, vendor_responded_at')
     .eq('request_id', order!.id)
@@ -162,7 +163,7 @@ test('RV-REPLY-01: vendor can see and respond to a review — UI flow', async ({
 test('RV-NEG-01: duplicate rating for same order blocked — unique constraint', async ({ page }) => {
   const order = await seedFulfilledOrder('RV-NEG-01 duplicate');
   // Insert first review
-  await supabase.from('vendor_reviews').insert({
+  await supabaseAdmin.from('vendor_reviews').insert({
     vendor_id: testVendor.id,
     request_id: order!.id,
     user_phone: TEST_CUSTOMER_PHONE,
@@ -171,7 +172,7 @@ test('RV-NEG-01: duplicate rating for same order blocked — unique constraint',
     service_mode: 'delivery',
   });
   // Try inserting duplicate
-  const { error } = await supabase.from('vendor_reviews').insert({
+  const { error } = await supabaseAdmin.from('vendor_reviews').insert({
     vendor_id: testVendor.id,
     request_id: order!.id,
     user_phone: TEST_CUSTOMER_PHONE,
@@ -184,7 +185,7 @@ test('RV-NEG-01: duplicate rating for same order blocked — unique constraint',
 });
 
 test('RV-NEG-02: rate button not shown on sent order card', async ({ page }) => {
-  const { data: order } = await supabase.from('requests').insert({
+  const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
@@ -207,7 +208,7 @@ test('RV-NEG-02: rate button not shown on sent order card', async ({ page }) => 
 });
 
 test('RV-NEG-03: rating sheet not shown on cancelled order', async ({ page }) => {
-  await supabase.from('requests').insert({
+  await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,

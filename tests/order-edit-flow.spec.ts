@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertRowExists } from './helpers/db-assert';
 
 let testVendor: any;
@@ -15,7 +15,7 @@ test.afterAll(async () => {
 });
 
 test('ED-01: edit saves previous_message and sets is_edited = true', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -26,7 +26,7 @@ test('ED-01: edit saves previous_message and sets is_edited = true', async () =>
     .select()
     .single();
 
-  const { data: updated, error } = await supabase
+  const { data: updated, error } = await supabaseAdmin
     .from('requests')
     .update({
       message: 'Updated message',
@@ -45,7 +45,7 @@ test('ED-01: edit saves previous_message and sets is_edited = true', async () =>
 });
 
 test('ED-01b: updated_at timestamp changes on edit', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -61,12 +61,12 @@ test('ED-01b: updated_at timestamp changes on edit', async () => {
   await new Promise(r => setTimeout(r, 100));
 
   const newTimestamp = new Date().toISOString();
-  await supabase
+  await supabaseAdmin
     .from('requests')
     .update({ message: 'Edited', updated_at: newTimestamp })
     .eq('id', order.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('updated_at')
     .eq('id', order.id)
@@ -76,7 +76,7 @@ test('ED-01b: updated_at timestamp changes on edit', async () => {
 });
 
 test('ED-04: edit blocked after accepted — status check prevents write', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -87,7 +87,7 @@ test('ED-04: edit blocked after accepted — status check prevents write', async
     .select()
     .single();
 
-  const { data: fetched } = await supabase
+  const { data: fetched } = await supabaseAdmin
     .from('requests')
     .select('status')
     .eq('id', order.id)
@@ -99,7 +99,7 @@ test('ED-04: edit blocked after accepted — status check prevents write', async
 });
 
 test('ED-04b: edit blocked after done', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -110,7 +110,7 @@ test('ED-04b: edit blocked after done', async () => {
     .select()
     .single();
 
-  const { data: fetched } = await supabase
+  const { data: fetched } = await supabaseAdmin
     .from('requests')
     .select('status')
     .eq('id', order.id)
@@ -121,7 +121,7 @@ test('ED-04b: edit blocked after done', async () => {
 });
 
 test('ED-04c: edit blocked after cancelled', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -132,7 +132,7 @@ test('ED-04c: edit blocked after cancelled', async () => {
     .select()
     .single();
 
-  const { data: fetched } = await supabase
+  const { data: fetched } = await supabaseAdmin
     .from('requests')
     .select('status')
     .eq('id', order.id)
@@ -143,7 +143,7 @@ test('ED-04c: edit blocked after cancelled', async () => {
 });
 
 test('ED-05: edit blocked if order cancelled mid-edit — re-fetch detects cancel', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -155,13 +155,13 @@ test('ED-05: edit blocked if order cancelled mid-edit — re-fetch detects cance
     .single();
 
   // Simulate: order gets cancelled while edit sheet is open
-  await supabase
+  await supabaseAdmin
     .from('requests')
     .update({ status: 'cancelled' })
     .eq('id', order.id);
 
   // App re-fetches before saving edit
-  const { data: recheck } = await supabase
+  const { data: recheck } = await supabaseAdmin
     .from('requests')
     .select('status')
     .eq('id', order.id)
@@ -172,7 +172,7 @@ test('ED-05: edit blocked if order cancelled mid-edit — re-fetch detects cance
 });
 
 test('ED-07: delivery address stored correctly on request', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -191,7 +191,7 @@ test('ED-07: delivery address stored correctly on request', async () => {
 });
 
 test('ED-08: previous_message preserved through multiple edits', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -203,7 +203,7 @@ test('ED-08: previous_message preserved through multiple edits', async () => {
     .single();
 
   // First edit
-  await supabase
+  await supabaseAdmin
     .from('requests')
     .update({
       message: 'Second message',
@@ -213,7 +213,7 @@ test('ED-08: previous_message preserved through multiple edits', async () => {
     .eq('id', order.id);
 
   // Second edit — previous_message should update to second message
-  await supabase
+  await supabaseAdmin
     .from('requests')
     .update({
       message: 'Third message',
@@ -222,7 +222,7 @@ test('ED-08: previous_message preserved through multiple edits', async () => {
     })
     .eq('id', order.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('message, previous_message, is_edited')
     .eq('id', order.id)

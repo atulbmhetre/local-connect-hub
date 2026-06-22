@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 import {
-  supabase,
   cleanupTestData, cleanupTestVendors,
   TEST_SESSION,
 } from './helpers/setup';
@@ -40,7 +39,7 @@ test.afterAll(async () => {
 });
 
 async function insertRequest(row: Record<string, unknown>) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
       device_id: DEVICE_ID,
@@ -68,7 +67,7 @@ test('ND-01: delivery sent order warns when slot deadline is within configured n
 
   await invokeWarnPendingOrdersNearDeadline();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('near_deadline_warned_at')
     .eq('id', order.id)
@@ -127,7 +126,7 @@ test('ND-04: accepted order is not near-deadline warned', async () => {
 
   await invokeWarnPendingOrdersNearDeadline();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('near_deadline_warned_at')
     .eq('id', order.id)
@@ -153,7 +152,7 @@ test('ND-05: one near-deadline warning per customer per vendor even with multipl
   await invokeWarnPendingOrdersNearDeadline();
   await invokeWarnPendingOrdersNearDeadline();
 
-  const { data: notifications } = await supabase
+  const { data: notifications } = await supabaseAdmin
     .from('user_notifications')
     .select('id')
     .eq('user_phone', CUSTOMER_PHONE)
@@ -161,7 +160,7 @@ test('ND-05: one near-deadline warning per customer per vendor even with multipl
 
   expect(notifications?.length).toBe(1);
 
-  const { data: warnedOrders } = await supabase
+  const { data: warnedOrders } = await supabaseAdmin
     .from('requests')
     .select('near_deadline_warned_at')
     .in('id', [orderA.id, orderB.id]);

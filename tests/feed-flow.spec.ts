@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertRowExists, assertRowNotExists } from './helpers/db-assert';
 
 let testVendor: any;
@@ -11,17 +11,17 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await supabase.from('feed_flags').delete().eq('flagged_by_phone', TEST_CUSTOMER_PHONE);
-  await supabase.from('feed_replies').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
-  await supabase.from('feed_posts').delete().like('content', `%${TEST_SESSION}%`);
+  await supabaseAdmin.from('feed_flags').delete().eq('flagged_by_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('feed_replies').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('feed_posts').delete().like('content', `%${TEST_SESSION}%`);
   await cleanupTestData();
 });
 
 test('FD-01: vendor creates feed post — row inserted correctly', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('feed_posts')
     .insert({
-      type: 'vendor_update',
+      type: 'announcement',
       user_phone: testVendor.phone,
       vendor_id: testVendor.id,
       content: `Test post ${TEST_SESSION} — fresh vegetables today`,
@@ -40,7 +40,7 @@ test('FD-01: vendor creates feed post — row inserted correctly', async () => {
 });
 
 test('FD-02: feed post has correct expiry', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('feed_posts')
     .select('expires_at')
     .eq('id', testPostId)
@@ -53,7 +53,7 @@ test('FD-02: feed post has correct expiry', async () => {
 
 test('FD-04: phone numbers should not appear in post content — masking check', async () => {
   const phoneRegex = /\b[6-9]\d{9}\b/;
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('feed_posts')
     .select('content')
     .eq('id', testPostId)
@@ -64,17 +64,17 @@ test('FD-04: phone numbers should not appear in post content — masking check',
 });
 
 test('FD-05: flagging post increments flagged_count', async () => {
-  await supabase.from('feed_flags').insert({
+  await supabaseAdmin.from('feed_flags').insert({
     post_id: testPostId,
     flagged_by_phone: TEST_CUSTOMER_PHONE,
   });
 
-  await supabase
+  await supabaseAdmin
     .from('feed_posts')
     .update({ flagged_count: 1 })
     .eq('id', testPostId);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('feed_posts')
     .select('flagged_count')
     .eq('id', testPostId)
@@ -84,7 +84,7 @@ test('FD-05: flagging post increments flagged_count', async () => {
 });
 
 test('FD-05b: duplicate flag blocked by unique constraint', async () => {
-  const { error } = await supabase.from('feed_flags').insert({
+  const { error } = await supabaseAdmin.from('feed_flags').insert({
     post_id: testPostId,
     flagged_by_phone: TEST_CUSTOMER_PHONE,
   });
@@ -95,12 +95,12 @@ test('FD-05b: duplicate flag blocked by unique constraint', async () => {
 
 test('FD-05c: post auto-hidden when flagged_count reaches threshold', async () => {
   // Simulate threshold reached (e.g. 5 flags)
-  await supabase
+  await supabaseAdmin
     .from('feed_posts')
     .update({ flagged_count: 5, is_hidden: true })
     .eq('id', testPostId);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('feed_posts')
     .select('is_hidden, flagged_count')
     .eq('id', testPostId)
@@ -111,7 +111,7 @@ test('FD-05c: post auto-hidden when flagged_count reaches threshold', async () =
 });
 
 test('FD-06: hidden post excluded from feed query', async () => {
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('feed_posts')
     .select('id, is_hidden')
     .eq('is_hidden', false)
@@ -122,12 +122,12 @@ test('FD-06: hidden post excluded from feed query', async () => {
 
 test('FD-07: feed reply inserts correctly', async () => {
   // Unhide post first for reply test
-  await supabase
+  await supabaseAdmin
     .from('feed_posts')
     .update({ is_hidden: false })
     .eq('id', testPostId);
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('feed_replies')
     .insert({
       post_id: testPostId,
@@ -145,10 +145,10 @@ test('FD-07: feed reply inserts correctly', async () => {
 test('FD-08: feed post with starts_at in future not shown yet', async () => {
   const futureTime = new Date(Date.now() + 3600000).toISOString();
 
-  const { data: futurePost } = await supabase
+  const { data: futurePost } = await supabaseAdmin
     .from('feed_posts')
     .insert({
-      type: 'vendor_update',
+      type: 'announcement',
       user_phone: testVendor.phone,
       vendor_id: testVendor.id,
       content: `Future post ${TEST_SESSION}`,
@@ -161,7 +161,7 @@ test('FD-08: feed post with starts_at in future not shown yet', async () => {
 
   // App query filters: starts_at is null OR starts_at <= now
   const now = new Date().toISOString();
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('feed_posts')
     .select('id')
     .eq('id', futurePost.id)
@@ -170,5 +170,5 @@ test('FD-08: feed post with starts_at in future not shown yet', async () => {
   expect(data?.length).toBe(0);
 
   // Cleanup
-  await supabase.from('feed_posts').delete().eq('id', futurePost.id);
+  await supabaseAdmin.from('feed_posts').delete().eq('id', futurePost.id);
 });

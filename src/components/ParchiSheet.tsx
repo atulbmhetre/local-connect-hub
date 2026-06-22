@@ -43,9 +43,14 @@ import { saveNotification } from "@/lib/notifications";
 type VendorMenuItem = {
   id: string;
   name: string;
+  description?: string | null;
   price: number;
+  unit?: string | null;
   is_available: boolean;
 };
+
+const menuItemLabel = (item: VendorMenuItem) =>
+  item.name?.trim() || item.description?.trim() || "Item";
 
 type Props = {
   vendor: Vendor | null;
@@ -119,6 +124,7 @@ export function ParchiSheet({
   const [appointmentTime, setAppointmentTime] = useState("");
   const [appointmentLocation, setAppointmentLocation] = useState<"home" | "shop" | "decide">("decide");
   const [deliverySlot, setDeliverySlot] = useState<string>("asap");
+  const [offlineApptError, setOfflineApptError] = useState(false);
   const [trustBlock, setTrustBlock] = useState<"banned" | "suspended" | null>(null);
   const [lowTrustSheetOpen, setLowTrustSheetOpen] = useState(false);
   const [lowTrustConfirmed, setLowTrustConfirmed] = useState(false);
@@ -139,6 +145,7 @@ export function ParchiSheet({
     setAppointmentTime("");
     setAppointmentLocation("decide");
     setDeliverySlot("asap");
+    setOfflineApptError(false);
     setSelectedAddressId(null);
     setNewAddress("");
     setSelectedMenuItems({});
@@ -150,6 +157,10 @@ export function ParchiSheet({
   useEffect(() => {
     if (!isOpen) return;
     resetFormFields();
+    window.dispatchEvent(new Event("resize"));
+    setTimeout(() => {
+      scrollContainerRef.current?.scrollTo({ top: 0 });
+    }, 50);
   }, [isOpen, resetFormFields]);
   const effectiveVendor = vendor ?? lastVendor.current;
   const resolvedVendorId = vendorIdProp ?? effectiveVendor?.id ?? null;
@@ -164,7 +175,7 @@ export function ParchiSheet({
     void (async () => {
       const { data, error } = await supabase
         .from("vendor_menu_items")
-        .select("id, name, price, is_available")
+        .select("id, name, description, price, unit, is_available")
         .eq("vendor_id", resolvedVendorId)
         .eq("is_available", true)
         .order("name", { ascending: true });
@@ -195,7 +206,7 @@ export function ParchiSheet({
       .map(([id, qty]) => {
         const item = menuItems.find((m) => m.id === id);
         if (!item) return null;
-        return `${qty}x ${item.name} ₹${item.price}`;
+        return `${qty}x ${menuItemLabel(item)} ₹${item.price}`;
       })
       .filter(Boolean)
       .join("\n");
@@ -210,6 +221,10 @@ export function ParchiSheet({
   };
 
   const selectedMenuCount = Object.values(selectedMenuItems).filter((q) => q > 0).length;
+
+  useEffect(() => {
+    console.log("selectedMenuCount", selectedMenuCount);
+  }, [selectedMenuCount]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -353,6 +368,14 @@ export function ParchiSheet({
           toast.error(s.parchi_appointment_expired);
           return;
         }
+        if (
+          effectiveVendor.is_active === false &&
+          appointmentTimestamp != null &&
+          new Date(appointmentTimestamp).getTime() - Date.now() < 2 * 60 * 60 * 1000
+        ) {
+          setOfflineApptError(true);
+          return;
+        }
       }
 
       setSending(true);
@@ -481,7 +504,16 @@ export function ParchiSheet({
           toast.error(s.parchi_errNoDateTime);
           return;
         }
+        if (
+          effectiveVendor.is_active === false &&
+          new Date(`${appointmentDate}T${appointmentTime}:00`).getTime() - Date.now() <
+            2 * 60 * 60 * 1000
+        ) {
+          setOfflineApptError(true);
+          return;
+        }
       }
+      setOfflineApptError(false);
       if (overridePhone == null && !isPhoneKnown()) {
         setPhoneSheetOpen(true);
         return;
@@ -578,15 +610,14 @@ export function ParchiSheet({
         <SheetContent
           data-testid="parchi-sheet"
           side="bottom"
-          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0 [&>button]:text-gray-400"
+          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl h-[90vh] max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0 [&>button]:text-gray-400"
           style={{
-            transform: "translateZ(0)",
             WebkitOverflowScrolling: "touch",
           }}
         >
           <div
             ref={scrollContainerRef}
-            className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain will-change-scroll pb-52"
           >
           <SheetHeader className="sr-only">
             <SheetTitle>
@@ -630,7 +661,12 @@ export function ParchiSheet({
             )}
           </div>
 
-          <div className="mt-5 space-y-3">
+          <div className="mt-5 space-y-3 px-4">
+            {effectiveVendor.is_active === false && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-600 leading-relaxed">
+                {s.parchi_offline_banner}
+              </div>
+            )}
             {trustBlock === "banned" && (
               <div className="rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-6 text-sm text-center text-foreground leading-relaxed">
                 🚫 Your account has been suspended. Please contact aaspaaspro.privacy@gmail.com
@@ -758,7 +794,10 @@ export function ParchiSheet({
                       type="date"
                       value={appointmentDate}
                       min={new Date().toISOString().split("T")[0]}
-                      onChange={(e) => setAppointmentDate(e.target.value)}
+                      onChange={(e) => {
+                        setAppointmentDate(e.target.value);
+                        setOfflineApptError(false);
+                      }}
                       className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
                     />
                   </div>
@@ -767,11 +806,19 @@ export function ParchiSheet({
                     <input
                       type="time"
                       value={appointmentTime}
-                      onChange={(e) => setAppointmentTime(e.target.value)}
+                      onChange={(e) => {
+                        setAppointmentTime(e.target.value);
+                        setOfflineApptError(false);
+                      }}
                       className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
                     />
                   </div>
                 </div>
+                {offlineApptError && (
+                  <p className="text-xs text-amber-600 leading-snug">
+                    {s.parchi_offline_appt_too_soon}
+                  </p>
+                )}
               </div>
             )}
 
@@ -796,7 +843,7 @@ export function ParchiSheet({
             )}
 
             {menuItems.length > 0 && (
-              <div className="border border-surface-border rounded-2xl mx-4 overflow-hidden">
+              <div className="border border-surface-border rounded-2xl overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setMenuExpanded((v) => !v)}
@@ -813,11 +860,12 @@ export function ParchiSheet({
                   />
                 </button>
                 {menuExpanded && (
-                  <div className="flex flex-col max-h-[min(42vh,20rem)]">
-                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-surface-border px-2 py-2 space-y-0">
+                  <div className="flex flex-col min-h-0 max-h-[min(42vh,20rem)]">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2 space-y-1.5">
                     {menuItems.map((item) => {
                       const qty = selectedMenuItems[item.id] ?? 0;
                       const selected = qty > 0;
+                      const label = menuItemLabel(item);
                       if (isDeliveryMode) {
                         return (
                           <div
@@ -830,8 +878,8 @@ export function ParchiSheet({
                             )}
                           >
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-white truncate">
-                                {item.name}
+                              <p className="text-sm font-medium text-white break-words">
+                                {label}
                               </p>
                               <p className="text-xs text-gray-400">₹{item.price}</p>
                             </div>
@@ -850,7 +898,7 @@ export function ParchiSheet({
                                   })
                                 }
                                 className="h-8 w-8 rounded-lg border border-surface-border text-gray-300 font-bold disabled:opacity-40"
-                                aria-label={`Decrease ${item.name}`}
+                                aria-label={`Decrease ${label}`}
                               >
                                 −
                               </button>
@@ -867,7 +915,7 @@ export function ParchiSheet({
                                 }
                                 disabled={qty >= 99}
                                 className="h-8 w-8 rounded-lg border border-surface-border text-gray-300 font-bold disabled:opacity-40"
-                                aria-label={`Increase ${item.name}`}
+                                aria-label={`Increase ${label}`}
                               >
                                 +
                               </button>
@@ -905,8 +953,8 @@ export function ParchiSheet({
                             aria-hidden
                           />
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-white truncate">
-                              {item.name}
+                            <p className="text-sm font-medium text-white break-words">
+                              {label}
                             </p>
                             <p className="text-xs text-gray-400">₹{item.price}</p>
                           </div>
@@ -914,23 +962,28 @@ export function ParchiSheet({
                       );
                     })}
                     </div>
-                    {selectedMenuCount > 0 && (
-                      <div className="shrink-0 border-t border-surface-border bg-surface px-2 py-2">
-                        <button
-                          type="button"
-                          onClick={addMenuToOrder}
-                          className="w-full rounded-xl bg-brand/20 border border-brand text-brand py-2.5 text-sm font-semibold active:scale-[0.98]"
-                        >
-                          Add to order
-                        </button>
-                      </div>
-                    )}
+                    <div
+                      className={cn(
+                        "shrink-0 border-t border-surface-border bg-surface px-2 py-2 transition-all duration-150",
+                        selectedMenuCount > 0
+                          ? "opacity-100 max-h-24"
+                          : "opacity-0 pointer-events-none max-h-0 overflow-hidden py-0 border-0",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={addMenuToOrder}
+                        className="w-full rounded-xl bg-brand/20 border border-brand text-brand py-2.5 text-sm font-semibold active:scale-[0.98]"
+                      >
+                        Add to order
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             )}
 
-            <div className="mx-4">
+            <div>
               <label
                 htmlFor="parchi-message"
                 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5 block"
@@ -1041,29 +1094,30 @@ export function ParchiSheet({
           className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl"
         >
           <SheetHeader className="text-left">
-            <SheetTitle className="text-white">Additional Confirmation Required</SheetTitle>
+            <SheetTitle className="text-white">{s.parchi_trust_low_title}</SheetTitle>
             <SheetDescription className="text-gray-400 text-left">
-              Your account has had some issues recently. Please confirm you will be available to
-              receive this order.
+              {s.parchi_trust_low_body}
             </SheetDescription>
           </SheetHeader>
           <div className="mt-5 space-y-4">
             <label className="flex items-start gap-3 text-sm text-gray-300 cursor-pointer">
               <input
                 type="checkbox"
+                data-testid="parchi-low-trust-checkbox"
                 checked={lowTrustConfirmed}
                 onChange={(e) => setLowTrustConfirmed(e.target.checked)}
                 className="mt-0.5 accent-brand"
               />
-              I confirm I will be available
+              {s.parchi_trust_low_confirmCheckbox}
             </label>
             <button
               type="button"
               disabled={!lowTrustConfirmed || sending}
+              data-testid="parchi-low-trust-confirm"
               onClick={confirmLowTrustOrder}
               className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold disabled:opacity-50"
             >
-              {sending ? "..." : "Confirm"}
+              {sending ? "..." : s.parchi_trust_low_confirmBtn}
             </button>
           </div>
         </SheetContent>
@@ -1078,19 +1132,19 @@ export function ParchiSheet({
       >
         <AlertDialogContent className="rounded-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Place this order?</AlertDialogTitle>
+            <AlertDialogTitle>{s.parchi_trust_medium_title}</AlertDialogTitle>
             <AlertDialogDescription className="text-left leading-relaxed">
-              ⚠️ Please confirm you want to place this order. Vendors travel to fulfil requests —
-              only place orders you genuinely need.
+              {s.parchi_trust_medium_body}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
-            <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="mt-0">{s.parchi_btnCancel}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-brand text-page-bg hover:bg-brand/90"
+              data-testid="parchi-medium-trust-confirm"
               onClick={confirmMediumTrustOrder}
             >
-              Yes, place order
+              {s.parchi_trust_medium_confirmBtn}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

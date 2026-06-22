@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
 import { Bell, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
+import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
 import { Capacitor } from "@capacitor/core";
 import {
   supabase,
@@ -41,6 +42,7 @@ import { formatTimeAgo } from "@/lib/orders";
 import { ledgerCycleStartInputValue } from "@/lib/khataDisplay";
 import { referralCodeFromPhone } from "@/lib/referral";
 import { getUserPhone } from "@/lib/userIdentity";
+import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
 import { uploadFeedImage } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
 
@@ -179,14 +181,14 @@ export function VendorSettingsOffers({
     let ok = true;
 
     if (!offerStartsAt || offerStartsAt < minDate) {
-      setOfferStartError("Please set offer start date");
+      setOfferStartError(s.vendor_offer_start_required);
       ok = false;
     } else {
       setOfferStartError("");
     }
 
     if (!offerEndsAt || (offerStartsAt && offerEndsAt <= offerStartsAt)) {
-      setOfferEndError("Please set offer end date");
+      setOfferEndError(s.vendor_offer_end_required);
       ok = false;
     } else {
       setOfferEndError("");
@@ -201,7 +203,7 @@ export function VendorSettingsOffers({
     if (!validateOfferDates()) return;
     const phone = getUserPhone();
     if (!phone) {
-      toast.error("Add your phone in Settings first");
+      toast.error(s.vendor_offer_phone_required);
       return;
     }
     setOfferLoading(true);
@@ -211,7 +213,7 @@ export function VendorSettingsOffers({
         imageUrl = await uploadFeedImage(offerImageFile, "offers");
       } catch (err) {
         console.error("postOffer upload", err);
-        toast.error("Image upload failed");
+        toast.error(s.vendor_offer_image_upload_failed);
         setOfferLoading(false);
         return;
       }
@@ -224,7 +226,7 @@ export function VendorSettingsOffers({
       !Number.isFinite(lat) ||
       !Number.isFinite(lng)
     ) {
-      toast.error("Shop location is required to post offers");
+      toast.error(s.vendor_offer_location_required);
       setOfferLoading(false);
       return;
     }
@@ -255,7 +257,7 @@ export function VendorSettingsOffers({
     setOfferEndError("");
     resetOfferImage();
     await loadActiveOffer();
-    toast("Offer posted!");
+    toast(s.vendor_offer_posted);
   };
 
   const removeOffer = async () => {
@@ -272,12 +274,12 @@ export function VendorSettingsOffers({
       return;
     }
     setActiveOffer(null);
-    toast("Offer removed");
+    toast(s.vendor_offer_removed);
   };
 
   return (
     <SettingsCollapsible
-      label="Offers"
+      label={s.settings_offers}
       open={offersOpen}
       onToggle={() => setOffersOpen((o) => !o)}
       nested
@@ -286,7 +288,7 @@ export function VendorSettingsOffers({
           <div className="px-4 py-3.5 space-y-3">
             <p className="text-sm text-foreground">{activeOffer.content}</p>
             <p className="text-xs text-muted-foreground">
-              Expires:{" "}
+              {s.vendor_offer_expires_label}{" "}
               {activeOffer.expires_at
                 ? new Date(activeOffer.expires_at).toLocaleString()
                 : "—"}
@@ -297,7 +299,7 @@ export function VendorSettingsOffers({
               disabled={offerLoading}
               className="w-full rounded-xl border border-destructive/40 text-destructive py-2.5 text-sm font-semibold disabled:opacity-50"
             >
-              Remove
+              {s.vendor_offer_remove_btn}
             </button>
           </div>
         ) : (
@@ -307,11 +309,11 @@ export function VendorSettingsOffers({
               maxLength={100}
               value={offerText}
               onChange={(e) => setOfferText(e.target.value)}
-              placeholder="e.g. 20% off groceries today"
+              placeholder={s.vendor_offer_placeholder}
               className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:border-brand"
             />
             <FeedImagePicker
-              label="Add photo (optional)"
+              label={s.settings_addPhotoOptional}
               previewUrl={offerImagePreview}
               onPick={onOfferImagePick}
             />
@@ -320,7 +322,7 @@ export function VendorSettingsOffers({
                 htmlFor="vendor-offer-starts"
                 className="block text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5"
               >
-                Offer starts
+                {s.vendor_offer_starts_label}
               </label>
               <input
                 id="vendor-offer-starts"
@@ -342,7 +344,7 @@ export function VendorSettingsOffers({
                 htmlFor="vendor-offer-ends"
                 className="block text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5"
               >
-                Offer ends
+                {s.vendor_offer_ends_label}
               </label>
               <input
                 id="vendor-offer-ends"
@@ -365,7 +367,7 @@ export function VendorSettingsOffers({
               disabled={offerLoading || offerText.trim().length === 0}
               className="w-full rounded-xl bg-brand text-page-bg py-3 text-sm font-bold disabled:opacity-50 active:scale-[0.99]"
             >
-              Post Offer
+              {s.settings_postOffer}
             </button>
           </div>
         )}
@@ -532,6 +534,7 @@ export function VendorSettings({
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
   const getMode = useServiceModeLabel();
+  const { config: appConfig } = useAppConfig();
 
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
   const [cancelReasonsChanged, setCancelReasonsChanged] = useState(false);
@@ -556,6 +559,7 @@ export function VendorSettings({
   const [replyDraft, setReplyDraft] = useState("");
   const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
   const [shopInfoOpen, setShopInfoOpen] = useState(false);
+  const [savingServiceRadius, setSavingServiceRadius] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
@@ -577,6 +581,116 @@ export function VendorSettings({
   const [khataRedInput, setKhataRedInput] = useState("");
   const [savingKhataLimits, setSavingKhataLimits] = useState(false);
   const [capturingDraftLocation, setCapturingDraftLocation] = useState(false);
+  const billingVendor = vendor as Vendor & {
+    subscription_status?: "trial" | "active" | "grace" | "expired" | "cancelled";
+    trial_ends_at?: string | null;
+    subscription_current_period_end?: string | null;
+    grace_ends_at?: string | null;
+    waiveoff_percent?: number | null;
+    waiveoff_months_remaining?: number | null;
+  };
+
+  const subscriptionStatus = billingVendor.subscription_status ?? "trial";
+  const formatBillingDate = (value?: string | null) => {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (!Number.isFinite(d.getTime())) return "—";
+    return d.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+  const trialDaysRemaining = useMemo(() => {
+    if (!billingVendor.trial_ends_at) return 0;
+    const ms = new Date(billingVendor.trial_ends_at).getTime() - Date.now();
+    return Math.max(0, Math.ceil(ms / 86400000));
+  }, [billingVendor.trial_ends_at]);
+  const graceDaysRemaining = useMemo(() => {
+    if (!billingVendor.grace_ends_at) return 0;
+    const ms = new Date(billingVendor.grace_ends_at).getTime() - Date.now();
+    return Math.max(0, Math.ceil(ms / 86400000));
+  }, [billingVendor.grace_ends_at]);
+  const waiveoffText =
+    billingVendor.waiveoff_percent != null &&
+    billingVendor.waiveoff_months_remaining != null &&
+    billingVendor.waiveoff_months_remaining > 0
+      ? s.vendor_sub_waiveoff
+          .replace("{percent}", String(billingVendor.waiveoff_percent))
+          .replace("{months}", String(billingVendor.waiveoff_months_remaining))
+      : null;
+
+  const handleRazorpayCheckout = useCallback(() => {
+    const paymentsEnabled = appConfig?.payments_enabled === "true";
+    if (!paymentsEnabled) {
+      toast.info(s.vendor_sub_coming_soon);
+      return;
+    }
+    const price = appConfig?.vendor_subscription_price ?? "99";
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => {
+      const options = {
+        key: appConfig?.razorpay_key_id ?? "",
+        amount: parseInt(price) * 100, // paise
+        currency: "INR",
+        name: "Aaspaas Pro",
+        description: "Vendor Subscription — ₹" + price + "/month",
+        recurring: 1,
+        handler: async (response: Record<string, string>) => {
+          // Payment success — update subscription_status to active
+          await supabase
+            .from("vendors")
+            .update({
+              subscription_status: "active",
+              subscription_id: response.razorpay_subscription_id ?? response.razorpay_payment_id,
+              grace_ends_at: null,
+            })
+            .eq("id", vendor?.id);
+          toast.success(s.vendor_sub_active);
+        },
+        prefill: {
+          contact: vendor?.phone ?? "",
+          name: vendor?.shop_name ?? "",
+        },
+        theme: { color: "#16a34a" },
+      };
+      // @ts-ignore — Razorpay is loaded via script tag
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+    };
+    script.onerror = () => toast.error("Failed to load payment gateway. Please try again.");
+    document.body.appendChild(script);
+  }, [appConfig, vendor, s, supabase]);
+
+  const handleCancelSubscription = () => {
+    const adminPhone =
+      (appConfig as unknown as { admin_phone?: string } | null)?.admin_phone ??
+      "918888169446";
+    const waMsg = encodeURIComponent(
+      `Hi, I want to cancel my Aaspaas Pro subscription. Vendor: ${vendor?.shop_name}`,
+    );
+    window.open(`https://wa.me/${adminPhone}?text=${waMsg}`, "_blank");
+  };
+
+  const handleServiceRadiusChange = async (km: number) => {
+    if (km === normalizeServiceRadiusKm(vendor.service_radius_km)) return;
+    setSavingServiceRadius(true);
+    try {
+      const { error } = await supabase
+        .from("vendors")
+        .update({ service_radius_km: km })
+        .eq("id", vendor.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      onVendorUpdated({ ...vendor, service_radius_km: km });
+      toast.success(s.vendor_radius_saved);
+    } finally {
+      setSavingServiceRadius(false);
+    }
+  };
 
   const completeDraftProfile = async () => {
     setCapturingDraftLocation(true);
@@ -728,7 +842,7 @@ export function VendorSettings({
       return;
     }
     onVendorUpdated({ ...vendor, ledger_cycle_start: date });
-    toast.success("Ledger cycle start updated.");
+    toast.success(s.settings_ledgerCycleUpdated);
   };
 
   const handleKhataToggle = async (checked: boolean) => {
@@ -816,7 +930,7 @@ export function VendorSettings({
     }
     onVendorUpdated({ ...vendor, ...updates });
     setCancelReasonsChanged(false);
-    toast.success("Saved");
+    toast.success(s.vendor_settings_saved);
   };
 
   const saveNewItem = async () => {
@@ -866,7 +980,7 @@ export function VendorSettings({
     try {
       const available = await SpeechRecognition.available();
       if (!available.available) {
-        toast.error("Voice not available");
+        toast.error(s.vendor_voice_not_available);
         return;
       }
       await SpeechRecognition.requestPermissions();
@@ -994,12 +1108,95 @@ export function VendorSettings({
         </div>
       )}
       <SettingsParentCollapsible
-      label="MY SHOP"
+      label={s.settings_myShop}
       open={shopOpen}
       onToggle={() => onShopOpenChange(!shopOpen)}
     >
+      <SettingsCard className="mx-0 mb-2 border-surface-border">
+        <div className="px-4 py-3.5 space-y-2">
+          {subscriptionStatus === "trial" && (
+            <>
+              <p className="text-sm font-semibold text-foreground">🎁 {s.vendor_sub_trial}</p>
+              <p className="text-xs text-muted-foreground">
+                {trialDaysRemaining} {s.vendor_sub_trial_days}
+              </p>
+              <p className="text-xs text-muted-foreground">{s.vendor_sub_trial_hint}</p>
+            </>
+          )}
+
+          {subscriptionStatus === "active" && (
+            <>
+              <p className="text-sm font-semibold text-foreground">✅ {s.vendor_sub_active}</p>
+              <p className="text-xs text-muted-foreground">
+                {s.vendor_sub_next_billing}:{" "}
+                <span className="text-foreground">
+                  {formatBillingDate(billingVendor.subscription_current_period_end)}
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground">₹99/month</p>
+              {waiveoffText && <p className="text-xs text-muted-foreground">{waiveoffText}</p>}
+              <button
+                type="button"
+                onClick={handleCancelSubscription}
+                className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+              >
+                {s.vendor_sub_cancel}
+              </button>
+            </>
+          )}
+
+          {subscriptionStatus === "grace" && (
+            <>
+              <p className="text-sm font-semibold text-amber-400">⚠️ {s.vendor_sub_grace}</p>
+              <p className="text-xs text-muted-foreground">
+                {graceDaysRemaining} {s.vendor_sub_trial_days}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {s.vendor_sub_grace_ends}:{" "}
+                <span className="text-foreground">{formatBillingDate(billingVendor.grace_ends_at)}</span>
+              </p>
+              <button
+                type="button"
+                onClick={handleRazorpayCheckout}
+                className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+              >
+                {s.vendor_sub_pay_now}
+              </button>
+            </>
+          )}
+
+          {subscriptionStatus === "expired" && (
+            <>
+              <p className="text-sm font-semibold text-destructive">🔴 {s.vendor_sub_expired}</p>
+              <p className="text-xs text-muted-foreground">{s.vendor_sub_expired_body}</p>
+              <button
+                type="button"
+                onClick={handleRazorpayCheckout}
+                className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+              >
+                {s.vendor_sub_renew}
+              </button>
+            </>
+          )}
+
+          {subscriptionStatus === "cancelled" && (
+            <>
+              <p className="text-sm font-semibold text-foreground">ℹ️ {s.vendor_sub_cancelled}</p>
+              <p className="text-xs text-muted-foreground">{s.vendor_sub_cancelled_body}</p>
+              <button
+                type="button"
+                onClick={handleRazorpayCheckout}
+                className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+              >
+                {s.vendor_sub_renew}
+              </button>
+            </>
+          )}
+        </div>
+      </SettingsCard>
+
       <SettingsCollapsible
-        label="Shop Info"
+        label={s.settings_shopInfo}
         open={shopInfoOpen}
         onToggle={() => setShopInfoOpen((o) => !o)}
         nested
@@ -1016,13 +1213,26 @@ export function VendorSettings({
         >
           <span aria-hidden />
         </SettingsRow>
+        <div className="px-4 py-3.5 border-t border-surface-border">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {s.vendor_radius_label}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{s.vendor_radius_hint}</p>
+          <div className="mt-3">
+            <ServiceRadiusChips
+              value={normalizeServiceRadiusKm(vendor.service_radius_km)}
+              onChange={(km) => void handleServiceRadiusChange(km)}
+              disabled={savingServiceRadius}
+            />
+          </div>
+        </div>
         {onEditShopDetails && (
           <button
             type="button"
             onClick={onEditShopDetails}
             className="w-full px-4 py-3.5 border-t border-surface-border text-sm font-semibold text-brand text-center active:opacity-90"
           >
-            ✏️ Edit Shop Details
+            {s.settings_editShopDetails}
           </button>
         )}
       </SettingsCollapsible>
@@ -1073,7 +1283,7 @@ export function VendorSettings({
               <div className="flex items-center gap-2 rounded-lg border border-red-500/50 bg-red-500/10 px-2.5 py-1.5 shrink-0">
                 <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse shrink-0" />
                 <span className="text-[10px] font-semibold text-red-500 whitespace-nowrap">
-                  Listening... speak now
+                  {s.settings_listeningSpeak}
                 </span>
               </div>
             ) : (
@@ -1137,7 +1347,7 @@ export function VendorSettings({
                   });
                 }}
                 className="p-1.5 text-muted-foreground active:text-brand"
-                aria-label="Edit item"
+                aria-label={s.vendor_menu_edit_aria}
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
@@ -1145,7 +1355,7 @@ export function VendorSettings({
                 type="button"
                 onClick={() => void deleteMenuItem(item.id)}
                 className="p-1.5 text-muted-foreground active:text-danger"
-                aria-label="Delete item"
+                aria-label={s.vendor_menu_delete_aria}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -1534,7 +1744,7 @@ export function VendorSettings({
                     }
                     className="shrink-0 text-xs font-semibold text-brand active:opacity-80"
                   >
-                    📞 Call customer
+                    {s.settings_callCustomer}
                   </button>
                 )}
               </div>

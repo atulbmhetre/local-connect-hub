@@ -13,7 +13,7 @@ export default defineConfig({
   retries: 1,
   workers: 1,
   use: {
-    baseURL: process.env.VITE_APP_URL || 'http://localhost:8080',
+    baseURL: process.env.VITE_APP_URL || 'http://localhost:8081',
     headless: true,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -22,8 +22,8 @@ export default defineConfig({
   },
   reporter: [['html', { outputFolder: 'playwright-report' }], ['list']],
   webServer: {
-    command: 'npx dotenv -e .env.playwright -- vite --port 8080',
-    port: 8080,
+    command: 'npx dotenv -e .env.playwright -- vite --port 8081',
+    port: 8081,
     reuseExistingServer: false,
     timeout: 60000,
     env: {

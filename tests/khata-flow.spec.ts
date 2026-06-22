@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertRowExists } from './helpers/db-assert';
 
 let testVendor: any;
@@ -9,7 +9,7 @@ test.beforeAll(async () => {
   testVendor = await createTestVendor();
   await createTestCustomer();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -24,14 +24,14 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await supabase.from('khata_transactions').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
-  await supabase.from('khata_ledger').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
-  await supabase.from('order_bills').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('khata_transactions').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('khata_ledger').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('order_bills').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
   await cleanupTestData();
 });
 
 test('BK-01: khata bill creates order_bills row with payment_mode = khata', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('order_bills')
     .insert({
       request_id: testRequestId,
@@ -50,7 +50,7 @@ test('BK-01: khata bill creates order_bills row with payment_mode = khata', asyn
 });
 
 test('BK-05: khata bill also creates khata_transactions row', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('khata_transactions')
     .insert({
       vendor_id: testVendor.id,
@@ -68,7 +68,7 @@ test('BK-05: khata bill also creates khata_transactions row', async () => {
 });
 
 test('BK-06: ledger created with correct outstanding balance', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('khata_ledger')
     .insert({
       vendor_id: testVendor.id,
@@ -84,7 +84,7 @@ test('BK-06: ledger created with correct outstanding balance', async () => {
 
 test('BK-06b: partial payment reduces balance not zeroes it', async () => {
   // Pay 200 of 500
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('khata_ledger')
     .update({ total_outstanding: 300 })
     .eq('vendor_id', testVendor.id)
@@ -92,7 +92,7 @@ test('BK-06b: partial payment reduces balance not zeroes it', async () => {
 
   expect(error).toBeNull();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('khata_ledger')
     .select('total_outstanding')
     .eq('vendor_id', testVendor.id)
@@ -104,7 +104,7 @@ test('BK-06b: partial payment reduces balance not zeroes it', async () => {
 });
 
 test('BK-06c: partial payment inserts khata_transactions row', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('khata_transactions')
     .insert({
       vendor_id: testVendor.id,
@@ -122,14 +122,14 @@ test('BK-06c: partial payment inserts khata_transactions row', async () => {
 
 test('BK-07: mark paid when balance = 0 — order_bills updated to paid', async () => {
   // Zero the balance
-  await supabase
+  await supabaseAdmin
     .from('khata_ledger')
     .update({ total_outstanding: 0 })
     .eq('vendor_id', testVendor.id)
     .eq('user_phone', TEST_CUSTOMER_PHONE);
 
   // Mark bill as paid
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('order_bills')
     .update({ payment_status: 'paid', paid_at: new Date().toISOString() })
     .eq('request_id', testRequestId);
@@ -142,7 +142,7 @@ test('BK-07: mark paid when balance = 0 — order_bills updated to paid', async 
 });
 
 test('BK-07b: mark paid notification sent to customer', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('user_notifications')
     .insert({
       user_phone: TEST_CUSTOMER_PHONE,
@@ -160,18 +160,18 @@ test('BK-07b: mark paid notification sent to customer', async () => {
 
 test('BK-02: duplicate bill replace — void old bill then insert new', async () => {
   // Void existing bill
-  await supabase
+  await supabaseAdmin
     .from('order_bills')
     .update({ payment_status: 'void' })
     .eq('request_id', testRequestId);
 
   // Now insert new bill (old is voided so unique constraint allows it via delete+insert)
-  await supabase
+  await supabaseAdmin
     .from('order_bills')
     .delete()
     .eq('request_id', testRequestId);
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('order_bills')
     .insert({
       request_id: testRequestId,
@@ -190,14 +190,14 @@ test('BK-02: duplicate bill replace — void old bill then insert new', async ()
 
 test('BK-08: ledger cycle start date is settable per vendor', async () => {
   const cycleDate = new Date().toISOString().split('T')[0];
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('vendors')
     .update({ ledger_cycle_start: cycleDate })
     .eq('id', testVendor.id);
 
   expect(error).toBeNull();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendors')
     .select('ledger_cycle_start')
     .eq('id', testVendor.id)

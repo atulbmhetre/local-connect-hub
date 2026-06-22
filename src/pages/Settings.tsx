@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -27,6 +27,7 @@ import { App } from "@capacitor/app";
 import { Geolocation } from "@capacitor/geolocation";
 import { Camera as CapacitorCamera } from "@capacitor/camera";
 import { PushNotifications } from "@capacitor/push-notifications";
+import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
 import {
   supabase,
@@ -43,9 +44,17 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { logAdminAction } from "@/lib/adminAudit";
+import { warnFlaggedUser as runWarnFlaggedUser } from "@/lib/warnFlaggedUser";
 import { getDeviceId } from "@/lib/deviceId";
 import { maskPhoneLast4 } from "@/lib/khataDisplay";
 import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
+import {
+  ADMIN_QUERY_MAX_ROWS,
+  ADMIN_VENDOR_LIST_PAGE_SIZE,
+  fetchAllPages,
+  fetchByIdChunks,
+  warnIfQueryTruncated,
+} from "@/lib/adminQueryPagination";
 import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
 import { useAppConfig } from "@/hooks/useAppConfig";
@@ -123,6 +132,9 @@ type AdminVendorListRow = {
   trustLevel: TrustLevel;
   verifications: VendorVerificationRow[];
 };
+
+const VENDOR_LIST_SELECT =
+  "id, name, shop_name, category, service_mode, vendor_type, phone, is_manual_verified, is_active, is_banned, ban_reason, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified";
 
 const TRUST_BADGE_CLASS: Record<Exclude<TrustLevel, "Unverified">, string> = {
   Diamond: "bg-sidebar-primary text-sidebar-primary-foreground",
@@ -294,11 +306,11 @@ const VOICE_LANG_KEY = "aaspaas:voice_lang";
 
 type VoiceInputLang = "auto" | "en-IN" | "hi-IN" | "mr-IN";
 
-const VOICE_INPUT_OPTIONS: { code: VoiceInputLang; label: string }[] = [
-  { code: "auto", label: "Auto" },
-  { code: "en-IN", label: "EN" },
-  { code: "hi-IN", label: "HI" },
-  { code: "mr-IN", label: "MR" },
+const VOICE_INPUT_OPTIONS: { code: VoiceInputLang; labelKey: "settings_voiceAuto" | "settings_voiceEnglish" | "settings_voiceHindi" | "settings_voiceMarathi" }[] = [
+  { code: "auto", labelKey: "settings_voiceAuto" },
+  { code: "en-IN", labelKey: "settings_voiceEnglish" },
+  { code: "hi-IN", labelKey: "settings_voiceHindi" },
+  { code: "mr-IN", labelKey: "settings_voiceMarathi" },
 ];
 
 const VERIFY_ITEM_IDS = [
@@ -362,43 +374,120 @@ const GPS_MATCH_TOLERANCE_M = 75;
 const DEV_MENU_PIN_DEFAULT = "1947";
 
 const ADMIN_CONFIG_WHITELIST = [
+  // Referral + order expiry / near-deadline
   "referral_enabled",
   "help_accept_timeout_hours",
   "help_accept_timeout_minutes",
   "help_near_deadline_minutes",
   "delivery_near_deadline_minutes",
   "appointment_near_deadline_minutes",
+  "appointment_accept_timeout_hours",
+  // Vendor behaviour
   "vendor_stopped_minutes",
+  "vendor_stopped_distance_meters",
   "location_ping_seconds",
+  "max_order_message_chars",
+  // Referral credits
   "referral_user_credit",
   "referral_vendor_credit_total",
   "referral_vendor_credit_m1",
   "referral_vendor_credit_m2",
   "referral_vendor_credit_m3",
   "referral_veteran_threshold_months",
+  // Business / calls
+  "vendor_trial_days",
+  "subscription_price_inr",
+  "help_call_limit_seconds",
+  "delivery_call_limit_seconds",
+  "appointment_call_limit_seconds",
+  // Feature flags
+  "vendor_lead_notify_enabled",
+  "localization_enabled",
+  "lang_hindi_enabled",
+  "lang_marathi_enabled",
+  // AI
+  "ai_category_confidence_threshold",
+  // App
   "dev_menu_pin",
   "feed_notification_radius_km",
+  "app_base_url",
 ] as const;
 
 type AdminConfigKey = (typeof ADMIN_CONFIG_WHITELIST)[number];
 
+type AdminConfigValueType = "boolean" | "number" | "text";
+
+const ADMIN_CONFIG_TYPES: Partial<Record<AdminConfigKey, AdminConfigValueType>> = {
+  referral_enabled: "boolean",
+  vendor_lead_notify_enabled: "boolean",
+  localization_enabled: "boolean",
+  lang_hindi_enabled: "boolean",
+  lang_marathi_enabled: "boolean",
+  help_accept_timeout_hours: "number",
+  help_accept_timeout_minutes: "number",
+  help_near_deadline_minutes: "number",
+  delivery_near_deadline_minutes: "number",
+  appointment_near_deadline_minutes: "number",
+  appointment_accept_timeout_hours: "number",
+  vendor_stopped_minutes: "number",
+  vendor_stopped_distance_meters: "number",
+  location_ping_seconds: "number",
+  max_order_message_chars: "number",
+  ai_category_confidence_threshold: "number",
+  vendor_trial_days: "number",
+  subscription_price_inr: "number",
+  help_call_limit_seconds: "number",
+  delivery_call_limit_seconds: "number",
+  appointment_call_limit_seconds: "number",
+  referral_user_credit: "number",
+  referral_vendor_credit_total: "number",
+  referral_vendor_credit_m1: "number",
+  referral_vendor_credit_m2: "number",
+  referral_vendor_credit_m3: "number",
+  referral_veteran_threshold_months: "number",
+  feed_notification_radius_km: "number",
+};
+
+function getAdminConfigType(key: AdminConfigKey): AdminConfigValueType {
+  return ADMIN_CONFIG_TYPES[key] ?? "text";
+}
+
+function parseAdminConfigBoolean(raw: string | undefined): boolean {
+  const v = (raw ?? "").trim().toLowerCase();
+  return v === "true" || v === "1";
+}
+
 const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
-  referral_enabled: "referral_enabled",
-  help_accept_timeout_hours: "help_accept_timeout_hours",
-  help_accept_timeout_minutes: "help_accept_timeout_minutes",
-  help_near_deadline_minutes: "help_near_deadline_minutes",
-  delivery_near_deadline_minutes: "delivery_near_deadline_minutes",
+  referral_enabled: "Referral Program Enabled",
+  help_accept_timeout_hours: "Help Accept Timeout (hours)",
+  help_accept_timeout_minutes: "Help Accept Timeout (minutes)",
+  help_near_deadline_minutes: "Help Near-Deadline Warning (minutes)",
+  delivery_near_deadline_minutes: "Delivery Near-Deadline Warning (minutes)",
   appointment_near_deadline_minutes: "Appointment Near-Deadline Warning (minutes)",
-  vendor_stopped_minutes: "vendor_stopped_minutes",
-  location_ping_seconds: "location_ping_seconds",
-  referral_user_credit: "referral_user_credit",
-  referral_vendor_credit_total: "referral_vendor_credit_total",
-  referral_vendor_credit_m1: "referral_vendor_credit_m1",
-  referral_vendor_credit_m2: "referral_vendor_credit_m2",
-  referral_vendor_credit_m3: "referral_vendor_credit_m3",
-  referral_veteran_threshold_months: "Referral veteran threshold (months)",
-  dev_menu_pin: "dev_menu_pin",
-  feed_notification_radius_km: "Feed notification radius (km)",
+  appointment_accept_timeout_hours: "Appointment Accept Timeout (hours)",
+  vendor_stopped_minutes: "Vendor Stopped Detection (minutes)",
+  vendor_stopped_distance_meters: "Vendor Stopped Detection Distance (meters)",
+  location_ping_seconds: "Vendor Location Ping Interval (seconds)",
+  max_order_message_chars: "Max Order Message Characters",
+  referral_user_credit: "Referral Credit — Customer (₹)",
+  referral_vendor_credit_total: "Referral Credit — Vendor Total (₹)",
+  referral_vendor_credit_m1: "Referral Credit — Vendor Month 1 (₹)",
+  referral_vendor_credit_m2: "Referral Credit — Vendor Month 2 (₹)",
+  referral_vendor_credit_m3: "Referral Credit — Vendor Month 3 (₹)",
+  referral_veteran_threshold_months: "Referral Veteran Threshold (months)",
+  vendor_trial_days: "Vendor Trial Period (days)",
+  subscription_price_inr: "Vendor Subscription Price (₹/month)",
+  help_call_limit_seconds: "Help Call Time Limit (seconds)",
+  delivery_call_limit_seconds: "Delivery Call Time Limit (seconds)",
+  appointment_call_limit_seconds: "Appointment Call Time Limit (seconds)",
+  vendor_lead_notify_enabled: "Notify Admin on New Vendor Lead",
+  localization_enabled: "Localization Enabled",
+  lang_hindi_enabled: "Hindi Language Enabled",
+  lang_marathi_enabled: "Marathi Language Enabled",
+  ai_category_confidence_threshold: "AI Category Confidence Threshold (0–1)",
+  dev_menu_pin: "Developer Menu PIN",
+  feed_notification_radius_km: "Feed Notification Radius (km)",
+  app_base_url: "App Base URL",
 };
 
 function buildVerifyAutoChecks(
@@ -462,23 +551,54 @@ function formatVendorLastUpdated(iso: string | null | undefined): string {
   });
 }
 
+type NativePermissionKind = "notifications" | "location" | "camera" | "microphone";
+
 type NativePermissionStatuses = {
   notifications: PermissionState;
   location: PermissionState;
   camera: PermissionState;
+  microphone: PermissionState;
 };
 
 async function checkNativePermissionStatuses(): Promise<NativePermissionStatuses> {
-  const [push, geo, cam] = await Promise.all([
+  const [push, geo, cam, mic] = await Promise.all([
     PushNotifications.checkPermissions(),
     Geolocation.checkPermissions().catch(() => ({ location: "denied" as PermissionState })),
     CapacitorCamera.checkPermissions(),
+    SpeechRecognition.checkPermissions().catch(() => ({
+      speechRecognition: "denied" as PermissionState,
+    })),
   ]);
   return {
     notifications: push.receive,
     location: geo.location,
     camera: cam.camera,
+    microphone: mic.speechRecognition,
   };
+}
+
+async function requestNativePermission(kind: NativePermissionKind): Promise<PermissionState> {
+  switch (kind) {
+    case "notifications": {
+      const result = await PushNotifications.requestPermissions();
+      if (result.receive === "granted") {
+        void PushNotifications.register();
+      }
+      return result.receive;
+    }
+    case "location": {
+      const result = await Geolocation.requestPermissions();
+      return result.location;
+    }
+    case "camera": {
+      const result = await CapacitorCamera.requestPermissions();
+      return result.camera;
+    }
+    case "microphone": {
+      const result = await SpeechRecognition.requestPermissions();
+      return result.speechRecognition;
+    }
+  }
 }
 
 const Settings = () => {
@@ -490,7 +610,7 @@ const Settings = () => {
   const { lang, setLang, s } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const { config } = useAppConfig();
-  const [referEarnVisible, setReferEarnVisible] = useState(false);
+  const [referEarnVisible, setReferEarnVisible] = useState(true);
   const languageOptions = useMemo(
     () =>
       (Object.entries(LANGUAGE_LABELS) as [Language, string][]).filter(([code]) => {
@@ -545,6 +665,11 @@ const Settings = () => {
 
   const [vendorList, setVendorList] = useState<AdminVendorListRow[]>([]);
   const [vendorSearch, setVendorSearch] = useState("");
+  const [vendorShowAll, setVendorShowAll] = useState(false);
+  const [vendorListHasMore, setVendorListHasMore] = useState(false);
+  const [vendorListLoading, setVendorListLoading] = useState(false);
+  const vendorListRef = useRef(vendorList);
+  vendorListRef.current = vendorList;
   const [pendingCategories, setPendingCategories] = useState<
     {
       id: string;
@@ -598,6 +723,7 @@ const Settings = () => {
   const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
   const [clearDataOpen, setClearDataOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [dualRoleDelete, setDualRoleDelete] = useState(false);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [vendorDeletionRequestedAt, setVendorDeletionRequestedAt] = useState<string | null>(null);
   const [permissionHint, setPermissionHint] = useState<string | null>(null);
@@ -605,6 +731,7 @@ const Settings = () => {
     notifications: "prompt",
     location: "prompt",
     camera: "prompt",
+    microphone: "prompt",
   });
   const [deletingAddress, setDeletingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
@@ -634,6 +761,54 @@ const Settings = () => {
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [deviceOpen, setDeviceOpen] = useState(false);
   const [connectionOpen, setConnectionOpen] = useState(false);
+
+  const refreshPermissionStatuses = () => {
+    void checkNativePermissionStatuses()
+      .then(setPermissionStatuses)
+      .catch(() => {
+        /* keep last known statuses */
+      });
+  };
+
+  const handlePermissionRequest = async (kind: NativePermissionKind, deniedLabel: string) => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const current = permissionStatuses[kind];
+    if (current === "granted") return;
+    if (current === "denied") {
+      setPermissionHint(deniedLabel);
+      return;
+    }
+
+    try {
+      const result = await requestNativePermission(kind);
+      refreshPermissionStatuses();
+      if (result === "denied") {
+        setPermissionHint(deniedLabel);
+      }
+    } catch {
+      setPermissionHint(deniedLabel);
+    }
+  };
+
+  const renderPermissionAction = (status: PermissionState, onRequest: () => void) => {
+    if (status === "granted") {
+      return (
+        <span className="shrink-0 text-lg leading-none" aria-label="Granted">
+          ✅
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={onRequest}
+        className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
+      >
+        {s.settings_permission_request}
+      </button>
+    );
+  };
   const { enabled: feedNotificationsEnabled, onCheckedChange: onFeedNotificationsChange } =
     useFeedNotificationsEnabled();
   const [activeTab, setActiveTab] = useState<"settings" | "admin">("settings");
@@ -660,6 +835,33 @@ const Settings = () => {
     {},
   );
   const [adminConfigSaving, setAdminConfigSaving] = useState<AdminConfigKey | null>(null);
+  const [adminConfigErrors, setAdminConfigErrors] = useState<Partial<Record<AdminConfigKey, string>>>(
+    {},
+  );
+  const [reviewDeleteDialog, setReviewDeleteDialog] = useState<{
+    open: boolean;
+    review: (typeof lowRatings)[number] | null;
+  }>({ open: false, review: null });
+  const [subOverviewOpen, setSubOverviewOpen] = useState(false);
+  const [subVendors, setSubVendors] = useState<
+    {
+      id: string;
+      shop_name: string;
+      phone: string | null;
+      subscription_status: string;
+      trial_ends_at: string | null;
+      grace_ends_at: string | null;
+      subscription_current_period_end: string | null;
+      waiveoff_percent: number | null;
+      waiveoff_months_remaining: number | null;
+      created_at: string;
+    }[]
+  >([]);
+  const [subLoading, setSubLoading] = useState(false);
+  const [waivePhone, setWaivePhone] = useState("");
+  const [waivePercent, setWaivePercent] = useState("");
+  const [waiveMonths, setWaiveMonths] = useState("");
+  const [waiveSubmitting, setWaiveSubmitting] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -833,19 +1035,11 @@ const Settings = () => {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
-    const refreshPermissions = () => {
-      void checkNativePermissionStatuses()
-        .then(setPermissionStatuses)
-        .catch(() => {
-          /* keep last known statuses */
-        });
-    };
-
-    refreshPermissions();
+    refreshPermissionStatuses();
 
     let listener: { remove: () => Promise<void> } | undefined;
     void App.addListener("appStateChange", ({ isActive }) => {
-      if (isActive) refreshPermissions();
+      if (isActive) refreshPermissionStatuses();
     }).then((handle) => {
       listener = handle;
     });
@@ -865,22 +1059,33 @@ const Settings = () => {
 
       const [
         { data: orders },
-        { data: vendors },
+        { count: totalVendors },
         { count: stuckOrders },
-        { data: ratedVendors },
+        { count: activeVendorsToday },
+        { count: newVendorsThisWeek },
+        { count: unverifiedVendors },
         { count: riskyUsers },
         { count: totalReferrals },
       ] = await Promise.all([
         supabase.from("requests").select("created_at"),
-        supabase
-          .from("vendors")
-          .select("last_updated, is_manual_verified, avg_rating, is_active"),
+        supabase.from("vendors").select("*", { count: "exact", head: true }),
         supabase
           .from("requests")
           .select("id", { count: "exact", head: true })
           .in("status", ["sent", "accepted"])
           .lt("created_at", stuckCutoff),
-        supabase.from("vendors").select("avg_rating").gt("avg_rating", 0).eq("is_active", true),
+        supabase
+          .from("vendors")
+          .select("*", { count: "exact", head: true })
+          .gte("last_updated", startOfToday),
+        supabase
+          .from("vendors")
+          .select("*", { count: "exact", head: true })
+          .gte("last_updated", startOfWeek),
+        supabase
+          .from("vendors")
+          .select("*", { count: "exact", head: true })
+          .eq("is_manual_verified", false),
         supabase
           .from("users")
           .select("phone", { count: "exact", head: true })
@@ -890,24 +1095,34 @@ const Settings = () => {
       ]);
 
       let avgVendorRating = 0;
-      if (ratedVendors?.length) {
-        const sum = ratedVendors.reduce((acc, v) => acc + Number(v.avg_rating), 0);
-        avgVendorRating = Math.round((sum / ratedVendors.length) * 10) / 10;
+      try {
+        const ratedVendors = await fetchAllPages<{ avg_rating: number | null }>(
+          "admin-stats/rated-vendors",
+          (from, to) =>
+            supabase
+              .from("vendors")
+              .select("avg_rating")
+              .gt("avg_rating", 0)
+              .eq("is_active", true)
+              .range(from, to),
+        );
+        if (ratedVendors.length) {
+          const sum = ratedVendors.reduce((acc, v) => acc + Number(v.avg_rating), 0);
+          avgVendorRating = Math.round((sum / ratedVendors.length) * 10) / 10;
+        }
+      } catch (err) {
+        console.error("admin-stats/rated-vendors", err);
       }
 
-      if (orders && vendors) {
+      if (orders) {
         setAdminStats({
           totalOrders: orders.length,
           ordersToday: orders.filter((o) => o.created_at >= startOfToday).length,
           ordersThisWeek: orders.filter((o) => o.created_at >= startOfWeek).length,
-          totalVendors: vendors.length,
-          activeVendorsToday: vendors.filter(
-            (v) => v.last_updated != null && v.last_updated >= startOfToday,
-          ).length,
-          newVendorsThisWeek: vendors.filter(
-            (v) => v.last_updated != null && v.last_updated >= startOfWeek,
-          ).length,
-          unverifiedVendors: vendors.filter((v) => !v.is_manual_verified).length,
+          totalVendors: totalVendors ?? 0,
+          activeVendorsToday: activeVendorsToday ?? 0,
+          newVendorsThisWeek: newVendorsThisWeek ?? 0,
+          unverifiedVendors: unverifiedVendors ?? 0,
           stuckOrders: stuckOrders ?? 0,
           avgVendorRating,
           riskyUsers: riskyUsers ?? 0,
@@ -941,43 +1156,50 @@ const Settings = () => {
     void loadAdminConfig();
   }, [isAdmin, adminConfigOpen]);
 
-  const loadVendorList = async (): Promise<AdminVendorListRow[]> => {
-    const { data: vendors, error } = await supabase
-      .from("vendors")
-      .select(
-        "id, name, shop_name, category, service_mode, vendor_type, phone, is_manual_verified, is_active, is_banned, ban_reason, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified",
-      )
-      .order("is_manual_verified", { ascending: true })
-      .order("shop_name");
-    if (error) {
-      console.error("loadVendorList", error);
-      setVendorList([]);
-      return [];
-    }
-    if (!vendors?.length) {
-      setVendorList([]);
-      return [];
-    }
+  const enrichVendorsWithMeta = async (
+    vendors: Array<{
+      id: string;
+      name: string;
+      shop_name: string;
+      category: string;
+      service_mode: string | null;
+      vendor_type: string | null;
+      phone: string;
+      is_manual_verified: boolean;
+      is_active: boolean;
+      is_banned: boolean;
+      ban_reason: string | null;
+      shop_photo_url: string | null;
+      upi_id: string | null;
+      latitude: number | null;
+      longitude: number | null;
+      referral_code: string | null;
+      last_updated: string | null;
+      gps_match_distance: number | null;
+      upi_verified: boolean;
+    }>,
+  ): Promise<AdminVendorListRow[]> => {
+    if (!vendors.length) return [];
 
     const vendorIds = vendors.map((v) => v.id);
-    const [vcResult, verResult] = await Promise.all([
-      supabase
-        .from("vendor_categories")
-        .select("vendor_id, is_primary, service_mode, categories(label, emoji)")
-        .in("vendor_id", vendorIds)
-        .eq("status", "approved"),
-      supabase
-        .from("vendor_verification")
-        .select("vendor_id, check_type, status, is_latest")
-        .in("vendor_id", vendorIds)
-        .eq("is_latest", true),
+    const [vcData, verifications] = await Promise.all([
+      fetchByIdChunks("loadVendorList/vendor_categories", vendorIds, (chunk) =>
+        supabase
+          .from("vendor_categories")
+          .select("vendor_id, is_primary, service_mode, categories(label, emoji)")
+          .in("vendor_id", chunk)
+          .eq("status", "approved"),
+      ),
+      fetchByIdChunks("loadVendorList/vendor_verification", vendorIds, (chunk) =>
+        supabase
+          .from("vendor_verification")
+          .select("vendor_id, check_type, status, is_latest")
+          .in("vendor_id", chunk)
+          .eq("is_latest", true),
+      ),
     ]);
 
-    if (vcResult.error) console.error("loadVendorList vendor_categories", vcResult.error);
-    if (verResult.error) console.error("loadVendorList vendor_verification", verResult.error);
-
-    const categoriesMap = buildAdminVendorCategoriesMap(vcResult.data ?? []);
-    const verifications = (verResult.data ?? []) as VendorVerificationRow[];
+    const categoriesMap = buildAdminVendorCategoriesMap(vcData);
     const trustMap = computeTrustLevelsByVendor(vendorIds, verifications);
 
     const verificationsByVendor = new Map<string, VendorVerificationRow[]>();
@@ -987,7 +1209,7 @@ const Settings = () => {
       verificationsByVendor.set(row.vendor_id, list);
     }
 
-    const merged: AdminVendorListRow[] = vendors.map((v) => {
+    return vendors.map((v) => {
       let categories = categoriesMap.get(v.id) ?? [];
       if (categories.length === 0 && v.category) {
         categories = [
@@ -1007,26 +1229,102 @@ const Settings = () => {
         verifications: verificationsByVendor.get(v.id) ?? [],
       };
     });
+  };
 
-    setVendorList(merged);
-    return merged;
+  const loadVendorList = async (opts?: { append?: boolean }): Promise<AdminVendorListRow[]> => {
+    const append = opts?.append ?? false;
+    setVendorListLoading(true);
+    try {
+      const search = vendorSearch.trim().replace(/,/g, "");
+      const offset = append ? vendorListRef.current.length : 0;
+
+      let query = supabase
+        .from("vendors")
+        .select(VENDOR_LIST_SELECT, { count: "exact" })
+        .order("is_manual_verified", { ascending: true })
+        .order("shop_name");
+
+      if (search.length >= 2) {
+        const pattern = `%${search}%`;
+        query = query.or(
+          `shop_name.ilike.${pattern},name.ilike.${pattern},phone.ilike.${pattern}`,
+        );
+      } else if (!vendorShowAll) {
+        query = query.or("is_manual_verified.eq.false,is_banned.eq.true");
+      }
+
+      const rangeEnd = offset + ADMIN_VENDOR_LIST_PAGE_SIZE - 1;
+      const { data: vendors, error, count } = await query.range(offset, rangeEnd);
+
+      if (error) {
+        console.error("loadVendorList", error);
+        if (!append) setVendorList([]);
+        setVendorListHasMore(false);
+        return [];
+      }
+
+      const rows = vendors ?? [];
+      const merged = await enrichVendorsWithMeta(rows);
+      let nextList: AdminVendorListRow[] = merged;
+      setVendorList((prev) => {
+        nextList = append ? [...prev, ...merged] : merged;
+        return nextList;
+      });
+
+      const total = count ?? nextList.length;
+      const loaded = offset + rows.length;
+      const capped = loaded >= ADMIN_QUERY_MAX_ROWS;
+      const hasMore =
+        !capped && loaded < total && rows.length === ADMIN_VENDOR_LIST_PAGE_SIZE;
+      setVendorListHasMore(hasMore);
+      if (capped) {
+        warnIfQueryTruncated("loadVendorList", loaded, ADMIN_QUERY_MAX_ROWS);
+      }
+      return nextList;
+    } finally {
+      setVendorListLoading(false);
+    }
   };
 
   useEffect(() => {
     if (!isAdmin) return;
-    void loadVendorList();
-  }, [isAdmin]);
+    const delay = vendorSearch.trim().length >= 2 ? 300 : 0;
+    const timer = window.setTimeout(() => {
+      void loadVendorList();
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [isAdmin, vendorShowAll, vendorSearch]);
 
   const loadPendingCategories = async () => {
-    const { data } = await supabase
-      .from("categories")
-      .select(
-        "id, label, emoji, service_mode, ai_confidence, ai_confidence_score, ai_reasoning, suggested_by_vendor_id, status, pending_review",
-      )
-      .or("status.eq.pending_review,and(pending_review.eq.true,is_active.eq.false)")
-      .order("created_at", { ascending: false });
+    let rows: Array<{
+      id: string;
+      label: string;
+      emoji: string;
+      service_mode: string;
+      ai_confidence: string | null;
+      ai_confidence_score: number | null;
+      ai_reasoning: string | null;
+      suggested_by_vendor_id: string | null;
+      status: string;
+      pending_review: boolean;
+    }> = [];
+    try {
+      rows = await fetchAllPages("loadPendingCategories", (from, to) =>
+        supabase
+          .from("categories")
+          .select(
+            "id, label, emoji, service_mode, ai_confidence, ai_confidence_score, ai_reasoning, suggested_by_vendor_id, status, pending_review",
+          )
+          .or("status.eq.pending_review,and(pending_review.eq.true,is_active.eq.false)")
+          .order("created_at", { ascending: false })
+          .range(from, to),
+      );
+    } catch (error) {
+      console.error("loadPendingCategories", error);
+      setPendingCategories([]);
+      return;
+    }
 
-    const rows = data ?? [];
     const vendorIds = [
       ...new Set(
         rows
@@ -1036,11 +1334,12 @@ const Settings = () => {
     ];
     const vendorNameById = new Map<string, string>();
     if (vendorIds.length > 0) {
-      const { data: vendors } = await supabase
-        .from("vendors")
-        .select("id, shop_name")
-        .in("id", vendorIds);
-      for (const v of vendors ?? []) {
+      const vendors = await fetchByIdChunks<{ id: string; shop_name: string | null }>(
+        "loadPendingCategories/vendors",
+        vendorIds,
+        (chunk) => supabase.from("vendors").select("id, shop_name").in("id", chunk),
+      );
+      for (const v of vendors) {
         vendorNameById.set(v.id, v.shop_name ?? "Vendor");
       }
     }
@@ -1106,7 +1405,17 @@ const Settings = () => {
     setLowRatingDeletingId(row.id);
     setLowRatings((prev) => prev.filter((r) => r.id !== row.id));
 
-    const { error } = await supabase.from("vendor_reviews").delete().eq("id", row.id);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
+      setLowRatingDeletingId(null);
+      void loadLowRatings();
+      return;
+    }
+
+    const { data: vendorId, error } = await supabase.rpc("admin_delete_review", {
+      p_admin_phone: adminPhone,
+      p_review_id: row.id,
+    });
     if (error) {
       console.error("deleteLowRating", error);
       toast.error(error.message);
@@ -1115,7 +1424,14 @@ const Settings = () => {
       return;
     }
 
-    await syncVendorRatingFromReviews(row.vendor_id, {
+    logAdminAction(
+      "delete_review",
+      "vendor",
+      row.vendor_id,
+      `review_id:${row.id} rating:${row.rating}`,
+    );
+
+    await syncVendorRatingFromReviews(vendorId as string, {
       shopName: row.shop_name,
       alertAdmin: false,
     });
@@ -1123,17 +1439,22 @@ const Settings = () => {
   };
 
   const loadFlaggedUsers = async () => {
-    const { data, error } = await supabase
-      .from("users")
-      .select("phone, trust_score, noshow_count, fake_count, is_banned, ban_reason, warn_count, last_warned_at")
-      .or("noshow_count.gt.0,fake_count.gt.0,is_banned.eq.true")
-      .order("trust_score", { ascending: true });
-    if (error) {
+    try {
+      const data = await fetchAllPages("loadFlaggedUsers", (from, to) =>
+        supabase
+          .from("users")
+          .select(
+            "phone, trust_score, noshow_count, fake_count, is_banned, ban_reason, warn_count, last_warned_at",
+          )
+          .or("noshow_count.gt.0,fake_count.gt.0,is_banned.eq.true")
+          .order("trust_score", { ascending: true })
+          .range(from, to),
+      );
+      setFlaggedUsers(data ?? []);
+    } catch (error) {
       console.error("loadFlaggedUsers", error);
       setFlaggedUsers([]);
-      return;
     }
-    setFlaggedUsers(data ?? []);
   };
 
   useEffect(() => {
@@ -1145,6 +1466,65 @@ const Settings = () => {
     if (score >= 75) return "text-green-500";
     if (score >= 50) return "text-amber-500";
     return "text-red-500";
+  };
+
+  const maskPhoneLast4 = (phone: string): string => {
+    const digits = phone.replace(/\D/g, "");
+    return `••••${digits.slice(-4)}`;
+  };
+
+  const loadSubVendors = async () => {
+    setSubLoading(true);
+    const { data, error } = await supabase
+      .from("vendors")
+      .select(
+        "id, shop_name, phone, subscription_status, trial_ends_at, grace_ends_at, subscription_current_period_end, waiveoff_percent, waiveoff_months_remaining, created_at",
+      )
+      .in("subscription_status", ["grace", "expired", "cancelled"])
+      .order("grace_ends_at", { ascending: true, nullsFirst: false });
+    setSubLoading(false);
+    if (error) {
+      console.error("loadSubVendors", error);
+      toast.error(error.message);
+      return;
+    }
+    setSubVendors(
+      (data ?? []).map((row) => ({
+        id: row.id as string,
+        shop_name: (row.shop_name as string | null)?.trim() || "Vendor",
+        phone: (row.phone as string | null) ?? null,
+        subscription_status: (row.subscription_status as string | null) ?? "trial",
+        trial_ends_at: (row.trial_ends_at as string | null) ?? null,
+        grace_ends_at: (row.grace_ends_at as string | null) ?? null,
+        subscription_current_period_end:
+          (row.subscription_current_period_end as string | null) ?? null,
+        waiveoff_percent: (row.waiveoff_percent as number | null) ?? null,
+        waiveoff_months_remaining:
+          (row.waiveoff_months_remaining as number | null) ?? null,
+        created_at: row.created_at as string,
+      })),
+    );
+  };
+
+  const formatAdminDate = (value: string | null): string => {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (!Number.isFinite(d.getTime())) return "—";
+    return d.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const daysAgo = (value: string | null): string => {
+    if (!value) return "—";
+    const d = new Date(value).getTime();
+    if (!Number.isFinite(d)) return "—";
+    const diffDays = Math.floor((Date.now() - d) / 86400000);
+    if (diffDays <= 0) return "today";
+    if (diffDays === 1) return "1 day ago";
+    return `${diffDays} days ago`;
   };
 
   const notifyCategoryVendor = async (
@@ -1213,13 +1593,35 @@ const Settings = () => {
     });
   };
 
-  const saveAdminConfigKey = async (key: AdminConfigKey) => {
-    const newValue = (adminConfigDraft[key] ?? "").trim();
+  const saveAdminConfigKey = async (key: AdminConfigKey, overrideValue?: string) => {
+    const configType = getAdminConfigType(key);
+    const raw = overrideValue ?? adminConfigDraft[key] ?? adminConfigValues[key] ?? "";
+    const newValue = configType === "boolean" ? (parseAdminConfigBoolean(raw) ? "true" : "false") : raw.trim();
+
+    if (configType === "number") {
+      if (newValue === "" || Number.isNaN(Number(newValue))) {
+        setAdminConfigErrors((prev) => ({ ...prev, [key]: "Must be a number" }));
+        return;
+      }
+    }
+
+    setAdminConfigErrors((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
     setAdminConfigSaving(key);
-    const { error } = await supabase
-      .from("app_config")
-      .update({ value: newValue })
-      .eq("key", key);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
+      setAdminConfigSaving(null);
+      toast.error("Admin phone required");
+      return;
+    }
+    const { error } = await supabase.rpc("admin_update_app_config", {
+      p_admin_phone: adminPhone,
+      p_key: key,
+      p_value: newValue,
+    });
     setAdminConfigSaving(null);
     if (error) {
       console.error("saveAdminConfigKey", error);
@@ -1227,54 +1629,30 @@ const Settings = () => {
       return;
     }
     setAdminConfigValues((prev) => ({ ...prev, [key]: newValue }));
+    setAdminConfigDraft((prev) => ({ ...prev, [key]: newValue }));
     if (key === "dev_menu_pin" && newValue) setDevMenuPin(newValue);
     if (key === "referral_enabled") {
-      const raw = newValue.toLowerCase();
-      setReferEarnVisible(raw !== "false" && raw !== "0");
+      setReferEarnVisible(parseAdminConfigBoolean(newValue));
     }
+    logAdminAction("update_config", "config", key, `${key} = ${newValue}`);
     toast.success(s.admin_config_updated);
   };
 
   const warnFlaggedUser = async (phone: string) => {
     setFlaggedAction(phone);
-    const title = "⚠️ Account Warning";
-    const body =
-      "Your account has received complaints from vendors. Further issues may result in suspension.";
-    void invokeNotifyUser({
-      user_phone: phone,
-      title,
-      body,
-      type: "account_warning",
+
+    const result = await runWarnFlaggedUser(phone, {
+      localizationEnabled: config.localizationEnabled,
+      langHindiEnabled: config.langHindiEnabled,
+      langMarathiEnabled: config.langMarathiEnabled,
     });
-    saveNotification({
-      userPhone: phone,
-      type: "account_warning",
-      title,
-      body,
-      route: "settings",
-      routeParams: { user_phone: phone },
-      isInformational: false,
-    });
-    const { data: userRow } = await supabase
-      .from("users")
-      .select("warn_count")
-      .eq("phone", phone)
-      .maybeSingle();
-    const nextWarnCount = (userRow?.warn_count ?? 0) + 1;
-    const { error: warnError } = await supabase
-      .from("users")
-      .update({
-        warn_count: nextWarnCount,
-        last_warned_at: new Date().toISOString(),
-      })
-      .eq("phone", phone);
+
     setFlaggedAction(null);
-    if (warnError) {
-      console.error("warnFlaggedUser", warnError);
+    if (!result.ok) {
+      console.error("warnFlaggedUser", result.error);
       toast.error("Warning sent but count not saved");
       return;
     }
-    logAdminAction("warn_user", "user", phone);
     toast.success("Warning sent");
     await loadFlaggedUsers();
   };
@@ -1283,10 +1661,17 @@ const Settings = () => {
     const v = vendorBanDialog.vendor;
     if (!v || !vendorBanReason.trim()) return;
     setVendorBanAction(v.id);
-    const { error } = await supabase
-      .from("vendors")
-      .update({ is_banned: true, ban_reason: vendorBanReason.trim() })
-      .eq("id", v.id);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
+      setVendorBanAction(null);
+      toast.error("Admin phone required");
+      return;
+    }
+    const { error } = await supabase.rpc("admin_ban_vendor", {
+      p_admin_phone: adminPhone,
+      p_vendor_id: v.id,
+      p_reason: vendorBanReason.trim(),
+    });
     if (error) {
       console.error("confirmBanVendor", error);
       setVendorBanAction(null);
@@ -1323,10 +1708,16 @@ const Settings = () => {
   const unbanVendor = async (vendorId: string) => {
     setVendorBanAction(vendorId);
     const vendorRow = vendorList.find((v) => v.id === vendorId);
-    const { error } = await supabase
-      .from("vendors")
-      .update({ is_banned: false, ban_reason: null })
-      .eq("id", vendorId);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
+      setVendorBanAction(null);
+      toast.error("Admin phone required");
+      return;
+    }
+    const { error } = await supabase.rpc("admin_unban_vendor", {
+      p_admin_phone: adminPhone,
+      p_vendor_id: vendorId,
+    });
     setVendorBanAction(null);
     if (error) {
       console.error("unbanVendor", error);
@@ -1345,14 +1736,16 @@ const Settings = () => {
   const confirmBanUser = async () => {
     if (!banDialog.phone || !banReason.trim()) return;
     setFlaggedAction(banDialog.phone);
-    const { error } = await supabase
-      .from("users")
-      .update({
-        is_banned: true,
-        ban_reason: banReason.trim(),
-        trust_score: 0,
-      })
-      .eq("phone", banDialog.phone);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
+      setFlaggedAction(null);
+      return;
+    }
+    const { error } = await supabase.rpc("admin_ban_user", {
+      p_admin_phone: adminPhone,
+      p_user_phone: banDialog.phone,
+      p_reason: banReason.trim(),
+    });
     setFlaggedAction(null);
     if (error) {
       console.error("confirmBanUser", error);
@@ -1384,14 +1777,15 @@ const Settings = () => {
 
   const unbanFlaggedUser = async (phone: string) => {
     setFlaggedAction(phone);
-    const { error } = await supabase
-      .from("users")
-      .update({
-        is_banned: false,
-        ban_reason: null,
-        trust_score: 50,
-      })
-      .eq("phone", phone);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
+      setFlaggedAction(null);
+      return;
+    }
+    const { error } = await supabase.rpc("admin_unban_user", {
+      p_admin_phone: adminPhone,
+      p_user_phone: phone,
+    });
     setFlaggedAction(null);
     if (error) {
       console.error("unbanFlaggedUser", error);
@@ -1405,14 +1799,16 @@ const Settings = () => {
 
   const approvePendingCategory = async (cat: (typeof pendingCategories)[number]) => {
     setPendingAction(cat.id);
-    const { error } = await supabase
-      .from("categories")
-      .update({
-        is_active: true,
-        pending_review: false,
-        status: "active",
-      })
-      .eq("id", cat.id);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
+      setPendingAction(null);
+      toast.error("Admin phone required");
+      return;
+    }
+    const { error } = await supabase.rpc("admin_approve_category", {
+      p_admin_phone: adminPhone,
+      p_category_id: cat.id,
+    });
     setPendingAction(null);
     if (error) {
       toast.error("Update failed: " + error.message);
@@ -1425,14 +1821,16 @@ const Settings = () => {
 
   const rejectPendingCategory = async (cat: (typeof pendingCategories)[number]) => {
     setPendingAction(cat.id);
-    const { error: updateError } = await supabase
-      .from("categories")
-      .update({
-        pending_review: false,
-        is_active: false,
-        status: "rejected",
-      })
-      .eq("id", cat.id);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
+      setPendingAction(null);
+      toast.error("Admin phone required");
+      return;
+    }
+    const { error: updateError } = await supabase.rpc("admin_reject_category", {
+      p_admin_phone: adminPhone,
+      p_category_id: cat.id,
+    });
     setPendingAction(null);
     if (updateError) {
       toast.error("Update failed: " + updateError.message);
@@ -1542,10 +1940,16 @@ const Settings = () => {
     if (!verifySheet.vendor || !allChecked) return;
     setVerifying(verifySheet.vendor.id);
     const vendor = verifySheet.vendor;
-    const { error } = await supabase
-      .from("vendors")
-      .update({ is_manual_verified: true })
-      .eq("id", vendor.id);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
+      setVerifying(null);
+      toast.error("Admin phone required");
+      return;
+    }
+    const { error } = await supabase.rpc("admin_verify_vendor", {
+      p_admin_phone: adminPhone,
+      p_vendor_id: vendor.id,
+    });
     if (error) {
       setVerifying(null);
       toast.error("Update failed: " + error.message);
@@ -1567,29 +1971,23 @@ const Settings = () => {
   const confirmUnverify = async (vendorId: string) => {
     if (!window.confirm(s.settings_removeVerifyConfirm)) return;
     setVerifying(vendorId);
-    const { data: row, error: fetchError } = await supabase
-      .from("vendors")
-      .select("phone, verification_status")
-      .eq("id", vendorId)
-      .maybeSingle();
-    if (fetchError || !row) {
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
       setVerifying(null);
-      toast.error(fetchError ? "Update failed: " + fetchError.message : "Vendor not found");
+      toast.error("Admin phone required");
       return;
     }
-    const patch: { is_manual_verified: boolean; verification_status?: string } = {
-      is_manual_verified: false,
-    };
-    if (row.verification_status === "green_pending") {
-      patch.verification_status = "business_verified";
-    }
-    const { error } = await supabase.from("vendors").update(patch).eq("id", vendorId);
+    const { error } = await supabase.rpc("admin_unverify_vendor", {
+      p_admin_phone: adminPhone,
+      p_vendor_id: vendorId,
+    });
     if (error) {
       setVerifying(null);
       toast.error("Update failed: " + error.message);
       return;
     }
-    notifyVendorVerification(vendorId, row.phone, {
+    const vendorPhone = vendorList.find((v) => v.id === vendorId)?.phone ?? null;
+    notifyVendorVerification(vendorId, vendorPhone, {
       type: "account_unverified",
       title: s.vendor_unverified_title,
       body: s.vendor_unverified_body,
@@ -1602,27 +2000,19 @@ const Settings = () => {
 
   const setAdminCheckStatus = async (vendorId: string, status: "passed" | "failed") => {
     setAdminCheckUpdating(true);
-    const { error: unsetError } = await supabase
-      .from("vendor_verification")
-      .update({ is_latest: false })
-      .eq("vendor_id", vendorId)
-      .eq("check_type", "admin_check")
-      .eq("is_latest", true);
-    if (unsetError) {
-      console.error("setAdminCheckStatus unset", unsetError);
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) {
       setAdminCheckUpdating(false);
-      toast.error("Failed to update admin check");
+      toast.error("Admin phone required");
       return;
     }
-    const { error: insertError } = await supabase.from("vendor_verification").insert({
-      vendor_id: vendorId,
-      check_type: "admin_check",
-      status,
-      checked_by: "admin",
-      is_latest: true,
+    const { error } = await supabase.rpc("admin_set_vendor_check", {
+      p_admin_phone: adminPhone,
+      p_vendor_id: vendorId,
+      p_status: status,
     });
-    if (insertError) {
-      console.error("setAdminCheckStatus insert", insertError);
+    if (error) {
+      console.error("setAdminCheckStatus", error);
       setAdminCheckUpdating(false);
       toast.error("Failed to update admin check");
       return;
@@ -1634,18 +2024,17 @@ const Settings = () => {
       return updated ? { ...prev, vendor: updated } : prev;
     });
     setAdminCheckUpdating(false);
+    logAdminAction(
+      status === "passed" ? "admin_check_passed" : "admin_check_failed",
+      "vendor",
+      vendorId,
+      "admin_check",
+    );
     toast.success(status === "passed" ? "Admin check marked passed" : "Admin check marked failed");
   };
 
   const filteredVendors = useMemo(() => {
-    const q = vendorSearch.toLowerCase();
-    const filtered = vendorList.filter(
-      (v) =>
-        v.shop_name.toLowerCase().includes(q) ||
-        v.name.toLowerCase().includes(q) ||
-        v.phone.includes(vendorSearch),
-    );
-    return [...filtered].sort((a, b) => {
+    return [...vendorList].sort((a, b) => {
       if (a.is_manual_verified !== b.is_manual_verified) {
         return a.is_manual_verified ? 1 : -1;
       }
@@ -1653,7 +2042,25 @@ const Settings = () => {
       if (trustDiff !== 0) return trustDiff;
       return a.shop_name.localeCompare(b.shop_name);
     });
-  }, [vendorList, vendorSearch]);
+  }, [vendorList]);
+
+  useEffect(() => {
+    if (!highlightVendorId || !isAdmin) return;
+    if (vendorList.some((v) => v.id === highlightVendorId)) return;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("vendors")
+        .select(VENDOR_LIST_SELECT)
+        .eq("id", highlightVendorId)
+        .maybeSingle();
+      if (error || !data) return;
+      const merged = await enrichVendorsWithMeta([data]);
+      if (merged.length === 0) return;
+      setVendorList((prev) =>
+        prev.some((v) => v.id === highlightVendorId) ? prev : [...merged, ...prev],
+      );
+    })();
+  }, [highlightVendorId, isAdmin, vendorList]);
 
   useEffect(() => {
     if (!highlightVendorId || !isAdmin) return;
@@ -1761,6 +2168,23 @@ const Settings = () => {
     await refreshAddresses();
   };
 
+  const openDeleteAccountConfirm = async () => {
+    const phone = userPhone?.trim();
+    if (!phone) {
+      setDualRoleDelete(false);
+      setDeleteConfirmOpen(true);
+      return;
+    }
+
+    const [{ data: vendorRow }, { data: userRow }] = await Promise.all([
+      supabase.from("vendors").select("id").eq("phone", phone).maybeSingle(),
+      supabase.from("users").select("phone").eq("phone", phone).maybeSingle(),
+    ]);
+
+    setDualRoleDelete(Boolean(vendorRow?.id && userRow?.phone));
+    setDeleteConfirmOpen(true);
+  };
+
   const confirmDeleteAccount = async () => {
     const phone = userPhone?.trim();
     if (!phone) return;
@@ -1788,7 +2212,12 @@ const Settings = () => {
       return;
     }
 
-    toast.success(s.delete_account_success_customer);
+    toast.success(
+      result.message ??
+        (dualRoleDelete && !isVendor
+          ? s.delete_account_success_dual_role
+          : s.delete_account_success_customer),
+    );
     try {
       localStorage.removeItem("aaspaas:user_phone");
       localStorage.removeItem("aaspaas:device_id");
@@ -1883,7 +2312,7 @@ const Settings = () => {
       )}
 
       <SettingsParentCollapsible
-        label="MY ACCOUNT"
+        label={s.settings_myAccount}
         open={accountOpen}
         onToggle={() => setAccountOpen((o) => !o)}
       >
@@ -1970,18 +2399,18 @@ const Settings = () => {
                         onClick={() => void saveEditAddress()}
                         disabled={savingAddress}
                         className="text-xs font-semibold text-brand disabled:opacity-50"
-                        aria-label="Save address"
+                        aria-label={s.settings_save}
                       >
-                        ✅ Save
+                        {s.settings_save}
                       </button>
                       <button
                         type="button"
                         onClick={cancelEditAddress}
                         disabled={savingAddress}
                         className="text-xs font-semibold text-muted-foreground disabled:opacity-50"
-                        aria-label="Cancel edit"
+                        aria-label={s.settings_cancel}
                       >
-                        ❌ Cancel
+                        ❌ {s.settings_cancel}
                       </button>
                     </div>
                   </div>
@@ -2060,13 +2489,13 @@ const Settings = () => {
           </Select>
         </div>
         <div className="px-4 py-3.5 border-t border-surface-border">
-          <p className="text-sm font-medium text-foreground">🎤 Voice input language</p>
+          <p className="text-sm font-medium text-foreground">{s.settings_voiceInputLang}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Language used when speaking to the app
           </p>
         </div>
         <div className="px-4 pb-2 flex gap-2">
-          {VOICE_INPUT_OPTIONS.map(({ code, label }) => (
+          {VOICE_INPUT_OPTIONS.map(({ code, labelKey }) => (
             <button
               key={code}
               type="button"
@@ -2081,12 +2510,12 @@ const Settings = () => {
                   : "border-surface-border bg-surface text-muted-foreground",
               )}
             >
-              {label}
+              {s[labelKey]}
             </button>
           ))}
         </div>
         <p className="text-xs text-muted-foreground px-4 pb-3.5 border-b border-surface-border">
-          Auto detects language. For best results, select your language.
+          {s.settings_voiceAutoDetect}
         </p>
         <SettingsRow label={s.settings_largeText} sublabel={s.settings_largeTextHint}>
           <Switch
@@ -2136,63 +2565,56 @@ const Settings = () => {
             onToggle={() => setDeviceOpen((o) => !o)}
           >
             <p className="px-3 pt-1 pb-2 text-xs font-bold uppercase tracking-widest text-brand">
-              Permissions
+              {s.settings_permission_heading}
             </p>
             <SettingsCard className="mx-0 mb-3 border-surface-border">
-              <SettingsRow label="Notifications" sublabel="Required for order alerts">
-                {permissionStatuses.notifications === "granted" ? (
-                  <span className="shrink-0 text-lg leading-none" aria-label="Granted">
-                    ✅
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setPermissionHint("Notifications")}
-                    className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
-                  >
-                    Open Settings
-                  </button>
+              <SettingsRow
+                label={s.settings_permission_notifications}
+                sublabel={s.settings_permission_notifications_sub}
+              >
+                {renderPermissionAction(permissionStatuses.notifications, () =>
+                  void handlePermissionRequest(
+                    "notifications",
+                    s.settings_permission_notifications,
+                  ),
                 )}
               </SettingsRow>
-              <SettingsRow label="Location" sublabel="Required for help mode tracking">
-                {permissionStatuses.location === "granted" ? (
-                  <span className="shrink-0 text-lg leading-none" aria-label="Granted">
-                    ✅
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setPermissionHint("Location")}
-                    className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
-                  >
-                    Open Settings
-                  </button>
+              <SettingsRow
+                label={s.settings_permission_location}
+                sublabel={s.settings_permission_location_sub}
+              >
+                {renderPermissionAction(permissionStatuses.location, () =>
+                  void handlePermissionRequest("location", s.settings_permission_location),
                 )}
               </SettingsRow>
-              <SettingsRow label="Camera" sublabel="Required for shop photos">
-                {permissionStatuses.camera === "granted" ? (
-                  <span className="shrink-0 text-lg leading-none" aria-label="Granted">
-                    ✅
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setPermissionHint("Camera")}
-                    className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
-                  >
-                    Open Settings
-                  </button>
+              <SettingsRow
+                label={s.settings_permission_camera}
+                sublabel={s.settings_permission_camera_sub}
+              >
+                {renderPermissionAction(permissionStatuses.camera, () =>
+                  void handlePermissionRequest("camera", s.settings_permission_camera),
                 )}
               </SettingsRow>
-              <SettingsRow label="Battery optimization" sublabel="Keep app awake for orders">
+              <SettingsRow
+                label={s.settings_permission_mic}
+                sublabel={s.settings_permission_mic_sub}
+              >
+                {renderPermissionAction(permissionStatuses.microphone, () =>
+                  void handlePermissionRequest("microphone", s.settings_permission_mic),
+                )}
+              </SettingsRow>
+              <SettingsRow
+                label={s.settings_permission_battery}
+                sublabel={s.settings_permission_battery_sub}
+              >
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-muted-foreground">Manual</span>
+                  <span className="text-xs text-muted-foreground">{s.settings_permission_manual}</span>
                   <button
                     type="button"
-                    onClick={() => setPermissionHint("Battery optimization")}
+                    onClick={() => setPermissionHint(s.settings_permission_battery)}
                     className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
                   >
-                    Open Settings
+                    {s.onboard_open_settings}
                   </button>
                 </div>
               </SettingsRow>
@@ -2207,10 +2629,9 @@ const Settings = () => {
           >
             <AlertDialogContent className="rounded-2xl border border-border bg-card">
               <AlertDialogHeader>
-                <AlertDialogTitle>Open Settings</AlertDialogTitle>
+                <AlertDialogTitle>{s.onboard_open_settings}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Go to Android Settings → Apps → AasPaas Pro → Permissions and enable{" "}
-                  {permissionHint}.
+                  {permissionHint ? s.settings_permission_open_settings_body(permissionHint) : ""}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -2221,18 +2642,25 @@ const Settings = () => {
         </>
       )}
 
-      <SettingsCard className="mx-4 mb-3 border-surface-border">
-        <SettingsRow
-          label={s.settings_feedNotifications}
-          sublabel={s.settings_feedNotificationsHint}
-        >
-          <Switch
-            className="data-[state=checked]:bg-brand"
-            checked={feedNotificationsEnabled}
-            onCheckedChange={onFeedNotificationsChange}
-          />
-        </SettingsRow>
-      </SettingsCard>
+      {/*
+        Feed push notifications use FCM, which is not available on web. This toggle
+        controls push notification preference and is meaningless on a platform that
+        cannot receive push notifications. Native-only by design.
+      */}
+      {Capacitor.isNativePlatform() && (
+        <SettingsCard className="mx-4 mb-3 border-surface-border">
+          <SettingsRow
+            label={s.settings_feedNotifications}
+            sublabel={s.settings_feedNotificationsHint}
+          >
+            <Switch
+              className="data-[state=checked]:bg-brand"
+              checked={feedNotificationsEnabled}
+              onCheckedChange={onFeedNotificationsChange}
+            />
+          </SettingsRow>
+        </SettingsCard>
+      )}
 
       <SettingsParentCollapsible
         label={s.settings_connection_privacy}
@@ -2284,7 +2712,7 @@ const Settings = () => {
           ) : (
             <button
               type="button"
-              onClick={() => setDeleteConfirmOpen(true)}
+              onClick={() => void openDeleteAccountConfirm()}
               className="w-full rounded-xl bg-destructive text-destructive-foreground py-2.5 text-sm font-semibold active:opacity-90"
             >
               {s.delete_account_title}
@@ -2425,10 +2853,12 @@ const Settings = () => {
           >
             <div className="px-4 py-3 border-b border-surface-border">
               <p className="text-sm font-medium text-foreground">{s.settings_vendorVerification}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{s.settings_unverifiedFirst}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {vendorShowAll ? s.admin_show_all_vendors : s.admin_show_flagged_only}
+              </p>
             </div>
             <div className="px-4 py-3">
-              <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 mb-4">
+              <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 mb-3">
                 <Search className="h-4 w-4 text-muted-foreground shrink-0" />
                 <input
                   type="text"
@@ -2438,6 +2868,14 @@ const Settings = () => {
                   className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 />
               </div>
+
+              <button
+                type="button"
+                onClick={() => setVendorShowAll((showAll) => !showAll)}
+                className="mb-4 w-full rounded-xl border border-border py-2.5 text-xs font-semibold text-foreground active:scale-[0.98] transition-transform"
+              >
+                {vendorShowAll ? s.admin_show_flagged_only : s.admin_show_all_vendors}
+              </button>
 
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {filteredVendors.length === 0 && (
@@ -2534,6 +2972,24 @@ const Settings = () => {
                   </div>
                 ))}
               </div>
+
+              {vendorListHasMore && (
+                <button
+                  type="button"
+                  disabled={vendorListLoading}
+                  onClick={() => void loadVendorList({ append: true })}
+                  className="mt-4 w-full rounded-xl border border-border py-2.5 text-xs font-semibold text-foreground disabled:opacity-50 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
+                >
+                  {vendorListLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      {s.settings_btnLoading}
+                    </>
+                  ) : (
+                    s.admin_load_more
+                  )}
+                </button>
+              )}
             </div>
 
             <div className="mx-4 border-t border-surface-border" />
@@ -2737,7 +3193,7 @@ const Settings = () => {
                       </div>
                       <button
                         type="button"
-                        onClick={() => void deleteLowRating(review)}
+                        onClick={() => setReviewDeleteDialog({ open: true, review })}
                         disabled={lowRatingDeletingId === review.id}
                         className="shrink-0 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                       >
@@ -2755,41 +3211,289 @@ const Settings = () => {
           </SettingsCollapsible>
 
           <SettingsCollapsible
+            label={s.admin_sub_panel}
+            open={subOverviewOpen}
+            onToggle={() => {
+              setSubOverviewOpen((o) => {
+                const next = !o;
+                if (next && subVendors.length === 0) void loadSubVendors();
+                return next;
+              });
+            }}
+          >
+            <div className="space-y-3">
+              {subLoading && (
+                <p className="text-sm text-muted-foreground">Loading subscription data…</p>
+              )}
+              {!subLoading && subVendors.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No vendors currently in grace/expired/cancelled state.
+                </p>
+              )}
+              {!subLoading &&
+                subVendors.map((v) => {
+                  const phoneLabel = v.phone ? maskPhoneLast4(v.phone) : "—";
+                  const status = v.subscription_status;
+                  let badgeClass =
+                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold border";
+                  if (status === "grace") {
+                    badgeClass +=
+                      " bg-amber-500/10 text-amber-700 border-amber-500/30";
+                  } else if (status === "expired") {
+                    badgeClass +=
+                      " bg-destructive/10 text-destructive border-destructive/30";
+                  } else {
+                    badgeClass +=
+                      " bg-muted text-muted-foreground border-border";
+                  }
+                  const refDate =
+                    status === "grace" || status === "expired"
+                      ? v.grace_ends_at
+                      : null;
+                  const whenLabel =
+                    status === "grace"
+                      ? `Grace ends: ${formatAdminDate(v.grace_ends_at)}`
+                      : status === "expired"
+                        ? `Expired: ${formatAdminDate(v.grace_ends_at)}`
+                        : "Cancelled";
+                  return (
+                    <div
+                      key={v.id}
+                      className="rounded-2xl border border-border p-3 space-y-1"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold">{v.shop_name}</p>
+                          <p className="text-xs text-muted-foreground tabular-nums">
+                            {phoneLabel}
+                          </p>
+                        </div>
+                        <span className={badgeClass}>{status}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{whenLabel}</p>
+                      {refDate && (
+                        <p className="text-[10px] text-muted-foreground">
+                          {daysAgo(refDate)}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+
+              <div className="mt-2 rounded-2xl border border-border p-3 space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  Set Waive-off (per vendor)
+                </p>
+                <input
+                  type="tel"
+                  placeholder="Vendor phone"
+                  value={waivePhone}
+                  onChange={(e) => setWaivePhone(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    placeholder="%"
+                    value={waivePercent}
+                    onChange={(e) => setWaivePercent(e.target.value)}
+                    className="w-1/2 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    placeholder="Months"
+                    value={waiveMonths}
+                    onChange={(e) => setWaiveMonths(e.target.value)}
+                    className="w-1/2 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={waiveSubmitting}
+                  onClick={async () => {
+                    const phone = waivePhone.trim();
+                    const percent = Number(waivePercent);
+                    const months = Number(waiveMonths);
+                    if (!phone || !Number.isFinite(percent) || !Number.isFinite(months)) {
+                      toast.error("Phone, percent and months are required");
+                      return;
+                    }
+                    if (percent <= 0 || percent > 100 || months <= 0 || months > 12) {
+                      toast.error("Percent 1–100, months 1–12");
+                      return;
+                    }
+                    setWaiveSubmitting(true);
+                    try {
+                      const { data: vendorRow, error: vErr } = await supabase
+                        .from("vendors")
+                        .select("id, phone")
+                        .eq("phone", phone)
+                        .maybeSingle();
+                      if (vErr || !vendorRow) {
+                        toast.error("Vendor not found for that phone");
+                        setWaiveSubmitting(false);
+                        return;
+                      }
+                      const vendorId = vendorRow.id as string;
+                      const vendorPhone = (vendorRow.phone as string | null) ?? phone;
+                      const { error: updErr } = await supabase
+                        .from("vendors")
+                        .update({
+                          waiveoff_percent: percent,
+                          waiveoff_months_remaining: months,
+                        })
+                        .eq("id", vendorId);
+                      if (updErr) {
+                        toast.error(updErr.message);
+                        setWaiveSubmitting(false);
+                        return;
+                      }
+                      const title = "Special offer for you!";
+                      const body = `Aaspaas Pro is offering you ${percent}% off for ${months} months. Offer applied automatically on your next billing.`;
+                      saveNotification({
+                        userPhone: vendorPhone,
+                        type: "subscription_update",
+                        title,
+                        body,
+                        route: "settings",
+                        routeParams: { vendor_id: vendorId },
+                        isInformational: false,
+                      });
+                      void invokeNotifyVendor({
+                        vendor_id: vendorId,
+                        notification_title: title,
+                        message: body,
+                        type: "subscription_update",
+                      });
+                      logAdminAction(
+                        "update_config",
+                        "vendor",
+                        vendorId,
+                        `waiveoff:${percent}%x${months}months`,
+                      );
+                      toast.success(s.admin_sub_waiveoff_applied);
+                      setWaiveSubmitting(false);
+                      setWaivePhone("");
+                      setWaivePercent("");
+                      setWaiveMonths("");
+                      void loadSubVendors();
+                    } catch (err) {
+                      console.error("applyWaiveoff", err);
+                      toast.error("Failed to apply waive-off");
+                      setWaiveSubmitting(false);
+                    }
+                  }}
+                  className="w-full rounded-xl bg-brand text-brand-foreground py-2.5 text-sm font-semibold active:scale-[0.99] disabled:opacity-50"
+                >
+                  {waiveSubmitting ? "Applying…" : "Apply Waive-off"}
+                </button>
+              </div>
+            </div>
+          </SettingsCollapsible>
+
+          <SettingsCollapsible
             label={s.admin_app_config}
             open={adminConfigOpen}
             onToggle={() => setAdminConfigOpen((o) => !o)}
           >
             <div className="space-y-3">
-              {ADMIN_CONFIG_WHITELIST.map((key) => (
-                <div
-                  key={key}
-                  className="rounded-2xl border border-border p-3 space-y-2"
-                >
-                  <p className="text-xs font-semibold text-muted-foreground">
-                    {ADMIN_CONFIG_LABELS[key]}
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={adminConfigDraft[key] ?? adminConfigValues[key] ?? ""}
-                      onChange={(e) =>
-                        setAdminConfigDraft((prev) => ({ ...prev, [key]: e.target.value }))
-                      }
-                      className="flex-1 min-w-0 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-                    />
-                    <button
-                      type="button"
-                      disabled={adminConfigSaving === key}
-                      onClick={() => void saveAdminConfigKey(key)}
-                      className="shrink-0 rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground disabled:opacity-50"
-                    >
-                      {adminConfigSaving === key ? "…" : "Save"}
-                    </button>
+              {ADMIN_CONFIG_WHITELIST.map((key) => {
+                const configType = getAdminConfigType(key);
+                const value = adminConfigDraft[key] ?? adminConfigValues[key] ?? "";
+                return (
+                  <div
+                    key={key}
+                    className="rounded-2xl border border-border p-3 space-y-2"
+                  >
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      {ADMIN_CONFIG_LABELS[key]}
+                    </p>
+                    {configType === "boolean" ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-muted-foreground">
+                          {parseAdminConfigBoolean(value) ? "Enabled" : "Disabled"}
+                        </span>
+                        <Switch
+                          checked={parseAdminConfigBoolean(value)}
+                          disabled={adminConfigSaving === key}
+                          onCheckedChange={(checked) =>
+                            void saveAdminConfigKey(key, checked ? "true" : "false")
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <div className="flex gap-2">
+                          <input
+                            type={configType === "number" ? "number" : "text"}
+                            value={value}
+                            onChange={(e) => {
+                              setAdminConfigDraft((prev) => ({ ...prev, [key]: e.target.value }));
+                              if (adminConfigErrors[key]) {
+                                setAdminConfigErrors((prev) => {
+                                  const next = { ...prev };
+                                  delete next[key];
+                                  return next;
+                                });
+                              }
+                            }}
+                            className="flex-1 min-w-0 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                          />
+                          <button
+                            type="button"
+                            disabled={adminConfigSaving === key}
+                            onClick={() => void saveAdminConfigKey(key)}
+                            className="shrink-0 rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground disabled:opacity-50"
+                          >
+                            {adminConfigSaving === key ? "…" : "Save"}
+                          </button>
+                        </div>
+                        {adminConfigErrors[key] ? (
+                          <p className="text-xs text-destructive">{adminConfigErrors[key]}</p>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </SettingsCollapsible>
+
+          <AlertDialog
+            open={reviewDeleteDialog.open}
+            onOpenChange={(open) => {
+              if (!open) setReviewDeleteDialog({ open: false, review: null });
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this review?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {reviewDeleteDialog.review
+                    ? `Rating: ${"★".repeat(reviewDeleteDialog.review.rating)} — this cannot be undone.`
+                    : null}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={!reviewDeleteDialog.review || lowRatingDeletingId !== null}
+                  onClick={() => {
+                    const row = reviewDeleteDialog.review;
+                    setReviewDeleteDialog({ open: false, review: null });
+                    if (row) void deleteLowRating(row);
+                  }}
+                >
+                  Delete review
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           <AlertDialog
             open={vendorBanDialog.open}
@@ -2875,7 +3579,9 @@ const Settings = () => {
         <AlertDialogContent className="rounded-2xl border border-border bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle>{s.delete_account_confirm_title}</AlertDialogTitle>
-            <AlertDialogDescription>{s.delete_account_confirm_body}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {dualRoleDelete ? s.deletion_dualRoleNotice : s.delete_account_confirm_body}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
             <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
@@ -2968,14 +3674,14 @@ const Settings = () => {
       >
         <AlertDialogContent className="rounded-2xl border border-border bg-card">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete address?</AlertDialogTitle>
+            <AlertDialogTitle>{s.settings_deleteAddressTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              This address will be removed from your saved list.
+              {s.settings_deleteAddressBody}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
             <AlertDialogCancel className="mt-0" disabled={deletingAddress}>
-              Cancel
+              {s.settings_cancel}
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={deletingAddress}

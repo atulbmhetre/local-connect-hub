@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertRequestStatus, assertNotificationCreated, assertRowExists } from './helpers/db-assert';
 
 let testVendor: any;
@@ -15,7 +15,7 @@ test.afterAll(async () => {
 });
 
 test('DM-05: vendor declines order — status becomes cancelled', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -26,7 +26,7 @@ test('DM-05: vendor declines order — status becomes cancelled', async () => {
     .select()
     .single();
 
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('requests')
     .update({ status: 'cancelled', cancel_reason: 'Too far away' })
     .eq('id', order.id);
@@ -36,7 +36,7 @@ test('DM-05: vendor declines order — status becomes cancelled', async () => {
 });
 
 test('DM-05b: cancel_reason stored when vendor declines', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -47,12 +47,12 @@ test('DM-05b: cancel_reason stored when vendor declines', async () => {
     .select()
     .single();
 
-  await supabase
+  await supabaseAdmin
     .from('requests')
     .update({ status: 'cancelled', cancel_reason: 'Out of stock' })
     .eq('id', order.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('cancel_reason, status')
     .eq('id', order.id)
@@ -63,7 +63,7 @@ test('DM-05b: cancel_reason stored when vendor declines', async () => {
 });
 
 test('DM-05c: customer notified when vendor cancels', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -74,12 +74,12 @@ test('DM-05c: customer notified when vendor cancels', async () => {
     .select()
     .single();
 
-  await supabase
+  await supabaseAdmin
     .from('requests')
     .update({ status: 'cancelled', cancel_reason: 'Closing early' })
     .eq('id', order.id);
 
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     type: 'order_cancelled',
     title: 'Order Cancelled',
@@ -92,7 +92,7 @@ test('DM-05c: customer notified when vendor cancels', async () => {
 });
 
 test('DM-06: customer cancels order before accepted', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -104,7 +104,7 @@ test('DM-06: customer cancels order before accepted', async () => {
     .single();
 
   // Customer can cancel when status = sent
-  const { data: current } = await supabase
+  const { data: current } = await supabaseAdmin
     .from('requests')
     .select('status')
     .eq('id', order.id)
@@ -113,7 +113,7 @@ test('DM-06: customer cancels order before accepted', async () => {
   const canCancel = current?.status === 'sent';
   expect(canCancel).toBe(true);
 
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('requests')
     .update({ status: 'cancelled' })
     .eq('id', order.id);
@@ -123,7 +123,7 @@ test('DM-06: customer cancels order before accepted', async () => {
 });
 
 test('DM-07: customer cannot cancel after accepted — status check blocks it', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -135,7 +135,7 @@ test('DM-07: customer cannot cancel after accepted — status check blocks it', 
     .single();
 
   // App checks status before allowing cancel
-  const { data: current } = await supabase
+  const { data: current } = await supabaseAdmin
     .from('requests')
     .select('status')
     .eq('id', order.id)
@@ -147,7 +147,7 @@ test('DM-07: customer cannot cancel after accepted — status check blocks it', 
 
 test('DM-08: vendor cancel uses one of 4 preset reasons', async () => {
   // Vendor has up to 4 cancel reasons stored on their profile
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendors')
     .select('cancel_reason_1, cancel_reason_2, cancel_reason_3, cancel_reason_4')
     .eq('id', testVendor.id)
@@ -161,7 +161,7 @@ test('DM-08: vendor cancel uses one of 4 preset reasons', async () => {
 
 test('DM-09: order card shows correct cancel origin', async () => {
   // Vendor cancelled
-  const { data: vendorCancelled } = await supabase
+  const { data: vendorCancelled } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -173,7 +173,7 @@ test('DM-09: order card shows correct cancel origin', async () => {
     .select()
     .single();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('status, cancel_reason')
     .eq('id', vendorCancelled.id)
@@ -186,7 +186,7 @@ test('DM-09: order card shows correct cancel origin', async () => {
 test('CANCEL-EDGE-01: cancelling non-existent order returns error', async () => {
   const fakeId = '00000000-0000-0000-0000-000000000099';
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('requests')
     .update({ status: 'cancelled' })
     .eq('id', fakeId)

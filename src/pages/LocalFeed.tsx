@@ -25,6 +25,8 @@ import { SettingsSectionLabel, SettingsCard } from "@/components/settings/Settin
 import { NotificationBell } from "@/components/NotificationBell";
 import { useLanguage } from "@/lib/language";
 import { strings } from "@/lib/strings";
+import { buildRecommendedVendorRadarUrl, resolveRecommendedVendorRadarLink } from "@/lib/feedVendorLink";
+import { maskPhoneNumbers } from "@/lib/textUtils";
 type FeedStrings = typeof strings.en;
 const MAX_CONTENT = 200;
 const FLAG_HIDE_THRESHOLD = 5;
@@ -80,7 +82,7 @@ type FeedPost = {
   recommended_vendor_name: string | null;
   recommended_vendor_phone: string | null;
   vendors: { shop_name: string; category: string | null } | null;
-  recommended_vendor: { shop_name: string } | null;
+  recommended_vendor: { shop_name: string; service_mode: string | null } | null;
 };
 
 type FeedReply = {
@@ -148,7 +150,9 @@ function writeFeedCache(posts: FeedPost[]) {
 function buildFeedQuery(coords: GeoCoords | null) {
   let query = supabase
     .from("feed_posts")
-    .select("*, vendors(shop_name, category), recommended_vendor:vendors!recommended_vendor_id(shop_name)")
+    .select(
+      "*, vendors!vendor_id(shop_name, category), recommended_vendor:vendors!recommended_vendor_id(shop_name, service_mode)",
+    )
     .eq("is_hidden", false)
     .or("expires_at.is.null,expires_at.gt.now()")
     .or("starts_at.is.null,starts_at.lte.now()")
@@ -245,6 +249,7 @@ export default function LocalFeed() {
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set());
   const [flaggingId, setFlaggingId] = useState<string | null>(null);
+  const [flaggedByMe, setFlaggedByMe] = useState<Set<string>>(() => new Set());
   const [vendorSearchQuery, setVendorSearchQuery] = useState("");
   const [vendorSearchResults, setVendorSearchResults] = useState<VendorSearchHit[]>([]);
   const [vendorSearchLoading, setVendorSearchLoading] = useState(false);
@@ -381,6 +386,33 @@ export default function LocalFeed() {
   useEffect(() => {
     void fetchPosts();
   }, [fetchPosts]);
+
+  useEffect(() => {
+    if (!viewerPhone || posts.length === 0) {
+      setFlaggedByMe(new Set());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("feed_flags")
+        .select("post_id")
+        .eq("flagged_by_phone", viewerPhone)
+        .in(
+          "post_id",
+          posts.map((p) => p.id),
+        );
+      if (cancelled) return;
+      if (error) {
+        console.error("loadUserFeedFlags", error);
+        return;
+      }
+      setFlaggedByMe(new Set((data ?? []).map((row) => row.post_id)));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [posts, viewerPhone]);
 
   useEffect(() => {
     let cancelled = false;
@@ -522,12 +554,15 @@ export default function LocalFeed() {
     if (error) {
       console.error("flagPost", error);
       if (error.code === "23505") {
+        setFlaggedByMe((prev) => new Set(prev).add(postId));
         toast.error(s.feed_alreadyFlagged);
         return;
       }
       toast.error(s.feed_errReportPost);
       return;
     }
+
+    setFlaggedByMe((prev) => new Set(prev).add(postId));
 
     const post = posts.find((p) => p.id === postId);
     const newCount = (post?.flagged_count ?? 0) + 1;
@@ -583,7 +618,13 @@ export default function LocalFeed() {
     });
   };
 
-  const openCompose = () => {
+  const openCompose = async () => {
+    try {
+      await getPosition();
+    } catch {
+      toast.error(s.feed_gps_required);
+      return;
+    }
     resetCompose();
     setShowCompose(true);
   };
@@ -791,6 +832,7 @@ export default function LocalFeed() {
                   s={s}
                   onFlag={() => void flagPost(post.id)}
                   flagging={flaggingId === post.id}
+                  reported={flaggedByMe.has(post.id)}
                 />
               )}
               {post.type === "recommendation" && (
@@ -809,6 +851,7 @@ export default function LocalFeed() {
                   onSendReply={() => void submitReply(post.id)}
                   onFlag={() => void flagPost(post.id)}
                   flagging={flaggingId === post.id}
+                  reported={flaggedByMe.has(post.id)}
                 />
               )}
             </li>
@@ -1067,7 +1110,7 @@ function OfferCard({
         </p>
       </div>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
-        {post.content}
+        {maskPhoneNumbers(post.content)}
       </p>
       {post.image_url && (
         <img
@@ -1085,18 +1128,56 @@ function OfferCard({
   );
 }
 
+function FeedFlagButton({
+  reported,
+  flagging,
+  onFlag,
+  s,
+}: {
+  reported: boolean;
+  flagging: boolean;
+  onFlag: () => void;
+  s: FeedStrings;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid="feed-flag-btn"
+      data-reported={reported ? "true" : "false"}
+      onClick={onFlag}
+      disabled={flagging || reported}
+      className={cn(
+        "absolute bottom-3 right-3 h-8 w-8 grid place-items-center rounded-lg transition-colors",
+        reported
+          ? "text-destructive bg-destructive/10 cursor-default"
+          : "text-muted-foreground hover:text-destructive hover:bg-destructive/10 disabled:opacity-50",
+      )}
+      aria-label={reported ? s.feed_reportedPostAria : s.feed_reportPostAria}
+      aria-pressed={reported}
+    >
+      {flagging ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <Flag className={cn("h-4 w-4", reported && "fill-current")} />
+      )}
+    </button>
+  );
+}
+
 function AnnouncementCard({
   post,
   viewerPhone,
   s,
   onFlag,
   flagging,
+  reported,
 }: {
   post: FeedPost;
   viewerPhone: string | null;
   s: FeedStrings;
   onFlag: () => void;
   flagging: boolean;
+  reported: boolean;
 }) {
   const expiry = expiryBadgeLabel(post.expires_at, s);
   const postedAt = feedPostedTimeLabel(post.created_at, s);
@@ -1114,7 +1195,7 @@ function AnnouncementCard({
         {feedAuthorLabel(post.user_phone, viewerPhone)}
       </p>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
-        {post.content}
+        {maskPhoneNumbers(post.content)}
       </p>
       {post.image_url && (
         <img
@@ -1128,61 +1209,9 @@ function AnnouncementCard({
           {expiry}
         </span>
       )}
-      <button
-        type="button"
-        data-testid="feed-flag-btn"
-        onClick={onFlag}
-        disabled={flagging}
-        className="absolute bottom-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-        aria-label={s.feed_reportPostAria}
-      >
-        {flagging ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Flag className="h-4 w-4" />
-        )}
-      </button>
+      <FeedFlagButton reported={reported} flagging={flagging} onFlag={onFlag} s={s} />
     </article>
   );
-}
-
-type RecommendedVendorRadarLink =
-  | { ok: true; categoryLabel: string }
-  | { ok: false; offline: boolean };
-
-async function resolveRecommendedVendorRadarLink(
-  vendorId: string,
-): Promise<RecommendedVendorRadarLink> {
-  const { data: vendor, error } = await supabase
-    .from("vendors")
-    .select("is_active, category")
-    .eq("id", vendorId)
-    .single();
-
-  if (error || !vendor || !vendor.is_active) {
-    return { ok: false, offline: true };
-  }
-
-  let categoryLabel = String(vendor.category ?? "").trim();
-  if (!categoryLabel) {
-    const { data: vcRows } = await supabase
-      .from("vendor_categories")
-      .select("is_primary, categories(label)")
-      .eq("vendor_id", vendorId)
-      .eq("status", "approved");
-
-    const rows = vcRows ?? [];
-    const primary = rows.find((row) => row.is_primary === true) ?? rows[0];
-    const cat = primary?.categories;
-    const resolved = Array.isArray(cat) ? cat[0] : cat;
-    categoryLabel = String((resolved as { label?: string } | null)?.label ?? "").trim();
-  }
-
-  if (!categoryLabel) {
-    return { ok: false, offline: false };
-  }
-
-  return { ok: true, categoryLabel };
 }
 
 function RecommendationCard({
@@ -1198,6 +1227,7 @@ function RecommendationCard({
   onSendReply,
   onFlag,
   flagging,
+  reported,
 }: {
   post: FeedPost;
   viewerPhone: string | null;
@@ -1211,6 +1241,7 @@ function RecommendationCard({
   onSendReply: () => void;
   onFlag: () => void;
   flagging: boolean;
+  reported: boolean;
 }) {
   const navigate = useNavigate();
   const [linkingVendor, setLinkingVendor] = useState(false);
@@ -1222,7 +1253,10 @@ function RecommendationCard({
     if (!vendorId || linkingVendor) return;
     setLinkingVendor(true);
     try {
-      const result = await resolveRecommendedVendorRadarLink(vendorId);
+      const result = await resolveRecommendedVendorRadarLink(
+        vendorId,
+        post.recommended_vendor?.service_mode,
+      );
       if (!result.ok) {
         if (result.offline) {
           toast.error(s.radar_vendorWentOffline);
@@ -1231,7 +1265,8 @@ function RecommendationCard({
         }
         return;
       }
-      navigate(`/radar?q=${encodeURIComponent(result.categoryLabel)}`, {
+      const mode = post.recommended_vendor?.service_mode ?? "help";
+      navigate(buildRecommendedVendorRadarUrl(result.categoryLabel, mode), {
         state: { highlightVendorId: vendorId },
       });
     } finally {
@@ -1253,7 +1288,7 @@ function RecommendationCard({
         {feedAuthorLabel(post.user_phone, viewerPhone)}
       </p>
       <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap mb-3">
-        {post.content}
+        {maskPhoneNumbers(post.content)}
       </p>
       {post.recommended_vendor_id && linkedShopName && (
         <button
@@ -1286,20 +1321,7 @@ function RecommendationCard({
           {s.feed_reply}
         </button>
       </div>
-      <button
-        type="button"
-        data-testid="feed-flag-btn"
-        onClick={onFlag}
-        disabled={flagging}
-        className="absolute bottom-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-        aria-label={s.feed_reportPostAria}
-      >
-        {flagging ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Flag className="h-4 w-4" />
-        )}
-      </button>
+      <FeedFlagButton reported={reported} flagging={flagging} onFlag={onFlag} s={s} />
 
       {expanded && (
         <div className="mt-4 ml-4 border-l-2 border-surface-border pl-3 space-y-3">
@@ -1319,7 +1341,7 @@ function RecommendationCard({
                   <p className="text-[10px] text-muted-foreground font-medium mb-0.5">
                     {feedAuthorLabel(r.user_phone, viewerPhone)}
                   </p>
-                  <p className="text-foreground">{r.content}</p>
+                  <p className="text-foreground">{maskPhoneNumbers(r.content)}</p>
                 </li>
               ))}
             </ul>

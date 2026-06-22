@@ -93,9 +93,36 @@ serve(async (req) => {
     }
 
     if (type === "customer") {
+      const now = new Date().toISOString();
+      let dualRole = false;
+
+      const { data: vendorRow, error: vendorLookupError } = await supabase
+        .from("vendors")
+        .select("phone, deletion_requested_at")
+        .eq("phone", phone)
+        .maybeSingle();
+
+      if (vendorLookupError) {
+        console.error("delete-account customer vendor lookup failed", vendorLookupError);
+        return jsonResponse({ error: vendorLookupError.message }, 500);
+      }
+
+      if (vendorRow && vendorRow.deletion_requested_at == null) {
+        const { error: vendorGraceError } = await supabase
+          .from("vendors")
+          .update({ deletion_requested_at: now })
+          .eq("phone", phone);
+
+        if (vendorGraceError) {
+          console.error("delete-account dual-role vendor grace failed", vendorGraceError);
+          return jsonResponse({ error: vendorGraceError.message }, 500);
+        }
+        dualRole = true;
+      }
+
       const { data: updatedUsers, error: updateError } = await supabase
         .from("users")
-        .update({ deletion_requested_at: new Date().toISOString() })
+        .update({ deletion_requested_at: now })
         .eq("phone", phone)
         .select("phone");
 
@@ -118,7 +145,10 @@ serve(async (req) => {
       return jsonResponse({
         ok: true,
         type: "customer",
-        message: "Account deleted",
+        dual_role: dualRole,
+        message: dualRole
+          ? "Your account will be deleted. Your vendor shop will remain active for 30 days as per policy."
+          : "Account deleted",
       });
     }
 
@@ -137,19 +167,29 @@ serve(async (req) => {
       return jsonResponse({ error: "vendor_not_found" }, 404);
     }
 
-    const { error: userUpdateError } = await supabase
+    const { data: updatedUsers, error: userUpdateError } = await supabase
       .from("users")
       .update({ deletion_requested_at: new Date().toISOString() })
-      .eq("phone", phone);
+      .eq("phone", phone)
+      .select("phone");
 
     if (userUpdateError) {
       console.error("delete-account vendor users update failed", userUpdateError);
       return jsonResponse({ error: userUpdateError.message }, 500);
     }
 
+    if ((updatedUsers?.length ?? 0) > 0) {
+      const { error: rpcError } = await supabase.rpc("anonymise_deleted_accounts");
+      if (rpcError) {
+        console.error("delete-account vendor dual-role anonymise failed", rpcError);
+        return jsonResponse({ error: rpcError.message }, 500);
+      }
+    }
+
     return jsonResponse({
       ok: true,
       type: "vendor",
+      dual_role: (updatedUsers?.length ?? 0) > 0,
       message: "Deletion scheduled",
     });
   } catch (err) {

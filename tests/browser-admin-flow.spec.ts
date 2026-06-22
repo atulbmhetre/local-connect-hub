@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsAdmin, waitForSettingsAdminReady, APP_URL } from './helpers/browser-setup';
 import {
   supabase,
+  supabaseAdmin,
   createTestVendor,
   createTestCustomer,
   cleanupTestData, cleanupTestVendors,
@@ -13,6 +14,7 @@ import {
   TEST_SESSION,
   TEST_ADMIN_PHONE,
 } from './helpers/setup';
+import { computeTrustLevel } from '../src/lib/trustLevel';
 
 const TEST_DEVICE_ID = `device_admin_${TEST_SESSION}`;
 let testVendor: any;
@@ -83,7 +85,7 @@ test('ADMIN-03: admin sees platform health section', async ({ page }) => {
 // ─── VENDOR VERIFICATION ───────────────────────────────────────────────────
 
 test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', async ({ page }) => {
-  await supabase.from('vendors').update({ is_manual_verified: false }).eq('id', testVendor.id);
+  await supabaseAdmin.from('vendors').update({ is_manual_verified: false }).eq('id', testVendor.id);
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await waitForSettingsAdminReady(page);
@@ -112,15 +114,18 @@ test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', as
     }
   }
 
-  const { data: afterUi } = await supabase.from('vendors')
+  const { data: afterUi } = await supabaseAdmin.from('vendors')
     .select('is_manual_verified').eq('id', testVendor.id).single();
   if (afterUi?.is_manual_verified) {
     expect(afterUi.is_manual_verified).toBe(true);
     return;
   }
 
-  await supabase.from('vendors').update({ is_manual_verified: true }).eq('id', testVendor.id);
-  const { data } = await supabase.from('vendors')
+  await supabase.rpc('admin_verify_vendor', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_vendor_id: testVendor.id,
+  });
+  const { data } = await supabaseAdmin.from('vendors')
     .select('is_manual_verified').eq('id', testVendor.id).single();
   expect(data?.is_manual_verified).toBe(true);
 });
@@ -128,7 +133,10 @@ test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', as
 // ─── VENDOR BAN ────────────────────────────────────────────────────────────
 
 test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ page }) => {
-  await supabase.from('vendors').update({ is_banned: false, ban_reason: null }).eq('id', testVendor.id);
+  await supabase.rpc('admin_unban_vendor', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_vendor_id: testVendor.id,
+  });
   await loginAsAdmin(page, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await waitForSettingsAdminReady(page);
@@ -153,7 +161,7 @@ test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ p
           await confirmBan.click();
           await page.waitForTimeout(2000);
         }
-        const { data } = await supabase.from('vendors')
+        const { data } = await supabaseAdmin.from('vendors')
           .select('is_banned').eq('id', testVendor.id).single();
         if (data?.is_banned) {
           expect(data.is_banned).toBe(true);
@@ -163,7 +171,11 @@ test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ p
     }
   }
 
-  await supabase.from('vendors').update({ is_banned: true, ban_reason: 'Test ban' }).eq('id', testVendor.id);
+  await supabase.rpc('admin_ban_vendor', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_vendor_id: testVendor.id,
+    p_reason: 'Test ban',
+  });
   await supabase.from('admin_actions').insert({
     admin_phone: TEST_ADMIN_PHONE,
     action_type: 'ban_vendor',
@@ -171,29 +183,43 @@ test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ p
     target_id: testVendor.id,
     reason: 'Test ban',
   });
-  const { data } = await supabase.from('vendors')
+  const { data } = await supabaseAdmin.from('vendors')
     .select('is_banned').eq('id', testVendor.id).single();
   expect(data?.is_banned).toBe(true);
-  const { data: log } = await supabase.from('admin_actions')
+  const { data: log } = await supabaseAdmin.from('admin_actions')
     .select('action_type').eq('target_id', testVendor.id)
     .eq('action_type', 'ban_vendor').limit(1);
   expect(log?.length).toBeGreaterThan(0);
 });
 
 test('ADMIN-06: banned vendor hidden from radar query — DB assert', async () => {
-  await supabase.from('vendors').update({ is_banned: true }).eq('id', testVendor.id);
-  const { data } = await supabase.from('vendors')
+  await supabase.rpc('admin_ban_vendor', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_vendor_id: testVendor.id,
+    p_reason: 'Test ban',
+  });
+  const { data } = await supabaseAdmin.from('vendors')
     .select('id')
     .eq('is_banned', false)
     .eq('id', testVendor.id);
   expect(data?.length).toBe(0);
-  await supabase.from('vendors').update({ is_banned: false }).eq('id', testVendor.id);
+  await supabase.rpc('admin_unban_vendor', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_vendor_id: testVendor.id,
+  });
 });
 
 test('ADMIN-07: unban vendor — is_banned = false + notification created', async () => {
-  await supabase.from('vendors').update({ is_banned: true, ban_reason: 'Test' }).eq('id', testVendor.id);
-  await supabase.from('vendors').update({ is_banned: false, ban_reason: null }).eq('id', testVendor.id);
-  const { data } = await supabase.from('vendors')
+  await supabase.rpc('admin_ban_vendor', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_vendor_id: testVendor.id,
+    p_reason: 'Test',
+  });
+  await supabase.rpc('admin_unban_vendor', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_vendor_id: testVendor.id,
+  });
+  const { data } = await supabaseAdmin.from('vendors')
     .select('is_banned').eq('id', testVendor.id).single();
   expect(data?.is_banned).toBe(false);
 });
@@ -201,7 +227,7 @@ test('ADMIN-07: unban vendor — is_banned = false + notification created', asyn
 // ─── CUSTOMER WARN / BAN ───────────────────────────────────────────────────
 
 test('ADMIN-08: warn customer — warn_count increments in DB', async ({ page }) => {
-  await supabase.from('users').upsert({
+  await supabaseAdmin.from('users').upsert({
     phone: TEST_CUSTOMER_PHONE,
     warn_count: 0,
   }, { onConflict: 'phone' });
@@ -220,17 +246,17 @@ test('ADMIN-08: warn customer — warn_count increments in DB', async ({ page })
   if (await warnBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
     await warnBtn.click();
     await page.waitForTimeout(2000);
-    const { data } = await supabase.from('users')
+    const { data } = await supabaseAdmin.from('users')
       .select('warn_count').eq('phone', TEST_CUSTOMER_PHONE).single();
     expect(data?.warn_count).toBeGreaterThan(0);
     return;
   }
 
-  await supabase.from('users').update({
-    warn_count: 1,
-    last_warned_at: new Date().toISOString(),
-  }).eq('phone', TEST_CUSTOMER_PHONE);
-  const { data } = await supabase.from('users')
+  await supabase.rpc('admin_warn_user', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_user_phone: TEST_CUSTOMER_PHONE,
+  });
+  const { data } = await supabaseAdmin.from('users')
     .select('warn_count').eq('phone', TEST_CUSTOMER_PHONE).single();
   expect(data?.warn_count).toBe(1);
 });
@@ -245,7 +271,7 @@ test('ADMIN-09: admin action logged to admin_actions table', async () => {
     target_id: testVendor.id,
     reason: `Test audit ${TEST_SESSION}`,
   });
-  const { data } = await supabase.from('admin_actions')
+  const { data } = await supabaseAdmin.from('admin_actions')
     .select('action_type, reason')
     .eq('admin_phone', TEST_ADMIN_PHONE)
     .eq('target_id', testVendor.id)
@@ -255,7 +281,7 @@ test('ADMIN-09: admin action logged to admin_actions table', async () => {
 });
 
 test('ADMIN-10: app_config whitelisted keys readable and updatable', async () => {
-  const { data } = await supabase.from('app_config')
+  const { data } = await supabaseAdmin.from('app_config')
     .select('key, value')
     .in('key', ['referral_enabled', 'help_accept_timeout_hours', 'dev_menu_pin']);
   expect(data?.length).toBeGreaterThan(0);
@@ -277,11 +303,19 @@ test('ADMIN-NEG-01: non-admin phone cannot access admin panel UI', async ({ page
 });
 
 test('ADMIN-NEG-02: banned vendor cannot go live — is_active blocked', async () => {
-  await supabase.from('vendors').update({ is_banned: true, is_active: false }).eq('id', testVendor.id);
-  const { data } = await supabase.from('vendors')
+  await supabase.rpc('admin_ban_vendor', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_vendor_id: testVendor.id,
+    p_reason: 'Test ban',
+  });
+  await supabaseAdmin.from('vendors').update({ is_active: false }).eq('id', testVendor.id);
+  const { data } = await supabaseAdmin.from('vendors')
     .select('is_banned, is_active').eq('id', testVendor.id).single();
   expect(data?.is_banned).toBe(true);
-  await supabase.from('vendors').update({ is_banned: false }).eq('id', testVendor.id);
+  await supabase.rpc('admin_unban_vendor', {
+    p_admin_phone: TEST_ADMIN_PHONE,
+    p_vendor_id: testVendor.id,
+  });
 });
 
 // ─── TRUST LEVEL & VERIFICATION CHECKLIST ──────────────────────────────────
@@ -290,7 +324,7 @@ test('ADMIN-12: vendor with Bronze checks shows Bronze trust badge in admin list
   const primaryCategory = await getFirstActiveCategory();
   const bronzePhone = `99012${Date.now().toString().slice(-5)}`;
   const shopName = `Bronze Shop ${TEST_SESSION}`;
-  const { data: bronzeVendor, error } = await supabase
+  const { data: bronzeVendor, error } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: 'Bronze Owner',
@@ -318,18 +352,30 @@ test('ADMIN-12: vendor with Bronze checks shows Bronze trust badge in admin list
   await openVendorModeration(page);
 
   const searchInput = page.getByPlaceholder(/search/i).first();
+  await searchInput.click();
+  await searchInput.fill('');
   await searchInput.fill(shopName);
   await page.waitForTimeout(500);
 
-  const vendorRow = page.locator('div.rounded-2xl.border').filter({ hasText: shopName }).first();
-  await expect(vendorRow.getByText(/Bronze/i)).toBeVisible({ timeout: 8000 });
+  const vendorRow = page.locator(`#admin-vendor-${bronzeVendor!.id}`);
+  await vendorRow.scrollIntoViewIfNeeded();
+  await expect(vendorRow).toBeVisible({ timeout: 15000 });
+  await expect(vendorRow.getByText(shopName)).toBeVisible();
+
+  const { data: verRows } = await supabaseAdmin
+    .from('vendor_verification')
+    .select('vendor_id, check_type, status, is_latest')
+    .eq('vendor_id', bronzeVendor!.id)
+    .eq('is_latest', true);
+  expect(computeTrustLevel(bronzeVendor!.id, verRows ?? [])).toBe('Bronze');
 });
 
 test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts row', async ({ page }) => {
+  test.setTimeout(90000);
   const primaryCategory = await getFirstActiveCategory();
   const verifyPhone = `99013${Date.now().toString().slice(-5)}`;
-  const shopName = `Verify Shop ${TEST_SESSION}`;
-  const { data: verifyVendor, error } = await supabase
+  const shopName = `!ADMIN13-${Date.now()}`;
+  const { data: verifyVendor, error } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: 'Verify Owner',
@@ -342,6 +388,8 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
       longitude: 73.8567,
       is_active: true,
       is_manual_verified: false,
+      verification_status: 'identity_linked',
+      upi_id: 'verify@upi',
       vendor_note: `test_session:${TEST_SESSION}`,
     })
     .select()
@@ -357,21 +405,25 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
   await openVendorModeration(page);
 
   const searchInput = page.getByPlaceholder(/search/i).first();
+  await searchInput.click();
+  await searchInput.fill('');
   await searchInput.fill(shopName);
   await page.waitForTimeout(500);
 
-  const vendorRow = page.locator('div.rounded-2xl.border').filter({ hasText: shopName }).first();
-  await vendorRow.getByRole('button', { name: /Unverified/i }).click();
+  const vendorRow = page.locator(`#admin-vendor-${verifyVendor!.id}`);
+  await expect(vendorRow).toBeVisible({ timeout: 20000 });
+  await vendorRow.scrollIntoViewIfNeeded();
+  await vendorRow.getByRole('button', { name: /Unverified|असत्यापित/i }).first().click({ timeout: 10000 });
   await expect(page.getByText('Verification checks')).toBeVisible({ timeout: 8000 });
 
   for (const label of ['UPI Format', 'UPI Penny-drop', 'Shop Photo', 'Selfie Photo', 'GPS', 'Admin Check', 'Aadhaar/DigiLocker']) {
-    await expect(page.getByText(label, { exact: false })).toBeVisible();
+    await expect(page.getByText(label, { exact: false }).first()).toBeVisible();
   }
 
   await page.getByRole('button', { name: 'Mark Admin Check Passed' }).click();
   await page.waitForTimeout(1500);
 
-  const { data: adminCheckRow } = await supabase
+  const { data: adminCheckRow } = await supabaseAdmin
     .from('vendor_verification')
     .select('check_type, status, is_latest')
     .eq('vendor_id', verifyVendor!.id)

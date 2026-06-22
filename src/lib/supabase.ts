@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY =
 export { SUPABASE_URL, SUPABASE_ANON_KEY };
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false },
+  auth: { persistSession: true },
   realtime: { params: { eventsPerSecond: 5 } },
 });
 
@@ -292,7 +292,13 @@ export type Vendor = {
   upi_verified: boolean;
   is_manual_verified: boolean;
   created_at: string;
-  subscription_active?: boolean;
+  subscription_status?: string;
+  trial_ends_at?: string;
+  subscription_current_period_end?: string;
+  grace_ends_at?: string;
+  waiveoff_percent?: number;
+  waiveoff_months_remaining?: number;
+  subscription_id?: string;
   last_updated?: string | null;
   /** Hyperlocal service vs delivery; drives reputation copy on cards. */
   service_mode?: "help" | "delivery" | "appointment" | "booking";
@@ -317,6 +323,15 @@ export type Vendor = {
   vendor_type?: "shop" | "home" | "visiting" | null;
   photo_selfie?: string | null;
   profile_status?: "draft" | "complete";
+  /** Max km vendor serves; 9999 = pan-India. */
+  service_radius_km: number;
+};
+
+/** app_config keys for Razorpay vendor checkout (raw string values from DB). */
+export type VendorSubscriptionAppConfig = {
+  payments_enabled: string;
+  vendor_subscription_price: string;
+  razorpay_key_id: string;
 };
 
 export type RequestRow = {

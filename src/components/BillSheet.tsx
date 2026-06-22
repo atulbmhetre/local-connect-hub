@@ -3,7 +3,6 @@ import { Camera, Loader2, Mic, Trash2 } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
-import { saveNotification } from "@/lib/notifications";
 import {
   Sheet,
   SheetContent,
@@ -20,12 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  supabase,
-  invokeNotifyUser,
-  SUPABASE_URL,
-  SUPABASE_ANON_KEY,
-} from "@/lib/supabase";
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
@@ -324,29 +318,6 @@ export function BillSheet({
       toast.error(s.bill_sendFailed);
       setSending(false);
       return;
-    }
-
-    if (userPhone) {
-      const title = s.bill_notifTitle;
-      const body = opts?.isReplace
-        ? s.bill_updated.replace("{shopName}", shopName)
-        : `${shopName}: ₹${totalAmount} — ${paymentMode}`;
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title,
-        body,
-        type: "bill",
-        order_id: requestId,
-      });
-      saveNotification({
-        userPhone,
-        type: "bill",
-        title,
-        body,
-        route: "my-orders",
-        routeParams: { order_id: requestId },
-        isInformational: false,
-      });
     }
 
     toast.success(s.bill_sent);

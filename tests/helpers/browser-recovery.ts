@@ -1,34 +1,41 @@
 import { expect, type Page } from '@playwright/test';
-import { APP_URL } from './browser-setup';
+import { gotoRadarDelivery, clickRadarOrderCard } from './browser-setup';
 
 export async function dismissWelcomeIfVisible(page: Page) {
-  const explore = page.getByTestId('welcome-explore-btn');
+  const explore = page.getByTestId('firstopen-restore-skip');
   if (await explore.isVisible().catch(() => false)) {
     await explore.click();
-    await expect(page.getByTestId('welcome-card')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('first-open-flow')).not.toBeVisible({ timeout: 5000 });
   }
 }
 
 /** Opens Parchi and triggers phone entry (fresh user, no phone in localStorage). */
-export async function openPhoneEntrySheet(page: Page) {
+export async function openPhoneEntrySheet(
+  page: Page,
+  options?: { shopName?: string; vendorId?: string },
+) {
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
-  await page.goto(`${APP_URL}/radar`);
-  await page.waitForLoadState('networkidle');
+  await gotoRadarDelivery(page);
   await dismissWelcomeIfVisible(page);
 
-  await expect(page.getByTestId('radar-vendor-card').first()).toBeVisible({ timeout: 15000 });
-  await page.getByTestId('radar-vendor-card-order-btn').first().click();
+  await clickRadarOrderCard(page, options);
   await expect(page.getByTestId('parchi-sheet')).toBeVisible({ timeout: 8000 });
   await page.getByTestId('parchi-message-input').fill('Browser recovery test order');
 
-  const addressInput = page.getByPlaceholder('e.g. Flat 4B, Green Park, Near Water Tank');
-  if (await addressInput.isVisible().catch(() => false)) {
+  const savedAddress = page.getByTestId('parchi-sheet').locator('button').filter({
+    hasText: /Recovery Lane|Test Flat/i,
+  });
+  if (await savedAddress.first().isVisible({ timeout: 2000 }).catch(() => false)) {
+    await savedAddress.first().click();
+  } else {
+    const addressInput = page.getByTestId('parchi-address-input');
+    await expect(addressInput).toBeVisible({ timeout: 8000 });
     await addressInput.fill('Test Flat 4B, Recovery Lane');
   }
 
   await page.getByTestId('parchi-submit-btn').click();
-  await expect(page.getByText('Enter your mobile number')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('Enter your mobile number')).toBeVisible({ timeout: 20000 });
 }
 
 export async function submitPhoneNumber(page: Page, phone: string) {

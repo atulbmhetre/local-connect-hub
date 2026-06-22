@@ -20,6 +20,7 @@ import { ArrowLeft, Loader2, Mic, Camera, Loader2 as Loader2Icon, Pencil, PhoneC
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
+import { isHelpAcceptDelayed, formatHelpDelayedWarning } from "@/lib/orderHelpDelay";
 import {
   Sheet,
   SheetContent,
@@ -191,14 +192,11 @@ function canShowRemoveOrder(r: Pick<OrderRequestRow, "status" | "created_at">): 
   return false;
 }
 
-function isHelpAcceptDelayed(
+function isHelpAcceptDelayedRow(
   r: Pick<OrderRequestRow, "updated_at" | "created_at">,
   timeoutHours: number,
 ): boolean {
-  const iso = r.updated_at ?? r.created_at;
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return false;
-  return Date.now() - t >= timeoutHours * 60 * 60 * 1000;
+  return isHelpAcceptDelayed(r.updated_at, r.created_at, timeoutHours);
 }
 
 function isDeliveryAcceptedOverdue(
@@ -215,8 +213,9 @@ function isDeliveryAcceptedOverdue(
 }
 
 function isBookingConfirmedOverdue(
-  r: Pick<OrderRequestRow, "appointment_time" | "appointment_status">,
+  r: Pick<OrderRequestRow, "appointment_time" | "appointment_status" | "status">,
 ): boolean {
+  if (r.status === "fulfilled" || r.status === "done") return false;
   if (r.appointment_status !== "confirmed") return false;
   const time = r.appointment_time;
   if (time == null || String(time).trim() === "") return false;
@@ -1429,10 +1428,13 @@ const MyOrders = () => {
                           )}
                         </div>
                       )}
-                      {isHelpAcceptDelayed(r, config.helpAcceptTimeoutHours) && (
+                      {isHelpAcceptDelayedRow(r, config.helpAcceptTimeoutHours) && (
                         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
                           <p className="text-[11px] text-amber-400 text-center leading-snug">
-                            {s.order_help_delayed_warning}
+                            {formatHelpDelayedWarning(
+                              s.order_help_delayed_warning,
+                              config.helpAcceptTimeoutHours,
+                            )}
                           </p>
                           {!showOrderCancelConfirm[r.id] ? (
                             <button

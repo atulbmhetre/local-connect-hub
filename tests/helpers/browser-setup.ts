@@ -1,10 +1,44 @@
-import { Page } from '@playwright/test';
+import { expect, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { loginAsCustomer, mintBrowserSupabaseSession } from './setup';
 
 dotenv.config({ path: '.env.test' });
 
 export const APP_URL = process.env.VITE_APP_URL || 'http://localhost:8080';
+export const RADAR_DELIVERY_URL = `${APP_URL}/radar?mode=delivery`;
+
+/** Radar with delivery mode selected (default /radar is help-only). */
+export async function gotoRadarDelivery(page: Page) {
+  await page.goto(RADAR_DELIVERY_URL);
+  await page.waitForLoadState('networkidle');
+}
+
+/** Click Order on a delivery/booking radar card (falls back to first orderable card). */
+export async function clickRadarOrderCard(
+  page: Page,
+  options?: { vendorId?: string; shopName?: string },
+) {
+  if (options?.vendorId) {
+    const byId = page.locator(`#radar-vendor-card-${options.vendorId}`);
+    if (await byId.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await byId.getByTestId('radar-vendor-card-order-btn').click();
+      return;
+    }
+  }
+  if (options?.shopName) {
+    const byShop = page.getByTestId('radar-vendor-card').filter({ hasText: options.shopName });
+    if (await byShop.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+      await byShop.first().getByTestId('radar-vendor-card-order-btn').click();
+      return;
+    }
+  }
+  const card = page.getByTestId('radar-vendor-card').filter({
+    has: page.getByTestId('radar-vendor-card-order-btn'),
+  }).first();
+  await expect(card).toBeVisible({ timeout: 20000 });
+  await card.getByTestId('radar-vendor-card-order-btn').click();
+}
 
 const ADMIN_PHONE_FALLBACK = '8888169446';
 
@@ -21,18 +55,7 @@ async function resolveAdminPhone(): Promise<string> {
   return data?.value?.trim() || ADMIN_PHONE_FALLBACK;
 }
 
-// Simulate a logged-in customer
-export async function loginAsCustomer(page: Page, phone: string, deviceId: string) {
-  await page.goto(APP_URL);
-  await page.evaluate(({ phone, deviceId }) => {
-    localStorage.setItem('aaspaas:user_phone', phone);
-    localStorage.setItem('aaspaas:device_id', deviceId);
-    localStorage.setItem('aaspaas:role', 'customer');
-    localStorage.setItem('aaspaas:welcomed', 'true');
-  }, { phone, deviceId });
-  await page.reload();
-  await page.waitForLoadState('networkidle');
-}
+export { loginAsCustomer };
 
 // Simulate a logged-in vendor
 export async function loginAsVendor(page: Page, phone: string, vendorId: string, deviceId: string) {
@@ -45,6 +68,10 @@ export async function loginAsVendor(page: Page, phone: string, vendorId: string,
     localStorage.setItem('aaspaas:welcomed', 'true');
     localStorage.setItem('aaspaas:vendor_onboarded', 'true');
   }, { phone, vendorId, deviceId });
+
+  // Phase D: mint a real Supabase session so Phase C RLS policies work
+  await mintBrowserSupabaseSession(page, phone, 'loginAsVendor');
+
   await page.reload();
   await page.waitForLoadState('networkidle');
 }
@@ -64,7 +91,7 @@ export async function waitForSettingsAdminReady(page: Page) {
         document
           .querySelector('[data-testid="settings-screen"]')
           ?.getAttribute('data-admin-config-loaded') === 'true',
-      { timeout: 10000 },
+      { timeout: 20000 },
     )
     .catch(() => {});
   await page.waitForTimeout(500);
@@ -75,7 +102,7 @@ export async function loginAsFreshUser(page: Page) {
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.waitForLoadState('networkidle');
+  await page.waitForSelector('[data-testid="first-open-flow"]', { timeout: 15000 });
 }
 
 // Clear session

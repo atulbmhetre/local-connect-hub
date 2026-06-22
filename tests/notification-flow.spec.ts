@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertNotificationCreated, assertRowExists } from './helpers/db-assert';
 
 let testVendor: any;
@@ -11,13 +11,13 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await supabase.from('user_notifications').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
-  await supabase.from('user_notifications').delete().eq('user_phone', TEST_VENDOR_PHONE);
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', TEST_VENDOR_PHONE);
   await cleanupTestData();
 });
 
 test('NT-01: notification created for customer — row exists in user_notifications', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('user_notifications')
     .insert({
       user_phone: TEST_CUSTOMER_PHONE,
@@ -37,12 +37,12 @@ test('NT-01: notification created for customer — row exists in user_notificati
 
 test('NT-02: unread count correct — 3 unread notifications', async () => {
   // Insert 2 more unread (1 already inserted above)
-  await supabase.from('user_notifications').insert([
+  await supabaseAdmin.from('user_notifications').insert([
     { user_phone: TEST_CUSTOMER_PHONE, type: 'order_update', title: 'Update', body: 'Order updated', is_read: false },
     { user_phone: TEST_CUSTOMER_PHONE, type: 'khata_partial', title: 'Payment', body: 'Partial payment received', is_read: false },
   ]);
 
-  const { count } = await supabase
+  const { count } = await supabaseAdmin
     .from('user_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_phone', TEST_CUSTOMER_PHONE)
@@ -52,7 +52,7 @@ test('NT-02: unread count correct — 3 unread notifications', async () => {
 });
 
 test('NT-04: mark all read — all notifications is_read = true', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('user_notifications')
     .update({ is_read: true, read_at: new Date().toISOString() })
     .eq('user_phone', TEST_CUSTOMER_PHONE)
@@ -60,7 +60,7 @@ test('NT-04: mark all read — all notifications is_read = true', async () => {
 
   expect(error).toBeNull();
 
-  const { count } = await supabase
+  const { count } = await supabaseAdmin
     .from('user_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_phone', TEST_CUSTOMER_PHONE)
@@ -71,7 +71,7 @@ test('NT-04: mark all read — all notifications is_read = true', async () => {
 
 test('NT-05: unread notifications have is_read = false', async () => {
   // Insert a fresh unread
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     type: 'new_order',
     title: 'New',
@@ -79,7 +79,7 @@ test('NT-05: unread notifications have is_read = false', async () => {
     is_read: false,
   });
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('user_notifications')
     .select('is_read, created_at')
     .eq('user_phone', TEST_CUSTOMER_PHONE)
@@ -94,7 +94,7 @@ test('NT-05: unread notifications have is_read = false', async () => {
 test('NT-06: notification has route_params for deep linking', async () => {
   const orderId = '00000000-0000-0000-0000-000000000001';
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('user_notifications')
     .insert({
       user_phone: TEST_CUSTOMER_PHONE,
@@ -115,7 +115,7 @@ test('NT-06: notification has route_params for deep linking', async () => {
 
 test('NT-10: cross-user notification insert works — anon can insert for another phone', async () => {
   // Simulate saveNotification inserting for vendor phone from customer session
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('user_notifications')
     .insert({
       user_phone: TEST_VENDOR_PHONE, // different phone from customer
@@ -138,7 +138,7 @@ test('NT-03: vendor bell — vendor has separate notification entry', async () =
 test('NT-07: realtime insert — notification row exists immediately after insert', async () => {
   const uniqueType = `test_realtime_${TEST_SESSION}`;
 
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     type: uniqueType,
     title: 'Realtime Test',
@@ -151,7 +151,7 @@ test('NT-07: realtime insert — notification row exists immediately after inser
 });
 
 test('NT-08: read_at timestamp set when notification marked read', async () => {
-  const { data: notif } = await supabase
+  const { data: notif } = await supabaseAdmin
     .from('user_notifications')
     .insert({
       user_phone: TEST_CUSTOMER_PHONE,
@@ -164,12 +164,12 @@ test('NT-08: read_at timestamp set when notification marked read', async () => {
     .single();
 
   const readAt = new Date().toISOString();
-  await supabase
+  await supabaseAdmin
     .from('user_notifications')
     .update({ is_read: true, read_at: readAt })
     .eq('id', notif.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('user_notifications')
     .select('is_read, read_at')
     .eq('id', notif.id)
@@ -189,7 +189,7 @@ test('NT-09: notification type stored correctly for all event types', async () =
   const uniquePhone = `77099${Date.now().toString().slice(-5)}`;
 
   for (const type of types) {
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from('user_notifications')
       .insert({
         user_phone: uniquePhone,
@@ -201,7 +201,7 @@ test('NT-09: notification type stored correctly for all event types', async () =
     expect(error).toBeNull();
   }
 
-  const { count } = await supabase
+  const { count } = await supabaseAdmin
     .from('user_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_phone', uniquePhone)
@@ -210,5 +210,5 @@ test('NT-09: notification type stored correctly for all event types', async () =
   expect(count).toBe(types.length);
 
   // Cleanup
-  await supabase.from('user_notifications').delete().eq('user_phone', uniquePhone);
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', uniquePhone);
 });

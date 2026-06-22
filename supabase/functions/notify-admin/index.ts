@@ -11,6 +11,24 @@ const CORS_HEADERS = {
   "Content-Type": "application/json",
 };
 
+async function getAdminPhoneFromConfig(
+  supabaseClient: ReturnType<typeof createClient>,
+): Promise<string | null> {
+  const { data, error } = await supabaseClient
+    .from("app_config")
+    .select("value")
+    .eq("key", "admin_phone")
+    .maybeSingle();
+
+  if (error) {
+    console.error("notify-admin admin_phone config query failed", error);
+    return null;
+  }
+
+  const phone = data?.value?.trim() ?? "";
+  return phone.length > 0 ? phone : null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -43,23 +61,30 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const { data: configRow, error: configError } = await supabase
-      .from("app_config")
-      .select("value")
-      .eq("key", "admin_fcm_token")
-      .maybeSingle();
+    // Look up current admin FCM token dynamically by admin phone
+    const adminPhone =
+      Deno.env.get("ADMIN_PHONE") ?? (await getAdminPhoneFromConfig(supabase));
 
-    if (configError) {
-      console.error("notify-admin app_config query failed", configError);
-      return new Response(JSON.stringify({ success: false, reason: "no_admin_token" }), {
+    if (!adminPhone) {
+      console.warn("notify-admin: no admin phone configured");
+      return new Response(JSON.stringify({ ok: false, reason: "no_token" }), {
         status: 200,
         headers: CORS_HEADERS,
       });
     }
 
-    const adminToken = configRow?.value?.trim() ?? "";
-    if (!adminToken) {
-      return new Response(JSON.stringify({ success: false, reason: "no_admin_token" }), {
+    const { data: deviceRow } = await supabase
+      .from("user_devices")
+      .select("fcm_token")
+      .eq("user_phone", adminPhone)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const adminFcmToken = deviceRow?.fcm_token?.trim() ?? "";
+    if (!adminFcmToken) {
+      console.warn("notify-admin: no FCM token found for admin phone", adminPhone);
+      return new Response(JSON.stringify({ ok: false, reason: "no_token" }), {
         status: 200,
         headers: CORS_HEADERS,
       });
@@ -104,7 +129,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           message: {
-            token: adminToken,
+            token: adminFcmToken,
             notification: {
               title,
               body,
@@ -141,7 +166,7 @@ serve(async (req) => {
       console.error("notify-admin fcm_response:", JSON.stringify(fcmData));
       if (fcmData?.error?.status === "UNREGISTERED" || fcmData?.error?.code === 404) {
         await deleteStaleToken(
-          adminToken,
+          adminFcmToken,
           Deno.env.get("SUPABASE_URL")!,
           Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
         );

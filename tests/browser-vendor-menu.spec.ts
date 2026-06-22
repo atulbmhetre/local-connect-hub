@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabase, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 let testVendor: any;
@@ -69,7 +69,7 @@ test('MENU-03: add menu item — inserts row in vendor_menu_items', async ({ pag
   await saveBtn.click();
   await page.waitForTimeout(2000);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendor_menu_items')
     .select('id, name')
     .eq('vendor_id', testVendor.id)
@@ -78,7 +78,7 @@ test('MENU-03: add menu item — inserts row in vendor_menu_items', async ({ pag
 });
 
 test('MENU-04: add menu item directly to DB — row readable', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('vendor_menu_items')
     .insert({
       vendor_id: testVendor.id,
@@ -97,7 +97,7 @@ test('MENU-04: add menu item directly to DB — row readable', async () => {
 });
 
 test('MENU-05: delete menu item — row removed from DB', async () => {
-  const { data: item } = await supabase
+  const { data: item } = await supabaseAdmin
     .from('vendor_menu_items')
     .insert({
       vendor_id: testVendor.id,
@@ -108,12 +108,12 @@ test('MENU-05: delete menu item — row removed from DB', async () => {
     .select()
     .single();
 
-  await supabase
+  await supabaseAdmin
     .from('vendor_menu_items')
     .delete()
     .eq('id', item.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendor_menu_items')
     .select('id')
     .eq('id', item.id);
@@ -122,7 +122,7 @@ test('MENU-05: delete menu item — row removed from DB', async () => {
 });
 
 test('MENU-06: edit menu item — price updated in DB', async () => {
-  const { data: item } = await supabase
+  const { data: item } = await supabaseAdmin
     .from('vendor_menu_items')
     .insert({
       vendor_id: testVendor.id,
@@ -133,12 +133,12 @@ test('MENU-06: edit menu item — price updated in DB', async () => {
     .select()
     .single();
 
-  await supabase
+  await supabaseAdmin
     .from('vendor_menu_items')
     .update({ price: 150 })
     .eq('id', item.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendor_menu_items')
     .select('price')
     .eq('id', item.id)
@@ -148,7 +148,7 @@ test('MENU-06: edit menu item — price updated in DB', async () => {
 });
 
 test('MENU-07: menu item is_available toggle works', async () => {
-  const { data: item } = await supabase
+  const { data: item } = await supabaseAdmin
     .from('vendor_menu_items')
     .insert({
       vendor_id: testVendor.id,
@@ -160,12 +160,12 @@ test('MENU-07: menu item is_available toggle works', async () => {
     .select()
     .single();
 
-  await supabase
+  await supabaseAdmin
     .from('vendor_menu_items')
     .update({ is_available: false })
     .eq('id', item.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendor_menu_items')
     .select('is_available')
     .eq('id', item.id)
@@ -176,13 +176,13 @@ test('MENU-07: menu item is_available toggle works', async () => {
 
 test('MENU-08: multiple menu items for vendor — all returned', async () => {
   // Insert 3 items
-  await supabase.from('vendor_menu_items').insert([
+  await supabaseAdmin.from('vendor_menu_items').insert([
     { vendor_id: testVendor.id, name: `Bulk A ${TEST_SESSION}`, price: 10, unit: 'pc' },
     { vendor_id: testVendor.id, name: `Bulk B ${TEST_SESSION}`, price: 20, unit: 'kg' },
     { vendor_id: testVendor.id, name: `Bulk C ${TEST_SESSION}`, price: 30, unit: 'hr' },
   ]);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendor_menu_items')
     .select('id')
     .eq('vendor_id', testVendor.id);

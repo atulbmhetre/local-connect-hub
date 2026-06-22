@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, APP_URL } from './helpers/browser-setup';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { loginAsCustomer, gotoRadarDelivery, clickRadarOrderCard, APP_URL } from './helpers/browser-setup';
+import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 let testVendor: any;
@@ -8,36 +8,36 @@ let testVendor: any;
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
   await createTestCustomer();
-  await supabase.from('vendors')
+  await supabaseAdmin.from('vendors')
     .update({ service_mode: 'delivery', is_active: true })
     .eq('id', testVendor.id);
 });
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await supabase.from('user_addresses').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
-  await supabase.from('user_addresses').delete().eq('device_id', TEST_DEVICE_ID);
+  await supabaseAdmin.from('user_addresses').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('user_addresses').delete().eq('device_id', TEST_DEVICE_ID);
   await cleanupTestData();
 });
 
 // ─── ADDRESSES ────────────────────────────────────────────────────────────
 
 test('ADDR-01: address saved — user_addresses row created', async () => {
-  await supabase.from('user_addresses').insert({
+  await supabaseAdmin.from('user_addresses').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     label: 'Home',
     address_text: 'Flat 1A, Test Building',
     is_default: true,
   });
-  const { data } = await supabase.from('user_addresses')
+  const { data } = await supabaseAdmin.from('user_addresses')
     .select('id')
     .eq('user_phone', TEST_CUSTOMER_PHONE);
   expect(data?.length).toBeGreaterThan(0);
 });
 
 test('ADDR-02: address row visible in settings', async ({ page }) => {
-  await supabase.from('user_addresses').insert({
+  await supabaseAdmin.from('user_addresses').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     label: 'Home',
@@ -57,7 +57,7 @@ test('ADDR-02: address row visible in settings', async ({ page }) => {
 test('ADDR-03: first saved address is_default = true', async () => {
   await supabase.from('user_addresses').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('user_addresses')
     .insert({
       user_phone: TEST_CUSTOMER_PHONE,
@@ -73,7 +73,7 @@ test('ADDR-03: first saved address is_default = true', async () => {
 });
 
 test('ADDR-04: delete address removes row from DB', async () => {
-  const { data: addr } = await supabase
+  const { data: addr } = await supabaseAdmin
     .from('user_addresses')
     .insert({
       user_phone: TEST_CUSTOMER_PHONE,
@@ -87,7 +87,7 @@ test('ADDR-04: delete address removes row from DB', async () => {
 
   await supabase.from('user_addresses').delete().eq('id', addr.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('user_addresses')
     .select('id')
     .eq('id', addr.id);
@@ -96,12 +96,12 @@ test('ADDR-04: delete address removes row from DB', async () => {
 });
 
 test('ADDR-05: multiple addresses stored correctly', async () => {
-  await supabase.from('user_addresses').insert([
+  await supabaseAdmin.from('user_addresses').insert([
     { user_phone: TEST_CUSTOMER_PHONE, device_id: TEST_DEVICE_ID, label: 'Home', address_text: 'Home Address', is_default: true },
     { user_phone: TEST_CUSTOMER_PHONE, device_id: `${TEST_DEVICE_ID}_2`, label: 'Work', address_text: 'Work Address', is_default: false },
   ]);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('user_addresses')
     .select('id')
     .eq('user_phone', TEST_CUSTOMER_PHONE);
@@ -115,11 +115,9 @@ test('SLOT-01: delivery slot select visible in ParchiSheet for delivery vendor',
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
-  await page.goto(`${APP_URL}/radar`);
-  await page.waitForLoadState('networkidle');
+  await gotoRadarDelivery(page);
 
-  await page.waitForSelector('[data-testid="radar-vendor-card"]', { timeout: 10000 });
-  await page.getByTestId('radar-vendor-card-order-btn').first().click();
+  await clickRadarOrderCard(page, { vendorId: testVendor.id, shopName: testVendor.shop_name });
   await expect(page.getByTestId('parchi-message-input')).toBeVisible({ timeout: 5000 });
 
   // Slot select should be visible for delivery vendor
@@ -135,7 +133,7 @@ test('SLOT-01: delivery slot select visible in ParchiSheet for delivery vendor',
 });
 
 test('SLOT-02: delivery_slot stored on request after order placement', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -164,7 +162,7 @@ test('SLOT-03: all slot values are valid strings', async () => {
   ];
 
   for (const slot of validSlots) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('requests')
       .insert({
         vendor_id: testVendor.id,

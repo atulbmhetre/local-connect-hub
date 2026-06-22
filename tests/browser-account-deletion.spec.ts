@@ -21,7 +21,7 @@ let testVendor: { id: string; phone: string };
 async function openSettingsDeleteSection(page: Page) {
   await page.goto(`${APP_URL}/settings`);
   await page.waitForLoadState('networkidle');
-  await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
+  await page.waitForSelector('[data-testid="settings-screen"]', { timeout: 20000 });
   const deleteBtn = page.getByRole('button', { name: 'Delete Account' });
   await deleteBtn.scrollIntoViewIfNeeded();
   await expect(deleteBtn).toBeVisible({ timeout: 5000 });

@@ -6,6 +6,7 @@ import {
   Clock,
   HeartHandshake,
   Package,
+  Loader2,
 } from "lucide-react";
 import { supabase, type Vendor, useCategoryLabel } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
@@ -299,6 +300,8 @@ type Props = {
   userNeed: string;
   /** Optional; clears card UI when an order/booking is cancelled from the sheet path. */
   onOrderCancelled?: () => void;
+  /** Pan-India service area — inline badge below shop name. */
+  showPanIndiaBadge?: boolean;
 };
 
 export function RadarVendorCard({
@@ -314,6 +317,7 @@ export function RadarVendorCard({
   index,
   userNeed,
   onOrderCancelled = () => {},
+  showPanIndiaBadge = false,
 }: Props) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
@@ -332,6 +336,8 @@ export function RadarVendorCard({
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
 
   const [parchiOpen, setParchiOpen] = useState(false);
+  const [parchiVendor, setParchiVendor] = useState(vendor);
+  const [openingParchi, setOpeningParchi] = useState(false);
   const [savedVendorLocked, setSavedVendorLocked] = useState(() =>
     isSaved || readSessionSaved(vendor.id),
   );
@@ -369,7 +375,9 @@ export function RadarVendorCard({
     setSavedVendorLocked(isSaved || readSessionSaved(vendor.id));
     setServiceFulfilledFromDb(hasFulfilledOrder);
     setServiceFulfilledRequestId(fulfilledRequestId);
+    setParchiVendor(vendor);
   }, [
+    vendor,
     vendor.id,
     vendor.total_delivered,
     vendor.total_helped,
@@ -499,7 +507,9 @@ export function RadarVendorCard({
 
   const showResolution = !isOwnVendor && serviceFulfilledFromDb;
 
-  const showSendOrderSection = !isOwnVendor && (serviceMode === "delivery" || serviceMode === "appointment");
+  const showSendOrderSection =
+    !isOwnVendor &&
+    (serviceMode === "delivery" || serviceMode === "appointment" || serviceMode === "help");
 
   const deliveryOrderSent = hasOrdered || deliveryActiveFromDb;
 
@@ -625,17 +635,35 @@ export function RadarVendorCard({
   ]);
 
   const openParchi = useCallback(async () => {
-    const { data } = await supabase
-      .from("vendors")
-      .select("is_active")
-      .eq("id", vendor.id)
-      .single();
-    if (!data?.is_active) {
-      toast.error(s.radar_vendorWentOffline);
-      return;
+    const needsRefetch =
+      serviceMode === "help" ||
+      ((serviceMode === "delivery" || serviceMode === "appointment") &&
+        vendor.is_active === false);
+
+    if (needsRefetch) {
+      setOpeningParchi(true);
+      const { data } = await supabase
+        .from("vendors")
+        .select("*")
+        .eq("id", vendor.id)
+        .single();
+      setOpeningParchi(false);
+
+      if (serviceMode === "help") {
+        if (!data?.is_active) {
+          toast.error(s.radar_vendorWentOffline);
+          return;
+        }
+        setParchiVendor({ ...vendor, ...data, is_active: data.is_active });
+      } else if (data) {
+        setParchiVendor({ ...vendor, ...data, is_active: data.is_active });
+      }
+    } else {
+      setParchiVendor(vendor);
     }
+
     setParchiOpen(true);
-  }, [vendor, s.radar_vendorWentOffline]);
+  }, [vendor, serviceMode, s.radar_vendorWentOffline]);
 
   const serviceModePill =
     serviceMode === "delivery"
@@ -648,11 +676,20 @@ export function RadarVendorCard({
     <div
       data-testid="radar-vendor-card"
       className={cn(
-        "mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-fade-up",
+        "relative mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-fade-up",
         accentRing,
       )}
       style={{ animationDelay: `${Math.min(index * 70, 420)}ms` }}
     >
+      {openingParchi && (
+        <div
+          className="absolute inset-0 z-10 rounded-2xl bg-background/60 grid place-items-center"
+          aria-busy="true"
+          aria-label={s.settings_loading}
+        >
+          <Loader2 className="h-6 w-6 animate-spin text-brand" />
+        </div>
+      )}
       <div className="flex items-start gap-3">
         <div className="h-12 w-12 rounded-xl bg-gradient-vendor grid place-items-center shrink-0 overflow-hidden">
           {vendor.shop_photo_url ? (
@@ -677,6 +714,11 @@ export function RadarVendorCard({
                     aria-label="Online"
                   />
                 )}
+                {vendor.is_active === false && (
+                  <span className="inline-flex text-[10px] rounded-full px-2 py-0.5 bg-amber-500/20 text-amber-600 font-medium shrink-0">
+                    {s.vendor_offline_badge}
+                  </span>
+                )}
               </h3>
               {readIsOwnVendorCard(vendor.id, vendor.phone) && (
                 <span className="text-[10px] font-medium text-muted-foreground">• You</span>
@@ -696,6 +738,11 @@ export function RadarVendorCard({
             </span>
           </div>
           <VendorTypeLabel vendorType={vendor.vendor_type} />
+          {showPanIndiaBadge && (
+            <span className="mt-1 inline-flex text-[10px] rounded-full px-2 py-0.5 bg-brand/20 text-brand font-medium w-fit">
+              {s.radar_pan_india_badge}
+            </span>
+          )}
           <div className="flex flex-wrap items-center gap-1.5 mt-1 min-w-0">
             <div className="min-w-0 flex-1">
               <VendorCategoryChips
@@ -892,7 +939,7 @@ export function RadarVendorCard({
             onClick={() => void openParchi()}
             className="mt-2 w-full rounded-xl bg-brand text-white py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform"
           >
-            {serviceMode === "appointment" ? s.radar_cta_book : s.radar_cta_order}
+            {serviceMode === "appointment" ? s.radar_cta_book : serviceMode === "delivery" ? s.radar_cta_order : s.radar_cta_connect}
           </button>
         ))}
 
@@ -943,9 +990,9 @@ export function RadarVendorCard({
         </button>
       )}
       <ParchiSheet
-        vendor={vendor}
+        vendor={parchiVendor}
         vendorId={vendor.id}
-        serviceMode={vendor.service_mode}
+        serviceMode={parchiVendor.service_mode}
         isOpen={parchiOpen}
         onClose={() => setParchiOpen(false)}
         onOrderSent={() => setResolutionSessionTick((n) => n + 1)}

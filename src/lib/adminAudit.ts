@@ -10,9 +10,13 @@ export type AdminActionType =
   | "ban_user"
   | "unban_user"
   | "approve_category"
-  | "reject_category";
+  | "reject_category"
+  | "update_config"
+  | "delete_review"
+  | "admin_check_passed"
+  | "admin_check_failed";
 
-export type AdminTargetType = "vendor" | "user" | "category";
+export type AdminTargetType = "vendor" | "user" | "category" | "config";
 
 /** Fire-and-forget admin audit row; never blocks the caller. */
 export function logAdminAction(

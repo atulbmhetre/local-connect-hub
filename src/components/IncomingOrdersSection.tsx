@@ -14,13 +14,9 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { BillSheet } from "@/components/BillSheet";
+import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-
-const FLAG_OPTIONS = [
-  { value: "noshow" as const, label: "User was not available / no-show" },
-  { value: "fake" as const, label: "Request seemed fake or a prank" },
-  { value: "abusive" as const, label: "User was rude or abusive" },
-];
+import { getUserPhone } from "@/lib/userIdentity";
 
 type TrustInfo = {
   trust_score: number;
@@ -36,18 +32,26 @@ type OrderBillSummary = {
   payment_status: string;
 };
 
-function getUserTrustBadge(trust: TrustInfo | undefined): { label: string; className: string } | null {
+function getUserTrustBadge(
+  trust: TrustInfo | undefined,
+  labels: {
+    newUser: string;
+    trusted: string;
+    complaints: string;
+    risky: string;
+  },
+): { label: string; className: string } | null {
   if (trust === undefined) return null;
   if (trust === null || trust.total_orders < 3) {
-    return { label: "🔵 New User", className: "text-blue-500/80" };
+    return { label: labels.newUser, className: "text-blue-500/80" };
   }
   if (trust.trust_score >= 75) {
-    return { label: "🟢 Trusted User", className: "text-green-600 dark:text-green-500" };
+    return { label: labels.trusted, className: "text-green-600 dark:text-green-500" };
   }
   if (trust.trust_score >= 50) {
-    return { label: "🟡 Has Complaints", className: "text-amber-600 dark:text-amber-500" };
+    return { label: labels.complaints, className: "text-amber-600 dark:text-amber-500" };
   }
-  return { label: "🔴 Risky User", className: "text-red-600 dark:text-red-500" };
+  return { label: labels.risky, className: "text-red-600 dark:text-red-500" };
 }
 
 function getKhataCreditBadge(
@@ -118,12 +122,11 @@ function countUnreadIncomingOrders(
 type LocationHighlightState = { highlightOrderId?: string };
 
 function canShowBillButton(r: OrderRequestRow): boolean {
-  const billableStatus = r.status === "accepted" || r.status === "fulfilled";
-  if (!billableStatus) return false;
   if (r.appointment_time) {
-    return r.appointment_status === "confirmed";
+    if (r.appointment_status !== "confirmed") return false;
+    return r.status === "accepted" || r.status === "fulfilled";
   }
-  return true;
+  return r.status === "accepted" || r.status === "fulfilled";
 }
 
 export function IncomingOrdersSection({
@@ -151,11 +154,32 @@ export function IncomingOrdersSection({
     }),
     [s],
   );
+  const flagOptions = useMemo(
+    () =>
+      [
+        { value: "noshow" as const, label: s.incoming_flag_reason_noshow },
+        { value: "fake" as const, label: s.incoming_flag_reason_fake },
+        { value: "abusive" as const, label: s.incoming_flag_reason_abusive },
+      ] as const,
+    [s],
+  );
+  const trustBadgeLabels = useMemo(
+    () => ({
+      newUser: s.incoming_trust_new_user,
+      trusted: s.incoming_trust_trusted,
+      complaints: s.incoming_trust_complaints,
+      risky: s.incoming_trust_risky,
+    }),
+    [s],
+  );
   const [rows, setRows] = useState<OrderRequestRow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [calledUser, setCalledUser] = useState<Record<string, boolean>>({});
+  const [callSheetOpen, setCallSheetOpen] = useState(false);
+  const [callTargetPhone, setCallTargetPhone] = useState<string | null>(null);
+  const [callServiceMode, setCallServiceMode] = useState<string>("help");
   const presetReasons = useMemo(
     () => cancelReasons.filter((r): r is string => r != null && String(r).trim() !== ""),
     [cancelReasons],
@@ -708,7 +732,7 @@ export function IncomingOrdersSection({
     setMarkingId(id);
     const { error } = await supabase
       .from("requests")
-      .update({ appointment_status: action })
+      .update({ appointment_status: action, status: "accepted" })
       .eq("id", id)
       .eq("vendor_id", vendorId);
     setMarkingId(null);
@@ -736,7 +760,9 @@ export function IncomingOrdersSection({
       });
     }
     setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, appointment_status: action } : r)),
+      prev.map((r) =>
+        r.id === id ? { ...r, appointment_status: action, status: "accepted" } : r,
+      ),
     );
     toast.success(s.incoming_apptConfirmed);
   };
@@ -747,6 +773,29 @@ export function IncomingOrdersSection({
     setSelectedReason(null);
     setOtherReasonText("");
   };
+
+  const handleCallCustomer = (phone: string, mode: string) => {
+    setCallTargetPhone(phone);
+    setCallServiceMode(mode);
+    setCallSheetOpen(true);
+  };
+
+  const callBridgeVendor = useMemo((): AiBridgeVendor | null => {
+    if (!callTargetPhone) return null;
+    return {
+      id: `customer-${callTargetPhone}`,
+      name: s.incoming_customer,
+      shop_name: s.incoming_customer,
+      category: s.incoming_customer,
+      vendor_note: null,
+      phone: callTargetPhone,
+      service_mode: callServiceMode,
+      verification_status: "unverified",
+      is_manual_verified: false,
+      total_helped: 0,
+      on_time_rate: null,
+    };
+  }, [callTargetPhone, callServiceMode, s.incoming_customer]);
 
   const confirmDeclineBooking = async () => {
     if (!declineOrderId || !selectedReason) return;
@@ -950,7 +999,7 @@ export function IncomingOrdersSection({
     void invokecalculateTrustScore(flagUserPhone);
     setFlaggedOrderIds((prev) => ({ ...prev, [flagOrderId]: true }));
     closeFlagSheet();
-    toast.success("Report submitted — thank you for keeping the community safe");
+    toast.success(s.incoming_flag_report_submitted);
   };
 
   const confirmCancelOrder = async () => {
@@ -1017,22 +1066,6 @@ export function IncomingOrdersSection({
       ),
     );
     closeCancelSheet();
-  };
-
-  const cancelAppointment = async (id: string) => {
-    const { error } = await supabase
-      .from("requests")
-      .update({ appointment_status: "cancelled" })
-      .eq("id", id)
-      .eq("vendor_id", vendorId);
-    if (error) {
-      toast.error(s.incoming_errCouldNotCancel, { description: error.message });
-      return;
-    }
-    toast.success(s.incoming_bookingCancelled);
-    setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, appointment_status: "cancelled" } : r)),
-    );
   };
 
   const unread = countUnreadIncomingOrders(rows, serviceMode);
@@ -1228,7 +1261,10 @@ export function IncomingOrdersSection({
                       );
                     })()}
                   {(() => {
-                    const trustBadge = getUserTrustBadge(trustByPhone[r.user_phone.trim()]);
+                    const trustBadge = getUserTrustBadge(
+                      trustByPhone[r.user_phone.trim()],
+                      trustBadgeLabels,
+                    );
                     if (!trustBadge) return null;
                     return (
                       <span className={cn("text-xs font-normal", trustBadge.className)}>
@@ -1348,6 +1384,18 @@ export function IncomingOrdersSection({
                         >
                           {s.incoming_cancelBooking}
                         </button>
+                        {r.user_phone && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleCallCustomer(r.user_phone!, serviceMode ?? "appointment")
+                            }
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
+                            aria-label={s.incoming_callCustomer}
+                          >
+                            📞 {s.incoming_callCustomer}
+                          </button>
+                        )}
                         <button
                           type="button"
                           data-testid="incoming-done-btn"
@@ -1375,7 +1423,7 @@ export function IncomingOrdersSection({
                   onClick={() => void dismissOrder(r.id)}
                   className="w-full rounded-lg border border-border bg-muted/40 text-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                 >
-                  {markingId === r.id ? s.incoming_saving : "✅ Dismiss"}
+                  {markingId === r.id ? s.incoming_saving : s.incoming_dismiss}
                 </button>
               )}
 
@@ -1419,15 +1467,29 @@ export function IncomingOrdersSection({
                     </button>
                   )}
                   {r.status === "accepted" && (
-                    <button
-                      type="button"
-                      data-testid="incoming-done-btn"
-                      disabled={markingId === r.id}
-                      onClick={() => void markDone(r.id)}
-                      className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
-                    </button>
+                    <>
+                      {r.user_phone && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCallCustomer(r.user_phone!, serviceMode ?? "help")
+                          }
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
+                          aria-label={s.incoming_callCustomer}
+                        >
+                          📞 {s.incoming_callCustomer}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        data-testid="incoming-done-btn"
+                        disabled={markingId === r.id}
+                        onClick={() => void markDone(r.id)}
+                        className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                      >
+                        {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
+                      </button>
+                    </>
                   )}
                   {(r.status === "fulfilled" || r.status === "cancelled") &&
                     r.user_phone &&
@@ -1437,7 +1499,7 @@ export function IncomingOrdersSection({
                         onClick={() => openFlagSheet(r)}
                         className="w-full text-left text-[11px] text-muted-foreground/80 hover:text-muted-foreground py-1"
                       >
-                        🚩 Report an issue with this order
+                        {s.incoming_flag_report_btn}
                       </button>
                     )}
                 </>
@@ -1524,7 +1586,7 @@ export function IncomingOrdersSection({
                             dismissBlockedByKhata && "opacity-50 cursor-not-allowed",
                           )}
                         >
-                          {markingId === r.id ? s.incoming_saving : "✅ Dismiss"}
+                          {markingId === r.id ? s.incoming_saving : s.incoming_dismiss}
                         </button>
                         {dismissBlockedByKhata && (
                           <p className="text-[10px] text-muted-foreground text-center mt-1">
@@ -1544,7 +1606,7 @@ export function IncomingOrdersSection({
       <Sheet open={flagOrderId != null} onOpenChange={(open) => !open && closeFlagSheet()}>
         <SheetContent side="bottom" className="rounded-t-2xl">
           <SheetHeader className="text-left">
-            <SheetTitle>Report an Issue</SheetTitle>
+            <SheetTitle>{s.incoming_flag_report_title}</SheetTitle>
           </SheetHeader>
           <div className="mt-4 space-y-4">
             <RadioGroup
@@ -1553,7 +1615,7 @@ export function IncomingOrdersSection({
                 setSelectedFlagType(value as "noshow" | "fake" | "abusive")
               }
             >
-              {FLAG_OPTIONS.map((opt) => (
+              {flagOptions.map((opt) => (
                 <div key={opt.value} className="flex items-start gap-3">
                   <RadioGroupItem
                     value={opt.value}
@@ -1574,7 +1636,7 @@ export function IncomingOrdersSection({
                 htmlFor="flag-notes"
                 className="text-xs text-muted-foreground block mb-1.5"
               >
-                Additional notes (optional)
+                {s.incoming_flag_notes_label}
               </label>
               <textarea
                 id="flag-notes"
@@ -1582,17 +1644,18 @@ export function IncomingOrdersSection({
                 onChange={(e) => setFlagNotes(e.target.value.slice(0, 200))}
                 maxLength={200}
                 rows={2}
-                placeholder="Additional notes (optional)"
+                placeholder={s.incoming_flag_notes_placeholder}
                 className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <button
               type="button"
+              data-testid="incoming-flag-submit"
               disabled={flagSubmitting || !selectedFlagType}
               onClick={() => void submitFlagReport()}
               className="w-full rounded-xl bg-primary text-primary-foreground py-3 font-semibold disabled:opacity-50"
             >
-              {flagSubmitting ? s.incoming_saving : "Submit Report"}
+              {flagSubmitting ? s.incoming_saving : s.incoming_flag_submit}
             </button>
           </div>
         </SheetContent>
@@ -1675,14 +1738,16 @@ export function IncomingOrdersSection({
           </SheetHeader>
           <div className="mt-4 space-y-4">
             <div>
-              <label className="text-xs text-muted-foreground block mb-1.5">Customer phone</label>
+              <label className="text-xs text-muted-foreground block mb-1.5">
+                {s.incoming_ledger_customer_phone}
+              </label>
               <p className="text-sm font-medium tabular-nums">
                 {ledgerUserPhone ? maskPhoneLast4(ledgerUserPhone) : "—"}
               </p>
             </div>
             <div>
               <label className="text-xs text-muted-foreground block mb-1.5" htmlFor="ledger-amount">
-                Amount
+                {s.incoming_ledger_amount_label}
               </label>
               <input
                 id="ledger-amount"
@@ -1692,12 +1757,12 @@ export function IncomingOrdersSection({
                 step="0.01"
                 value={ledgerAmount}
                 onChange={(e) => setLedgerAmount(e.target.value)}
-                placeholder="Amount charged ₹"
+                placeholder={s.incoming_ledger_amount_placeholder}
                 className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1.5">Service</p>
+              <p className="text-xs text-muted-foreground mb-1.5">{s.incoming_ledger_service_label}</p>
               <div className="rounded-xl border border-border bg-muted/40 px-3 py-2.5">
                 <p
                   className={cn(
@@ -1707,7 +1772,7 @@ export function IncomingOrdersSection({
                       : "text-muted-foreground italic",
                   )}
                 >
-                  {ledgerOrderNote.trim() || "No description"}
+                  {ledgerOrderNote.trim() || s.incoming_ledger_no_description}
                 </p>
               </div>
             </div>
@@ -1716,7 +1781,7 @@ export function IncomingOrdersSection({
                 className="text-xs text-muted-foreground block mb-1.5"
                 htmlFor="ledger-vendor-note"
               >
-                Additional note (optional)
+                {s.incoming_ledger_vendor_note_label}
               </label>
               <textarea
                 id="ledger-vendor-note"
@@ -1724,7 +1789,7 @@ export function IncomingOrdersSection({
                 onChange={(e) => setLedgerVendorNote(e.target.value.slice(0, 100))}
                 maxLength={100}
                 rows={2}
-                placeholder="Add a note..."
+                placeholder={s.incoming_ledger_vendor_note_placeholder}
                 className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
@@ -1744,9 +1809,9 @@ export function IncomingOrdersSection({
       <Sheet open={declineOrderId != null} onOpenChange={(open) => !open && closeDeclineSheet()}>
         <SheetContent side="bottom" className="rounded-t-2xl">
           <SheetHeader className="text-left">
-            <SheetTitle>Decline Booking</SheetTitle>
+            <SheetTitle>{s.incoming_decline_booking_title}</SheetTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Select a reason (shown to customer)
+              {s.incoming_decline_reason_hint}
             </p>
           </SheetHeader>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -1802,7 +1867,7 @@ export function IncomingOrdersSection({
             onClick={() => void confirmDeclineBooking()}
             className="mt-4 w-full rounded-xl bg-destructive text-destructive-foreground py-3 font-semibold disabled:opacity-50"
           >
-            {declining ? s.incoming_saving : "Confirm Decline"}
+            {declining ? s.incoming_saving : s.incoming_confirm_decline}
           </button>
         </SheetContent>
       </Sheet>
@@ -1821,6 +1886,15 @@ export function IncomingOrdersSection({
           shopName={shopName}
           khataAmberLimit={khataAmberLimit}
           khataRedLimit={khataRedLimit}
+        />
+      )}
+
+      {callBridgeVendor && (
+        <AiBridgeSheet
+          open={callSheetOpen}
+          onClose={() => setCallSheetOpen(false)}
+          vendor={callBridgeVendor}
+          callerPhone={getUserPhone() ?? ""}
         />
       )}
       </div>

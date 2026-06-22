@@ -28,7 +28,7 @@ export function TrustWarningBanner({ tier, context, className }: TrustWarningBan
             {s.trust_secure_connection}
           </p>
           <p className="text-[10.5px] text-gray-400 leading-snug">
-            Phone numbers and exact house numbers are masked.
+            {s.trust_banner_masked_privacy}
           </p>
         </div>
       </div>

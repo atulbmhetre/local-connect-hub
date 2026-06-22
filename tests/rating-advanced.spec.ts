@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertRowExists, assertVendorField } from './helpers/db-assert';
 
 let testVendor: any;
@@ -12,20 +12,20 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await supabase.from('vendor_reviews').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
-  await supabase.from('user_notifications').delete().eq('user_phone', ADMIN_PHONE).eq('type', 'admin_alert');
+  await supabaseAdmin.from('vendor_reviews').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', ADMIN_PHONE).eq('type', 'admin_alert');
   await cleanupTestData();
 });
 
 test('RV-02: avg_rating recalculates after new review', async () => {
   // Set known state
-  await supabase
+  await supabaseAdmin
     .from('vendors')
     .update({ avg_rating: 4.0, review_count: 2 })
     .eq('id', testVendor.id);
 
   // Create a request to review
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -37,7 +37,7 @@ test('RV-02: avg_rating recalculates after new review', async () => {
     .single();
 
   // Submit 2 star review
-  await supabase.from('vendor_reviews').insert({
+  await supabaseAdmin.from('vendor_reviews').insert({
     vendor_id: testVendor.id,
     request_id: order.id,
     user_phone: TEST_CUSTOMER_PHONE,
@@ -50,12 +50,12 @@ test('RV-02: avg_rating recalculates after new review', async () => {
   const newAvg = (4.0 * 2 + 2) / 3;
   const newCount = 3;
 
-  await supabase
+  await supabaseAdmin
     .from('vendors')
     .update({ avg_rating: newAvg, review_count: newCount })
     .eq('id', testVendor.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendors')
     .select('avg_rating, review_count')
     .eq('id', testVendor.id)
@@ -67,7 +67,7 @@ test('RV-02: avg_rating recalculates after new review', async () => {
 
 test('RV-05: low rating admin alert fires when avg < 2.0 and count >= 5', async () => {
   // Set conditions: avg < 2.0, count >= 5, flag not set
-  await supabase
+  await supabaseAdmin
     .from('vendors')
     .update({
       avg_rating: 1.8,
@@ -76,7 +76,7 @@ test('RV-05: low rating admin alert fires when avg < 2.0 and count >= 5', async 
     })
     .eq('id', testVendor.id);
 
-  const { data: vendor } = await supabase
+  const { data: vendor } = await supabaseAdmin
     .from('vendors')
     .select('avg_rating, review_count, low_rating_admin_notified')
     .eq('id', testVendor.id)
@@ -90,7 +90,7 @@ test('RV-05: low rating admin alert fires when avg < 2.0 and count >= 5', async 
   expect(shouldAlert).toBe(true);
 
   if (shouldAlert) {
-    await supabase.from('user_notifications').insert({
+    await supabaseAdmin.from('user_notifications').insert({
       user_phone: ADMIN_PHONE,
       type: 'admin_alert',
       title: 'Low Rating Alert',
@@ -99,7 +99,7 @@ test('RV-05: low rating admin alert fires when avg < 2.0 and count >= 5', async 
       route_params: { vendor_id: testVendor.id },
     });
 
-    await supabase
+    await supabaseAdmin
       .from('vendors')
       .update({ low_rating_admin_notified: true })
       .eq('id', testVendor.id);
@@ -114,18 +114,18 @@ test('RV-05: low rating admin alert fires when avg < 2.0 and count >= 5', async 
 
 test('RV-06: low rating alert NOT fired twice — flag prevents repeat', async () => {
   // Flag already true
-  await supabase
+  await supabaseAdmin
     .from('vendors')
     .update({ low_rating_admin_notified: true })
     .eq('id', testVendor.id);
 
-  const { count: before } = await supabase
+  const { count: before } = await supabaseAdmin
     .from('user_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_phone', ADMIN_PHONE)
     .eq('type', 'admin_alert');
 
-  const { data: vendor } = await supabase
+  const { data: vendor } = await supabaseAdmin
     .from('vendors')
     .select('low_rating_admin_notified')
     .eq('id', testVendor.id)
@@ -133,7 +133,7 @@ test('RV-06: low rating alert NOT fired twice — flag prevents repeat', async (
 
   // App skips notification — flag is true
   if (!vendor?.low_rating_admin_notified) {
-    await supabase.from('user_notifications').insert({
+    await supabaseAdmin.from('user_notifications').insert({
       user_phone: ADMIN_PHONE,
       type: 'admin_alert',
       title: 'Low Rating Alert',
@@ -141,7 +141,7 @@ test('RV-06: low rating alert NOT fired twice — flag prevents repeat', async (
     });
   }
 
-  const { count: after } = await supabase
+  const { count: after } = await supabaseAdmin
     .from('user_notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_phone', ADMIN_PHONE)
@@ -151,15 +151,15 @@ test('RV-06: low rating alert NOT fired twice — flag prevents repeat', async (
 });
 
 test('RV-07: low rating flag resets when avg recovers above 3.5', async () => {
-  await supabase.from('vendor_reviews').delete().eq('vendor_id', testVendor.id);
+  await supabaseAdmin.from('vendor_reviews').delete().eq('vendor_id', testVendor.id);
 
-  await supabase
+  await supabaseAdmin
     .from('vendors')
     .update({ avg_rating: 1.8, review_count: 0, low_rating_admin_notified: true })
     .eq('id', testVendor.id);
 
   for (let i = 0; i < 4; i++) {
-    const { data: order } = await supabase
+    const { data: order } = await supabaseAdmin
       .from('requests')
       .insert({
         vendor_id: testVendor.id,
@@ -170,7 +170,7 @@ test('RV-07: low rating flag resets when avg recovers above 3.5', async () => {
       .select()
       .single();
 
-    await supabase.from('vendor_reviews').insert({
+    await supabaseAdmin.from('vendor_reviews').insert({
       vendor_id: testVendor.id,
       request_id: order!.id,
       user_phone: TEST_CUSTOMER_PHONE,
@@ -180,7 +180,7 @@ test('RV-07: low rating flag resets when avg recovers above 3.5', async () => {
   }
 
   // Mirrors syncVendorRatingFromReviews recovery branch (avg > 3.5 clears flag)
-  const { data: reviews } = await supabase
+  const { data: reviews } = await supabaseAdmin
     .from('vendor_reviews')
     .select('rating')
     .eq('vendor_id', testVendor.id);
@@ -194,9 +194,9 @@ test('RV-07: low rating flag resets when avg recovers above 3.5', async () => {
   if (avgRating > 3.5) {
     update.low_rating_admin_notified = false;
   }
-  await supabase.from('vendors').update(update).eq('id', testVendor.id);
+  await supabaseAdmin.from('vendors').update(update).eq('id', testVendor.id);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendors')
     .select('avg_rating, low_rating_admin_notified')
     .eq('id', testVendor.id)
@@ -207,7 +207,7 @@ test('RV-07: low rating flag resets when avg recovers above 3.5', async () => {
 });
 
 test('RV-08: vendor can respond to review', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -218,7 +218,7 @@ test('RV-08: vendor can respond to review', async () => {
     .select()
     .single();
 
-  const { data: review } = await supabase
+  const { data: review } = await supabaseAdmin
     .from('vendor_reviews')
     .insert({
       vendor_id: testVendor.id,
@@ -232,7 +232,7 @@ test('RV-08: vendor can respond to review', async () => {
     .single();
 
   const responseText = 'Thank you for your feedback!';
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('vendor_reviews')
     .update({
       vendor_response: responseText,
@@ -242,7 +242,7 @@ test('RV-08: vendor can respond to review', async () => {
 
   expect(error).toBeNull();
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendor_reviews')
     .select('vendor_response, vendor_responded_at')
     .eq('id', review.id)
@@ -253,7 +253,7 @@ test('RV-08: vendor can respond to review', async () => {
 });
 
 test('RV-04: skip rating — no vendor_reviews row inserted', async () => {
-  const { data: order } = await supabase
+  const { data: order } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -265,7 +265,7 @@ test('RV-04: skip rating — no vendor_reviews row inserted', async () => {
     .single();
 
   // Customer skips — no insert happens
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('vendor_reviews')
     .select('id')
     .eq('request_id', order.id);

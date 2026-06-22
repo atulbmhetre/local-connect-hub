@@ -1,6 +1,12 @@
-import { createClient } from '@supabase/supabase-js';
+import type { Page } from '@playwright/test';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 dotenv.config({ path: '.env.test' });
+
+const APP_URL = process.env.VITE_APP_URL || 'http://localhost:8080';
 
 export const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -77,7 +83,7 @@ export async function createTestVendor(opts: RegisterVendorRpcOptions = {}) {
 
   const vendorId = result.vendorId!;
   if (opts.is_active !== false) {
-    await supabase
+    await supabaseAdmin
       .from('vendors')
       .update({ is_active: opts.is_active ?? true })
       .eq('id', vendorId);
@@ -137,8 +143,38 @@ export async function getActiveCategoryByLabel(label: string) {
     .limit(1)
     .maybeSingle();
   if (error) throw error;
-  if (!data) throw new Error(`No active category found for label: ${label}`);
-  return data;
+  if (data) return data;
+
+  const { data: inactive } = await supabaseAdmin
+    .from('categories')
+    .select('id, label, service_mode')
+    .ilike('label', label)
+    .limit(1)
+    .maybeSingle();
+  if (inactive) {
+    const { error: activateError } = await supabaseAdmin
+      .from('categories')
+      .update({ is_active: true, status: 'active' })
+      .eq('id', inactive.id);
+    if (activateError) throw activateError;
+    return inactive;
+  }
+
+  const { data: created, error: insertError } = await supabaseAdmin
+    .from('categories')
+    .insert({
+      label,
+      emoji: '🛒',
+      service_mode: 'delivery',
+      is_active: true,
+      status: 'active',
+      sort_order: 999,
+      pending_review: false,
+    })
+    .select('id, label, service_mode')
+    .single();
+  if (insertError) throw insertError;
+  return created;
 }
 
 export async function getActiveCategories(limit: number) {
@@ -195,7 +231,7 @@ export async function seedBronzeVendorVerification(vendorId: string) {
 }
 
 export async function createTestCustomer() {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('users')
     .insert({
       phone: TEST_CUSTOMER_PHONE,
@@ -218,22 +254,22 @@ export async function cleanupTestVendors() {
   ];
 
   if (vendorIds.length > 0) {
-    await supabase
+    await supabaseAdmin
       .from('categories')
       .update({ suggested_by_vendor_id: null })
       .in('suggested_by_vendor_id', vendorIds);
-    await supabase
+    await supabaseAdmin
       .from('app_users')
       .update({ referred_by_vendor_id: null })
       .in('referred_by_vendor_id', vendorIds);
-    await supabase
+    await supabaseAdmin
       .from('feed_replies')
       .update({ suggested_vendor_id: null })
       .in('suggested_vendor_id', vendorIds);
 
-    await supabase.from('vendor_credits').delete().in('vendor_id', vendorIds);
-    await supabase.from('referrals').delete().in('referrer_vendor_id', vendorIds);
-    await supabase.from('referrals').delete().like('referee_id', '99000%');
+    await supabaseAdmin.from('vendor_credits').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('referrals').delete().in('referrer_vendor_id', vendorIds);
+    await supabaseAdmin.from('referrals').delete().like('referee_id', '99000%');
 
     const { data: requestRows } = await supabase
       .from('requests')
@@ -241,17 +277,17 @@ export async function cleanupTestVendors() {
       .in('vendor_id', vendorIds);
     const requestIds = requestRows?.map((r) => r.id) ?? [];
     if (requestIds.length > 0) {
-      await supabase.from('order_items').delete().in('request_id', requestIds);
+      await supabaseAdmin.from('order_items').delete().in('request_id', requestIds);
     }
-    await supabase.from('requests').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('requests').delete().in('vendor_id', vendorIds);
 
-    await supabase.from('saved_vendors').delete().in('vendor_id', vendorIds);
-    await supabase.from('vendor_reviews').delete().in('vendor_id', vendorIds);
-    await supabase.from('order_bills').delete().in('vendor_id', vendorIds);
-    await supabase.from('khata_transactions').delete().in('vendor_id', vendorIds);
-    await supabase.from('khata_ledger').delete().in('vendor_id', vendorIds);
-    await supabase.from('user_flags').delete().in('vendor_id', vendorIds);
-    await supabase.from('vendor_menu_items').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('saved_vendors').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('vendor_reviews').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('order_bills').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('khata_transactions').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('khata_ledger').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('user_flags').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('vendor_menu_items').delete().in('vendor_id', vendorIds);
 
     const { data: postRows } = await supabase
       .from('feed_posts')
@@ -259,37 +295,267 @@ export async function cleanupTestVendors() {
       .in('vendor_id', vendorIds);
     const postIds = postRows?.map((p) => p.id) ?? [];
     if (postIds.length > 0) {
-      await supabase.from('feed_flags').delete().in('post_id', postIds);
-      await supabase.from('feed_replies').delete().in('post_id', postIds);
+      await supabaseAdmin.from('feed_flags').delete().in('post_id', postIds);
+      await supabaseAdmin.from('feed_replies').delete().in('post_id', postIds);
     }
-    await supabase.from('feed_posts').delete().in('vendor_id', vendorIds);
+    await supabaseAdmin.from('feed_posts').delete().in('vendor_id', vendorIds);
 
     await supabaseAdmin.from('vendor_categories').delete().in('vendor_id', vendorIds);
     await supabaseAdmin.from('vendor_verification').delete().in('vendor_id', vendorIds);
-    await supabase.from('vendors').delete().in('id', vendorIds);
+    await supabaseAdmin.from('vendors').delete().in('id', vendorIds);
   } else {
-    await supabase.from('referrals').delete().like('referee_id', '99000%');
+    await supabaseAdmin.from('referrals').delete().like('referee_id', '99000%');
   }
 }
 
 export async function cleanupTestData() {
   // Delete in FK-safe order
-  await supabase.from('vendor_reviews').delete().like('user_phone', '88000%');
-  await supabase.from('order_items').delete().in(
+  await supabaseAdmin.from('vendor_reviews').delete().like('user_phone', '88000%');
+  await supabaseAdmin.from('order_items').delete().in(
     'request_id',
     (await supabase.from('requests').select('id').like('user_phone', '88000%')).data?.map(r => r.id) ?? []
   );
-  await supabase.from('order_bills').delete().in(
+  await supabaseAdmin.from('order_bills').delete().in(
     'request_id',
     (await supabase.from('requests').select('id').like('user_phone', '88000%')).data?.map(r => r.id) ?? []
   );
-  await supabase.from('khata_transactions').delete().like('user_phone', '88000%');
-  await supabase.from('khata_ledger').delete().like('user_phone', '88000%');
-  await supabase.from('user_notifications').delete().like('user_phone', '88000%');
-  await supabase.from('user_notifications').delete().like('user_phone', '99000%');
-  await supabase.from('requests').delete().like('user_phone', '88000%');
-  await supabase.from('saved_vendors').delete().like('user_phone', '88000%');
-  await supabase.from('admin_actions').delete().like('target_id', '%test%');
-  await supabase.from('referrals').delete().like('referee_id', '88000%');
-  await supabase.from('users').delete().like('phone', '88000%');
+  await supabaseAdmin.from('khata_transactions').delete().like('user_phone', '88000%');
+  await supabaseAdmin.from('khata_ledger').delete().like('user_phone', '88000%');
+  await supabaseAdmin.from('user_notifications').delete().like('user_phone', '88000%');
+  await supabaseAdmin.from('user_notifications').delete().like('user_phone', '99000%');
+  await supabaseAdmin.from('requests').delete().like('user_phone', '88000%');
+  await supabaseAdmin.from('saved_vendors').delete().like('user_phone', '88000%');
+  await supabaseAdmin.from('admin_actions').delete().like('target_id', '%test%');
+  await supabaseAdmin.from('referrals').delete().like('referee_id', '88000%');
+  await supabaseAdmin.from('users').delete().like('phone', '88000%');
+}
+
+function supabaseAuthStorageKey(): string | null {
+  const url = process.env.VITE_SUPABASE_URL ?? '';
+  const ref = url.match(/^https:\/\/([^.]+)\.supabase\.co/)?.[1];
+  return ref ? `sb-${ref}-auth-token` : null;
+}
+
+const sessionCache = new Map<
+  string,
+  { access_token: string; refresh_token: string; expires_at: number }
+>();
+
+function cachedSessionValid(
+  cached: { expires_at: number },
+): boolean {
+  return cached.expires_at > Math.floor(Date.now() / 1000);
+}
+
+const OTP_COUNT_FILE = path.join(os.tmpdir(), 'aaspaas-otp-count.json');
+const OTP_COUNT_LOCK_FILE = `${OTP_COUNT_FILE}.lock`;
+const OTP_WINDOW_MS = 60_000;
+const OTP_MAX_CALLS = 10;
+const OTP_RATE_LIMIT_RETRY_MS = 35_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isSmsRateLimitError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('sms rate limit') || normalized.includes('rate limit exceeded');
+}
+
+async function withOtpCountLock<T>(fn: () => T): Promise<T> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    try {
+      fs.writeFileSync(OTP_COUNT_LOCK_FILE, String(process.pid), { flag: 'wx' });
+      try {
+        return fn();
+      } finally {
+        try {
+          fs.unlinkSync(OTP_COUNT_LOCK_FILE);
+        } catch {
+          // ignore stale lock cleanup failures
+        }
+      }
+    } catch {
+      await sleep(25);
+    }
+  }
+  throw new Error('Failed to acquire OTP count lock');
+}
+
+function readRecentOtpTimestamps(): number[] {
+  try {
+    const raw = fs.readFileSync(OTP_COUNT_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as { timestamps?: number[] };
+    const now = Date.now();
+    return (parsed.timestamps ?? []).filter((ts) => now - ts < OTP_WINDOW_MS);
+  } catch {
+    return [];
+  }
+}
+
+function writeOtpTimestamps(timestamps: number[]): void {
+  fs.writeFileSync(OTP_COUNT_FILE, JSON.stringify({ timestamps }), 'utf8');
+}
+
+async function waitForOtpSlot(logTag: string): Promise<void> {
+  while (true) {
+    const timestamps = await withOtpCountLock(() => readRecentOtpTimestamps());
+    if (timestamps.length < OTP_MAX_CALLS) return;
+
+    const oldest = Math.min(...timestamps);
+    const waitMs = OTP_WINDOW_MS - (Date.now() - oldest) + 250;
+    console.warn(
+      `[${logTag}] OTP global limit (${timestamps.length}/${OTP_MAX_CALLS} in 60s), waiting ${Math.ceil(waitMs / 1000)}s`,
+    );
+    await sleep(Math.max(waitMs, 1000));
+  }
+}
+
+async function recordOtpCall(): Promise<void> {
+  await withOtpCountLock(() => {
+    const timestamps = readRecentOtpTimestamps();
+    timestamps.push(Date.now());
+    writeOtpTimestamps(timestamps);
+  });
+}
+
+async function signInWithOtpThrottled(
+  otpClient: SupabaseClient,
+  otpPhone: string,
+  logTag: string,
+) {
+  await waitForOtpSlot(logTag);
+  await recordOtpCall();
+  let { error } = await otpClient.auth.signInWithOtp({ phone: otpPhone });
+
+  if (error && isSmsRateLimitError(error.message)) {
+    console.warn(`[${logTag}] signInWithOtp rate limited, retrying in 35s`);
+    await sleep(OTP_RATE_LIMIT_RETRY_MS);
+    await waitForOtpSlot(logTag);
+    await recordOtpCall();
+    ({ error } = await otpClient.auth.signInWithOtp({ phone: otpPhone }));
+  }
+
+  return { error };
+}
+
+/** Mint a browser Supabase session via Phase A OTP (signInWithOtp → sms-hook → verifyOtp). */
+export async function mintBrowserSupabaseSession(
+  page: Page,
+  phone: string,
+  logTag: string,
+) {
+  try {
+    const storageKey = supabaseAuthStorageKey();
+    if (!storageKey) {
+      console.error(`[${logTag}] session mint failed: invalid VITE_SUPABASE_URL`);
+      return;
+    }
+
+    const cached = sessionCache.get(phone);
+    if (cached && cachedSessionValid(cached)) {
+      await page.evaluate(
+        ({ key, payload }) => {
+          localStorage.setItem(key, JSON.stringify(payload));
+        },
+        {
+          key: storageKey,
+          payload: {
+            access_token: cached.access_token,
+            refresh_token: cached.refresh_token,
+            token_type: 'bearer',
+            expires_at: cached.expires_at,
+          },
+        },
+      );
+      return;
+    }
+
+    const otpPhone = `91${phone}`;
+    const otpClient = createClient(
+      process.env.VITE_SUPABASE_URL!,
+      process.env.VITE_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+
+    const { error: signInError } = await signInWithOtpThrottled(otpClient, otpPhone, logTag);
+    if (signInError) {
+      console.error(`[${logTag}] signInWithOtp failed:`, signInError.message);
+      return;
+    }
+
+    await page.waitForTimeout(1000);
+
+    const { data: otpRow, error: otpReadError } = await supabaseAdmin
+      .from('_test_otp_capture')
+      .select('otp')
+      .eq('phone', `+${otpPhone}`)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    const otp = otpRow?.otp;
+    if (otpReadError || !otp) {
+      console.error(
+        `[${logTag}] OTP capture read failed:`,
+        otpReadError?.message ?? 'missing otp',
+      );
+      return;
+    }
+
+    const { data: verifyData, error: verifyError } = await otpClient.auth.verifyOtp({
+      phone: otpPhone,
+      token: otp,
+      type: 'sms',
+    });
+    const session = verifyData?.session;
+    if (verifyError || !session?.access_token || session.expires_at == null) {
+      console.error(
+        `[${logTag}] verifyOtp failed:`,
+        verifyError?.message ?? 'missing session',
+      );
+      return;
+    }
+
+    sessionCache.set(phone, {
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: session.expires_at,
+    });
+
+    await page.evaluate(
+      ({ key, payload }) => {
+        localStorage.setItem(key, JSON.stringify(payload));
+      },
+      {
+        key: storageKey,
+        payload: {
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+          token_type: 'bearer',
+          expires_at: session.expires_at,
+        },
+      },
+    );
+  } catch (err) {
+    console.error(`[${logTag}] session mint failed:`, err);
+  }
+}
+
+/** Browser login helper — localStorage identity plus Phase D Supabase session. */
+export async function loginAsCustomer(page: Page, phone: string, deviceId: string) {
+  await page.goto(APP_URL);
+  await page.evaluate(({ phone, deviceId }) => {
+    localStorage.setItem('aaspaas:user_phone', phone);
+    localStorage.setItem('aaspaas:device_id', deviceId);
+    localStorage.setItem('aaspaas:role', 'customer');
+    localStorage.setItem('aaspaas:welcomed', 'true');
+  }, { phone, deviceId });
+
+  // Phase D: mint a real Supabase session so Phase C RLS policies work
+  await mintBrowserSupabaseSession(page, phone, 'loginAsCustomer');
+
+  await page.waitForTimeout(200);
+  await page.reload();
+  await page.waitForSelector('[data-testid="home-screen"]', { timeout: 15000 });
 }

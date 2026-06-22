@@ -1,7 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
-  supabase,
   supabaseAdmin,
   cleanupTestData,
   cleanupTestVendors,
@@ -25,7 +24,7 @@ async function createEditTestVendor(
   const categories = await getActiveCategories(Math.max(categoryCount, 3));
   const primary = categories[0];
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: 'Edit Test Owner',
@@ -94,7 +93,7 @@ test('VE-01: vendor can change vendor_type from shop to home and save', async ({
   await page.getByRole('button', { name: /Home/i }).filter({ hasText: /work from home/i }).first().click();
   await saveEditShop(page);
 
-  const { data } = await supabase.from('vendors').select('vendor_type').eq('id', vendor.id).single();
+  const { data } = await supabaseAdmin.from('vendors').select('vendor_type').eq('id', vendor.id).single();
   expect(data?.vendor_type).toBe('home');
 });
 

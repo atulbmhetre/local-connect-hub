@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Zap,
   PhoneCall,
+  Search,
 } from "lucide-react";
 import {
   supabase,
@@ -47,6 +48,16 @@ import {
   type VendorVerificationRow,
 } from "@/lib/trustLevel";
 import {
+  DEFAULT_SERVICE_RADIUS_KM,
+  PAN_INDIA_RADIUS_KM,
+} from "@/lib/serviceRadius";
+import {
+  excludeOfflineHelpVendors,
+  isPanIndiaServiceRadius,
+  mergeRadarTracks,
+  passesTrackARadiusFilter,
+} from "@/lib/radarVendorFilter";
+import {
   FIRE_EMERGENCY_LABELS,
   MEDICAL_EMERGENCY_LABELS,
   ROADSIDE_EMERGENCY_LABELS,
@@ -74,11 +85,20 @@ export type RadarVendorResult = Vendor & {
   hasFulfilledOrder: boolean;
   fulfilledRequestId: string | null;
   isSavedNeighbour: boolean;
+  isPanIndia?: boolean;
 };
 
 type Ranked = { vendor: RadarVendorResult; dist: number | null };
 
-function resolveCategoryIdsForTerm(term: string, categories: Category[]): string[] {
+type RadarMode = "help" | "delivery" | "appointment";
+
+function parseRadarMode(raw: string | null): RadarMode | null {
+  const m = raw?.trim().toLowerCase();
+  if (m === "help" || m === "delivery" || m === "appointment") return m;
+  return null;
+}
+
+function resolveAllCategoryIdsForTerm(term: string, categories: Category[]): string[] {
   const resolvedLabel = resolveCanonicalTerm(term);
   if (resolvedLabel) {
     const exact = categories.find(
@@ -95,6 +115,113 @@ function resolveCategoryIdsForTerm(term: string, categories: Category[]): string
         t.includes(c.label.toLowerCase()),
     )
     .map((c) => c.id);
+}
+
+function inferModeFromCategoryIds(
+  categoryIds: string[],
+  categories: Category[],
+): RadarMode | null {
+  const modes = new Set<RadarMode>();
+  for (const id of categoryIds) {
+    const cat = categories.find((c) => c.id === id);
+    if (cat?.service_mode === "help" || cat?.service_mode === "delivery" || cat?.service_mode === "appointment") {
+      modes.add(cat.service_mode);
+    }
+  }
+  if (modes.size !== 1) return null;
+  return [...modes][0];
+}
+
+function radarModeDisplayLabel(
+  mode: RadarMode,
+  s: {
+    radar_mode_help: string;
+    radar_mode_delivery: string;
+    radar_mode_booking: string;
+  },
+): string {
+  if (mode === "delivery") return s.radar_mode_delivery;
+  if (mode === "appointment") return s.radar_mode_booking;
+  return s.radar_mode_help;
+}
+
+function resolveCategoryIdsForTerm(
+  term: string,
+  categories: Category[],
+  serviceMode: RadarMode,
+): string[] {
+  const modeCategories = categories.filter((c) => c.service_mode === serviceMode);
+  const resolvedLabel = resolveCanonicalTerm(term);
+  if (resolvedLabel) {
+    const exact = modeCategories.find(
+      (c) => c.label.toLowerCase() === resolvedLabel.toLowerCase(),
+    );
+    if (exact) return [exact.id];
+  }
+  const t = term.trim().toLowerCase();
+  if (!t) return [];
+  return modeCategories
+    .filter(
+      (c) =>
+        c.label.toLowerCase().includes(t) ||
+        t.includes(c.label.toLowerCase()),
+    )
+    .map((c) => c.id);
+}
+
+function RadarModeSelector({
+  selectedMode,
+  onModeChange,
+}: {
+  selectedMode: RadarMode;
+  onModeChange: (mode: RadarMode) => void;
+}) {
+  const { s } = useLanguage();
+  const modes: {
+    id: RadarMode;
+    emoji: string;
+    label: keyof typeof s;
+    sub: keyof typeof s;
+  }[] = [
+    { id: "help", emoji: "🆘", label: "radar_mode_help", sub: "radar_mode_help_sub" },
+    { id: "delivery", emoji: "📦", label: "radar_mode_delivery", sub: "radar_mode_delivery_sub" },
+    { id: "appointment", emoji: "📅", label: "radar_mode_booking", sub: "radar_mode_booking_sub" },
+  ];
+
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {modes.map((mode) => {
+        const selected = selectedMode === mode.id;
+        return (
+          <button
+            key={mode.id}
+            type="button"
+            data-testid={`radar-mode-${mode.id}`}
+            onClick={() => onModeChange(mode.id)}
+            className={cn(
+              "min-h-[64px] rounded-xl px-2 py-2 flex flex-col items-center justify-center gap-0.5 transition-colors active:scale-[0.98]",
+              selected
+                ? "bg-brand text-white"
+                : "bg-muted text-muted-foreground border border-surface-border",
+            )}
+          >
+            <span className="text-lg leading-none" aria-hidden>
+              {mode.emoji}
+            </span>
+            <span className="text-xs font-semibold leading-tight">{s[mode.label]}</span>
+            <span
+              className={cn(
+                "text-[10px] leading-tight text-center",
+                selected ? "text-white/80" : "text-muted-foreground",
+              )}
+            >
+              {s[mode.sub]}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function buildVendorCategoriesMap(
@@ -134,6 +261,17 @@ function buildVendorCategoriesMap(
 /** ~55 km at Indian latitudes; slightly wider than max search radius. */
 const BBOX_DELTA_DEG = 0.5;
 const GPS_TIMEOUT_MS = 10_000;
+const TRACK_A_LIMIT = 80;
+const TRACK_B_LIMIT = 20;
+
+const RADAR_BRACKET_OPTIONS = [
+  { value: 15, labelKey: "radar_bracket_15" as const },
+  { value: 25, labelKey: "radar_bracket_25" as const },
+  { value: 50, labelKey: "radar_bracket_50" as const },
+  { value: 100, labelKey: "radar_bracket_100" as const },
+  { value: 500, labelKey: "radar_bracket_500" as const },
+  { value: PAN_INDIA_RADIUS_KM, labelKey: "radar_bracket_india" as const },
+];
 
 type LocationHighlightState = { highlightVendorId?: string };
 
@@ -159,23 +297,29 @@ function RadarVendorCardSkeleton() {
 const RadarSearch = () => {
   const { s } = useLanguage();
   const { config } = useAppConfig();
-  const nearRadius = config.radarCityRadiusKm ?? 15;
-  const maxRadius = config.radarHighwayRadiusKm ?? 50;
-  const midRadius = Math.round((nearRadius + maxRadius) / 2);
   const getCategoryLabel = useCategoryLabel();
   const navigate = useNavigate();
   const location = useLocation();
   const highlightVendorId = (location.state as LocationHighlightState | null)?.highlightVendorId;
   const [flashVendorId, setFlashVendorId] = useState<string | null>(null);
-  const [params] = useSearchParams();
+  const [params, setSearchParams] = useSearchParams();
   const term = (params.get("q") ?? "").trim();
+  const urlMode = parseRadarMode(params.get("mode"));
+  const [selectedMode, setSelectedMode] = useState<RadarMode>(() => urlMode ?? "help");
+  const [searchDraft, setSearchDraft] = useState("");
+  const [modeMismatchHint, setModeMismatchHint] = useState<{
+    suggestedMode: RadarMode;
+    categoryId: string;
+    categoryName: string;
+  } | null>(null);
+  const [forcedCategoryId, setForcedCategoryId] = useState<string | null>(null);
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [coordsTried, setCoordsTried] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
   const [scanning, setScanning] = useState(true);
-  /** Active search radius in km (15 â†’ optional 25 / 50). */
-  const [searchRadiusKm, setSearchRadiusKm] = useState(nearRadius);
+  /** Customer distance bracket in km (15–500) or Pan-India sentinel (9999). */
+  const [searchRadiusKm, setSearchRadiusKm] = useState(DEFAULT_SERVICE_RADIUS_KM);
   const [results, setResults] = useState<Ranked[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -216,16 +360,81 @@ const RadarSearch = () => {
     };
   }, []);
 
-  const expanded = searchRadiusKm > nearRadius;
+  const isPanIndiaBracket = searchRadiusKm === PAN_INDIA_RADIUS_KM;
   const locating = !coordsTried;
-  const locationBlocked = coordsTried && coords == null;
+  const locationBlocked = coordsTried && coords == null && !isPanIndiaBracket;
+
+  useEffect(() => {
+    if (!categoriesLoaded) return;
+    if (urlMode) {
+      setSelectedMode(urlMode);
+      return;
+    }
+    if (!term) {
+      setSelectedMode("help");
+      return;
+    }
+    const inferred = inferModeFromCategoryIds(
+      resolveAllCategoryIdsForTerm(term, categories),
+      categories,
+    );
+    if (inferred) setSelectedMode(inferred);
+  }, [categoriesLoaded, term, urlMode, categories]);
+
+  useEffect(() => {
+    setSearchDraft(term);
+  }, [term]);
 
   useLayoutEffect(() => {
-    setSearchRadiusKm(nearRadius);
+    setSearchRadiusKm(DEFAULT_SERVICE_RADIUS_KM);
     setSuggestedCategoryName(null);
     setUnknownTermBrowse(false);
     setAmbulanceEmergencyOnly(false);
-  }, [term, nearRadius]);
+    setModeMismatchHint(null);
+    setForcedCategoryId(null);
+  }, [term]);
+
+  const handleModeChange = useCallback(
+    (mode: RadarMode) => {
+      setSelectedMode(mode);
+      setSearchRadiusKm(DEFAULT_SERVICE_RADIUS_KM);
+      setSearchParams({ mode });
+      setSearchDraft("");
+      setSuggestedCategoryName(null);
+      setUnknownTermBrowse(false);
+      setAmbulanceEmergencyOnly(false);
+      setModeMismatchHint(null);
+      setForcedCategoryId(null);
+    },
+    [setSearchParams],
+  );
+
+  const handleSwitchToSuggestedMode = useCallback(() => {
+    if (!modeMismatchHint) return;
+    setSelectedMode(modeMismatchHint.suggestedMode);
+    setSearchRadiusKm(DEFAULT_SERVICE_RADIUS_KM);
+    setForcedCategoryId(modeMismatchHint.categoryId);
+    setModeMismatchHint(null);
+    setUnknownTermBrowse(false);
+    const next = new URLSearchParams();
+    if (term) next.set("q", term);
+    next.set("mode", modeMismatchHint.suggestedMode);
+    setSearchParams(next);
+  }, [modeMismatchHint, term, setSearchParams]);
+
+  const handleSearchSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      const t = searchDraft.trim();
+      const next = new URLSearchParams();
+      if (t) next.set("q", t);
+      next.set("mode", selectedMode);
+      setSearchParams(next);
+      setModeMismatchHint(null);
+      setForcedCategoryId(null);
+    },
+    [searchDraft, selectedMode, setSearchParams],
+  );
 
   const requestLocation = useCallback(() => {
     setCoordsTried(false);
@@ -276,7 +485,10 @@ const RadarSearch = () => {
 
   const fetchVendors = useCallback(
     async (opts: { silent?: boolean }) => {
-      if (!coords) {
+      const userBracket = searchRadiusKm;
+      const panIndiaOnly = userBracket === PAN_INDIA_RADIUS_KM;
+
+      if (!coords && !panIndiaOnly) {
         if (coordsTried && !opts.silent) setScanning(false);
         return;
       }
@@ -303,9 +515,20 @@ const RadarSearch = () => {
           }
 
           if (isCurrent()) setAmbulanceEmergencyOnly(false);
+          setModeMismatchHint(null);
 
-          let categoryIds = resolveCategoryIdsForTerm(term, categories);
+          let categoryIds = resolveCategoryIdsForTerm(term, categories, selectedMode);
           let aiSuggestedName: string | null = null;
+
+          if (
+            categoryIds.length === 0 &&
+            forcedCategoryId &&
+            categories.find((c) => c.id === forcedCategoryId)?.service_mode === selectedMode
+          ) {
+            categoryIds = [forcedCategoryId];
+            aiSuggestedName =
+              categories.find((c) => c.id === forcedCategoryId)?.label ?? null;
+          }
 
           if (categoryIds.length === 0 && !resolveCanonicalTerm(term)) {
             const result = await invokeSuggestCategory({ description: term });
@@ -316,9 +539,28 @@ const RadarSearch = () => {
               result.category_id &&
               (result.confidence ?? 0) >= threshold
             ) {
-              categoryIds = [result.category_id];
-              aiSuggestedName = result.category_name ?? null;
-            } else {
+              const suggestedCat = categories.find((c) => c.id === result.category_id);
+              const suggestedMode = parseRadarMode(
+                suggestedCat?.service_mode ?? result.service_mode ?? null,
+              );
+              if (suggestedCat && suggestedMode === selectedMode) {
+                categoryIds = [result.category_id];
+                aiSuggestedName = result.category_name ?? suggestedCat.label;
+              } else if (suggestedCat && suggestedMode && suggestedMode !== selectedMode) {
+                if (isCurrent()) {
+                  setResults([]);
+                  setUnknownTermBrowse(false);
+                  setSuggestedCategoryName(null);
+                  setModeMismatchHint({
+                    suggestedMode,
+                    categoryId: result.category_id,
+                    categoryName: result.category_name ?? suggestedCat.label,
+                  });
+                }
+                return;
+              }
+            }
+            if (categoryIds.length === 0) {
               if (isCurrent()) {
                 setResults([]);
                 setUnknownTermBrowse(true);
@@ -337,6 +579,9 @@ const RadarSearch = () => {
             if (isCurrent()) setResults([]);
             return;
           }
+          if (forcedCategoryId && categoryIds.includes(forcedCategoryId) && isCurrent()) {
+            setForcedCategoryId(null);
+          }
           const { data: vcRows, error: vcError } = await supabase
             .from("vendor_categories")
             .select("vendor_id")
@@ -354,25 +599,53 @@ const RadarSearch = () => {
           setSuggestedCategoryName(null);
         }
 
-        let q = supabase
-          .from("vendors")
-          .select("*, verification_status")
-          .eq("is_active", true)
-          .eq("is_banned", false)
-          .eq("profile_status", "complete")
-          .gte("latitude", coords.lat - BBOX_DELTA_DEG)
-          .lte("latitude", coords.lat + BBOX_DELTA_DEG)
-          .gte("longitude", coords.lng - BBOX_DELTA_DEG)
-          .lte("longitude", coords.lng + BBOX_DELTA_DEG);
+        let qTrackA = panIndiaOnly || !coords
+          ? null
+          : supabase
+              .from("vendors")
+              .select("*, verification_status")
+              .eq("service_mode", selectedMode)
+              .eq("is_banned", false)
+              .eq("profile_status", "complete")
+              .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
+              .gte("latitude", coords.lat - BBOX_DELTA_DEG)
+              .lte("latitude", coords.lat + BBOX_DELTA_DEG)
+              .gte("longitude", coords.lng - BBOX_DELTA_DEG)
+              .lte("longitude", coords.lng + BBOX_DELTA_DEG);
 
-        if (vendorIdFilter) {
-          q = q.in("id", vendorIdFilter);
+        if (qTrackA && selectedMode === "help") {
+          qTrackA = qTrackA.eq("is_active", true);
         }
 
-        const { data, error: fetchError } = await q.limit(80);
-        if (fetchError) throw fetchError;
+        if (qTrackA && vendorIdFilter) {
+          qTrackA = qTrackA.in("id", vendorIdFilter);
+        }
 
-        let bboxVendors = (data ?? []).filter(
+        let qTrackB = supabase
+          .from("vendors")
+          .select("*, verification_status")
+          .eq("service_mode", selectedMode)
+          .eq("is_banned", false)
+          .eq("profile_status", "complete")
+          .eq("service_radius_km", PAN_INDIA_RADIUS_KM);
+
+        if (selectedMode === "help") {
+          qTrackB = qTrackB.eq("is_active", true);
+        }
+
+        if (vendorIdFilter) {
+          qTrackB = qTrackB.in("id", vendorIdFilter);
+        }
+
+        const [trackAResult, trackBResult] = await Promise.all([
+          qTrackA ? qTrackA.limit(TRACK_A_LIMIT) : Promise.resolve({ data: [], error: null }),
+          qTrackB.limit(TRACK_B_LIMIT),
+        ]);
+
+        if (trackAResult.error) throw trackAResult.error;
+        if (trackBResult.error) throw trackBResult.error;
+
+        let trackAVendors = (trackAResult.data ?? []).filter(
           (v) =>
             v.latitude != null &&
             v.longitude != null &&
@@ -380,13 +653,17 @@ const RadarSearch = () => {
             v.longitude !== 0,
         ) as Vendor[];
 
-        if (!term) {
-          bboxVendors = bboxVendors.filter(
-            (v) => String(v.service_mode ?? "").trim().toLowerCase() === "help",
-          );
-        }
+        let trackBVendors = (trackBResult.data ?? []) as Vendor[];
 
-        const vendorIds = bboxVendors.map((v) => v.id);
+        trackAVendors = excludeOfflineHelpVendors(trackAVendors);
+        trackBVendors = excludeOfflineHelpVendors(trackBVendors);
+
+        const vendorIds = [
+          ...new Set([
+            ...trackAVendors.map((v) => v.id),
+            ...trackBVendors.map((v) => v.id),
+          ]),
+        ];
 
         let verificationRows: VendorVerificationRow[] = [];
         let categoriesByVendor = new Map<string, { label: string; emoji: string }[]>();
@@ -486,7 +763,13 @@ const RadarSearch = () => {
 
         const trustByVendor = computeTrustLevelsByVendor(vendorIds, verificationRows);
 
-        const all: Ranked[] = bboxVendors.map((v) => ({
+        const buildVendorResult = (
+          v: Vendor,
+          extras: {
+            dist: number | null;
+            isPanIndia?: boolean;
+          },
+        ): Ranked => ({
           vendor: {
             ...(v as Vendor),
             categories: categoriesByVendor.get(v.id) ?? [],
@@ -496,21 +779,38 @@ const RadarSearch = () => {
             hasFulfilledOrder: fulfilledVendorIds.has(v.id),
             fulfilledRequestId: fulfilledRequestByVendor.get(v.id) ?? null,
             isSavedNeighbour: savedVendorIds.has(v.id),
+            isPanIndia: extras.isPanIndia,
           },
-          dist: distanceKm(coords, { lat: v.latitude!, lng: v.longitude! }),
-        }));
+          dist: extras.dist,
+        });
 
-        const within = (radius: number) =>
-          all.filter((r) => r.dist != null && r.dist <= radius);
+        const trackARanked: Ranked[] = [];
+        if (!panIndiaOnly && coords) {
+          for (const v of trackAVendors) {
+            if (isPanIndiaServiceRadius(v.service_radius_km)) continue;
+            const dist = distanceKm(coords, { lat: v.latitude!, lng: v.longitude! });
+            if (!passesTrackARadiusFilter(dist, userBracket, v.service_radius_km)) continue;
+            trackARanked.push(buildVendorResult(v, { dist }));
+          }
+          trackARanked.sort((a, b) =>
+            compareRadarResults(
+              { dist: a.dist, trustLevel: a.vendor.trustLevel },
+              { dist: b.dist, trustLevel: b.vendor.trustLevel },
+            ),
+          );
+        }
 
-        const scoped = within(searchRadiusKm);
-
-        scoped.sort((a, b) =>
+        const trackBRanked: Ranked[] = trackBVendors.map((v) =>
+          buildVendorResult(v, { dist: null, isPanIndia: true }),
+        );
+        trackBRanked.sort((a, b) =>
           compareRadarResults(
             { dist: a.dist, trustLevel: a.vendor.trustLevel },
             { dist: b.dist, trustLevel: b.vendor.trustLevel },
           ),
         );
+
+        const scoped = mergeRadarTracks(trackARanked, trackBRanked, panIndiaOnly);
 
         if (isCurrent()) setResults(scoped);
       } catch (e: unknown) {
@@ -522,20 +822,20 @@ const RadarSearch = () => {
         if (!opts.silent && isCurrent()) setScanning(false);
       }
     },
-    [coords, coordsTried, term, searchRadiusKm, categories, categoriesLoaded, s.radar_connection_error, config.aiCategoryConfidenceThreshold],
+    [coords, coordsTried, term, searchRadiusKm, selectedMode, forcedCategoryId, categories, categoriesLoaded, s.radar_connection_error, config.aiCategoryConfidenceThreshold],
   );
 
   // Run search only when GPS coordinates AND the category lookup are ready.
   // scanning stays true (initial state / requestLocation) while waiting, so
   // the radar spinner covers the whole search instead of flashing "0 results".
   useEffect(() => {
-    if (!coords) {
+    if (!categoriesLoaded) return;
+    if (!coords && searchRadiusKm !== PAN_INDIA_RADIUS_KM) {
       if (coordsTried) setScanning(false);
       return;
     }
-    if (!categoriesLoaded) return;
     void fetchVendors({ silent: false });
-  }, [coords, coordsTried, categoriesLoaded, fetchVendors]);
+  }, [coords, coordsTried, categoriesLoaded, fetchVendors, searchRadiusKm]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -563,6 +863,22 @@ const RadarSearch = () => {
       ]),
     );
   }, [results, neighboursSyncTick]);
+
+  const localResults = useMemo(
+    () => results.filter(({ vendor }) => !vendor.isPanIndia),
+    [results],
+  );
+  const panIndiaResults = useMemo(
+    () => results.filter(({ vendor }) => vendor.isPanIndia),
+    [results],
+  );
+
+  const bracketLabel = useMemo(() => {
+    const opt = RADAR_BRACKET_OPTIONS.find((o) => o.value === searchRadiusKm);
+    if (!opt) return `${searchRadiusKm}${s.radar_km}`;
+    const key = opt.labelKey;
+    return s[key];
+  }, [searchRadiusKm, s]);
 
   useEffect(() => {
     if (!highlightVendorId || scanning || results.length === 0) return;
@@ -592,7 +908,7 @@ const RadarSearch = () => {
           {/* Search Header */}
           <div className="absolute top-12 text-center px-6">
             <h2 className="text-brand text-sm font-bold tracking-widest uppercase mb-2">
-              {expanded ? s.radar_expanding_scan : s.radar_scanning_area}
+              {s.radar_scanning_area}
             </h2>
             <p className="text-2xl font-semibold italic capitalize text-foreground">
               {s.radar_finding_nearby}{getCategoryLabel(headline)}…
@@ -612,7 +928,7 @@ const RadarSearch = () => {
           {/* Trust Indicator */}
           <div className="absolute bottom-24 flex items-center gap-2 text-gray-400 text-sm text-center px-6">
             <Loader2 className="w-4 h-4 animate-spin text-brand shrink-0" />
-            <span>{s.radar_searching_within}{searchRadiusKm}{s.radar_km}</span>
+            <span>{bracketLabel}</span>
           </div>
         </div>
       ) : (
@@ -640,6 +956,37 @@ const RadarSearch = () => {
             <NotificationBell />
           </header>
 
+          <div className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-3 space-y-3">
+            <RadarModeSelector selectedMode={selectedMode} onModeChange={handleModeChange} />
+            <form onSubmit={handleSearchSubmit} className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <input
+                data-testid="radar-search-input"
+                value={searchDraft}
+                onChange={(e) => setSearchDraft(e.target.value)}
+                placeholder={s.searchPlaceholder}
+                className="w-full bg-muted/50 border border-surface-border rounded-xl pl-10 pr-3 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+              />
+            </form>
+          </div>
+
+          {modeMismatchHint && (
+            <div className="mx-4 mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-2">
+              <p className="text-sm text-amber-600 leading-relaxed">
+                {s.radar_suggest_mode_mismatch(
+                  radarModeDisplayLabel(modeMismatchHint.suggestedMode, s),
+                )}
+              </p>
+              <button
+                type="button"
+                onClick={handleSwitchToSuggestedMode}
+                className="w-full rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-600 text-sm font-semibold py-2.5 active:scale-[0.99]"
+              >
+                {s.radar_suggest_mode_switch}
+              </button>
+            </div>
+          )}
+
           {suggestedCategoryName && (
             <p className="text-center text-sm text-brand mb-2 px-4">
               {s.radar_suggestedCategory(getCategoryLabel(suggestedCategoryName))}
@@ -660,9 +1007,7 @@ const RadarSearch = () => {
             {scanning ? (
               <span className="inline-flex items-center gap-1.5">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                {s.radar_searching_within}
-                {searchRadiusKm}
-                {s.radar_km}
+                {bracketLabel}
               </span>
             ) : (
               <>
@@ -671,13 +1016,31 @@ const RadarSearch = () => {
               </>
             )}
           </p>
-          {expanded && results.length > 0 && !scanning && (
-            <p className="text-center text-[11px] text-muted-foreground mb-4">
-              {s.radar_showing_within}{searchRadiusKm}{s.radar_km}.
-            </p>
-          )}
         </>
       )}
+
+      {!locating &&
+        !error &&
+        !ambulanceEmergencyOnly &&
+        !unknownTermBrowse && (
+          <div className="flex gap-2 overflow-x-auto px-4 pb-3 mb-1 scrollbar-hide">
+            {RADAR_BRACKET_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setSearchRadiusKm(opt.value)}
+                className={cn(
+                  "shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors active:scale-[0.98]",
+                  searchRadiusKm === opt.value
+                    ? "border-brand bg-brand/15 text-brand ring-1 ring-brand/30"
+                    : "border-surface-border bg-surface text-muted-foreground",
+                )}
+              >
+                {s[opt.labelKey]}
+              </button>
+            ))}
+          </div>
+        )}
 
       {locationBlocked && (
         <div className="rounded-2xl border border-amber-500/40 bg-surface p-6 mt-4 space-y-4 text-center">
@@ -735,11 +1098,19 @@ const RadarSearch = () => {
             {s.radar_unknownTerm(term)}
           </p>
           <div className="grid grid-cols-2 gap-2">
-            {categories.map((c) => (
+            {categories
+              .filter((c) => c.service_mode === selectedMode)
+              .map((c) => (
               <button
                 key={c.id}
                 type="button"
-                onClick={() => navigate(`/radar?q=${encodeURIComponent(c.label)}`)}
+                onClick={() => {
+                  const qs = new URLSearchParams({
+                    q: c.label,
+                    mode: c.service_mode,
+                  });
+                  navigate(`/radar?${qs.toString()}`);
+                }}
                 className="rounded-xl border border-surface-border bg-surface p-3 flex flex-col items-center gap-1.5 active:scale-[0.98] transition-transform"
               >
                 <span className="text-2xl" aria-hidden>
@@ -755,7 +1126,7 @@ const RadarSearch = () => {
       )}
 
       {/* Vendor fetch skeleton */}
-      {!locationBlocked && scanning && !error && (
+      {scanning && !error && (
         <section className="mt-4 pb-4">
           {[0, 1, 2, 3].map((i) => (
             <RadarVendorCardSkeleton key={i} />
@@ -764,37 +1135,73 @@ const RadarSearch = () => {
       )}
 
       {/* Results */}
-      {!locationBlocked && !scanning && !error && results.length > 0 && (
-        <section className="space-y-3 mt-4 pb-4">
-          {results.map(({ vendor, dist }, i) => (
-            <div
-              key={vendor.id}
-              id={`radar-vendor-card-${vendor.id}`}
-              className={cn(
-                flashVendorId === vendor.id &&
-                  "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse rounded-2xl",
-              )}
-            >
-              <RadarVendorCard
-                vendor={vendor}
-                dist={dist}
-                index={i}
-                userNeed={term}
-                categories={vendor.categories}
-                trustLevel={vendor.trustLevel}
-                menuItems={vendor.menuPreview}
-                isSaved={savedByVendorId[vendor.id] ?? false}
-                hasOrdered={vendor.hasActiveOrder}
-                hasFulfilledOrder={vendor.hasFulfilledOrder}
-                fulfilledRequestId={vendor.fulfilledRequestId}
-                onOrderCancelled={() => void fetchVendors({ silent: true })}
-              />
-            </div>
-          ))}
+      {!scanning && !error && results.length > 0 && (
+        <section className="mt-2 pb-4">
+          <p className="text-center text-[11px] text-muted-foreground px-4 mb-3">
+            {s.radar_delivery_disclaimer}
+          </p>
+          <div className="space-y-3">
+            {localResults.map(({ vendor, dist }, i) => (
+              <div
+                key={vendor.id}
+                id={`radar-vendor-card-${vendor.id}`}
+                className={cn(
+                  flashVendorId === vendor.id &&
+                    "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse rounded-2xl",
+                )}
+              >
+                <RadarVendorCard
+                  vendor={vendor}
+                  dist={dist}
+                  index={i}
+                  userNeed={term}
+                  categories={vendor.categories}
+                  trustLevel={vendor.trustLevel}
+                  menuItems={vendor.menuPreview}
+                  isSaved={savedByVendorId[vendor.id] ?? false}
+                  hasOrdered={vendor.hasActiveOrder}
+                  hasFulfilledOrder={vendor.hasFulfilledOrder}
+                  fulfilledRequestId={vendor.fulfilledRequestId}
+                  onOrderCancelled={() => void fetchVendors({ silent: true })}
+                />
+              </div>
+            ))}
+            {!isPanIndiaBracket && panIndiaResults.length > 0 && (
+              <p className="px-4 pt-2 pb-1 text-xs font-bold uppercase tracking-widest text-brand">
+                {s.radar_pan_india_section}
+              </p>
+            )}
+            {panIndiaResults.map(({ vendor, dist }, i) => (
+              <div
+                key={vendor.id}
+                id={`radar-vendor-card-${vendor.id}`}
+                className={cn(
+                  flashVendorId === vendor.id &&
+                    "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse rounded-2xl",
+                )}
+              >
+                <RadarVendorCard
+                  vendor={vendor}
+                  dist={dist}
+                  index={localResults.length + i}
+                  userNeed={term}
+                  categories={vendor.categories}
+                  trustLevel={vendor.trustLevel}
+                  menuItems={vendor.menuPreview}
+                  isSaved={savedByVendorId[vendor.id] ?? false}
+                  hasOrdered={vendor.hasActiveOrder}
+                  hasFulfilledOrder={vendor.hasFulfilledOrder}
+                  fulfilledRequestId={vendor.fulfilledRequestId}
+                  showPanIndiaBadge
+                  onOrderCancelled={() => void fetchVendors({ silent: true })}
+                />
+              </div>
+            ))}
+          </div>
           {isPharmacyMedicalSearch(term) && (
             <a
               href="tel:104"
-              className="mx-4 flex items-center justify-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-4 py-3 text-sm text-brand font-medium active:scale-[0.99] transition-transform"
+              className="mx-4 mt-3 flex items-center justify-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-4 py-3 text-sm text-brand font-medium active:scale-[0.99] transition-transform"
             >
               <PhoneCall className="h-4 w-4 shrink-0" />
               {s.radar_medical_helpline}
@@ -806,61 +1213,31 @@ const RadarSearch = () => {
         </section>
       )}
 
-      {/* 0 results before max radius: widen only; failsafe comes after max radius if still empty. */}
-      {!locationBlocked &&
-        !scanning &&
+      {/* No results empty state */}
+      {!scanning &&
         !error &&
         !unknownTermBrowse &&
         !ambulanceEmergencyOnly &&
+        !modeMismatchHint &&
         results.length === 0 &&
-        searchRadiusKm < maxRadius && (
-        <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4">
-          <p className="text-center font-display text-lg font-semibold text-white">
-            {s.radar_no_helpers.replace("{radius}", String(searchRadiusKm))}
-          </p>
-          <div className="flex flex-col sm:flex-row gap-2">
-            {searchRadiusKm < midRadius && (
-              <button
-                type="button"
-                onClick={() => setSearchRadiusKm(midRadius)}
-                className="flex-1 rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
-              >
-                {s.radar_expand_25}
-              </button>
-            )}
-            {searchRadiusKm < maxRadius && (
-              <button
-                type="button"
-                onClick={() => setSearchRadiusKm(maxRadius)}
-                className="flex-1 rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform shadow-[0_0_14px_rgba(34,197,94,0.35)]"
-              >
-                {s.radar_expand_50}
-              </button>
+        (isOfficialEmergencyCategory(term) ? (
+          <div className="px-4 mt-4">
+            <EmptyStateFailsafe term={term} />
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4 mx-4">
+            <p className="text-center font-display text-lg font-semibold text-white">
+              {isPanIndiaBracket
+                ? s.radar_no_helpers_area
+                : s.radar_no_helpers.replace("{radius}", String(searchRadiusKm))}
+            </p>
+            {showGovHelpAlongsideRadiusExpand(term) && (
+              <div className="pt-2 border-t border-brand/20">
+                <GovEmergencyServices term={term} />
+              </div>
             )}
           </div>
-          {showGovHelpAlongsideRadiusExpand(term) && (
-            <div className="pt-2 border-t border-brand/20">
-              <GovEmergencyServices term={term} />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* True empty state — no private responders even at max radius. */}
-      {!locationBlocked &&
-        !scanning &&
-        !error &&
-        !unknownTermBrowse &&
-        !ambulanceEmergencyOnly &&
-        results.length === 0 &&
-        searchRadiusKm >= maxRadius && (
-        <div className="text-center py-12 px-6 mx-4">
-          <p className="text-4xl mb-2" aria-hidden>
-            🔍
-          </p>
-          <EmptyStateFailsafe term={term} />
-        </div>
-      )}
+        ))}
     </AppShell>
   );
 };
@@ -901,7 +1278,7 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
 // Collapsible government & emergency services panel rendered below the
 // vendor results. Primary number shifts based on the searched category:
 // Fire â†’ 101, Medical â†’ 108, Roadside â†’ 1033, Security/Default â†’ 112.
-const GovEmergencyServices = ({
+export const GovEmergencyServices = ({
   term,
   defaultOpen = false,
 }: {
@@ -916,36 +1293,58 @@ const GovEmergencyServices = ({
   const isFire = resolved ? FIRE_EMERGENCY_LABELS.has(resolved) : false;
 
   type Line = { label: string; number: string; tagline: string; href: string };
-  const lines: Line[] = [];
-  if (isFire) {
-    lines.push({
-      label: "Fire Brigade",
-      number: "101",
-      tagline: "Fire emergency response",
-      href: "tel:101",
-    });
-  } else if (isMedical) {
-    lines.push({
-      label: "108 Ambulance",
-      number: "108",
-      tagline: "Free 24×7 medical & ambulance response",
-      href: "tel:108",
-    });
-  } else if (isRoadside) {
-    lines.push({
-      label: "1033 National Highway",
-      number: "1033",
-      tagline: "Highway breakdown & road assistance",
-      href: "tel:1033",
-    });
-  } else {
-    lines.push({
-      label: "112 National Emergency",
-      number: "112",
-      tagline: "Police, fire & medical — single line",
-      href: "tel:112",
-    });
-  }
+  const lines: Line[] = useMemo(() => {
+    if (isFire) {
+      return [
+        {
+          label: s.radar_gov_fire_label,
+          number: "101",
+          tagline: s.radar_gov_fire_tagline,
+          href: "tel:101",
+        },
+      ];
+    }
+    if (isMedical) {
+      return [
+        {
+          label: s.radar_gov_ambulance_label,
+          number: "108",
+          tagline: s.radar_gov_ambulance_tagline,
+          href: "tel:108",
+        },
+      ];
+    }
+    if (isRoadside) {
+      return [
+        {
+          label: s.radar_gov_highway_label,
+          number: "1033",
+          tagline: s.radar_gov_highway_tagline,
+          href: "tel:1033",
+        },
+      ];
+    }
+    return [
+      {
+        label: s.radar_gov_emergency_label,
+        number: "112",
+        tagline: s.radar_gov_emergency_tagline,
+        href: "tel:112",
+      },
+    ];
+  }, [
+    isFire,
+    isMedical,
+    isRoadside,
+    s.radar_gov_fire_label,
+    s.radar_gov_fire_tagline,
+    s.radar_gov_ambulance_label,
+    s.radar_gov_ambulance_tagline,
+    s.radar_gov_highway_label,
+    s.radar_gov_highway_tagline,
+    s.radar_gov_emergency_label,
+    s.radar_gov_emergency_tagline,
+  ]);
 
   const primary = lines[0];
 

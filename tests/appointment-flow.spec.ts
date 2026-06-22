@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 import { assertRequestStatus, assertNotificationCreated, assertRowExists } from './helpers/db-assert';
 
 let testVendor: any;
@@ -11,7 +11,7 @@ test.beforeAll(async () => {
   await createTestCustomer();
 
   // Override service mode to appointment
-  await supabase
+  await supabaseAdmin
     .from('vendors')
     .update({ service_mode: 'appointment' })
     .eq('id', testVendor.id);
@@ -19,14 +19,14 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await supabase.from('vendor_reviews').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('vendor_reviews').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
   await cleanupTestData();
 });
 
 test('AP-01: customer books appointment — request created with appointment_time', async () => {
   const appointmentTime = new Date(Date.now() + 86400000).toISOString(); // tomorrow
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -47,7 +47,7 @@ test('AP-01: customer books appointment — request created with appointment_tim
 });
 
 test('AP-01b: vendor notified of new appointment booking', async () => {
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_VENDOR_PHONE,
     type: 'new_appointment',
     title: 'New Booking',
@@ -59,7 +59,7 @@ test('AP-01b: vendor notified of new appointment booking', async () => {
 });
 
 test('AP-02: vendor confirms appointment — status becomes accepted', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('requests')
     .update({ status: 'accepted', appointment_status: 'confirmed' })
     .eq('id', testRequestId);
@@ -69,7 +69,7 @@ test('AP-02: vendor confirms appointment — status becomes accepted', async () 
 });
 
 test('AP-02b: customer notified on appointment confirmation', async () => {
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     type: 'appointment_confirmed',
     title: 'Appointment Confirmed',
@@ -83,7 +83,7 @@ test('AP-02b: customer notified on appointment confirmation', async () => {
 test('AP-03: vendor declines appointment — status becomes cancelled', async () => {
   const appointmentTime = new Date(Date.now() + 172800000).toISOString(); // day after tomorrow
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
@@ -97,7 +97,7 @@ test('AP-03: vendor declines appointment — status becomes cancelled', async ()
     .single();
   declineRequestId = data.id;
 
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('requests')
     .update({ status: 'cancelled', cancel_reason: 'Not available that day' })
     .eq('id', declineRequestId);
@@ -107,7 +107,7 @@ test('AP-03: vendor declines appointment — status becomes cancelled', async ()
 });
 
 test('AP-03b: customer notified on appointment decline', async () => {
-  await supabase.from('user_notifications').insert({
+  await supabaseAdmin.from('user_notifications').insert({
     user_phone: TEST_CUSTOMER_PHONE,
     type: 'appointment_declined',
     title: 'Appointment Declined',
@@ -119,7 +119,7 @@ test('AP-03b: customer notified on appointment decline', async () => {
 });
 
 test('AP-04: vendor marks appointment done — status becomes done', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('requests')
     .update({ status: 'done' })
     .eq('id', testRequestId);
@@ -133,12 +133,12 @@ test('AP-05: urgency Today uses appointment_time not created_at', async () => {
   const today = new Date();
   today.setHours(14, 0, 0, 0);
 
-  await supabase
+  await supabaseAdmin
     .from('requests')
     .update({ appointment_time: today.toISOString() })
     .eq('id', testRequestId);
 
-  const { data } = await supabase
+  const { data } = await supabaseAdmin
     .from('requests')
     .select('appointment_time, created_at')
     .eq('id', testRequestId)
@@ -153,7 +153,7 @@ test('AP-05: urgency Today uses appointment_time not created_at', async () => {
 });
 
 test('RV-01: rating submitted after appointment done', async () => {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('vendor_reviews')
     .insert({
       vendor_id: testVendor.id,
@@ -172,7 +172,7 @@ test('RV-01: rating submitted after appointment done', async () => {
 });
 
 test('RV-03: duplicate rating blocked for same appointment', async () => {
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('vendor_reviews')
     .insert({
       vendor_id: testVendor.id,

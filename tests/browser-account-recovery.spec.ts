@@ -16,14 +16,10 @@ const TEST_DEVICE_ID = `device_reco_${TEST_SESSION}`;
 const FRESH_PHONE = uniqueBrowserPhone('8801');
 const EXISTING_PHONE = uniqueBrowserPhone('8802');
 
-let testVendor: { id: string };
+let testVendor: { id: string; shop_name: string };
 
 test.beforeAll(async () => {
-  testVendor = await createTestVendor();
-  await supabaseAdmin
-    .from('vendors')
-    .update({ service_mode: 'help', is_active: true })
-    .eq('id', testVendor.id);
+  testVendor = await createTestVendor({ service_mode: 'delivery', is_active: true });
 });
 
 test.afterEach(async () => {
@@ -42,7 +38,7 @@ test('RECOV-01: fresh user with no order history skips welcome back screen', asy
     localStorage.setItem('aaspaas:welcomed', 'true');
   }, { deviceId: TEST_DEVICE_ID });
 
-  await openPhoneEntrySheet(page);
+  await openPhoneEntrySheet(page, { shopName: testVendor.shop_name, vendorId: testVendor.id });
   await submitPhoneNumber(page, FRESH_PHONE);
 
   await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 3000 });
@@ -51,8 +47,8 @@ test('RECOV-01: fresh user with no order history skips welcome back screen', asy
   expect(savedPhone).toBe(FRESH_PHONE);
 });
 
-test('RECOV-02: returning user with orders sees welcome back screen and order count', async ({ page }) => {
-  await supabaseAdmin.from('users').insert({
+test('RECOV-02: returning user with orders skips welcome back during parchi order flow', async ({ page }) => {
+  await supabaseAdmin.from('users').upsert({
     phone: EXISTING_PHONE,
     total_orders: 4,
     completed_orders: 2,
@@ -64,16 +60,16 @@ test('RECOV-02: returning user with orders sees welcome back screen and order co
     localStorage.setItem('aaspaas:welcomed', 'true');
   }, { deviceId: TEST_DEVICE_ID });
 
-  await openPhoneEntrySheet(page);
+  await openPhoneEntrySheet(page, { shopName: testVendor.shop_name, vendorId: testVendor.id });
   await submitPhoneNumber(page, EXISTING_PHONE);
 
-  await expect(page.getByText('Welcome back!')).toBeVisible({ timeout: 8000 });
-  await expect(page.getByText('We found your account with 4 orders. Your history is restored.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
+  await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 3000 });
+  const savedPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
+  expect(savedPhone).toBe(EXISTING_PHONE);
 });
 
-test('RECOV-03: welcome back Continue saves phone and proceeds with order', async ({ page }) => {
-  await supabaseAdmin.from('users').insert({
+test('RECOV-03: returning user phone saved and order proceeds without recovery screen', async ({ page }) => {
+  await supabaseAdmin.from('users').upsert({
     phone: EXISTING_PHONE,
     total_orders: 2,
     completed_orders: 1,
@@ -85,13 +81,10 @@ test('RECOV-03: welcome back Continue saves phone and proceeds with order', asyn
     localStorage.setItem('aaspaas:welcomed', 'true');
   }, { deviceId: TEST_DEVICE_ID });
 
-  await openPhoneEntrySheet(page);
+  await openPhoneEntrySheet(page, { shopName: testVendor.shop_name, vendorId: testVendor.id });
   await submitPhoneNumber(page, EXISTING_PHONE);
 
-  await expect(page.getByText('Welcome back!')).toBeVisible({ timeout: 8000 });
-  await page.getByRole('button', { name: 'Continue' }).click();
-
-  await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 8000 });
+  await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 3000 });
 
   const savedPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
   expect(savedPhone).toBe(EXISTING_PHONE);

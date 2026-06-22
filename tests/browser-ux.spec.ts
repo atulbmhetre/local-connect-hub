@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategories, seedBronzeVendorVerification, seedVendorCategory, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { loginAsCustomer, loginAsVendor, gotoRadarDelivery, clickRadarOrderCard, APP_URL } from './helpers/browser-setup';
+import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategories, seedBronzeVendorVerification, seedVendorCategory, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 const MOBILE_VIEWPORT = { width: 390, height: 844 }; // iPhone 14
@@ -10,6 +10,9 @@ let testVendor: any;
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
   await createTestCustomer();
+  await supabaseAdmin.from('vendors')
+    .update({ service_mode: 'delivery', is_active: true })
+    .eq('id', testVendor.id);
 });
 
 test.afterAll(async () => {
@@ -24,11 +27,9 @@ test('UX-TAP-01: parchi submit button is tap-friendly (≥44px height)', async (
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
-  await page.goto(`${APP_URL}/radar`);
-  await page.waitForLoadState('networkidle');
+  await gotoRadarDelivery(page);
 
-  await page.waitForSelector('[data-testid="radar-vendor-card"]', { timeout: 10000 });
-  await page.getByTestId('radar-vendor-card-order-btn').first().click();
+  await clickRadarOrderCard(page, { vendorId: testVendor.id, shopName: testVendor.shop_name });
   await expect(page.getByTestId('parchi-submit-btn')).toBeVisible({ timeout: 5000 });
 
   const box = await page.getByTestId('parchi-submit-btn').boundingBox();
@@ -352,7 +353,7 @@ test('UX-ERR-02: my-orders screen loads even with no orders', async ({ page }) =
 
 test('UX-ERR-03: vendor screen loads even with no incoming orders', async ({ page }) => {
   // Clean vendor with no orders
-  const { data: emptyVendor } = await supabase
+  const { data: emptyVendor } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: 'Empty Vendor',
@@ -369,7 +370,7 @@ test('UX-ERR-03: vendor screen loads even with no incoming orders', async ({ pag
 
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 8000 });
 
-  await supabase.from('vendors').delete().eq('id', emptyVendor.id);
+  await supabaseAdmin.from('vendors').delete().eq('id', emptyVendor.id);
 });
 
 // ─── ELEMENT OVERLAP ─────────────────────────────────────────────────────
@@ -395,11 +396,9 @@ test('UX-OVERLAP-02: parchi submit button visible in viewport when sheet is open
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
-  await page.goto(`${APP_URL}/radar`);
-  await page.waitForLoadState('networkidle');
+  await gotoRadarDelivery(page);
 
-  await page.waitForSelector('[data-testid="radar-vendor-card"]', { timeout: 10000 });
-  await page.getByTestId('radar-vendor-card-order-btn').first().click();
+  await clickRadarOrderCard(page, { vendorId: testVendor.id, shopName: testVendor.shop_name });
   await expect(page.getByTestId('parchi-submit-btn')).toBeVisible({ timeout: 5000 });
 
   // Check button is visible in viewport using isVisible (not absolute position)
@@ -423,11 +422,11 @@ test('UX-OVERLAP-02: parchi submit button visible in viewport when sheet is open
 
 test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge', async ({ page }) => {
   const cardPhone = `99004${Date.now().toString().slice(-5)}`;
-  const shopName = `Card Shop ${TEST_SESSION}`;
+  const shopName = `!CARD-${Date.now()}`;
   const categories = await getActiveCategories(2);
   expect(categories.length).toBeGreaterThanOrEqual(2);
 
-  const { data: cardVendor, error } = await supabase
+  const { data: cardVendor, error } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: 'Card Owner',
@@ -439,6 +438,7 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
       latitude: 18.5204,
       longitude: 73.8567,
       is_active: true,
+      is_manual_verified: true,
       vendor_note: `test_session:${TEST_SESSION}`,
     })
     .select()
@@ -452,12 +452,14 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
-  await page.goto(`${APP_URL}/radar`);
+  await page.goto(
+    `${APP_URL}/radar?mode=${categories[0].service_mode}&q=${encodeURIComponent(categories[0].label)}`,
+  );
   await page.waitForLoadState('networkidle');
 
   const card = page.getByTestId('radar-vendor-card').filter({ hasText: shopName });
   await expect(card).toBeVisible({ timeout: 15000 });
   await expect(card.getByText(/Home based/i)).toBeVisible();
-  await expect(card.getByText(/Bronze/i)).toBeVisible();
-  await expect(card.getByText(categories[0].label, { exact: false })).toBeVisible();
+  await expect(card.getByText(/Bronze|ब्रॉन्ज/i)).toBeVisible();
+  await expect(card.getByText(categories[0].label, { exact: false }).first()).toBeVisible();
 });

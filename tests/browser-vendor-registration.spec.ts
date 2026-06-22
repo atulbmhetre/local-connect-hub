@@ -68,7 +68,7 @@ test('VR-E2E-01: shop vendor registers without GPS as draft via browser form', a
   await page.getByRole('button', { name: 'Register me' }).click();
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
-  const { data: vendor, error: vendorError } = await supabase
+  const { data: vendor, error: vendorError } = await supabaseAdmin
     .from('vendors')
     .select('id, phone, profile_status')
     .eq('phone', phone)
@@ -95,14 +95,14 @@ test('VR-E2E-01: shop vendor registers without GPS as draft via browser form', a
 
   await page.waitForTimeout(2000);
 
-  const { data: adminConfig } = await supabase
+  const { data: adminConfig } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'admin_phone')
     .maybeSingle();
   const adminPhone = adminConfig?.value?.trim() || TEST_ADMIN_PHONE;
 
-  const { data: notifications, error: notificationError } = await supabase
+  const { data: notifications, error: notificationError } = await supabaseAdmin
     .from('user_notifications')
     .select('type, route, route_params')
     .eq('user_phone', adminPhone)
@@ -172,7 +172,7 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
   const edgeResp = await referralEdgeResponse;
   expect(edgeResp.status()).toBe(200);
 
-  const { data: newVendor, error: vendorError } = await supabase
+  const { data: newVendor, error: vendorError } = await supabaseAdmin
     .from('vendors')
     .select('id')
     .eq('phone', phone)
@@ -183,7 +183,7 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
   await expect
     .poll(
       async () => {
-        const { data } = await supabase
+        const { data } = await supabaseAdmin
           .from('referrals')
           .select('id, referee_type, referrer_vendor_id')
           .eq('referee_id', newVendorId)
@@ -197,7 +197,7 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
       referrer_vendor_id: referrer.id,
     });
 
-  const { data: referral } = await supabase
+  const { data: referral } = await supabaseAdmin
     .from('referrals')
     .select('id')
     .eq('referee_id', newVendorId)
@@ -213,7 +213,7 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
 
   await page.waitForTimeout(2000);
 
-  const { data: notifications } = await supabase
+  const { data: notifications } = await supabaseAdmin
     .from('user_notifications')
     .select('type')
     .eq('user_phone', referrer.phone)
