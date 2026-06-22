@@ -10,7 +10,7 @@ const CORS_HEADERS = {
 };
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
+const ANTHROPIC_MODEL = "claude-sonnet-4-6";
 
 type RequestBody = {
   label?: string;
