@@ -681,8 +681,12 @@ const VendorMode = () => {
     const result = await invokeSuggestCategory({ description: desc });
     setCategorySuggesting(false);
     if (!result.success) {
-      toast.error(result.error ?? s.vendor_understanding);
+      const regCategoriesAlreadyVisible =
+        showManualCategories && !regCategoriesLoading && allRegCategories.length > 0;
       setShowManualCategories(true);
+      if (!regCategoriesAlreadyVisible) {
+        toast.error(result.error ?? s.vendor_understanding);
+      }
       return;
     }
     setCategorySuggestion(result);
