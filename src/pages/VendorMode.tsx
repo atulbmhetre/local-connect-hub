@@ -367,6 +367,7 @@ const VendorMode = () => {
 
   const pushRegisteredVendorRef = useRef<string | null>(null);
   const alreadyRegisteredRef = useRef<HTMLDivElement>(null);
+  const isTogglingRef = useRef(false);
   const [highlightAlreadyRegistered, setHighlightAlreadyRegistered] = useState(false);
   const [goLivePromptVisible, setGoLivePromptVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -409,28 +410,33 @@ const VendorMode = () => {
   useEffect(() => {
     if (!vendorId) return;
     let cancelled = false;
-    setLoading(true);
-    supabase
-      .from("vendors")
-      .select("*")
-      .eq("id", vendorId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) setError(error.message);
-        else if (!data) {
-          localStorage.removeItem(STORAGE_KEY);
-          setVendorId(null);
-        } else setVendor(data as Vendor);
-        setLoading(false);
-      });
+    if (!isTogglingRef.current) {
+      setLoading(true);
+      supabase
+        .from("vendors")
+        .select("*")
+        .eq("id", vendorId)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          if (error) setError(error.message);
+          else if (!data) {
+            localStorage.removeItem(STORAGE_KEY);
+            setVendorId(null);
+          } else setVendor(data as Vendor);
+          setLoading(false);
+        });
+    }
 
     const channel = supabase
       .channel(`vendor-${vendorId}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "vendors", filter: `id=eq.${vendorId}` },
-        (payload) => setVendor(payload.new as Vendor),
+        (payload) => {
+          if (isTogglingRef.current) return;
+          setVendor(payload.new as Vendor);
+        },
       )
       .subscribe();
 
@@ -1278,29 +1284,34 @@ const VendorMode = () => {
       patch.longitude = liveCoords.lng;
     }
 
-    const { error } = await supabase
-      .from("vendors")
-      .update(patch)
-      .eq("id", vendor.id);
-    if (error) {
-      setVendor({ ...vendor, is_active: !next });
-      toast.error(s.vendor_status_failed, { description: error.message });
-      return false;
-    }
+    isTogglingRef.current = true;
+    try {
+      const { error } = await supabase
+        .from("vendors")
+        .update(patch)
+        .eq("id", vendor.id);
+      if (error) {
+        setVendor({ ...vendor, is_active: !next });
+        toast.error(s.vendor_status_failed, { description: error.message });
+        return false;
+      }
 
-    if (next) {
-      dismissRegisteredBanner(vendor.id);
-      setGoLivePromptVisible(false);
-    }
+      if (next) {
+        dismissRegisteredBanner(vendor.id);
+        setGoLivePromptVisible(false);
+      }
 
-    toast(next ? s.vendor_you_are_live : s.vendor_you_are_offline, {
-      description: next
-        ? liveCoords
-          ? s.vendor_live_body
-          : s.vendor_live_body_short
-        : s.vendor_offline_body,
-    });
-    return true;
+      toast(next ? s.vendor_you_are_live : s.vendor_you_are_offline, {
+        description: next
+          ? liveCoords
+            ? s.vendor_live_body
+            : s.vendor_live_body_short
+          : s.vendor_offline_body,
+      });
+      return true;
+    } finally {
+      isTogglingRef.current = false;
+    }
   };
 
   const notifyUsersVendorOffline = (
