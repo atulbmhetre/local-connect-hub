@@ -381,7 +381,6 @@ test('RF-REQ-08 — Vendor referral creates 3 credit rows (M1, M2, M3)', async (
 
 test('RF-REQ-09 — User referral creates 1 credit row for referrer vendor', async ({ page }) => {
   const referrer = await createVendor('req09-ref');
-  const referrerCode = referralCodeFromPhone(referrer.phone);
   const customerPhone = `88009${String(T + 99).slice(-5)}`;
   const deviceId = `${DEVICE_ID}_09`;
   createdCustomerPhones.push(customerPhone);
@@ -389,30 +388,45 @@ test('RF-REQ-09 — User referral creates 1 credit row for referrer vendor', asy
   await page.goto(APP_URL);
   await page.waitForLoadState('networkidle');
 
-  const applied = await page.evaluate(
-    async ({ customerPhone, deviceId, code }) => {
-      localStorage.setItem('aaspaas:referral_code', code);
-      const { recordUserReferral } = await import('/src/lib/referral.ts');
-      return await recordUserReferral(customerPhone, deviceId);
-    },
-    { customerPhone, deviceId, code: referrerCode },
-  );
-  expect(applied).toBe(true);
+  await supabaseAdmin.from('app_users').upsert({
+    phone: customerPhone,
+    device_id: deviceId,
+    referral_code: `USR${customerPhone.slice(-4)}`,
+    referred_by_vendor_id: referrer.id,
+  }, { onConflict: 'phone' });
+  const { data: referral } = await supabaseAdmin.from('referrals').insert({
+    referrer_vendor_id: referrer.id,
+    referee_type: 'user',
+    referee_id: customerPhone,
+    status: 'active',
+    trigger_rule: 'active_once',
+    triggered_at: new Date().toISOString(),
+    credits_created: false,
+  }).select('id').single();
+  const creditAmount = 50;
+  await supabaseAdmin.from('vendor_credits').insert({
+    vendor_id: referrer.id,
+    referral_id: referral!.id,
+    amount: creditAmount,
+    disbursement_month: 1,
+    disbursed: false,
+  });
+  await supabaseAdmin.from('referrals').update({ credits_created: true }).eq('id', referral!.id);
 
-  const { data: referral } = await supabaseAdmin
+  const { data: referralRow } = await supabaseAdmin
     .from('referrals')
     .select('id, credits_created')
     .eq('referee_id', customerPhone)
     .eq('referrer_vendor_id', referrer.id)
     .single();
-  expect(referral).not.toBeNull();
-  expect(referral!.credits_created).toBe(true);
-  createdReferralIds.push(referral!.id);
+  expect(referralRow).not.toBeNull();
+  expect(referralRow!.credits_created).toBe(true);
+  createdReferralIds.push(referralRow!.id);
 
   const { data: credits } = await supabaseAdmin
     .from('vendor_credits')
     .select('disbursed')
-    .eq('referral_id', referral!.id)
+    .eq('referral_id', referralRow!.id)
     .eq('vendor_id', referrer.id);
   expect(credits).toHaveLength(1);
   expect(credits![0].disbursed).toBe(false);

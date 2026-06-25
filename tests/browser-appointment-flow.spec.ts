@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabaseAdmin, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_SESSION } from './helpers/setup';
 
+const T = Date.now();
+const LOCAL_CUSTOMER_PHONE = `8800${String(T).slice(-6)}`;
 const TEST_DEVICE_ID = `device_apt_${TEST_SESSION}`;
 let apptVendor: any;
 
@@ -20,11 +22,12 @@ test.beforeAll(async () => {
   }).select().single();
   if (error) throw error;
   apptVendor = data;
+  await createTestCustomer(LOCAL_CUSTOMER_PHONE);
 });
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await cleanupTestData();
+  await cleanupTestData(LOCAL_CUSTOMER_PHONE);
 });
 
 // ─── APPOINTMENT BOOKING ───────────────────────────────────────────────────
@@ -33,7 +36,7 @@ test('AP-01-BROWSER: appointment order inserted with correct fields', async ({ p
   const apptTime = new Date(Date.now() + 86400000).toISOString(); // tomorrow
   const { error, data } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Browser appointment test',
     status: 'sent',
@@ -49,7 +52,7 @@ test('AP-02-BROWSER: vendor confirms appointment — status accepted + DB assert
   const apptTime = new Date(Date.now() + 86400000).toISOString();
   const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Confirm appointment browser test',
     status: 'sent',
@@ -77,7 +80,7 @@ test('AP-03-BROWSER: vendor declines appointment — uses incoming-decline-btn +
   const apptTime = new Date(Date.now() + 86400000).toISOString();
   const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Decline appointment browser test',
     status: 'sent',
@@ -115,7 +118,7 @@ test('AP-04-BROWSER: vendor marks appointment done — DB assert', async ({ page
   const apptTime = new Date(Date.now() - 3600000).toISOString(); // 1 hour ago
   const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Mark done appointment test',
     status: 'accepted',
@@ -143,7 +146,7 @@ test('AP-05-BROWSER: appointment shows in customer MyOrders with correct status 
   const apptTime = new Date(Date.now() + 86400000).toISOString();
   await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'MyOrders appointment visibility test',
     status: 'sent',
@@ -151,7 +154,7 @@ test('AP-05-BROWSER: appointment shows in customer MyOrders with correct status 
     appointment_status: 'pending',
   });
 
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('order-card').first()).toBeVisible({ timeout: 8000 });
@@ -161,7 +164,7 @@ test('AP-05-BROWSER: appointment shows in customer MyOrders with correct status 
 test('AP-06-BROWSER: customer rates completed appointment — rating sheet UI + DB assert', async ({ page }) => {
   const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Rate appointment test',
     status: 'fulfilled',
@@ -169,7 +172,7 @@ test('AP-06-BROWSER: customer rates completed appointment — rating sheet UI + 
     appointment_status: 'confirmed',
   }).select().single();
 
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
 
@@ -210,7 +213,7 @@ test('AP-06-BROWSER: customer rates completed appointment — rating sheet UI + 
 test('AP-NEG-01: appointment without appointment_time is treated as regular order', async ({ page }) => {
   const { data, error } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'No appt time test',
     status: 'sent',
@@ -223,7 +226,7 @@ test('AP-NEG-01: appointment without appointment_time is treated as regular orde
 test('AP-NEG-02: declined appointment cannot be confirmed again — DB constraint', async ({ page }) => {
   const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: apptVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Double action test',
     status: 'cancelled',

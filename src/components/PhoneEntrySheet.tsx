@@ -32,16 +32,12 @@ type Props = {
 async function checkExistingAccount(
   phone: string,
 ): Promise<{ total_orders: number; completed_orders: number } | null> {
-  const { data, error } = await supabase
-    .from("users")
-    .select("total_orders, completed_orders")
-    .eq("phone", phone)
-    .limit(1)
-    .maybeSingle();
-  if (error || !data) return null;
+  const { data, error } = await supabase.rpc("lookup_user_by_phone", { p_phone: phone });
+  const row = data?.[0];
+  if (error || !row) return null;
   return {
-    total_orders: data.total_orders ?? 0,
-    completed_orders: data.completed_orders ?? 0,
+    total_orders: row.total_orders ?? 0,
+    completed_orders: row.completed_orders ?? 0,
   };
 }
 

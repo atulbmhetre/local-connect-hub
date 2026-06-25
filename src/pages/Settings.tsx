@@ -854,7 +854,6 @@ const Settings = () => {
       subscription_current_period_end: string | null;
       waiveoff_percent: number | null;
       waiveoff_months_remaining: number | null;
-      created_at: string;
     }[]
   >([]);
   const [subLoading, setSubLoading] = useState(false);
@@ -906,17 +905,22 @@ const Settings = () => {
       return;
     }
     void (async () => {
-      const { data, error } = await supabase
-        .from("users")
-        .select("trust_score, warn_count, is_banned")
-        .eq("phone", phone)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc("lookup_user_by_phone", { p_phone: phone });
       if (error) {
         console.error("loadUserTrust", error);
         setUserTrust(null);
         return;
       }
-      setUserTrust(data ?? null);
+      const row = data?.[0];
+      setUserTrust(
+        row
+          ? {
+              trust_score: row.trust_score,
+              warn_count: row.warn_count,
+              is_banned: row.is_banned,
+            }
+          : null,
+      );
     })();
   }, [userPhone]);
 
@@ -1478,7 +1482,7 @@ const Settings = () => {
     const { data, error } = await supabase
       .from("vendors")
       .select(
-        "id, shop_name, phone, subscription_status, trial_ends_at, grace_ends_at, subscription_current_period_end, waiveoff_percent, waiveoff_months_remaining, created_at",
+        "id, shop_name, phone, subscription_status, trial_ends_at, grace_ends_at, subscription_current_period_end, waiveoff_percent, waiveoff_months_remaining",
       )
       .in("subscription_status", ["grace", "expired", "cancelled"])
       .order("grace_ends_at", { ascending: true, nullsFirst: false });
@@ -1501,7 +1505,6 @@ const Settings = () => {
         waiveoff_percent: (row.waiveoff_percent as number | null) ?? null,
         waiveoff_months_remaining:
           (row.waiveoff_months_remaining as number | null) ?? null,
-        created_at: row.created_at as string,
       })),
     );
   };

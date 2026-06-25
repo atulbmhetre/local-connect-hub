@@ -11,6 +11,8 @@ import {
 } from './helpers/setup';
 import { strings } from '../src/lib/strings';
 
+test.use({ storageState: { cookies: [], origins: [] } });
+
 const T = Date.now();
 const DEVICE_ID = `device_fo_req_${T}`;
 const EN = strings.en;
@@ -102,6 +104,7 @@ async function lsGet(page: Page, key: string): Promise<string | null> {
 
 async function enterPhone(page: Page, phone: string) {
   await page.getByPlaceholder('98765 43210').fill(phone);
+  await page.getByPlaceholder('98765 43210').press('Tab');
 }
 
 async function tapRestore(page: Page) {
@@ -156,6 +159,7 @@ test('FO-REQ-02 — No account found — starts fresh', async ({ page }) => {
 
   await loginAsFreshUser(page);
   await enterPhone(page, phone);
+  await expect(page.getByTestId('firstopen-restore-cta')).toBeVisible({ timeout: 10000 });
   await tapRestore(page);
 
   await expect(page.getByText(EN.firstopen_no_account)).toBeVisible({ timeout: 15000 });

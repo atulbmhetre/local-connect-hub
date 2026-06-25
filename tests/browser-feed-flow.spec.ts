@@ -1,7 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION, supabaseAdmin } from './helpers/setup';
+import { supabase, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION, supabaseAdmin } from './helpers/setup';
 
+const T = Date.now();
+const LOCAL_CUSTOMER_PHONE = `8800${String(T).slice(-6)}`;
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 const FEED_GPS = { latitude: 18.5204, longitude: 73.8567 };
 let testVendor: any;
@@ -74,7 +76,7 @@ async function gotoFeedWithStubbedPosts(page: Page, posts: StubFeedPost[]) {
 
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
-  await createTestCustomer();
+  await createTestCustomer(LOCAL_CUSTOMER_PHONE);
   await supabaseAdmin.from('vendors').update({ is_active: true }).eq('id', testVendor.id);
 
   // Seed an announcement post — has feed-post-card testid + flag button
@@ -124,13 +126,13 @@ test.afterAll(async () => {
   await supabaseAdmin.from('feed_replies').delete().eq('post_id', announcementPostId);
   await supabaseAdmin.from('feed_posts').delete().eq('id', announcementPostId);
   await supabaseAdmin.from('feed_posts').delete().eq('id', offerPostId);
-  await cleanupTestData();
+  await cleanupTestData(LOCAL_CUSTOMER_PHONE);
 });
 
 // ─── SCREEN LOAD ──────────────────────────────────────────────────────────
 
 test('FD-UI-01: feed screen loads and shows feed-screen testid', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
   await page.goto(`${APP_URL}/feed`);
@@ -140,7 +142,7 @@ test('FD-UI-01: feed screen loads and shows feed-screen testid', async ({ page }
 });
 
 test('FD-UI-02: feed reachable via bottom nav', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
   await page.waitForLoadState('networkidle');
 
@@ -169,7 +171,7 @@ test('FD-UI-03: seeded announcement post card visible on feed', async ({ page })
   expect(error).toBeNull();
 
   try {
-    await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+    await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
     await gotoFeedWithStubbedPosts(page, [{
       id: post!.id,
       content,
@@ -199,7 +201,7 @@ test('FD-UI-04: create post button visible for vendor', async ({ page }) => {
 
 test('FD-UI-05: create post button visible for all users (no role gate)', async ({ page }) => {
   // Button is visible to everyone — gating happens at submit time
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/feed`);
   await page.waitForLoadState('networkidle');
 
@@ -229,7 +231,7 @@ test('FD-FLAG-01: flag button visible on announcement post card', async ({ page 
   expect(error).toBeNull();
 
   try {
-    await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+    await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
     await gotoFeedWithStubbedPosts(page, [{
       id: post!.id,
       content,
@@ -270,7 +272,7 @@ test('FD-FLAG-02: flagging a post increments flagged_count in DB', async ({ page
   expect(error).toBeNull();
 
   try {
-    await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+    await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
     await gotoFeedWithStubbedPosts(page, [{
       id: post!.id,
       content,
@@ -309,13 +311,13 @@ test('FD-FLAG-03: duplicate flag blocked by unique constraint — DB assert', as
   // First flag already inserted by FD-FLAG-02 or insert fresh
   await supabaseAdmin.from('feed_flags').upsert({
     post_id: announcementPostId,
-    flagged_by_phone: TEST_CUSTOMER_PHONE,
+    flagged_by_phone: LOCAL_CUSTOMER_PHONE,
   }, { onConflict: 'post_id,flagged_by_phone', ignoreDuplicates: true });
 
   // Try duplicate
   const { error } = await supabaseAdmin.from('feed_flags').insert({
     post_id: announcementPostId,
-    flagged_by_phone: TEST_CUSTOMER_PHONE,
+    flagged_by_phone: LOCAL_CUSTOMER_PHONE,
   });
 
   expect(error).not.toBeNull();

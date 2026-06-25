@@ -1,13 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, gotoRadarDelivery, clickRadarOrderCard, APP_URL } from './helpers/browser-setup';
-import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
+const T = Date.now();
+const LOCAL_CUSTOMER_PHONE = `8800${String(T).slice(-6)}`;
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 let testVendor: any;
 
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
-  await createTestCustomer();
+  await createTestCustomer(LOCAL_CUSTOMER_PHONE);
   await supabaseAdmin.from('vendors')
     .update({ service_mode: 'delivery', is_active: true })
     .eq('id', testVendor.id);
@@ -15,16 +17,16 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await supabaseAdmin.from('user_addresses').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabaseAdmin.from('user_addresses').delete().eq('user_phone', LOCAL_CUSTOMER_PHONE);
   await supabaseAdmin.from('user_addresses').delete().eq('device_id', TEST_DEVICE_ID);
-  await cleanupTestData();
+  await cleanupTestData(LOCAL_CUSTOMER_PHONE);
 });
 
 // ─── ADDRESSES ────────────────────────────────────────────────────────────
 
 test('ADDR-01: address saved — user_addresses row created', async () => {
   await supabaseAdmin.from('user_addresses').insert({
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     label: 'Home',
     address_text: 'Flat 1A, Test Building',
@@ -32,19 +34,19 @@ test('ADDR-01: address saved — user_addresses row created', async () => {
   });
   const { data } = await supabaseAdmin.from('user_addresses')
     .select('id')
-    .eq('user_phone', TEST_CUSTOMER_PHONE);
+    .eq('user_phone', LOCAL_CUSTOMER_PHONE);
   expect(data?.length).toBeGreaterThan(0);
 });
 
 test('ADDR-02: address row visible in settings', async ({ page }) => {
   await supabaseAdmin.from('user_addresses').insert({
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     label: 'Home',
     address_text: 'Flat 4B, Test Tower',
     is_default: true,
   });
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await page.waitForLoadState('networkidle');
   // Find and open delivery addresses section — try flexible match
@@ -55,12 +57,12 @@ test('ADDR-02: address row visible in settings', async ({ page }) => {
 });
 
 test('ADDR-03: first saved address is_default = true', async () => {
-  await supabase.from('user_addresses').delete().eq('user_phone', TEST_CUSTOMER_PHONE);
+  await supabase.from('user_addresses').delete().eq('user_phone', LOCAL_CUSTOMER_PHONE);
 
   const { data } = await supabaseAdmin
     .from('user_addresses')
     .insert({
-      user_phone: TEST_CUSTOMER_PHONE,
+      user_phone: LOCAL_CUSTOMER_PHONE,
       device_id: TEST_DEVICE_ID,
       label: 'Home',
       address_text: 'First address ever',
@@ -76,7 +78,7 @@ test('ADDR-04: delete address removes row from DB', async () => {
   const { data: addr } = await supabaseAdmin
     .from('user_addresses')
     .insert({
-      user_phone: TEST_CUSTOMER_PHONE,
+      user_phone: LOCAL_CUSTOMER_PHONE,
       device_id: TEST_DEVICE_ID,
       label: 'Work',
       address_text: 'Office Block B, Hinjewadi',
@@ -97,14 +99,14 @@ test('ADDR-04: delete address removes row from DB', async () => {
 
 test('ADDR-05: multiple addresses stored correctly', async () => {
   await supabaseAdmin.from('user_addresses').insert([
-    { user_phone: TEST_CUSTOMER_PHONE, device_id: TEST_DEVICE_ID, label: 'Home', address_text: 'Home Address', is_default: true },
-    { user_phone: TEST_CUSTOMER_PHONE, device_id: `${TEST_DEVICE_ID}_2`, label: 'Work', address_text: 'Work Address', is_default: false },
+    { user_phone: LOCAL_CUSTOMER_PHONE, device_id: TEST_DEVICE_ID, label: 'Home', address_text: 'Home Address', is_default: true },
+    { user_phone: LOCAL_CUSTOMER_PHONE, device_id: `${TEST_DEVICE_ID}_2`, label: 'Work', address_text: 'Work Address', is_default: false },
   ]);
 
   const { data } = await supabaseAdmin
     .from('user_addresses')
     .select('id')
-    .eq('user_phone', TEST_CUSTOMER_PHONE);
+    .eq('user_phone', LOCAL_CUSTOMER_PHONE);
 
   expect(data?.length).toBeGreaterThanOrEqual(2);
 });
@@ -112,7 +114,7 @@ test('ADDR-05: multiple addresses stored correctly', async () => {
 // ─── DELIVERY SLOTS ───────────────────────────────────────────────────────
 
 test('SLOT-01: delivery slot select visible in ParchiSheet for delivery vendor', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
   await gotoRadarDelivery(page);
@@ -137,7 +139,7 @@ test('SLOT-02: delivery_slot stored on request after order placement', async () 
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
-      user_phone: TEST_CUSTOMER_PHONE,
+      user_phone: LOCAL_CUSTOMER_PHONE,
       device_id: TEST_DEVICE_ID,
       message: 'Slot test order',
       status: 'sent',
@@ -166,7 +168,7 @@ test('SLOT-03: all slot values are valid strings', async () => {
       .from('requests')
       .insert({
         vendor_id: testVendor.id,
-        user_phone: TEST_CUSTOMER_PHONE,
+        user_phone: LOCAL_CUSTOMER_PHONE,
         device_id: TEST_DEVICE_ID,
         message: `Slot test: ${slot}`,
         status: 'sent',

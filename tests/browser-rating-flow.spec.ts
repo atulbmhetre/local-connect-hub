@@ -1,23 +1,26 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
+const T = Date.now();
+const LOCAL_CUSTOMER_PHONE = `8800${String(T).slice(-6)}`;
 const TEST_DEVICE_ID = `device_rating_${TEST_SESSION}`;
 let testVendor: any;
 
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
+  await createTestCustomer(LOCAL_CUSTOMER_PHONE);
 });
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await cleanupTestData();
+  await cleanupTestData(LOCAL_CUSTOMER_PHONE);
 });
 
 async function seedFulfilledOrder(message = 'Rating test order') {
   const { data } = await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message,
     status: 'fulfilled',
@@ -29,7 +32,7 @@ async function seedFulfilledOrder(message = 'Rating test order') {
 
 test('RV-UI-01: rating sheet opens on fulfilled order in MyOrders', async ({ page }) => {
   await seedFulfilledOrder('RV-UI-01 order');
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('order-card').first()).toBeVisible({ timeout: 8000 });
@@ -40,7 +43,7 @@ test('RV-UI-01: rating sheet opens on fulfilled order in MyOrders', async ({ pag
 
 test('RV-UI-02: all 5 stars are visible on rating sheet', async ({ page }) => {
   await seedFulfilledOrder('RV-UI-02 order');
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
@@ -52,7 +55,7 @@ test('RV-UI-02: all 5 stars are visible on rating sheet', async ({ page }) => {
 
 test('RV-UI-03: submit button disabled until star selected', async ({ page }) => {
   await seedFulfilledOrder('RV-UI-03 order');
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
@@ -67,7 +70,7 @@ test('RV-UI-03: submit button disabled until star selected', async ({ page }) =>
 
 test('RV-UI-04: skip button dismisses rating sheet without DB write', async ({ page }) => {
   const order = await seedFulfilledOrder('RV-UI-04 skip test');
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
@@ -84,7 +87,7 @@ test('RV-UI-04: skip button dismisses rating sheet without DB write', async ({ p
 
 test('RV-DB-01: 5-star rating submitted — vendor_reviews row created', async ({ page }) => {
   const order = await seedFulfilledOrder('RV-DB-01 5 star');
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
@@ -99,7 +102,7 @@ test('RV-DB-01: 5-star rating submitted — vendor_reviews row created', async (
 
 test('RV-DB-02: 1-star rating submitted — vendor_reviews row created with correct rating', async ({ page }) => {
   const order = await seedFulfilledOrder('RV-DB-02 1 star');
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
@@ -121,7 +124,7 @@ test('RV-REPLY-01: vendor can see and respond to a review — UI flow', async ({
   await supabaseAdmin.from('vendor_reviews').insert({
     vendor_id: testVendor.id,
     request_id: order!.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     rating: 4,
     review_text: 'Great delivery',
@@ -166,7 +169,7 @@ test('RV-NEG-01: duplicate rating for same order blocked — unique constraint',
   await supabaseAdmin.from('vendor_reviews').insert({
     vendor_id: testVendor.id,
     request_id: order!.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     rating: 3,
     service_mode: 'delivery',
@@ -175,7 +178,7 @@ test('RV-NEG-01: duplicate rating for same order blocked — unique constraint',
   const { error } = await supabaseAdmin.from('vendor_reviews').insert({
     vendor_id: testVendor.id,
     request_id: order!.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     rating: 5,
     service_mode: 'delivery',
@@ -187,13 +190,13 @@ test('RV-NEG-01: duplicate rating for same order blocked — unique constraint',
 test('RV-NEG-02: rate button not shown on sent order card', async ({ page }) => {
   const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Sent order no rate btn',
     status: 'sent',
   }).select().single();
 
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
 
@@ -210,12 +213,12 @@ test('RV-NEG-02: rate button not shown on sent order card', async ({ page }) => 
 test('RV-NEG-03: rating sheet not shown on cancelled order', async ({ page }) => {
   await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Cancelled order no rate btn',
     status: 'cancelled',
   });
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   // Cancelled orders show in MyOrders but no rate button

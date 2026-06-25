@@ -70,11 +70,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
     try {
       const [usersResult, vendorsResult] = await Promise.all([
-        supabase
-          .from("users")
-          .select("total_orders")
-          .eq("phone", digits)
-          .maybeSingle(),
+        supabase.rpc("lookup_user_by_phone", { p_phone: digits }),
         supabase
           .from("vendors")
           .select("id, is_active, deletion_requested_at")
@@ -89,7 +85,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         return;
       }
 
-      const hasAccount = usersResult.data != null || vendorsResult.data != null;
+      const hasAccount = (usersResult.data?.[0] != null) || vendorsResult.data != null;
 
       if (hasAccount) {
         setInlineMessage(s.firstopen_restore_found);

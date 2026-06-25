@@ -1,23 +1,26 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
+const T = Date.now();
+const LOCAL_CUSTOMER_PHONE = `8800${String(T).slice(-6)}`;
 const TEST_DEVICE_ID = `device_khata_${TEST_SESSION}`;
 let testVendor: any;
 
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
+  await createTestCustomer(LOCAL_CUSTOMER_PHONE);
 });
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await cleanupTestData();
+  await cleanupTestData(LOCAL_CUSTOMER_PHONE);
 });
 
 async function seedAcceptedOrder(message = 'Khata test order') {
   const { data } = await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message,
     status: 'accepted',
@@ -29,7 +32,7 @@ async function seedKhataBill(requestId: string, amount: number) {
   const { data } = await supabaseAdmin.from('order_bills').insert({
     request_id: requestId,
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     total_amount: amount,
     payment_mode: 'khata',
     payment_status: 'unpaid',
@@ -37,7 +40,7 @@ async function seedKhataBill(requestId: string, amount: number) {
   // Also create ledger entry
   await supabaseAdmin.from('khata_ledger').upsert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     total_outstanding: amount,
   }, { onConflict: 'vendor_id,user_phone' });
   return data;
@@ -84,7 +87,7 @@ test('BK-DB-02: khata bill creates ledger entry with correct outstanding', async
   const { data } = await supabaseAdmin.from('khata_ledger')
     .select('total_outstanding')
     .eq('vendor_id', testVendor.id)
-    .eq('user_phone', TEST_CUSTOMER_PHONE)
+    .eq('user_phone', LOCAL_CUSTOMER_PHONE)
     .single();
   expect(data?.total_outstanding).toBeGreaterThan(0);
 });
@@ -120,10 +123,10 @@ test('BK-DB-03: partial payment reduces balance not zeroes it', async () => {
   // Apply partial payment of 400
   await supabaseAdmin.from('khata_ledger').update({
     total_outstanding: 600,
-  }).eq('vendor_id', testVendor.id).eq('user_phone', TEST_CUSTOMER_PHONE);
+  }).eq('vendor_id', testVendor.id).eq('user_phone', LOCAL_CUSTOMER_PHONE);
   await supabaseAdmin.from('khata_transactions').insert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     amount: 400,
     payment_mode: 'khata',
     note: 'Partial payment test',
@@ -132,7 +135,7 @@ test('BK-DB-03: partial payment reduces balance not zeroes it', async () => {
   const { data } = await supabaseAdmin.from('khata_ledger')
     .select('total_outstanding')
     .eq('vendor_id', testVendor.id)
-    .eq('user_phone', TEST_CUSTOMER_PHONE)
+    .eq('user_phone', LOCAL_CUSTOMER_PHONE)
     .single();
   expect(data?.total_outstanding).toBe(600);
 });
@@ -143,11 +146,11 @@ test('BK-DB-04: full payment zeroes ledger balance', async () => {
   // Full payment
   await supabaseAdmin.from('khata_ledger').update({
     total_outstanding: 0,
-  }).eq('vendor_id', testVendor.id).eq('user_phone', TEST_CUSTOMER_PHONE);
+  }).eq('vendor_id', testVendor.id).eq('user_phone', LOCAL_CUSTOMER_PHONE);
   const { data } = await supabaseAdmin.from('khata_ledger')
     .select('total_outstanding')
     .eq('vendor_id', testVendor.id)
-    .eq('user_phone', TEST_CUSTOMER_PHONE)
+    .eq('user_phone', LOCAL_CUSTOMER_PHONE)
     .single();
   expect(data?.total_outstanding).toBe(0);
 });
@@ -166,7 +169,7 @@ test('BK-NEG-01: duplicate bill for same order — void old on replace', async (
   const { error } = await supabaseAdmin.from('order_bills').insert({
     request_id: order!.id,
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     total_amount: 350,
     payment_mode: 'khata',
     payment_status: 'unpaid',
@@ -187,7 +190,7 @@ test('BK-NEG-02: bill payment mode options — cash, UPI, khata all valid', asyn
     const { error } = await supabaseAdmin.from('order_bills').insert({
       request_id: order!.id,
       vendor_id: testVendor.id,
-      user_phone: TEST_CUSTOMER_PHONE,
+      user_phone: LOCAL_CUSTOMER_PHONE,
       total_amount: 100,
       payment_mode: mode,
       payment_status: 'unpaid',

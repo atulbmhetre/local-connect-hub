@@ -133,7 +133,7 @@ test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', as
 // ─── VENDOR BAN ────────────────────────────────────────────────────────────
 
 test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ page }) => {
-  await supabase.rpc('admin_unban_vendor', {
+  await supabaseAdmin.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });
@@ -171,12 +171,12 @@ test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ p
     }
   }
 
-  await supabase.rpc('admin_ban_vendor', {
+  await supabaseAdmin.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
     p_reason: 'Test ban',
   });
-  await supabase.from('admin_actions').insert({
+  await supabaseAdmin.from('admin_actions').insert({
     admin_phone: TEST_ADMIN_PHONE,
     action_type: 'ban_vendor',
     target_type: 'vendor',
@@ -193,7 +193,7 @@ test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ p
 });
 
 test('ADMIN-06: banned vendor hidden from radar query — DB assert', async () => {
-  await supabase.rpc('admin_ban_vendor', {
+  await supabaseAdmin.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
     p_reason: 'Test ban',
@@ -203,19 +203,19 @@ test('ADMIN-06: banned vendor hidden from radar query — DB assert', async () =
     .eq('is_banned', false)
     .eq('id', testVendor.id);
   expect(data?.length).toBe(0);
-  await supabase.rpc('admin_unban_vendor', {
+  await supabaseAdmin.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });
 });
 
 test('ADMIN-07: unban vendor — is_banned = false + notification created', async () => {
-  await supabase.rpc('admin_ban_vendor', {
+  await supabaseAdmin.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
     p_reason: 'Test',
   });
-  await supabase.rpc('admin_unban_vendor', {
+  await supabaseAdmin.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });
@@ -264,7 +264,7 @@ test('ADMIN-08: warn customer — warn_count increments in DB', async ({ page })
 // ─── AUDIT LOG ─────────────────────────────────────────────────────────────
 
 test('ADMIN-09: admin action logged to admin_actions table', async () => {
-  await supabase.from('admin_actions').insert({
+  await supabaseAdmin.from('admin_actions').insert({
     admin_phone: TEST_ADMIN_PHONE,
     action_type: 'test_action',
     target_type: 'vendor',
@@ -303,7 +303,7 @@ test('ADMIN-NEG-01: non-admin phone cannot access admin panel UI', async ({ page
 });
 
 test('ADMIN-NEG-02: banned vendor cannot go live — is_active blocked', async () => {
-  await supabase.rpc('admin_ban_vendor', {
+  await supabaseAdmin.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
     p_reason: 'Test ban',
@@ -312,7 +312,7 @@ test('ADMIN-NEG-02: banned vendor cannot go live — is_active blocked', async (
   const { data } = await supabaseAdmin.from('vendors')
     .select('is_banned, is_active').eq('id', testVendor.id).single();
   expect(data?.is_banned).toBe(true);
-  await supabase.rpc('admin_unban_vendor', {
+  await supabaseAdmin.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });

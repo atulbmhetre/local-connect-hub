@@ -99,9 +99,11 @@ export async function waitForSettingsAdminReady(page: Page) {
 
 // Fresh user — no localStorage at all
 export async function loginAsFreshUser(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
   await page.goto(APP_URL);
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
   await page.waitForSelector('[data-testid="first-open-flow"]', { timeout: 15000 });
 }
 

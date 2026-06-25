@@ -230,12 +230,10 @@ export async function seedBronzeVendorVerification(vendorId: string) {
   if (error) throw error;
 }
 
-export async function createTestCustomer() {
+export async function createTestCustomer(phone = TEST_CUSTOMER_PHONE) {
   const { data, error } = await supabaseAdmin
     .from('users')
-    .insert({
-      phone: TEST_CUSTOMER_PHONE,
-    })
+    .insert({ phone })
     .select()
     .single();
   if (error) throw error;
@@ -308,8 +306,29 @@ export async function cleanupTestVendors() {
   }
 }
 
-export async function cleanupTestData() {
-  // Delete in FK-safe order
+export async function cleanupTestData(customerPhone?: string) {
+  if (customerPhone) {
+    const requestIds =
+      (await supabase.from('requests').select('id').eq('user_phone', customerPhone)).data?.map(
+        (r) => r.id,
+      ) ?? [];
+    await supabaseAdmin.from('vendor_reviews').delete().eq('user_phone', customerPhone);
+    if (requestIds.length > 0) {
+      await supabaseAdmin.from('order_items').delete().in('request_id', requestIds);
+      await supabaseAdmin.from('order_bills').delete().in('request_id', requestIds);
+    }
+    await supabaseAdmin.from('khata_transactions').delete().eq('user_phone', customerPhone);
+    await supabaseAdmin.from('khata_ledger').delete().eq('user_phone', customerPhone);
+    await supabaseAdmin.from('user_notifications').delete().eq('user_phone', customerPhone);
+    await supabaseAdmin.from('requests').delete().eq('user_phone', customerPhone);
+    await supabaseAdmin.from('saved_vendors').delete().eq('user_phone', customerPhone);
+    await supabaseAdmin.from('referrals').delete().eq('referee_id', customerPhone);
+    await supabaseAdmin.from('users').delete().eq('phone', customerPhone);
+    await supabaseAdmin.from('user_addresses').delete().eq('user_phone', customerPhone);
+    return;
+  }
+
+  // Delete in FK-safe order (legacy wildcard cleanup for 88000* test phones)
   await supabaseAdmin.from('vendor_reviews').delete().like('user_phone', '88000%');
   await supabaseAdmin.from('order_items').delete().in(
     'request_id',

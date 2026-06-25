@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, loginAsFreshUser, APP_URL } from './helpers/browser-setup';
-import { createTestVendor, cleanupTestData, cleanupTestVendors, getActiveCategories, seedBronzeVendorVerification, seedVendorCategory, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION, supabaseAdmin } from './helpers/setup';
+import { createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategories, seedBronzeVendorVerification, seedVendorCategory, TEST_VENDOR_PHONE, TEST_SESSION, supabaseAdmin } from './helpers/setup';
 
+const T = Date.now();
+const LOCAL_CUSTOMER_PHONE = `8800${String(T).slice(-6)}`;
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 let testVendor: any;
 let placedOrderId: string;
@@ -15,19 +17,19 @@ test.beforeAll(async () => {
     .from('vendors')
     .update({ is_active: true, profile_status: 'complete' })
     .eq('id', testVendor.id);
-  const { error } = await supabaseAdmin
-    .from('users')
-    .insert({ phone: TEST_CUSTOMER_PHONE })
-    .select()
-    .single();
-  if (error && error.code !== '23505') throw error;
-  await supabaseAdmin.from('app_users').upsert({ phone: TEST_CUSTOMER_PHONE }, { onConflict: 'phone' });
+  try {
+    await createTestCustomer(LOCAL_CUSTOMER_PHONE);
+  } catch (err: unknown) {
+    const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : undefined;
+    if (code !== '23505') throw err;
+  }
+  await supabaseAdmin.from('app_users').upsert({ phone: LOCAL_CUSTOMER_PHONE }, { onConflict: 'phone' });
   await supabaseAdmin.from('app_users').upsert({ phone: TEST_VENDOR_PHONE }, { onConflict: 'phone' });
 });
 
 test.afterAll(async () => {
   await cleanupTestVendors();
-  await cleanupTestData();
+  await cleanupTestData(LOCAL_CUSTOMER_PHONE);
 });
 
 // ─── ONBOARDING ────────────────────────────────────────────────────────────
@@ -40,7 +42,7 @@ test('CO-01: fresh install shows welcome card', async ({ page }) => {
 });
 
 test('CO-02: welcome card hidden when already welcomed', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await expect(page.getByTestId('home-screen')).toBeVisible();
   await expect(page.getByTestId('first-open-flow')).not.toBeVisible();
 });
@@ -66,7 +68,7 @@ test('CO-04: welcome vendor button navigates to vendor registration', async ({ p
 // ─── HOME + NAV ────────────────────────────────────────────────────────────
 
 test('UI-HOME-01: home screen loads and bottom nav visible', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await expect(page.getByTestId('home-screen')).toBeVisible();
   await expect(page.getByTestId('nav-home')).toBeVisible();
   await expect(page.getByTestId('nav-orders')).toBeVisible();
@@ -74,7 +76,7 @@ test('UI-HOME-01: home screen loads and bottom nav visible', async ({ page }) =>
 });
 
 test('UI-HOME-02: all bottom nav tabs navigate correctly', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.getByTestId('nav-orders').click();
   await expect(page).toHaveURL(/my-orders/);
   await page.getByTestId('nav-feed').click();
@@ -86,7 +88,7 @@ test('UI-HOME-02: all bottom nav tabs navigate correctly', async ({ page }) => {
 // ─── RADAR ─────────────────────────────────────────────────────────────────
 
 test('RA-01: radar loads and shows vendor cards', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
   await page.goto(`${APP_URL}/radar`);
@@ -95,7 +97,7 @@ test('RA-01: radar loads and shows vendor cards', async ({ page }) => {
 });
 
 test('RA-02: radar blocked when location denied', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   // Do NOT grant geolocation
   await page.goto(`${APP_URL}/radar`);
   await page.waitForLoadState('networkidle');
@@ -144,7 +146,7 @@ test('RA-03: radar category search finds vendor via vendor_categories', async ({
   await seedVendorCategory(radarVendor!.id, radarCategory!);
 
   try {
-    await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+    await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
     await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
     await page.context().grantPermissions(['geolocation']);
     await page.goto(
@@ -166,7 +168,7 @@ test('RA-03: radar category search finds vendor via vendor_categories', async ({
 
 test('DM-01-BROWSER: customer places order — parchi submit via vendor direct URL + DB assert', async ({ page }) => {
   test.skip(true, PHASE_D_TEST_DEBT);
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   // Navigate directly to vendor page and trigger parchi from there
   await page.goto(`${APP_URL}/radar`);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
@@ -175,7 +177,7 @@ test('DM-01-BROWSER: customer places order — parchi submit via vendor direct U
   // Seed order directly — UI radar path is unreliable in test env (GPS distance filter)
   const { error } = await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Browser test order — 2 litres of milk',
     status: 'sent',
@@ -185,7 +187,7 @@ test('DM-01-BROWSER: customer places order — parchi submit via vendor direct U
     .from('requests')
     .select('id, status, message')
     .eq('device_id', TEST_DEVICE_ID)
-    .eq('user_phone', TEST_CUSTOMER_PHONE)
+    .eq('user_phone', LOCAL_CUSTOMER_PHONE)
     .eq('status', 'sent')
     .order('created_at', { ascending: false })
     .limit(1);
@@ -199,12 +201,12 @@ test('DM-01b: order appears in MyOrders after placement', async ({ page }) => {
   // Seed a sent order directly so we know one exists
   await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'MyOrders visibility test',
     status: 'sent',
   });
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.getByTestId('nav-orders').click();
   await expect(page.getByTestId('my-orders-screen')).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('order-card').first()).toBeVisible({ timeout: 8000 });
@@ -214,12 +216,12 @@ test('DM-01c: order status badge shows sent on new order', async ({ page }) => {
   test.skip(true, PHASE_D_TEST_DEBT);
   await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Status badge test',
     status: 'sent',
   });
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('order-card').first()).toBeVisible({ timeout: 8000 });
@@ -236,7 +238,7 @@ test('DM-02-BROWSER: vendor sees incoming order and accepts — DB assert', asyn
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
-      user_phone: TEST_CUSTOMER_PHONE,
+      user_phone: LOCAL_CUSTOMER_PHONE,
       device_id: TEST_DEVICE_ID,
       message: 'Vendor accept browser test',
       status: 'sent',
@@ -268,7 +270,7 @@ test('DM-02b: accepted order — customer notification created in DB', async ({ 
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
-      user_phone: TEST_CUSTOMER_PHONE,
+      user_phone: LOCAL_CUSTOMER_PHONE,
       device_id: TEST_DEVICE_ID,
       message: 'Notify on accept test',
       status: 'sent',
@@ -289,7 +291,7 @@ test('DM-02b: accepted order — customer notification created in DB', async ({ 
   const { data: notif } = await supabaseAdmin
     .from('user_notifications')
     .select('id, type')
-    .eq('user_phone', TEST_CUSTOMER_PHONE)
+    .eq('user_phone', LOCAL_CUSTOMER_PHONE)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(5);
@@ -304,7 +306,7 @@ test('DM-04-BROWSER: vendor marks order done — DB assert', async ({ page }) =>
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
-      user_phone: TEST_CUSTOMER_PHONE,
+      user_phone: LOCAL_CUSTOMER_PHONE,
       device_id: TEST_DEVICE_ID,
       message: 'Mark done browser test',
       status: 'accepted',
@@ -337,7 +339,7 @@ test('DM-05-BROWSER: vendor cancels delivery order — DB assert', async ({ page
     .from('requests')
     .insert({
       vendor_id: testVendor.id,
-      user_phone: TEST_CUSTOMER_PHONE,
+      user_phone: LOCAL_CUSTOMER_PHONE,
       device_id: TEST_DEVICE_ID,
       message: 'Vendor cancel browser test',
       status: 'sent',
@@ -386,12 +388,12 @@ test('DM-06-BROWSER: customer cancels sent order — UI + DB assert', async ({ p
   test.skip(true, PHASE_D_TEST_DEBT);
   const { data: order } = await supabaseAdmin.from('requests').insert({
     vendor_id: testVendor.id,
-    user_phone: TEST_CUSTOMER_PHONE,
+    user_phone: LOCAL_CUSTOMER_PHONE,
     device_id: TEST_DEVICE_ID,
     message: 'Customer cancel browser test',
     status: 'sent',
   }).select().single();
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
   await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('order-card').first()).toBeVisible({ timeout: 8000 });
@@ -446,14 +448,14 @@ test('UI-VENDOR-04: vendor go-live toggles status badge — DB assert', async ({
 // ─── SETTINGS ──────────────────────────────────────────────────────────────
 
 test('UI-SETTINGS-01: settings screen loads', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
 });
 
 test('UI-SETTINGS-02: theme toggle exists and is clickable', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await page.waitForLoadState('networkidle');
   // Preferences accordion is collapsed — find and expand it
@@ -468,7 +470,7 @@ test('UI-SETTINGS-02: theme toggle exists and is clickable', async ({ page }) =>
 });
 
 test('UI-SETTINGS-03: language select visible after expanding preferences', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await page.waitForLoadState('networkidle');
   const preferencesToggle = page.locator('[data-testid="settings-screen"]')
@@ -478,7 +480,7 @@ test('UI-SETTINGS-03: language select visible after expanding preferences', asyn
 });
 
 test('UI-SETTINGS-04: account standing row visible for customer', async ({ page }) => {
-  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('account-standing-row')).toBeVisible({ timeout: 8000 });

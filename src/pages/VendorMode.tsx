@@ -310,13 +310,14 @@ const VendorMode = () => {
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const trialDaysLeft =
     vendor != null
-      ? Math.max(
-          0,
-          config.vendorTrialDays -
+      ? vendor.trial_ends_at
+        ? Math.max(
+            0,
             Math.floor(
-              (Date.now() - new Date(vendor.created_at).getTime()) / (1000 * 60 * 60 * 24),
+              (new Date(vendor.trial_ends_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
             ),
-        )
+          )
+        : 0
       : null;
   const isInTrial =
     trialDaysLeft !== null && trialDaysLeft > 0 && !vendor?.subscription_active;
