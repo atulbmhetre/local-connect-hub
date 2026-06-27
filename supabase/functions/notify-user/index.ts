@@ -37,10 +37,51 @@ serve(async (req) => {
     const title = String(payload?.title ?? "").substring(0, 100);
     const body = String(payload?.body ?? "").substring(0, 100);
 
+    if (!userPhone?.trim() && !directToken) {
+      return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
+    }
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    const fcmData = buildFcmData(payload, title, body);
+    let route =
+      typeof payload.route === "string" && payload.route.trim()
+        ? payload.route.trim()
+        : fcmData.route ?? null;
+    let routeParams =
+      payload.route_params && typeof payload.route_params === "object"
+        ? (payload.route_params as Record<string, string>)
+        : undefined;
+    if (!routeParams && fcmData.route_params) {
+      try {
+        routeParams = JSON.parse(fcmData.route_params) as Record<string, string>;
+      } catch {
+        routeParams = undefined;
+      }
+    }
+
+    if (userPhone?.trim() && (title.trim() || body.trim())) {
+      try {
+        const { error: inboxError } = await supabase.from("user_notifications").insert({
+          user_phone: userPhone.trim(),
+          title,
+          body,
+          type: (payload?.type as string | undefined) ?? "notification",
+          route,
+          route_params: routeParams ?? null,
+          is_informational: (payload?.is_informational as boolean | undefined) ?? false,
+          read_at: null,
+        });
+        if (inboxError) {
+          console.error("notify-user inbox insert failed", inboxError);
+        }
+      } catch (inboxErr) {
+        console.error("notify-user inbox insert failed", inboxErr);
+      }
+    }
 
     let tokens: string[] = [];
 
@@ -54,14 +95,11 @@ serve(async (req) => {
 
       if (error) {
         console.error("notify-user user_devices query failed", error);
-        return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
+      } else {
+        tokens = (devices ?? [])
+          .map((row) => row.fcm_token)
+          .filter((token): token is string => typeof token === "string" && token.length > 0);
       }
-
-      tokens = (devices ?? [])
-        .map((row) => row.fcm_token)
-        .filter((token): token is string => typeof token === "string" && token.length > 0);
-    } else {
-      return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 
     if (tokens.length === 0) {
@@ -90,7 +128,6 @@ serve(async (req) => {
     }
 
     let sent = 0;
-    const fcmData = buildFcmData(payload, title, body);
 
     for (const fcmToken of tokens) {
       try {

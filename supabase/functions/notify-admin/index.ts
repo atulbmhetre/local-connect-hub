@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
+import { buildFcmData } from "../_shared/notification-routes.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -51,10 +52,6 @@ serve(async (req) => {
     const payload = parsed;
     const title = String(payload?.title ?? "").substring(0, 100);
     const body = String(payload?.body ?? "").substring(0, 100);
-    const data =
-      payload?.data != null && typeof payload.data === "object" && !Array.isArray(payload.data)
-        ? (payload.data as Record<string, unknown>)
-        : {};
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -82,6 +79,27 @@ serve(async (req) => {
       .maybeSingle();
 
     const adminFcmToken = deviceRow?.fcm_token?.trim() ?? "";
+
+    if (adminPhone.trim() && (title.trim() || body.trim())) {
+      try {
+        const { error: inboxError } = await supabase.from("user_notifications").insert({
+          user_phone: adminPhone.trim(),
+          title,
+          body,
+          type: (payload?.type as string | undefined) ?? "notification",
+          route: (payload?.route as string | undefined) ?? null,
+          route_params: (payload?.route_params as Record<string, string> | undefined) ?? null,
+          is_informational: false,
+          read_at: null,
+        });
+        if (inboxError) {
+          console.error("notify-admin inbox insert failed", inboxError);
+        }
+      } catch (inboxErr) {
+        console.error("notify-admin inbox insert failed", inboxErr);
+      }
+    }
+
     if (!adminFcmToken) {
       console.warn("notify-admin: no FCM token found for admin phone", adminPhone);
       return new Response(JSON.stringify({ ok: false, reason: "no_token" }), {
@@ -114,10 +132,7 @@ serve(async (req) => {
       });
     }
 
-    const stringData: Record<string, string> = {};
-    for (const [key, value] of Object.entries(data)) {
-      stringData[key] = typeof value === "string" ? value : JSON.stringify(value);
-    }
+    const fcmData = buildFcmData(payload, title, body);
 
     const fcmRes = await fetch(
       `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
@@ -134,11 +149,7 @@ serve(async (req) => {
               title,
               body,
             },
-            data: {
-              ...stringData,
-              title,
-              body,
-            },
+            data: fcmData,
             android: {
               priority: "high",
               notification: {

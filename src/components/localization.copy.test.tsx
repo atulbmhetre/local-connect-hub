@@ -111,10 +111,6 @@ vi.mock("@/lib/supabase", () => ({
   SUPABASE_ANON_KEY: "test",
 }));
 
-vi.mock("@/lib/notifications", () => ({
-  saveNotification: vi.fn(),
-}));
-
 function assertLocalizedNotEnglish(lang: Language, english: string, localized: string) {
   render(<span data-testid="copy">{localized}</span>);
   expect(screen.getByTestId("copy")).toHaveTextContent(localized);

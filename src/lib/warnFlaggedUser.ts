@@ -1,6 +1,5 @@
 import { supabase, invokeNotifyUser } from "@/lib/supabase";
 import { logAdminAction } from "@/lib/adminAudit";
-import { saveNotification } from "@/lib/notifications";
 import { getUserPhone } from "@/lib/userIdentity";
 import { type Language, t } from "@/lib/strings";
 
@@ -33,22 +32,12 @@ export async function warnFlaggedUser(
 
   const title = t(userLang, "warn_user_title");
   const pushBody = t(userLang, "warn_user_push_body");
-  const inboxBody = t(userLang, "warn_user_inbox_body");
 
   void invokeNotifyUser({
     user_phone: phone,
     title,
     body: pushBody,
     type: "account_warning",
-  });
-  saveNotification({
-    userPhone: phone,
-    type: "account_warning",
-    title,
-    body: inboxBody,
-    route: "settings",
-    routeParams: { user_phone: phone },
-    isInformational: false,
   });
 
   const adminPhone = getUserPhone()?.trim();

@@ -128,6 +128,22 @@ export const FIRE_EMERGENCY_LABELS = new Set(["Fire Brigade"]);
 
 const PHARMACY_MEDICAL_RAW = /\b(medical|medicine|dawai|dawa|pharmacy|chemist|tablet)\b/;
 
+/** DB category row for Tier-1 exact-match lookup (label required). */
+export type Category = {
+  label: string;
+};
+
+/** Tier 1: exact case-insensitive match against live DB categories. */
+export async function resolveCategoryFromDB(
+  term: string,
+  dbCategories: Category[],
+): Promise<string | null> {
+  const t = term.trim();
+  if (!t) return null;
+  const match = dbCategories.find((c) => c.label.toLowerCase() === t.toLowerCase());
+  return match?.label ?? null;
+}
+
 /** Map free-text / voice input to a canonical category label, or null if no match. */
 export function resolveCanonicalTerm(rawInput: string): string | null {
   const t = rawInput.toLowerCase().trim();

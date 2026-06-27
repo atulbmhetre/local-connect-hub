@@ -11,6 +11,8 @@ import {
 const T = Date.now();
 const CUSTOMER_PHONE = `88004${String(T).slice(-5)}`;
 const DEVICE_ID = `device_rad_${T}`;
+const TEST_CUSTOMER_PHONE = CUSTOMER_PHONE;
+const TEST_DEVICE_ID = DEVICE_ID;
 
 const L = {
   sosHeadline: 'Emergency help nearby',
@@ -85,6 +87,20 @@ async function createNearbyVendor(
   await seedVendorCategory(vendor.id, category);
   createdVendorIds.push(vendor.id);
   return vendor;
+}
+
+async function createVendor(
+  serviceMode: 'help' | 'delivery' | 'appointment',
+  tag: string,
+  overrides: Record<string, unknown> = {},
+): Promise<VendorRow> {
+  return createNearbyVendor(serviceMode, 'Grocery Store', tag, overrides);
+}
+
+async function gotoRadarDelivery(page: Page) {
+  await page.context().grantPermissions(['geolocation']);
+  await page.goto(`${APP_URL}/radar?mode=delivery`);
+  await page.waitForLoadState('networkidle');
 }
 
 async function seedSavedVendor(vendor: VendorRow, nickname?: string) {
@@ -341,4 +357,62 @@ test('RAD-06a — Search "ambulance" shows emergency panel, no vendor cards', as
   await gotoRadar(page, { q: 'ambulance' });
   await expect(page.getByText(L.govAmbulance)).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('radar-vendor-card')).not.toBeVisible();
+});
+
+// ─── SERVICE RADIUS ────────────────────────────────────────────────────────
+
+test('RAD-RADIUS-01 — Vendor with tight radius (5km) hidden from customer 8km away', async ({
+  page,
+}) => {
+  // Seed vendor at Pune centre (18.5204, 73.8567) with service_radius_km: 5
+  const vendor = await createVendor('delivery', 'radrad01', {
+    latitude: 18.5204,
+    longitude: 73.8567,
+    service_radius_km: 5,
+  });
+  // Customer is ~8km away
+  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 18.585, longitude: 73.8567 });
+  await gotoRadarDelivery(page);
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(3000);
+  const card = page.getByTestId('radar-vendor-card').filter({ hasText: vendor.shop_name });
+  await expect(card).not.toBeVisible({ timeout: 5000 });
+});
+
+test('RAD-RADIUS-02 — Vendor with wide radius (50km) visible to customer 8km away', async ({
+  page,
+}) => {
+  const vendor = await createVendor('delivery', 'radrad02', {
+    latitude: 18.5204,
+    longitude: 73.8567,
+    service_radius_km: 50,
+  });
+  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 18.585, longitude: 73.8567 });
+  await gotoRadarDelivery(page);
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(3000);
+  const card = page.getByTestId('radar-vendor-card').filter({ hasText: vendor.shop_name });
+  await expect(card).toBeVisible({ timeout: 15000 });
+});
+
+test('RAD-RADIUS-03 — AI search respects vendor service radius', async ({ page }) => {
+  // Vendor at 5km radius, customer 8km away, AI search for vendor category
+  const vendor = await createVendor('delivery', 'radrad03', {
+    latitude: 18.5204,
+    longitude: 73.8567,
+    service_radius_km: 5,
+  });
+  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 18.585, longitude: 73.8567 });
+  await gotoRadarDelivery(page);
+  // Type a search term matching vendor category
+  await page.getByTestId('radar-search-input').fill('grocery');
+  await page.waitForTimeout(5000); // wait for AI suggestion
+  const card = page.getByTestId('radar-vendor-card').filter({ hasText: vendor.shop_name });
+  await expect(card).not.toBeVisible({ timeout: 5000 });
 });

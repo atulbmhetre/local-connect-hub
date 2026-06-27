@@ -25,6 +25,7 @@ const L = {
   khataMarkPaid: 'Mark Paid',
   khataPaidNotifBody: 'Your ledger has been cleared',
   billNotifTitle: 'Bill from your vendor',
+  billSent: 'Bill sent!',
   khataRecordPayment: 'Record Payment',
   khataSavePayment: 'Save Payment',
   billCash: '💵 Cash',
@@ -469,27 +470,36 @@ test('KB-REQ-11 — Customer name falls back to masked phone when name is null',
 
 // ─── CUSTOMER NOTIFICATION ───────────────────────────────────────────────────
 
-test('KB-REQ-12 — Customer notified when vendor sends bill', async () => {
+test('KB-REQ-12 — Customer notified when vendor sends bill', async ({ page }) => {
   const vendor = await createVendor('delivery', 'req12');
   const customer = nextCustomerPhone();
   const message = `KB-REQ-12-${T}`;
-  const order = await seedRequest(vendor.id, customer, message, { status: 'accepted' });
-  const since = new Date().toISOString();
+  await seedRequest(vendor.id, customer, message, { status: 'accepted' });
 
-  const { data: bill, error } = await supabaseAdmin
-    .from('order_bills')
-    .insert({
-      request_id: order.id,
-      vendor_id: vendor.id,
-      user_phone: customer,
-      total_amount: 220,
-      payment_mode: 'cash',
-      payment_status: 'unpaid',
-    })
-    .select('id')
-    .single();
-  if (error) throw error;
-  createdBillIds.push(bill!.id);
+  await loginVendorAndWaitOrders(page, vendor);
+  await openBillSheet(page, message);
+  await fillBillLine(page, 'KB-REQ-12 item', 220);
+
+  const since = new Date(Date.now() - 30000).toISOString();
+  await page.getByTestId('bill-submit-btn').click();
+  await expect(page.locator('[data-sonner-toast]').getByText(L.billSent)).toBeVisible({
+    timeout: 10000,
+  });
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await supabaseAdmin
+          .from('user_notifications')
+          .select('title, body')
+          .eq('user_phone', customer)
+          .gte('created_at', since)
+          .order('created_at', { ascending: false });
+        return data?.length ?? 0;
+      },
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(0);
 
   const { data: notifications } = await supabaseAdmin
     .from('user_notifications')
@@ -498,7 +508,6 @@ test('KB-REQ-12 — Customer notified when vendor sends bill', async () => {
     .gte('created_at', since)
     .order('created_at', { ascending: false });
 
-  expect(notifications?.length ?? 0).toBeGreaterThan(0);
   const row = notifications![0];
   expect(row.title).toBe(L.billNotifTitle);
   expect(row.body).toMatch(/₹220/);
@@ -551,13 +560,18 @@ test('KB-REQ-13 — Customer notified when vendor marks bill paid', async ({ pag
     timeout: 10000,
   });
 
-  const { data: notifications } = await supabaseAdmin
-    .from('user_notifications')
-    .select('body')
-    .eq('user_phone', customer)
-    .gte('created_at', since)
-    .order('created_at', { ascending: false });
-
-  expect(notifications?.length ?? 0).toBeGreaterThan(0);
-  expect(notifications!.some((n) => n.body?.includes(L.khataPaidNotifBody))).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const { data } = await supabaseAdmin
+          .from('user_notifications')
+          .select('body')
+          .eq('user_phone', customer)
+          .gte('created_at', since)
+          .order('created_at', { ascending: false });
+        return data?.some((n) => n.body?.includes(L.khataPaidNotifBody)) ?? false;
+      },
+      { timeout: 15000 },
+    )
+    .toBe(true);
 });

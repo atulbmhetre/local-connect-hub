@@ -65,6 +65,7 @@ test('VR-E2E-01: shop vendor registers without GPS as draft via browser form', a
   await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
   await page.getByPlaceholder('name@okbank').fill('browserreg@upi');
 
+  const since = new Date().toISOString();
   await page.getByRole('button', { name: 'Register me' }).click();
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
@@ -102,17 +103,31 @@ test('VR-E2E-01: shop vendor registers without GPS as draft via browser form', a
     .maybeSingle();
   const adminPhone = adminConfig?.value?.trim() || TEST_ADMIN_PHONE;
 
-  const { data: notifications, error: notificationError } = await supabaseAdmin
+  await expect
+    .poll(
+      async () => {
+        const { data } = await supabaseAdmin
+          .from('user_notifications')
+          .select('route, route_params')
+          .eq('user_phone', adminPhone)
+          .eq('type', 'new_vendor')
+          .gte('created_at', since)
+          .limit(1);
+        return data?.length ?? 0;
+      },
+      { timeout: 15000 },
+    )
+    .toBe(1);
+
+  const { data: notifications } = await supabaseAdmin
     .from('user_notifications')
-    .select('type, route, route_params')
+    .select('route, route_params')
     .eq('user_phone', adminPhone)
     .eq('type', 'new_vendor')
-    .contains('route_params', { vendor_id: vendorId })
-    .order('created_at', { ascending: false })
+    .gte('created_at', since)
     .limit(1);
-  expect(notificationError).toBeNull();
-  expect(notifications?.length).toBe(1);
   expect(notifications?.[0]?.route).toBe('vendor');
+  expect(notifications?.[0]?.route_params).toMatchObject({ vendor_id: vendorId });
 
   await deleteVendorRegistrationArtifacts(vendorId);
 });

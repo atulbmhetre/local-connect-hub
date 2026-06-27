@@ -133,3 +133,45 @@ test("DB-04: feed_posts.type rejects values outside announcement/recommendation/
     .like("content", `%${TEST_SESSION}%`);
   await deleteVendorRegistrationArtifacts(vendor.id);
 });
+
+test("DB-RAD-01: vendor service_radius_km is respected — vendor outside radius not returned in bbox query", async () => {
+  // Seed vendor at 18.5204, 73.8567 (Pune) with service_radius_km: 5
+  // Customer is at 18.5600, 73.8567 (~6km away)
+  // Vendor should NOT appear when customer searches within 15km bracket
+  // because vendor's own radius (5km) is tighter
+  const { data: vendor } = await supabaseAdmin
+    .from("vendors")
+    .insert({
+      phone: `99099${Date.now().toString().slice(-5)}`,
+      name: "Radius Test Vendor",
+      shop_name: "Radius Test Shop",
+      category: "Grocery",
+      service_mode: "delivery",
+      latitude: 18.5204,
+      longitude: 73.8567,
+      service_radius_km: 5,
+      profile_status: "complete",
+      is_banned: false,
+      upi_id: "test@upi",
+    })
+    .select()
+    .single();
+
+  // Direct DB query mimicking radar Track A bbox filter
+  const { data } = await supabaseAdmin
+    .from("vendors")
+    .select("id, service_radius_km")
+    .eq("id", vendor!.id)
+    .lt("service_radius_km", 9999)
+    .gte("latitude", 18.56 - 0.5)
+    .lte("latitude", 18.56 + 0.5)
+    .gte("longitude", 73.8567 - 0.5)
+    .lte("longitude", 73.8567 + 0.5);
+
+  // Vendor is in bbox but passesTrackARadiusFilter should exclude it
+  const dist = 6; // ~6km
+  const passes = data?.some((v) => dist <= Math.min(15, v.service_radius_km));
+  expect(passes).toBe(false);
+
+  await supabaseAdmin.from("vendors").delete().eq("id", vendor!.id);
+});

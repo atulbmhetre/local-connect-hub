@@ -1,5 +1,4 @@
 import { supabase } from "@/lib/supabase";
-import { saveNotification } from "@/lib/notifications";
 import { checkAndNotifyAdminGreenReady } from "@/lib/vendorGreenReady";
 
 /** Re-read vendor_reviews and update vendors.avg_rating + review_count (same logic as RatingSheet). */
@@ -45,24 +44,6 @@ export async function syncVendorRatingFromReviews(
       .maybeSingle();
 
     if (!vendor?.low_rating_admin_notified) {
-      const shopName = options.shopName?.trim() || "Vendor";
-      const { data: configRow } = await supabase
-        .from("app_config")
-        .select("value")
-        .eq("key", "admin_phone")
-        .maybeSingle();
-      const adminPhone = configRow?.value?.trim();
-      if (adminPhone) {
-        saveNotification({
-          userPhone: adminPhone,
-          type: "admin_alert",
-          title: "Low rated vendor alert",
-          body: `${shopName} has avg rating ${avgRating} over ${reviewCount} reviews`,
-          route: "vendor",
-          routeParams: { vendor_id: vendorId },
-          isInformational: false,
-        });
-      }
       update.low_rating_admin_notified = true;
     }
   }

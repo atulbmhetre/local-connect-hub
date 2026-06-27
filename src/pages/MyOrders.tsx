@@ -16,6 +16,7 @@ import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { RatingSheet } from "@/components/RatingSheet";
+import { PaymentSheet } from "@/components/PaymentSheet";
 import { ArrowLeft, Loader2, Mic, Camera, Loader2 as Loader2Icon, Pencil, PhoneCall, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
@@ -41,8 +42,8 @@ import {
   formatKhataDate,
   khataPaymentModeLabel,
 } from "@/lib/khataDisplay";
-import { saveNotification } from "@/lib/notifications";
 import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
+import { openGoogleMaps, resolveCustomerNavigateToVendorUrl } from "@/lib/mapsDeepLink";
 
 const MAX_LEN = 200;
 
@@ -61,7 +62,14 @@ function fulfilledOrderCtaLabel(
 }
 
 type RowWithShop = OrderRequestRow & {
-  vendors: { shop_name: string; service_mode: string | null; phone: string | null } | null;
+  vendors: {
+    shop_name: string;
+    service_mode: string | null;
+    phone: string | null;
+    latitude: number | null;
+    longitude: number | null;
+  } | null;
+  payment_status?: string;
 };
 
 type OrderBill = {
@@ -343,6 +351,20 @@ const MyOrders = () => {
   const [aiSheetLoading, setAiSheetLoading] = useState(false);
   const [aiBriefText, setAiBriefText] = useState<string | null>(null);
   const [aiBriefFailed, setAiBriefFailed] = useState(false);
+  const [paymentSheetOrder, setPaymentSheetOrder] = useState<null | {
+    id: string;
+    status: string;
+    payment_status: string;
+    amountRupees: number;
+  }>(null);
+  const [paymentSheetVendor, setPaymentSheetVendor] = useState<null | {
+    vendor_id: string;
+    shop_name: string;
+    upi_id: string;
+    phone: string;
+    upi_qr_url: string | null;
+  }>(null);
+  const [paymentSheetLoadingId, setPaymentSheetLoadingId] = useState<string | null>(null);
   const mounted = useRef(true);
   const vendorLocationHistoryRef = useRef<Map<string, VendorLocationPoint[]>>(new Map());
 
@@ -489,7 +511,7 @@ const MyOrders = () => {
     let listQuery = supabase
       .from("requests")
       .select(
-        "id, device_id, vendor_id, message, status, created_at, updated_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, delivery_slot_deadline, delivery_address, is_edited, vendors(shop_name, service_mode, phone)",
+        "id, device_id, vendor_id, message, status, payment_status, created_at, updated_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, delivery_slot_deadline, delivery_address, customer_latitude, customer_longitude, is_edited, vendors(shop_name, service_mode, phone, latitude, longitude)",
       )
       .neq("status", "done")
       .order("created_at", { ascending: false });
@@ -823,15 +845,6 @@ const MyOrders = () => {
         request_id: r.id,
         type: "order_update",
       });
-      saveNotification({
-        userPhone: vendorPhone,
-        type: "order_update",
-        title: s.myOrders_userCancelledNotifyTitle,
-        body: s.myOrders_userCancelledNotifyBody,
-        route: "vendor",
-        routeParams: { order_id: r.id },
-        isInformational: false,
-      });
     }
     setRows((prev) => prev.filter((row) => row.id !== r.id));
   };
@@ -853,15 +866,6 @@ const MyOrders = () => {
         message: s.myOrders_userCancelledNotifyBody,
         request_id: r.id,
         type: "order_update",
-      });
-      saveNotification({
-        userPhone: vendorPhone,
-        type: "order_update",
-        title: s.myOrders_userCancelledNotifyTitle,
-        body: s.myOrders_userCancelledNotifyBody,
-        route: "vendor",
-        routeParams: { order_id: r.id },
-        isInformational: false,
       });
     }
     toast.success(s.myOrders_bookingCancelled);
@@ -1064,18 +1068,6 @@ const MyOrders = () => {
       });
     }
 
-    if (vendorPhone) {
-      saveNotification({
-        userPhone: vendorPhone,
-        type: "order_update",
-        title: notificationTitle,
-        body: notificationBody,
-        route: "vendor",
-        routeParams: { order_id: editOrder.id },
-        isInformational: false,
-      });
-    }
-
     toast.success(s.orderUpdated);
     closeEditSheet();
   };
@@ -1089,6 +1081,33 @@ const MyOrders = () => {
       vendorPhone: r.vendors?.phone ?? null,
     });
     setRatingSheetOpen(true);
+  };
+
+  const openPaymentSheet = async (r: RowWithShop, bill: OrderBill) => {
+    setPaymentSheetLoadingId(r.id);
+    const { data: vendorData, error } = await supabase
+      .from("vendors")
+      .select("upi_id, upi_qr_url, phone")
+      .eq("id", r.vendor_id)
+      .single();
+    setPaymentSheetLoadingId(null);
+    if (error || !vendorData) {
+      toast.error(s.payment_confirm_error);
+      return;
+    }
+    setPaymentSheetOrder({
+      id: r.id,
+      status: r.status,
+      payment_status: r.payment_status ?? "unpaid",
+      amountRupees: bill.total_amount,
+    });
+    setPaymentSheetVendor({
+      vendor_id: r.vendor_id,
+      shop_name: r.vendors?.shop_name ?? "",
+      upi_id: vendorData.upi_id ?? "",
+      phone: vendorData.phone ?? r.vendors?.phone ?? "",
+      upi_qr_url: vendorData.upi_qr_url ?? null,
+    });
   };
 
   const orderStatusPillClass = (r: RowWithShop) => {
@@ -1308,6 +1327,24 @@ const MyOrders = () => {
                         <span>{s.bill_total}</span>
                         <span className="text-brand">₹{bill.total_amount.toFixed(2)}</span>
                       </div>
+                      {r.payment_status === "claimed" && (
+                        <div className="flex items-center gap-2 text-xs text-foreground">
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden />
+                          {s.payment_claimed}
+                        </div>
+                      )}
+                      {r.payment_status === "confirmed" && (
+                        <div className="flex items-center gap-2 text-xs text-foreground">
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" aria-hidden />
+                          {s.payment_confirmed}
+                        </div>
+                      )}
+                      {r.payment_status === "disputed" && (
+                        <div className="flex items-center gap-2 text-xs text-foreground">
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-hidden />
+                          {s.payment_disputed}
+                        </div>
+                      )}
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">
                           {bill.payment_mode === "cash"
@@ -1321,10 +1358,14 @@ const MyOrders = () => {
                         {bill.payment_status === "unpaid" && (
                           <button
                             type="button"
-                            className="text-xs text-brand font-semibold border border-brand/40 rounded-lg px-3 py-1"
-                            onClick={() => toast.info(s.bill_payDirectly)}
+                            disabled={paymentSheetLoadingId === r.id}
+                            className="text-xs text-amber-500 font-semibold border border-amber-500/50 rounded-lg px-3 py-1 disabled:opacity-50 inline-flex items-center gap-1.5"
+                            onClick={() => void openPaymentSheet(r, bill)}
                           >
-                            {s.bill_acknowledge}
+                            {paymentSheetLoadingId === r.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : null}
+                            {s.payment_pay_now}
                           </button>
                         )}
                       </div>
@@ -1551,6 +1592,21 @@ const MyOrders = () => {
                     </div>
                   );
                 })()}
+
+              {(() => {
+                const mapsUrl = resolveCustomerNavigateToVendorUrl(r);
+                if (!mapsUrl) return null;
+                return (
+                  <button
+                    type="button"
+                    data-testid="myorders-open-maps-btn"
+                    onClick={() => openGoogleMaps(mapsUrl)}
+                    className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
+                  >
+                    🗺️ {s.maps_openInMaps}
+                  </button>
+                );
+              })()}
 
               {r.appointment_time &&
                 r.status !== "fulfilled" &&
@@ -1917,6 +1973,18 @@ const MyOrders = () => {
           setRatingVendor(null);
         }}
       />
+
+      {paymentSheetOrder && paymentSheetVendor && (
+        <PaymentSheet
+          open={paymentSheetOrder !== null}
+          onClose={() => {
+            setPaymentSheetOrder(null);
+            setPaymentSheetVendor(null);
+          }}
+          order={paymentSheetOrder}
+          vendor={paymentSheetVendor}
+        />
+      )}
 
       <Sheet open={khataDetail != null} onOpenChange={(open) => !open && closeKhataDetail()}>
         <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] flex flex-col">

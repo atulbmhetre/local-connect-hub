@@ -18,6 +18,7 @@ type RequestBody = {
   description?: string;
   vendor_id?: string;
   create_pending?: boolean;
+  healthCheck?: boolean;
 };
 
 type AiSuggestion = {
@@ -161,7 +162,7 @@ async function callClaude(
   if (!resp.ok) {
     const errText = await resp.text();
     console.error("suggest-category Anthropic error", resp.status, errText);
-    throw new Error("AI suggestion failed");
+    throw new Error("AI suggestion failed", { cause: errText });
   }
 
   const data = await resp.json();
@@ -387,6 +388,10 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: "Invalid JSON body" }, 400);
     }
 
+    if (body.healthCheck === true || body.description?.trim() === "health-check") {
+      return jsonResponse({ status: "ok" });
+    }
+
     const description = body.description?.trim();
     if (!description || description.length < 3) {
       return jsonResponse({
@@ -426,6 +431,28 @@ serve(async (req) => {
       suggestion = await callClaude(model, buildPrompt(activeCategories, description));
     } catch (err) {
       console.error("suggest-category AI failed", err);
+      try {
+        const errMessage = err instanceof Error ? err.message : String(err);
+        const errBody = err instanceof Error && typeof err.cause === "string"
+          ? err.cause
+          : "";
+        if (/credit balance/i.test(`${errMessage} ${errBody}`)) {
+          const rawError = (errBody || errMessage).slice(0, 1000);
+          const now = new Date().toISOString();
+          await supabase.from("admin_alerts").upsert(
+            {
+              function_name: "suggest-category",
+              error_type: "billing",
+              raw_error: rawError,
+              last_checked_at: now,
+              notified: false,
+            },
+            { onConflict: "function_name", ignoreDuplicates: false },
+          );
+        }
+      } catch (alertErr) {
+        console.error("suggest-category admin_alerts upsert failed", alertErr);
+      }
       return jsonResponse({
         success: false,
         error: err instanceof Error ? err.message : "AI suggestion failed",

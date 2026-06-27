@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Vendor } from "@/lib/supabase";
-import { PAN_INDIA_RADIUS_KM } from "@/lib/serviceRadius";
 import {
   excludeOfflineHelpVendors,
-  isPanIndiaServiceRadius,
   mergeRadarTracks,
   passesTrackARadiusFilter,
 } from "@/lib/radarVendorFilter";
@@ -19,24 +17,47 @@ function vendorSlice(
   };
 }
 
-describe("passesTrackARadiusFilter (Track A)", () => {
-  it("excludes vendor when distance exceeds vendor radius even if within user bracket", () => {
-    // radius 5 km, user bracket 25 km, vendor 30 km away → cap is min(25,5)=5
-    expect(passesTrackARadiusFilter(30, 25, 5)).toBe(false);
+describe("passesTrackARadiusFilter", () => {
+  it("hides vendor when customer is beyond vendor service radius", () => {
+    expect(passesTrackARadiusFilter(6, 15, 5)).toBe(false);
   });
 
-  it("includes vendor when within user bracket and vendor radius is wider", () => {
-    // radius 50 km, user bracket 25 km, vendor 20 km away → cap is min(25,50)=25
-    expect(passesTrackARadiusFilter(20, 25, 50)).toBe(true);
+  it("shows vendor when customer is within vendor service radius", () => {
+    expect(passesTrackARadiusFilter(4, 15, 5)).toBe(true);
   });
 
-  it("excludes vendor at edge beyond user bracket when bracket is tighter than vendor radius", () => {
-    expect(passesTrackARadiusFilter(26, 25, 50)).toBe(false);
+  it("respects user bracket when tighter than vendor radius", () => {
+    expect(passesTrackARadiusFilter(8, 5, 50)).toBe(false);
   });
 
-  it("routes pan-India vendors to Track B (not Track A distance filter)", () => {
-    expect(passesTrackARadiusFilter(500, 25, PAN_INDIA_RADIUS_KM)).toBe(false);
-    expect(isPanIndiaServiceRadius(PAN_INDIA_RADIUS_KM)).toBe(true);
+  it("shows vendor when within both user bracket and vendor radius", () => {
+    expect(passesTrackARadiusFilter(4, 5, 50)).toBe(true);
+  });
+
+  it("returns false for pan-india vendor in track A", () => {
+    expect(passesTrackARadiusFilter(1, 15, 9999)).toBe(false);
+  });
+
+  it("uses default radius when vendor radius is null", () => {
+    // null normalizes to DEFAULT_SERVICE_RADIUS_KM (15)
+    expect(passesTrackARadiusFilter(10, 15, null)).toBe(true);
+    expect(passesTrackARadiusFilter(16, 15, null)).toBe(false);
+  });
+
+  it("passes when customer is exactly at vendor radius boundary", () => {
+    expect(passesTrackARadiusFilter(5, 15, 5)).toBe(true); // dist === radius
+  });
+
+  it("fails when user bracket is tighter than vendor radius", () => {
+    expect(passesTrackARadiusFilter(3, 2, 50)).toBe(false); // user bracket wins
+  });
+
+  it("passes when customer is at zero distance (same location)", () => {
+    expect(passesTrackARadiusFilter(0, 15, 5)).toBe(true);
+  });
+
+  it("fails when distance is just beyond vendor radius", () => {
+    expect(passesTrackARadiusFilter(5.1, 15, 5)).toBe(false);
   });
 });
 

@@ -60,7 +60,6 @@ import { cn } from "@/lib/utils";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { useLanguage } from '@/lib/language';
 import { registerPushToken } from "../lib/pushNotifications";
-import { saveNotification } from "@/lib/notifications";
 import { checkAndNotifyAdminGreenReady } from "@/lib/vendorGreenReady";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Textarea } from "@/components/ui/textarea";
@@ -350,6 +349,9 @@ const VendorMode = () => {
   const [referralEnabled, setReferralEnabled] = useState(false);
   const [upi, setUpi] = useState("");
   const [upiBlurred, setUpiBlurred] = useState(false);
+  const [upiQrUrl, setUpiQrUrl] = useState("");
+  const [upiQrUploading, setUpiQrUploading] = useState(false);
+  const upiQrInputRef = useRef<HTMLInputElement>(null);
   const [phone, setPhone] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
@@ -457,7 +459,7 @@ const VendorMode = () => {
       supabase.removeChannel(channel);
       window.clearInterval(pingInterval);
     };
-  }, [vendorId, vendor?.is_active]);
+  }, [vendorId]);
 
   useEffect(() => {
     if (!vendor?.id) return;
@@ -738,6 +740,23 @@ const VendorMode = () => {
     upiFmtOk &&
     !loading;
 
+  const handleUpiQrFile = async (file: File) => {
+    setUpiQrUploading(true);
+    const path = `upi-qr/${Date.now()}_${file.name}`;
+    const { error: upErr } = await supabase.storage.from("vendor-docs").upload(path, file, {
+      contentType: file.type || "image/jpeg",
+      upsert: true,
+    });
+    if (upErr) {
+      toast.error("QR upload failed");
+      setUpiQrUploading(false);
+      return;
+    }
+    const { data: pub } = supabase.storage.from("vendor-docs").getPublicUrl(path);
+    setUpiQrUrl(pub.publicUrl);
+    setUpiQrUploading(false);
+  };
+
   const toggleEditCategory = (categoryId: string) => {
     let next: string[];
     if (editSelectedCategoryIds.includes(categoryId)) {
@@ -924,7 +943,11 @@ const VendorMode = () => {
     void invokeNotifyAdmin(
       "✏️ Vendor edited shop details",
       `${resolvedShopName.trim()} — ${primaryLabel} (${primaryServiceMode})`,
-      { vendor_id: vendor.id },
+      {
+        type: "vendor_edited",
+        route: "vendor",
+        route_params: { vendor_id: vendor.id },
+      },
     );
     setEditShopOpen(false);
     toast.success("Shop details updated. Admin will re-verify your account.");
@@ -1025,6 +1048,7 @@ const VendorMode = () => {
       category: effectiveCategory,
       phone: phone.trim(),
       upi_id: upi.trim(),
+      upi_qr_url: upiQrUrl || null,
       service_mode: primaryServiceMode,
       vendor_type: vendorType,
       vendor_note: vendorNote.trim() || null,
@@ -1138,21 +1162,10 @@ const VendorMode = () => {
     setVendor(vendorRow as Vendor);
     const adminTitle = s.vendor_admin_notify_title;
     const adminBody = `${name.trim()} — ${resolvedCategoryLabel} (${resolvedPrimaryServiceMode})`;
-    void invokeNotifyAdmin(adminTitle, adminBody, { vendor_id: newVendorId });
-    const { data: adminConfig } = await supabase
-      .from("app_config")
-      .select("value")
-      .eq("key", "admin_phone")
-      .maybeSingle();
-    const adminPhone = adminConfig?.value?.trim() || "8888169446";
-    saveNotification({
-      userPhone: adminPhone,
+    void invokeNotifyAdmin(adminTitle, adminBody, {
       type: "new_vendor",
-      title: adminTitle,
-      body: adminBody,
       route: "vendor",
-      routeParams: { vendor_id: newVendorId },
-      isInformational: true,
+      route_params: { vendor_id: newVendorId },
     });
     if (referralCodeInput.trim()) {
       try {
@@ -1341,15 +1354,6 @@ const VendorMode = () => {
         type: "order_update",
         order_id: orderId,
       });
-      saveNotification({
-        userPhone,
-        type: "order_update",
-        title: s.user_vendor_offline_title,
-        body: s.user_vendor_offline_body,
-        route: "my-orders",
-        routeParams: { order_id: orderId },
-        isInformational: false,
-      });
     }
 
     for (const [userPhone, orderId] of pendingByPhone) {
@@ -1360,15 +1364,6 @@ const VendorMode = () => {
         body: s.goOffline_pendingOrderNotify_body,
         type: "order_update",
         order_id: orderId,
-      });
-      saveNotification({
-        userPhone,
-        type: "order_update",
-        title: s.goOffline_pendingOrderNotify_title,
-        body: s.goOffline_pendingOrderNotify_body,
-        route: "my-orders",
-        routeParams: { order_id: orderId },
-        isInformational: false,
       });
     }
   };
@@ -1942,6 +1937,54 @@ const VendorMode = () => {
             required
             error={upiFormatError}
           />
+
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {s.vendor_upi_qr_label}
+            </label>
+            <input
+              ref={upiQrInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void handleUpiQrFile(file);
+              }}
+            />
+            <div className="mt-1">
+              {upiQrUploading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Uploading...
+                </div>
+              ) : upiQrUrl ? (
+                <div className="flex items-center gap-3">
+                  <img
+                    src={upiQrUrl}
+                    alt=""
+                    className="h-20 w-20 rounded-lg border border-border object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setUpiQrUrl("")}
+                    className="text-sm font-medium text-destructive hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => upiQrInputRef.current?.click()}
+                  className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50"
+                >
+                  Upload UPI QR Code
+                </button>
+              )}
+            </div>
+          </div>
 
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

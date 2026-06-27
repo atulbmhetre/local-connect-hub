@@ -51,6 +51,9 @@ vi.mock("@/lib/supabase", () => {
     eq: vi.fn(function eq() {
       return chain;
     }),
+    is: vi.fn(async function is() {
+      return { count: 0, error: null };
+    }),
     order: vi.fn(function order() {
       return chain;
     }),

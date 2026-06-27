@@ -38,7 +38,6 @@ import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useUserAddresses, type SavedAddress } from "@/hooks/useUserAddresses";
 import { cn } from "@/lib/utils";
-import { saveNotification } from "@/lib/notifications";
 
 type VendorMenuItem = {
   id: string;
@@ -49,6 +48,17 @@ type VendorMenuItem = {
   is_available: boolean;
 };
 
+export type ParchiPaymentOrder = {
+  id: string;
+  status: string;
+  payment_status: "unpaid" | "claimed" | "confirmed" | "disputed";
+  amount: number;
+};
+
+type VendorWithQr = Vendor & { upi_qr_url?: string | null };
+
+type PaymentTab = "upi" | "mobile" | "qr";
+
 const menuItemLabel = (item: VendorMenuItem) =>
   item.name?.trim() || item.description?.trim() || "Item";
 
@@ -58,6 +68,8 @@ type Props = {
   serviceMode?: string | null;
   isOpen: boolean;
   onClose: () => void;
+  /** Fulfilled order with payment details (optional). */
+  order?: ParchiPaymentOrder | null;
   /** After successful order send; e.g. refresh radar resolution button visibility. */
   onOrderSent?: () => void;
   /** When user cancels an in-flight order/booking from this sheet (optional). */
@@ -100,6 +112,7 @@ export function ParchiSheet({
   serviceMode: serviceModeProp,
   isOpen,
   onClose,
+  order,
   onOrderSent,
 }: Props) {
   const { s } = useLanguage();
@@ -135,9 +148,37 @@ export function ParchiSheet({
   const [menuExpanded, setMenuExpanded] = useState(true);
   const lastVendor = useRef<Vendor | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const phoneSheetOpenRef = useRef(false);
+  const [paymentTab, setPaymentTab] = useState<PaymentTab>("upi");
+  const [payCountdown, setPayCountdown] = useState<number | null>(null);
+  const [paymentUtr, setPaymentUtr] = useState("");
+  const [utrSubmitting, setUtrSubmitting] = useState(false);
+  const [localPaymentStatus, setLocalPaymentStatus] = useState<
+    ParchiPaymentOrder["payment_status"] | undefined
+  >(order?.payment_status);
+  const [customerLat, setCustomerLat] = useState<number | null>(null);
+  const [customerLng, setCustomerLng] = useState<number | null>(null);
+  const [shareLocationEnabled, setShareLocationEnabled] = useState(false);
+  const [locationPermissionBlocked, setLocationPermissionBlocked] = useState(false);
+  const [locationCaptured, setLocationCaptured] = useState(false);
   useEffect(() => {
     if (vendor) lastVendor.current = vendor;
   }, [vendor]);
+
+  useEffect(() => {
+    setLocalPaymentStatus(order?.payment_status);
+    setPaymentTab("upi");
+    setPayCountdown(null);
+    setPaymentUtr("");
+  }, [order?.id, order?.payment_status]);
+
+  useEffect(() => {
+    if (payCountdown === null || payCountdown <= 0) return;
+    const id = window.setInterval(() => {
+      setPayCountdown((n) => (n === null || n <= 1 ? 0 : n - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [payCountdown]);
 
   const resetFormFields = useCallback(() => {
     setMessage("");
@@ -152,6 +193,11 @@ export function ParchiSheet({
     setSending(false);
     setPendingPhone(null);
     setMenuExpanded(true);
+    setCustomerLat(null);
+    setCustomerLng(null);
+    setShareLocationEnabled(false);
+    setLocationPermissionBlocked(false);
+    setLocationCaptured(false);
   }, []);
 
   useEffect(() => {
@@ -200,6 +246,77 @@ export function ParchiSheet({
     });
   }, [isOpen, menuItems]);
 
+  useEffect(() => {
+    if (!isOpen || !effectiveVendor) return;
+    const needsSilentCapture =
+      effectiveVendor.service_mode === "delivery" ||
+      (effectiveVendor.service_mode === "appointment" && appointmentLocation === "home");
+    if (!needsSilentCapture || !navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCustomerLat(pos.coords.latitude);
+        setCustomerLng(pos.coords.longitude);
+      },
+      () => {
+        /* silent — delivery_address text remains fallback */
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60_000 },
+    );
+  }, [isOpen, effectiveVendor?.service_mode, appointmentLocation]);
+
+  useEffect(() => {
+    if (
+      effectiveVendor?.service_mode === "appointment" &&
+      appointmentLocation !== "home" &&
+      !shareLocationEnabled
+    ) {
+      setCustomerLat(null);
+      setCustomerLng(null);
+    }
+  }, [appointmentLocation, effectiveVendor?.service_mode, shareLocationEnabled]);
+
+  const handleShareLocationToggle = useCallback(async (enabled: boolean) => {
+    setShareLocationEnabled(enabled);
+    if (!enabled) {
+      setCustomerLat(null);
+      setCustomerLng(null);
+      setLocationPermissionBlocked(false);
+      setLocationCaptured(false);
+      return;
+    }
+
+    setLocationPermissionBlocked(false);
+    setLocationCaptured(false);
+
+    if (!navigator.geolocation) return;
+
+    try {
+      const perm = await navigator.permissions.query({ name: "geolocation" });
+      if (perm.state === "denied") {
+        setLocationPermissionBlocked(true);
+        return;
+      }
+    } catch {
+      /* permissions API unavailable — fall through to getCurrentPosition */
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCustomerLat(pos.coords.latitude);
+        setCustomerLng(pos.coords.longitude);
+        setLocationCaptured(true);
+        setLocationPermissionBlocked(false);
+      },
+      () => {
+        setShareLocationEnabled(false);
+        setCustomerLat(null);
+        setCustomerLng(null);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  }, []);
+
   const buildMenuMessage = () => {
     return Object.entries(selectedMenuItems)
       .filter(([, qty]) => qty > 0)
@@ -239,6 +356,8 @@ export function ParchiSheet({
   const handleOpenChange = useCallback(
     (open: boolean) => {
       if (!open) {
+        // Radix may dismiss the parchi sheet when the nested phone sheet opens — keep form state.
+        if (phoneSheetOpenRef.current) return;
         resetFormFields();
         setSaveAddress(false);
         setTrustBlock(null);
@@ -380,24 +499,29 @@ export function ParchiSheet({
 
       setSending(true);
       const device_id = getDeviceId();
+      const insertPayload: Record<string, unknown> = {
+        device_id,
+        vendor_id: v.id,
+        message: text.slice(0, config.maxOrderMessageChars) + locationNote,
+        status: "sent",
+        user_phone: phone,
+        device_id_log: device_id,
+        delivery_address: finalAddress,
+        delivery_slot: selectedSlot,
+        delivery_slot_deadline:
+          effectiveVendor?.service_mode === "delivery"
+            ? getDeliverySlotDeadline(selectedSlot)
+            : null,
+        appointment_time: appointmentTimestamp,
+        appointment_status: appointmentTimestamp ? "pending" : null,
+      };
+      if (customerLat != null && customerLng != null) {
+        insertPayload.customer_latitude = customerLat;
+        insertPayload.customer_longitude = customerLng;
+      }
       const { data: inserted, error } = await supabase
         .from("requests")
-        .insert({
-          device_id,
-          vendor_id: v.id,
-          message: text.slice(0, config.maxOrderMessageChars) + locationNote,
-          status: "sent",
-          user_phone: phone,
-          device_id_log: device_id,
-          delivery_address: finalAddress,
-          delivery_slot: selectedSlot,
-          delivery_slot_deadline:
-            effectiveVendor?.service_mode === "delivery"
-              ? getDeliverySlotDeadline(selectedSlot)
-              : null,
-          appointment_time: appointmentTimestamp,
-          appointment_status: appointmentTimestamp ? "pending" : null,
-        })
+        .insert(insertPayload)
         .select("id")
         .single();
       if (error) {
@@ -413,7 +537,6 @@ export function ParchiSheet({
         .replace(/\s*\[I'll visit your shop\]/g, "")
         .replace(/\s*\[Location TBD\]/g, "")
         .trim();
-      const notifyTitle = v.category ? `New Order — ${v.category}` : "New Order";
       void invokeNotifyVendor({
         vendor_id: v.id,
         category: v.category,
@@ -421,18 +544,6 @@ export function ParchiSheet({
         type: "new_order",
         request_id: inserted.id,
       });
-      const vendorPhone = v.phone?.trim();
-      if (vendorPhone) {
-        saveNotification({
-          userPhone: vendorPhone,
-          type: "new_order",
-          title: notifyTitle,
-          body: notifyBody,
-          route: "vendor",
-          routeParams: { order_id: inserted.id },
-          isInformational: false,
-        });
-      }
       if (saveAddress && newAddress.trim()) {
         const { error: addrError } = await supabase.from("user_addresses").insert({
           device_id: getDeviceId(),
@@ -468,6 +579,8 @@ export function ParchiSheet({
       addresses,
       newAddress,
       saveAddress,
+      customerLat,
+      customerLng,
       appointmentDate,
       appointmentTime,
       appointmentLocation,
@@ -515,6 +628,7 @@ export function ParchiSheet({
       }
       setOfflineApptError(false);
       if (overridePhone == null && !isPhoneKnown()) {
+        phoneSheetOpenRef.current = true;
         setPhoneSheetOpen(true);
         return;
       }
@@ -581,6 +695,74 @@ export function ParchiSheet({
     setMediumTrustDialogOpen(false);
     if (pendingPhone) void executeOrderInsert(pendingPhone);
   };
+
+  const selectPaymentTab = (tab: PaymentTab) => {
+    setPaymentTab(tab);
+    setPayCountdown(null);
+    setPaymentUtr("");
+  };
+
+  const amountInRupees = order?.amount ? (order.amount / 100).toFixed(2) : "0";
+
+  const openUpiDeepLink = (pa: string) => {
+    const v = effectiveVendor as VendorWithQr | null;
+    if (!order || !v || !pa) return;
+    const deepLink = `upi://pay?pa=${pa}&pn=${encodeURIComponent(v.shop_name)}&am=${amountInRupees}&tn=AaspaasOrder-${order.id}`;
+    window.open(deepLink, "_blank");
+    setPayCountdown(30);
+  };
+
+  const handlePayNowUpi = () => {
+    const v = effectiveVendor as VendorWithQr | null;
+    if (!v?.upi_id) return;
+    openUpiDeepLink(v.upi_id);
+  };
+
+  const handlePayNowMobile = () => {
+    const v = effectiveVendor as VendorWithQr | null;
+    if (!v?.phone) return;
+    openUpiDeepLink(`${v.phone}@upi`);
+  };
+
+  const handleSubmitPaymentUtr = async () => {
+    const v = effectiveVendor as VendorWithQr | null;
+    if (!order || !v) return;
+    const trimmed = paymentUtr.trim();
+    if (!trimmed) {
+      toast.error(s.payment_utr_empty);
+      return;
+    }
+    setUtrSubmitting(true);
+    const { error } = await supabase
+      .from("requests")
+      .update({
+        payment_utr: trimmed,
+        payment_status: "claimed",
+        payment_claimed_at: new Date().toISOString(),
+      })
+      .eq("id", order.id);
+    if (error) {
+      toast.error(error.message);
+      setUtrSubmitting(false);
+      return;
+    }
+    void invokeNotifyVendor({
+      vendor_id: v.id,
+      notification_title: "Payment Claimed",
+      message: `Customer claims payment of ₹${amountInRupees} — UTR: ${trimmed}`,
+      type: "payment_claimed",
+      request_id: order.id,
+    });
+    setLocalPaymentStatus("claimed");
+    setUtrSubmitting(false);
+  };
+
+  const showPaymentSection =
+    order?.status === "fulfilled" && localPaymentStatus != null;
+  const showPaymentPicker = localPaymentStatus === "unpaid";
+  const showUtrInput =
+    paymentTab === "qr" || (payCountdown !== null && payCountdown <= 0);
+  const vendorQrUrl = (effectiveVendor as VendorWithQr | null)?.upi_qr_url?.trim() || "";
 
   if (!effectiveVendor) return null;
 
@@ -1037,7 +1219,168 @@ export function ParchiSheet({
             <div className="flex justify-end text-xs text-muted-foreground tabular-nums mt-1">
               {len}{s.parchi_charSeparator}{config.maxOrderMessageChars}
             </div>
+
+            {effectiveVendor?.service_mode === "help" && (
+              <div className="space-y-1.5 mt-3">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={shareLocationEnabled}
+                    onChange={(e) => void handleShareLocationToggle(e.target.checked)}
+                    className="accent-brand h-4 w-4 shrink-0"
+                  />
+                  <span className="text-sm text-gray-300">{s.parchi_shareLocationToggle}</span>
+                </label>
+                {locationPermissionBlocked && (
+                  <p className="text-xs text-amber-600 leading-snug">
+                    {s.parchi_locationPermissionBlocked}
+                  </p>
+                )}
+                {locationCaptured && shareLocationEnabled && !locationPermissionBlocked && (
+                  <p className="text-xs text-green-500">{s.parchi_locationCaptured}</p>
+                )}
+              </div>
+            )}
             </div>
+
+            {showPaymentSection && (
+              <div className="space-y-3 pt-1" data-testid="parchi-payment-section">
+                {showPaymentPicker ? (
+                  <>
+                    <div className="flex border-b border-surface-border">
+                      {(
+                        [
+                          { id: "upi" as const, label: "UPI ID" },
+                          { id: "mobile" as const, label: "Mobile" },
+                          { id: "qr" as const, label: "QR Code" },
+                        ] as const
+                      ).map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => selectPaymentTab(tab.id)}
+                          className={cn(
+                            "flex-1 pb-2 text-xs font-semibold transition-colors border-b-2 -mb-px",
+                            paymentTab === tab.id
+                              ? "border-brand text-foreground"
+                              : "border-transparent text-muted-foreground",
+                          )}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {paymentTab === "upi" && (
+                      <div className="space-y-3">
+                        {payCountdown === null && (
+                          <button
+                            type="button"
+                            onClick={handlePayNowUpi}
+                            className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
+                          >
+                            {s.payment_pay_now}
+                          </button>
+                        )}
+                        {payCountdown !== null && payCountdown > 0 && (
+                          <p className="text-sm text-muted-foreground text-center">
+                            {s.payment_timer.replace("{n}", String(payCountdown))}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {paymentTab === "mobile" && (
+                      <div className="space-y-3">
+                        {payCountdown === null && (
+                          <button
+                            type="button"
+                            onClick={handlePayNowMobile}
+                            className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
+                          >
+                            {s.payment_pay_now}
+                          </button>
+                        )}
+                        {payCountdown !== null && payCountdown > 0 && (
+                          <p className="text-sm text-muted-foreground text-center">
+                            {s.payment_timer.replace("{n}", String(payCountdown))}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {paymentTab === "qr" && (
+                      <div className="space-y-3 text-center">
+                        {!vendorQrUrl ? (
+                          <p className="text-xs text-muted-foreground">
+                            Vendor hasn&apos;t uploaded a QR code yet
+                          </p>
+                        ) : (
+                          <>
+                            <img
+                              src={vendorQrUrl}
+                              alt=""
+                              className="mx-auto h-[200px] w-[200px] rounded-lg border border-surface-border object-contain"
+                            />
+                            <p className="text-sm text-foreground">
+                              {s.payment_amount_label}{" "}
+                              <span className="font-bold">₹{amountInRupees}</span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {s.payment_scan_instruction}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {s.payment_enter_amount.replace("{amount}", amountInRupees)}
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {showUtrInput && (paymentTab !== "qr" || vendorQrUrl) && (
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="parchi-payment-utr"
+                          className="text-xs font-medium text-muted-foreground uppercase tracking-wide block"
+                        >
+                          {s.payment_enter_utr}
+                        </label>
+                        <input
+                          id="parchi-payment-utr"
+                          type="text"
+                          value={paymentUtr}
+                          onChange={(e) => setPaymentUtr(e.target.value)}
+                          className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                        />
+                        <button
+                          type="button"
+                          disabled={utrSubmitting}
+                          onClick={() => void handleSubmitPaymentUtr()}
+                          className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform disabled:opacity-60"
+                        >
+                          {utrSubmitting ? "..." : s.payment_submit_utr}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : localPaymentStatus === "claimed" ? (
+                  <div className="flex items-center gap-2 text-sm text-foreground">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden />
+                    {s.payment_claimed}
+                  </div>
+                ) : localPaymentStatus === "confirmed" ? (
+                  <div className="flex items-center gap-2 text-sm text-foreground">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" aria-hidden />
+                    {s.payment_confirmed}
+                  </div>
+                ) : localPaymentStatus === "disputed" ? (
+                  <div className="flex items-center gap-2 text-sm text-foreground">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-hidden />
+                    {s.payment_disputed}
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             </>
             )}
@@ -1154,8 +1497,12 @@ export function ParchiSheet({
         isOpen={phoneSheetOpen}
         context="order"
         skipRecovery
-        onClose={() => setPhoneSheetOpen(false)}
+        onClose={() => {
+          phoneSheetOpenRef.current = false;
+          setPhoneSheetOpen(false);
+        }}
         onConfirmed={async (phone) => {
+          phoneSheetOpenRef.current = false;
           setPhoneSheetOpen(false);
           await migrateUserPhone(phone, getDeviceId());
           void send(phone);

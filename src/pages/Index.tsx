@@ -362,7 +362,7 @@ const Index = () => {
     if (!term) return;
     setClassifying(true);
     try {
-      const r = await classifySearchTermForRadar(term);
+      const r = await classifySearchTermForRadar(term, categories);
       if (r.outcome === "hint") {
         toast.info(r.message);
         return;

@@ -87,7 +87,7 @@ test('ADDR-04: delete address removes row from DB', async () => {
     .select()
     .single();
 
-  await supabase.from('user_addresses').delete().eq('id', addr.id);
+  await supabaseAdmin.from('user_addresses').delete().eq('id', addr.id);
 
   const { data } = await supabaseAdmin
     .from('user_addresses')

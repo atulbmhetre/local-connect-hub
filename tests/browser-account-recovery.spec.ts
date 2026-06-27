@@ -11,6 +11,7 @@ import {
   uniqueBrowserPhone,
 } from './helpers/session38';
 import { openPhoneEntrySheet, submitPhoneNumber } from './helpers/browser-recovery';
+import { mintBrowserSupabaseSession } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_reco_${TEST_SESSION}`;
 const FRESH_PHONE = uniqueBrowserPhone('8801');
@@ -38,7 +39,11 @@ test('RECOV-01: fresh user with no order history skips welcome back screen', asy
     localStorage.setItem('aaspaas:welcomed', 'true');
   }, { deviceId: TEST_DEVICE_ID });
 
-  await openPhoneEntrySheet(page, { shopName: testVendor.shop_name, vendorId: testVendor.id });
+  await openPhoneEntrySheet(page, {
+    shopName: testVendor.shop_name,
+    vendorId: testVendor.id,
+    deviceId: TEST_DEVICE_ID,
+  });
   await submitPhoneNumber(page, FRESH_PHONE);
 
   await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 3000 });
@@ -60,7 +65,11 @@ test('RECOV-02: returning user with orders skips welcome back during parchi orde
     localStorage.setItem('aaspaas:welcomed', 'true');
   }, { deviceId: TEST_DEVICE_ID });
 
-  await openPhoneEntrySheet(page, { shopName: testVendor.shop_name, vendorId: testVendor.id });
+  await openPhoneEntrySheet(page, {
+    shopName: testVendor.shop_name,
+    vendorId: testVendor.id,
+    deviceId: TEST_DEVICE_ID,
+  });
   await submitPhoneNumber(page, EXISTING_PHONE);
 
   await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 3000 });
@@ -81,7 +90,12 @@ test('RECOV-03: returning user phone saved and order proceeds without recovery s
     localStorage.setItem('aaspaas:welcomed', 'true');
   }, { deviceId: TEST_DEVICE_ID });
 
-  await openPhoneEntrySheet(page, { shopName: testVendor.shop_name, vendorId: testVendor.id });
+  await openPhoneEntrySheet(page, {
+    shopName: testVendor.shop_name,
+    vendorId: testVendor.id,
+    deviceId: TEST_DEVICE_ID,
+  });
+  await mintBrowserSupabaseSession(page, EXISTING_PHONE, 'RECOV-03');
   await submitPhoneNumber(page, EXISTING_PHONE);
 
   await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 3000 });

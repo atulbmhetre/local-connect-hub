@@ -3,7 +3,9 @@ import App from "./App.tsx";
 import "./index.css";
 import { initThemeFromStorage } from "./lib/theme";
 import { checkAndStoreReferral } from "./lib/referral";
+import { initSentry } from "./lib/sentry";
 
+initSentry();
 initThemeFromStorage();
 checkAndStoreReferral();
 

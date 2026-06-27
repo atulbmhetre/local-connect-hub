@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { supabase, invokecalculateTrustScore, invokeNotifyUser } from "@/lib/supabase";
-import { saveNotification } from "@/lib/notifications";
 import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
 import { Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -13,6 +12,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { openGoogleMaps, resolveVendorNavigateToCustomerUrl } from "@/lib/mapsDeepLink";
 import { BillSheet } from "@/components/BillSheet";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -24,6 +24,11 @@ type TrustInfo = {
   is_banned: boolean;
   ban_reason: string | null;
 } | null;
+
+type IncomingOrderRow = OrderRequestRow & {
+  payment_status?: string;
+  payment_utr?: string | null;
+};
 
 type OrderBillSummary = {
   id: string;
@@ -172,7 +177,7 @@ export function IncomingOrdersSection({
     }),
     [s],
   );
-  const [rows, setRows] = useState<OrderRequestRow[]>([]);
+  const [rows, setRows] = useState<IncomingOrderRow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
@@ -195,6 +200,8 @@ export function IncomingOrdersSection({
   const [billUserPhone, setBillUserPhone] = useState<string | null>(null);
   const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBillSummary>>({});
   const [markingBillPaidId, setMarkingBillPaidId] = useState<string | null>(null);
+  const [confirmingPaymentId, setConfirmingPaymentId] = useState<string | null>(null);
+  const [disputingPaymentId, setDisputingPaymentId] = useState<string | null>(null);
   const [flagOrderId, setFlagOrderId] = useState<string | null>(null);
   const [flagUserPhone, setFlagUserPhone] = useState<string | null>(null);
   const [selectedFlagType, setSelectedFlagType] = useState<
@@ -270,7 +277,7 @@ export function IncomingOrdersSection({
   }, []);
 
   const selectFields =
-    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason, is_edited";
+    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason, is_edited, payment_status, payment_utr, customer_latitude, customer_longitude";
 
   const FULFILLED_STALE_MS = 60 * 60 * 1000;
 
@@ -452,7 +459,7 @@ export function IncomingOrdersSection({
         setLoading(false);
         return;
       }
-      const list = (data ?? []) as OrderRequestRow[];
+      const list = (data ?? []) as IncomingOrderRow[];
 
       const terminalIds = list
         .filter((r) => r.status === "fulfilled" || r.status === "done")
@@ -501,7 +508,7 @@ export function IncomingOrdersSection({
           .order("created_at", { ascending: false })
           .limit(20);
         if (!mounted.current) return;
-        const refreshedList = ((refreshed ?? []) as OrderRequestRow[]) ?? activeList;
+        const refreshedList = ((refreshed ?? []) as IncomingOrderRow[]) ?? activeList;
         const refreshedTerminalIds = refreshedList
           .filter((r) => r.status === "fulfilled" || r.status === "done")
           .map((r) => r.id);
@@ -616,15 +623,6 @@ export function IncomingOrdersSection({
         type: "order_accepted",
         order_id: id,
       });
-      saveNotification({
-        userPhone,
-        type: "order_accepted",
-        title: s.incoming_helpAcceptedNotifyTitle,
-        body: s.incoming_helpAcceptedNotifyBody,
-        route: "my-orders",
-        routeParams: { order_id: id },
-        isInformational: false,
-      });
     }
     setRows((prev) => {
       const next = prev.map((r) => (r.id === id ? { ...r, status: "accepted" } : r));
@@ -661,15 +659,6 @@ export function IncomingOrdersSection({
         type: "order_update",
         order_id: id,
       });
-      saveNotification({
-        userPhone: phone,
-        type: "order_update",
-        title: s.incoming_orderAcceptedTitle,
-        body: s.incoming_orderAcceptedBody,
-        route: "my-orders",
-        routeParams: { order_id: id },
-        isInformational: false,
-      });
     }
     void load({ silent: true });
   };
@@ -684,7 +673,11 @@ export function IncomingOrdersSection({
       .eq("vendor_id", vendorId);
     setMarkingId(null);
     if (error) {
-      toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+      if (error.message?.includes("cannot_fulfil_without_bill")) {
+        toast.error(s.payment_no_bill_error);
+      } else {
+        toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+      }
       return;
     }
     if (serviceMode === "delivery") {
@@ -698,17 +691,62 @@ export function IncomingOrdersSection({
         type: "order_update",
         order_id: id,
       });
-      saveNotification({
-        userPhone,
-        type: "order_update",
-        title: s.incoming_orderFulfilledNotifyTitle,
-        body: s.incoming_orderFulfilledNotifyBody,
-        route: "my-orders",
-        routeParams: { order_id: id },
-        isInformational: false,
-      });
     }
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
+  };
+
+  const confirmPayment = async (
+    requestId: string,
+    userPhone: string,
+    utr: string | null,
+    billAmount: number | null,
+  ) => {
+    setConfirmingPaymentId(requestId);
+    const { error } = await supabase.rpc("confirm_upi_payment", { p_request_id: requestId });
+    setConfirmingPaymentId(null);
+    if (error) {
+      toast.error(s.payment_confirm_error);
+      return;
+    }
+    toast.success(s.payment_confirm_success);
+    setRows((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, payment_status: "confirmed" } : r)),
+    );
+    if (userPhone) {
+      void invokeNotifyUser({
+        user_phone: userPhone,
+        title: s.payment_confirmed_notify_title,
+        body: s.payment_confirmed_notify_body.replace(
+          "{amount}",
+          billAmount ? billAmount.toFixed(2) : "",
+        ),
+        type: "payment_confirmed",
+        order_id: requestId,
+      });
+    }
+  };
+
+  const disputePayment = async (requestId: string, userPhone: string) => {
+    setDisputingPaymentId(requestId);
+    const { error } = await supabase.rpc("dispute_upi_payment", { p_request_id: requestId });
+    setDisputingPaymentId(null);
+    if (error) {
+      toast.error(s.payment_dispute_error);
+      return;
+    }
+    toast.success(s.payment_dispute_success);
+    setRows((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, payment_status: "disputed" } : r)),
+    );
+    if (userPhone) {
+      void invokeNotifyUser({
+        user_phone: userPhone,
+        title: s.payment_disputed_notify_title,
+        body: s.payment_disputed_notify_body,
+        type: "payment_confirmed",
+        order_id: requestId,
+      });
+    }
   };
 
   const dismissOrder = async (id: string) => {
@@ -748,15 +786,6 @@ export function IncomingOrdersSection({
         body: s.incoming_bookingConfirmedNotifyBody,
         type: "order_update",
         order_id: id,
-      });
-      saveNotification({
-        userPhone,
-        type: "order_update",
-        title: s.incoming_bookingConfirmedNotifyTitle,
-        body: s.incoming_bookingConfirmedNotifyBody,
-        route: "my-orders",
-        routeParams: { order_id: id },
-        isInformational: false,
       });
     }
     setRows((prev) =>
@@ -836,15 +865,6 @@ export function IncomingOrdersSection({
         body,
         type: "order_update",
         order_id: declineOrderId,
-      });
-      saveNotification({
-        userPhone,
-        type: "order_update",
-        title,
-        body,
-        route: "my-orders",
-        routeParams: { order_id: declineOrderId },
-        isInformational: false,
       });
     }
     setRows((prev) =>
@@ -935,15 +955,6 @@ export function IncomingOrdersSection({
         body,
         type: "bill",
         order_id: ledgerOrderId,
-      });
-      saveNotification({
-        userPhone: ledgerUserPhone,
-        type: "bill",
-        title,
-        body,
-        route: "my-orders",
-        routeParams: { order_id: ledgerOrderId },
-        isInformational: false,
       });
 
       const terminalIds = rows
@@ -1041,15 +1052,6 @@ export function IncomingOrdersSection({
         body,
         type: "order_update",
         order_id: declineOrderId,
-      });
-      saveNotification({
-        userPhone,
-        type: "order_update",
-        title,
-        body,
-        route: "my-orders",
-        routeParams: { order_id: cancelOrderId },
-        isInformational: false,
       });
     }
     toast.success(s.orderCancelled);
@@ -1284,6 +1286,21 @@ export function IncomingOrdersSection({
                   {s.incoming_addressPrefix}<span className="text-foreground font-medium">{r.delivery_address}</span>
                 </div>
               )}
+
+              {(() => {
+                const mapsUrl = resolveVendorNavigateToCustomerUrl(serviceMode, r);
+                if (!mapsUrl) return null;
+                return (
+                  <button
+                    type="button"
+                    data-testid="incoming-open-maps-btn"
+                    onClick={() => openGoogleMaps(mapsUrl)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
+                  >
+                    🗺️ {s.maps_openInMaps}
+                  </button>
+                );
+              })()}
 
               {(() => {
                 const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
@@ -1596,6 +1613,44 @@ export function IncomingOrdersSection({
                       </div>
                     );
                   })()}
+                </div>
+              )}
+
+              {r.payment_status === "claimed" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    data-testid="incoming-confirm-payment-btn"
+                    disabled={confirmingPaymentId === r.id || disputingPaymentId === r.id}
+                    onClick={() =>
+                      void confirmPayment(
+                        r.id,
+                        r.user_phone?.trim() || "",
+                        r.payment_utr ?? null,
+                        billsByRequestId[r.id]?.total_amount ?? null,
+                      )
+                    }
+                    className="rounded-lg border border-green-500/50 text-green-600 dark:text-green-400 text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                  >
+                    {confirmingPaymentId === r.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    {s.payment_confirm_btn}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="dispute-payment-btn"
+                    disabled={confirmingPaymentId === r.id || disputingPaymentId === r.id}
+                    onClick={() =>
+                      void disputePayment(r.id, r.user_phone?.trim() || "")
+                    }
+                    className="rounded-lg border border-red-500/50 text-red-500 text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                  >
+                    {disputingPaymentId === r.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    {s.payment_dispute_btn}
+                  </button>
                 </div>
               )}
             </li>

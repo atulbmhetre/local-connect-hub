@@ -4,6 +4,9 @@ import { ParchiSheet } from "@/components/ParchiSheet";
 import { strings } from "@/lib/strings";
 import type { Vendor } from "@/lib/supabase";
 
+window.scrollTo = vi.fn();
+Element.prototype.scrollTo = vi.fn();
+
 const mockFetchUserTrust = vi.fn();
 const mockInsert = vi.fn();
 
@@ -51,10 +54,6 @@ vi.mock("@/lib/userIdentity", () => ({
 
 vi.mock("@/lib/deviceId", () => ({
   getDeviceId: () => "device-test",
-}));
-
-vi.mock("@/lib/notifications", () => ({
-  saveNotification: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({

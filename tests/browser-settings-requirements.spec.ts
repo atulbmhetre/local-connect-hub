@@ -17,6 +17,7 @@ import {
 const T = Date.now();
 const CUSTOMER_PHONE = `88008${String(T).slice(-5)}`;
 const DEVICE_ID = `device_set_${T}`;
+const VENDOR_DEVICE_ID = `device_set_vendor_${T}`;
 
 /** Whitelist length in Settings.tsx ADMIN_CONFIG_WHITELIST (requirement doc says 24; code has 30). */
 const ADMIN_CONFIG_ROW_COUNT = 30;
@@ -471,8 +472,10 @@ test('SET-REQ-17 — Admin config UPSERT — saves new key that does not exist i
   await expect(row).toBeVisible({ timeout: 15000 });
   await row.scrollIntoViewIfNeeded();
   const input = row.locator('input');
+  await input.click();
   await input.clear();
-  await input.fill('21');
+  await input.pressSequentially('21');
+  await expect(input).toHaveValue('21');
   await input.press('Tab');
   await row.getByRole('button', { name: 'Save' }).click();
   await expect(page.locator('[data-sonner-toast]').getByText('Config updated')).toBeVisible({
@@ -569,4 +572,28 @@ test('SET-REQ-20 — Admin can delete a low-rated review', async ({ page }) => {
     .eq('id', vendor.id)
     .single();
   expect(v?.review_count === 0 || v?.avg_rating == null).toBeTruthy();
+});
+
+test('SET-RAD-01 — Vendor can update service radius and it saves to DB', async ({ page }) => {
+  const vendor = await createVendor('setrad01');
+  await loginAsVendor(page, vendor.phone, vendor.id, VENDOR_DEVICE_ID);
+  await page.goto(`${APP_URL}/vendor`);
+  await page.getByTestId('nav-settings').click();
+  await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 15000 });
+  // Click vendor tab in settings
+  await page.getByTestId('settings-tab-vendor').click();
+  await page.waitForTimeout(500);
+  // Wait for ServiceRadiusChips to be visible — look for the chip buttons directly
+  await expect(page.getByText('5 km').first()).toBeVisible({ timeout: 10000 });
+  await page.getByText('5 km').first().click();
+  await expect(page.locator('[data-sonner-toast]').getByText('Service area updated')).toBeVisible({
+    timeout: 8000,
+  });
+  // Verify DB updated
+  const { data } = await supabaseAdmin
+    .from('vendors')
+    .select('service_radius_km')
+    .eq('id', vendor.id)
+    .single();
+  expect(data?.service_radius_km).toBe(5);
 });

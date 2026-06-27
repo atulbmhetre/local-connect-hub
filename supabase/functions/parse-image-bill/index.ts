@@ -28,6 +28,7 @@ type BillLineItem = {
 type RequestBody = {
   image_base64?: string;
   media_type?: string;
+  healthCheck?: boolean;
 };
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -104,6 +105,10 @@ serve(async (req) => {
       body = (await req.json()) as RequestBody;
     } catch {
       return jsonResponse({ success: false, error: "Invalid JSON body" });
+    }
+
+    if (body.healthCheck === true) {
+      return jsonResponse({ status: "ok" });
     }
 
     const image_base64 = body.image_base64?.trim();

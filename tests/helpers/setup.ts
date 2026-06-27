@@ -21,8 +21,8 @@ export const supabaseAdmin = createClient(
 
 export const TEST_SESSION = `test_${Date.now()}`;
 
-export const TEST_VENDOR_PHONE = `99000${Date.now().toString().slice(-5)}`;
-export const TEST_CUSTOMER_PHONE = `88000${Date.now().toString().slice(-5)}`;
+export const TEST_VENDOR_PHONE = '9900099001';
+export const TEST_CUSTOMER_PHONE = '8800088001';
 export const TEST_ADMIN_PHONE = '8888169446';
 
 export type RegisterVendorRpcOptions = {
@@ -355,15 +355,172 @@ function supabaseAuthStorageKey(): string | null {
   return ref ? `sb-${ref}-auth-token` : null;
 }
 
-const sessionCache = new Map<
-  string,
-  { access_token: string; refresh_token: string; expires_at: number }
->();
+const SESSION_CACHE_FILE = path.join(os.tmpdir(), 'aaspaas-session-cache.json');
 
-function cachedSessionValid(
-  cached: { expires_at: number },
-): boolean {
-  return cached.expires_at > Math.floor(Date.now() / 1000);
+type CachedSession = {
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
+};
+
+function readSessionCache(phone: string): CachedSession | null {
+  try {
+    const raw = fs.readFileSync(SESSION_CACHE_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, CachedSession>;
+    const entry = parsed[phone];
+    if (!entry) return null;
+    if (entry.expires_at > Math.floor(Date.now() / 1000)) return entry;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionCache(phone: string, session: CachedSession): void {
+  try {
+    let data: Record<string, CachedSession> = {};
+    try {
+      const raw = fs.readFileSync(SESSION_CACHE_FILE, 'utf8');
+      data = JSON.parse(raw) as Record<string, CachedSession>;
+    } catch {
+      // file missing or invalid — start fresh
+    }
+    data[phone] = session;
+    fs.writeFileSync(SESSION_CACHE_FILE, JSON.stringify(data), 'utf8');
+  } catch {
+    // ignore write failures
+  }
+}
+
+function testAuthEmail(tenDigitPhone: string): string {
+  return `test+91${tenDigitPhone}@aaspaas.invalid`;
+}
+
+function testAuthPassword(tenDigitPhone: string): string {
+  return `test_pw_${tenDigitPhone}`;
+}
+
+function normalizeAuthPhoneDigits(phone: string | null | undefined): string {
+  return (phone ?? '').replace(/\D/g, '');
+}
+
+async function findAuthUserIdByPhone(tenDigitPhone: string): Promise<string | null> {
+  const authPhone = `91${tenDigitPhone}`;
+  let page = 1;
+  for (;;) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error || !data?.users?.length) return null;
+    for (const user of data.users) {
+      const digits = normalizeAuthPhoneDigits(user.phone);
+      if (digits === authPhone || digits.endsWith(tenDigitPhone)) return user.id;
+    }
+    if (data.users.length < 200) break;
+    page += 1;
+    if (page > 50) break;
+  }
+  return null;
+}
+
+/** Ensure auth.users row with phone + test email/password — no SMS OTP. */
+async function ensureTestAuthUser(tenDigitPhone: string, logTag: string): Promise<boolean> {
+  const email = testAuthEmail(tenDigitPhone);
+  const password = testAuthPassword(tenDigitPhone);
+  const e164Phone = `+91${tenDigitPhone}`;
+
+  const { error: createError } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    phone: e164Phone,
+    email_confirm: true,
+    phone_confirm: true,
+    password,
+  });
+  if (!createError) return true;
+
+  const msg = createError.message.toLowerCase();
+  if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
+    const userId = await findAuthUserIdByPhone(tenDigitPhone);
+    if (!userId) {
+      console.warn(`[${logTag}] auth user exists but could not resolve id for ${tenDigitPhone}`);
+      return false;
+    }
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      email,
+      email_confirm: true,
+      password,
+    });
+    if (updateError) {
+      console.warn(`[${logTag}] updateUserById failed:`, updateError.message);
+      return false;
+    }
+    return true;
+  }
+
+  console.warn(`[${logTag}] admin createUser failed:`, createError.message);
+  return false;
+}
+
+/** Mint session via service role — bypasses SMS OTP rate limits in browser tests. */
+async function mintSessionViaAdmin(
+  tenDigitPhone: string,
+  logTag: string,
+): Promise<CachedSession | null> {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
+
+  const ready = await ensureTestAuthUser(tenDigitPhone, logTag);
+  if (!ready) return null;
+
+  const authClient = createClient(
+    process.env.VITE_SUPABASE_URL!,
+    process.env.VITE_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+
+  const { data, error } = await authClient.auth.signInWithPassword({
+    email: testAuthEmail(tenDigitPhone),
+    password: testAuthPassword(tenDigitPhone),
+  });
+
+  const session = data?.session;
+  if (error || !session?.access_token || session.expires_at == null) {
+    console.warn(
+      `[${logTag}] admin signInWithPassword failed:`,
+      error?.message ?? 'missing session',
+    );
+    return null;
+  }
+
+  return {
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+    expires_at: session.expires_at,
+  };
+}
+
+async function writeSessionToPage(
+  page: Page,
+  storageKey: string,
+  session: CachedSession,
+): Promise<void> {
+  await page.evaluate(
+    async ({ key, payload }) => {
+      localStorage.setItem(key, JSON.stringify(payload));
+      const { supabase } = await import('/src/lib/supabase.ts');
+      const { error } = await supabase.auth.setSession({
+        access_token: payload.access_token,
+        refresh_token: payload.refresh_token,
+      });
+      if (error) throw new Error(`setSession failed: ${error.message}`);
+    },
+    {
+      key: storageKey,
+      payload: {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        token_type: 'bearer',
+        expires_at: session.expires_at,
+      },
+    },
+  );
 }
 
 const OTP_COUNT_FILE = path.join(os.tmpdir(), 'aaspaas-otp-count.json');
@@ -458,7 +615,7 @@ async function signInWithOtpThrottled(
   return { error };
 }
 
-/** Mint a browser Supabase session via Phase A OTP (signInWithOtp → sms-hook → verifyOtp). */
+/** Mint a browser Supabase session — admin password sign-in in tests, OTP fallback otherwise. */
 export async function mintBrowserSupabaseSession(
   page: Page,
   phone: string,
@@ -471,22 +628,16 @@ export async function mintBrowserSupabaseSession(
       return;
     }
 
-    const cached = sessionCache.get(phone);
-    if (cached && cachedSessionValid(cached)) {
-      await page.evaluate(
-        ({ key, payload }) => {
-          localStorage.setItem(key, JSON.stringify(payload));
-        },
-        {
-          key: storageKey,
-          payload: {
-            access_token: cached.access_token,
-            refresh_token: cached.refresh_token,
-            token_type: 'bearer',
-            expires_at: cached.expires_at,
-          },
-        },
-      );
+    const cached = readSessionCache(phone);
+    if (cached) {
+      await writeSessionToPage(page, storageKey, cached);
+      return;
+    }
+
+    const adminSession = await mintSessionViaAdmin(phone, logTag);
+    if (adminSession) {
+      writeSessionCache(phone, adminSession);
+      await writeSessionToPage(page, storageKey, adminSession);
       return;
     }
 
@@ -536,26 +687,17 @@ export async function mintBrowserSupabaseSession(
       return;
     }
 
-    sessionCache.set(phone, {
+    writeSessionCache(phone, {
       access_token: session.access_token,
       refresh_token: session.refresh_token,
       expires_at: session.expires_at,
     });
 
-    await page.evaluate(
-      ({ key, payload }) => {
-        localStorage.setItem(key, JSON.stringify(payload));
-      },
-      {
-        key: storageKey,
-        payload: {
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-          token_type: 'bearer',
-          expires_at: session.expires_at,
-        },
-      },
-    );
+    await writeSessionToPage(page, storageKey, {
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: session.expires_at,
+    });
   } catch (err) {
     console.error(`[${logTag}] session mint failed:`, err);
   }

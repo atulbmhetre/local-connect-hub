@@ -208,11 +208,11 @@ export function invokeNotifyUser(payload: {
 export async function invokeNotifyAdmin(
   title: string,
   body: string,
-  data?: object,
+  options?: { type?: string; route?: string; route_params?: Record<string, string> },
 ): Promise<void> {
   try {
     await supabase.functions.invoke("notify-admin", {
-      body: { title, body, data },
+      body: { title, body, ...options },
     });
   } catch {
     /* ignore */
@@ -365,26 +365,6 @@ export type CategoryGroup = {
   categories: Category[];
 };
 
-export const CATEGORIES = [
-  { id: "mechanic", label: "Mechanic", emoji: "🔧" },
-  { id: "towing", label: "Towing", emoji: "🚛" },
-  { id: "tyre", label: "Tyre Service", emoji: "🛞" },
-  { id: "key", label: "Key Maker", emoji: "🔑" },
-  { id: "ambulance", label: "Ambulance", emoji: "🚑" },
-  { id: "pharmacy", label: "Pharmacy", emoji: "💊" },
-  { id: "nursing", label: "Nursing", emoji: "🩺" },
-  { id: "plumber", label: "Plumber", emoji: "🚰" },
-  { id: "electrician", label: "Electrician", emoji: "💡" },
-  { id: "security", label: "Security", emoji: "🛡️" },
-  { id: "fire-brigade", label: "Fire Brigade", emoji: "🔥" },
-  { id: "tailor", label: "Tailor", emoji: "🧵" },
-  { id: "beautician", label: "Beautician", emoji: "💄" },
-  { id: "cook", label: "Cook", emoji: "👨‍🍳" },
-  { id: "barber", label: "Barber", emoji: "💈" },
-  { id: "therapist", label: "Therapist", emoji: "🧘" },
-  { id: "other", label: "Other", emoji: "✨" },
-] as const;
-
 export const DISPLAY_NAME: Record<string, string> = {
   "Tyre Service": "Tyre / Puncture",
 };
@@ -408,7 +388,7 @@ export type CategoryClassification = {
   is_government?: boolean;
 };
 
-import { resolveCanonicalTerm } from "@/lib/categories";
+import { resolveCanonicalTerm, resolveCategoryFromDB } from "@/lib/categories";
 
 const HINDI_BY_CANONICAL: Record<string, string> = {
   Beautician: "ब्यूटीशियन",
@@ -427,9 +407,8 @@ const HINDI_BY_CANONICAL: Record<string, string> = {
   Other: "अन्य",
 };
 
-function emojiForCanonical(canonical: string) {
-  const cat = CATEGORIES.find((c) => c.label.toLowerCase() === canonical.toLowerCase());
-  return cat?.emoji ?? "✨";
+function emojiForCanonical(_canonical: string) {
+  return "✨";
 }
 
 async function serviceModeForCanonical(canonical: string): Promise<CategoryMode> {
@@ -540,11 +519,12 @@ export type ClassifySearchForRadarResult =
 
 export async function classifySearchTermForRadar(
   rawInput: string,
+  dbCategories: Category[],
 ): Promise<ClassifySearchForRadarResult> {
   const term = rawInput.trim();
   if (!term) return { outcome: "fallback", query: "" };
 
-  const localCanon = resolveCanonicalTerm(rawInput);
+  const localCanon = await resolveCategoryFromDB(rawInput, dbCategories);
   if (localCanon) {
     await serviceModeForCanonical(localCanon);
     return { outcome: "canonical", query: localCanon };
@@ -678,6 +658,7 @@ export type RegisterVendorParams = {
   profile_status: "draft" | "complete";
   category_ids: string[];
   category_service_modes: string[];
+  upi_qr_url?: string | null;
 };
 
 export type RegisterVendorResult =
@@ -704,6 +685,7 @@ export async function invokeRegisterVendor(
       p_profile_status: params.profile_status,
       p_category_ids: params.category_ids,
       p_category_service_modes: params.category_service_modes,
+      p_upi_qr_url: params.upi_qr_url ?? null,
     });
     if (error) {
       return { ok: false, error: error.message, code: error.code };
@@ -821,8 +803,11 @@ export function emojiForCategory(label: string, categories: Category[]): string 
 /** Emoji for vendor.category (Quick Assist / radar labels). */
 export function emojiForVendorCategory(category: string, categories?: Category[]): string {
   if (categories?.length) return emojiForCategory(category, categories);
-  const c = CATEGORIES.find((x) => x.label.toLowerCase() === category.trim().toLowerCase());
-  return c?.emoji ?? "✨";
+  console.warn(
+    "[emojiForVendorCategory] live categories array not passed; using default emoji",
+    { category },
+  );
+  return "✨";
 }
 
 // Category translation helper

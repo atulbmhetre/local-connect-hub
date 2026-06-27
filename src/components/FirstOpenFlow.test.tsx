@@ -10,8 +10,14 @@ import {
   restoreVendorSession,
 } from "@/lib/userIdentity";
 
-const { mockUsersData, mockVendorsData, mockFrom } = vi.hoisted(() => {
-  let usersData: { total_orders: number } | null = null;
+const { mockUsersData, mockVendorsData, mockFrom, mockRpc } = vi.hoisted(() => {
+  let usersData: {
+    total_orders: number;
+    completed_orders: number;
+    trust_score: number;
+    warn_count: number;
+    is_banned: boolean;
+  } | null = null;
   let vendorsData: {
     id: string;
     is_active: boolean;
@@ -33,7 +39,6 @@ const { mockUsersData, mockVendorsData, mockFrom } = vi.hoisted(() => {
         return chain;
       }),
       maybeSingle: vi.fn(async function maybeSingle() {
-        if (table === "users") return { data: usersData, error: null };
         if (table === "vendors") return { data: vendorsData, error: null };
         return { data: null, error: null };
       }),
@@ -41,10 +46,36 @@ const { mockUsersData, mockVendorsData, mockFrom } = vi.hoisted(() => {
     return chain;
   });
 
+  const rpc = vi.fn(async (fnName: string) => {
+    if (fnName === "lookup_user_by_phone") {
+      if (usersData) {
+        return { data: [usersData], error: null };
+      }
+      return { data: [], error: null };
+    }
+    return { data: null, error: null };
+  });
+
   return {
     mockUsersData: {
-      set: (value: { total_orders: number } | null) => {
-        usersData = value;
+      set: (
+        value: {
+          total_orders: number;
+          completed_orders?: number;
+          trust_score?: number;
+          warn_count?: number;
+          is_banned?: boolean;
+        } | null,
+      ) => {
+        usersData = value
+          ? {
+              total_orders: value.total_orders,
+              completed_orders: value.completed_orders ?? 0,
+              trust_score: value.trust_score ?? 75,
+              warn_count: value.warn_count ?? 0,
+              is_banned: value.is_banned ?? false,
+            }
+          : null;
       },
     },
     mockVendorsData: {
@@ -59,11 +90,12 @@ const { mockUsersData, mockVendorsData, mockFrom } = vi.hoisted(() => {
       },
     },
     mockFrom: from,
+    mockRpc: rpc,
   };
 });
 
 vi.mock("@/lib/supabase", () => ({
-  supabase: { from: mockFrom },
+  supabase: { from: mockFrom, rpc: mockRpc },
 }));
 
 vi.mock("@/lib/deviceId", () => ({
@@ -164,11 +196,8 @@ describe("FirstOpenFlow restore", () => {
     });
     fireEvent.click(screen.getByTestId("firstopen-restore-cta"));
 
-    await waitFor(() => {
-      expect(screen.getByText(strings.en.firstopen_no_account)).toBeInTheDocument();
-    });
-
-    await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 3000 });
+    // Web path sets no-account copy then immediately completes (non-native skips notification step).
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
     expect(localStorage.getItem("aaspaas:user_phone")).toBeNull();
   }, 10_000);
 

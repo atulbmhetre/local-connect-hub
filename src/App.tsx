@@ -3,11 +3,13 @@ import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import * as Sentry from "@sentry/react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LanguageProvider } from "@/lib/language";
 import { ThemeProvider } from "@/lib/theme";
+import { strings, type Language } from "@/lib/strings";
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import Landing from "./pages/Landing.tsx";
@@ -24,6 +26,39 @@ const MyOrders = lazy(() => import("./pages/MyOrders.tsx"));
 const VendorMode = lazy(() => import("./pages/VendorMode.tsx"));
 
 const queryClient = new QueryClient();
+
+const RELOAD_LABEL: Record<Language, string> = {
+  en: "Reload",
+  hi: "पुनः लोड करें",
+  mr: "पुन्हा लोड करा",
+};
+
+function readStoredLanguage(): Language {
+  try {
+    const stored = localStorage.getItem("aaspaas:language");
+    return stored === "hi" || stored === "mr" ? stored : "en";
+  } catch {
+    return "en";
+  }
+}
+
+function SentryErrorFallback() {
+  const lang = readStoredLanguage();
+  const copy = strings[lang];
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center bg-background">
+      <p className="text-base text-foreground">{copy.firstopen_restore_error}</p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="rounded-2xl bg-brand px-5 py-2.5 text-sm font-semibold text-page-bg"
+      >
+        {RELOAD_LABEL[lang]}
+      </button>
+    </div>
+  );
+}
 
 function RouteSuspense({ children }: { children: ReactNode }) {
   return (
@@ -65,7 +100,8 @@ function NativeBackButtonHandler() {
 }
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
+  <Sentry.ErrorBoundary fallback={<SentryErrorFallback />}>
+    <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <TooltipProvider>
         <Toaster />
@@ -130,7 +166,8 @@ const App = () => (
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
-  </QueryClientProvider>
+    </QueryClientProvider>
+  </Sentry.ErrorBoundary>
 );
 
 export default App;

@@ -15,6 +15,7 @@ const ANTHROPIC_MODEL = "claude-sonnet-4-6";
 type RequestBody = {
   label?: string;
   vendor_id?: string;
+  healthCheck?: boolean;
 };
 
 type AiResult = {
@@ -206,6 +207,10 @@ serve(async (req) => {
       body = (await req.json()) as RequestBody;
     } catch {
       return jsonResponse({ success: false, error: "Invalid JSON body" });
+    }
+
+    if (body.healthCheck === true) {
+      return jsonResponse({ status: "ok" });
     }
 
     const label = body.label?.trim();

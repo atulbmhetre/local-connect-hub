@@ -10,6 +10,8 @@ export type OrderRequestRow = {
   user_phone: string | null;
   cancel_reason?: string | null;
   delivery_address?: string | null;
+  customer_latitude?: number | null;
+  customer_longitude?: number | null;
   delivery_slot?: string | null;
   delivery_slot_deadline?: string | null;
   appointment_time?: string | null;

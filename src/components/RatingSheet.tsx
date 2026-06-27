@@ -31,7 +31,6 @@ import { getVoiceLang } from "@/lib/voiceUtils";
 import { toast } from "sonner";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import { cn } from "@/lib/utils";
-import { saveNotification } from "@/lib/notifications";
 import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
 
 const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
@@ -218,18 +217,6 @@ export function RatingSheet({
         request_id: requestId,
         type: "order_update",
       });
-      const phone = vendorPhone?.trim();
-      if (phone) {
-        saveNotification({
-          userPhone: phone,
-          type: "order_update",
-          title: s.review_lowRatingNotifTitle,
-          body: s.review_lowRatingNotifBody,
-          route: "vendor",
-          routeParams: { order_id: requestId },
-          isInformational: false,
-        });
-      }
     }
 
     setLoading(false);

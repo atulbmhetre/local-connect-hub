@@ -39,7 +39,6 @@ import {
   useServiceModeLabel,
   type Vendor,
 } from "@/lib/supabase";
-import { saveNotification } from "@/lib/notifications";
 import { NotificationBell } from "@/components/NotificationBell";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
@@ -47,7 +46,6 @@ import { logAdminAction } from "@/lib/adminAudit";
 import { warnFlaggedUser as runWarnFlaggedUser } from "@/lib/warnFlaggedUser";
 import { getDeviceId } from "@/lib/deviceId";
 import { maskPhoneLast4 } from "@/lib/khataDisplay";
-import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
 import {
   ADMIN_QUERY_MAX_ROWS,
   ADMIN_VENDOR_LIST_PAGE_SIZE,
@@ -94,6 +92,7 @@ import {
   SettingsCollapsible,
   SettingsParentCollapsible,
 } from "@/components/settings/SettingsSection";
+import { AdminSystemHealthCard } from "@/components/settings/AdminSystemHealthCard";
 import {
   computeTrustLevelsByVendor,
   trustLevelRank,
@@ -1416,7 +1415,7 @@ const Settings = () => {
       return;
     }
 
-    const { data: vendorId, error } = await supabase.rpc("admin_delete_review", {
+    const { error } = await supabase.rpc("admin_delete_review", {
       p_admin_phone: adminPhone,
       p_review_id: row.id,
     });
@@ -1435,10 +1434,6 @@ const Settings = () => {
       `review_id:${row.id} rating:${row.rating}`,
     );
 
-    await syncVendorRatingFromReviews(vendorId as string, {
-      shopName: row.shop_name,
-      alertAdmin: false,
-    });
     setLowRatingDeletingId(null);
   };
 
@@ -1535,26 +1530,16 @@ const Settings = () => {
     kind: "approved" | "rejected",
   ) => {
     if (!cat.suggested_by_vendor_id) return;
-    const { data: vendorRow } = await supabase
-      .from("vendors")
-      .select("phone")
-      .eq("id", cat.suggested_by_vendor_id)
-      .maybeSingle();
-    const vendorPhone = vendorRow?.phone?.trim();
-    if (!vendorPhone) return;
     const title =
       kind === "approved" ? s.category_approved_title : s.category_rejected_title;
     const bodyTemplate =
       kind === "approved" ? s.category_approved_body : s.category_rejected_body;
     const body = bodyTemplate.replace("{label}", cat.label);
-    saveNotification({
-      userPhone: vendorPhone,
+    void invokeNotifyVendor({
+      vendor_id: cat.suggested_by_vendor_id,
+      notification_title: title,
+      message: body,
       type: kind === "approved" ? "category_approved" : "category_rejected",
-      title,
-      body,
-      route: "vendor",
-      routeParams: { category_id: cat.id },
-      isInformational: false,
     });
   };
 
@@ -1580,20 +1565,6 @@ const Settings = () => {
         type: "account_restored",
       });
     }
-    saveNotification({
-      userPhone: phone,
-      type: "account_restored",
-      title,
-      body,
-      route,
-      routeParams:
-        route === "vendor" && vendorId
-          ? { vendor_id: vendorId }
-          : route === "settings"
-            ? { user_phone: phone }
-            : undefined,
-      isInformational: false,
-    });
   };
 
   const saveAdminConfigKey = async (key: AdminConfigKey, overrideValue?: string) => {
@@ -1689,17 +1660,6 @@ const Settings = () => {
       message: body,
       type: "account_banned",
     });
-    if (v.phone?.trim()) {
-      saveNotification({
-        userPhone: v.phone.trim(),
-        type: "account_banned",
-        title,
-        body,
-        route: "settings",
-        routeParams: { vendor_id: v.id },
-        isInformational: false,
-      });
-    }
     logAdminAction("ban_vendor", "vendor", v.id, vendorBanReason.trim());
     setVendorBanAction(null);
     toast.success("Vendor banned");
@@ -1761,15 +1721,6 @@ const Settings = () => {
       title: s.user_banned_title,
       body: s.user_banned_body,
       type: "account_banned",
-    });
-    saveNotification({
-      userPhone: bannedPhone,
-      type: "account_banned",
-      title: s.user_banned_title,
-      body: s.user_banned_body,
-      route: "settings",
-      routeParams: { user_phone: bannedPhone },
-      isInformational: false,
     });
     logAdminAction("ban_user", "user", bannedPhone, reason);
     toast.success("User banned");
@@ -1925,18 +1876,6 @@ const Settings = () => {
       message: payload.body,
       type: payload.type,
     });
-    const vendorPhone = phone?.trim();
-    if (vendorPhone) {
-      saveNotification({
-        userPhone: vendorPhone,
-        type: payload.type,
-        title: payload.title,
-        body: payload.body,
-        route: "vendor",
-        routeParams: { vendor_id: vendorId },
-        isInformational: false,
-      });
-    }
   };
 
   const confirmVerify = async () => {
@@ -2842,6 +2781,8 @@ const Settings = () => {
             </div>
           </SettingsCard>
 
+          <AdminSystemHealthCard />
+
           <SettingsCollapsible
             label={s.admin_vendor_moderation}
             open={vendorModerationOpen}
@@ -3357,15 +3298,6 @@ const Settings = () => {
                       }
                       const title = "Special offer for you!";
                       const body = `Aaspaas Pro is offering you ${percent}% off for ${months} months. Offer applied automatically on your next billing.`;
-                      saveNotification({
-                        userPhone: vendorPhone,
-                        type: "subscription_update",
-                        title,
-                        body,
-                        route: "settings",
-                        routeParams: { vendor_id: vendorId },
-                        isInformational: false,
-                      });
                       void invokeNotifyVendor({
                         vendor_id: vendorId,
                         notification_title: title,

@@ -1,5 +1,4 @@
 import { supabase, invokeNotifyVendor } from "@/lib/supabase";
-import { saveNotification } from "@/lib/notifications";
 import { strings, type Language } from "@/lib/strings";
 
 const REFERRAL_STORAGE_KEY = "aaspaas:referral_code";
@@ -172,17 +171,6 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
       message: notifyStrings.feed_referralCredit_body(creditAmount),
       route: "vendor",
       route_params: { vendor_id: vendor.id },
-    });
-
-    // Inbox row — mirrors process-vendor-referral edge fn pattern (Session 44)
-    // Client-side write — known Session 42B violation, move to DB trigger post-launch
-    saveNotification({
-      userPhone: vendorPhone,
-      type: "referral_credit",
-      title: notifyStrings.feed_referralCredit_title,
-      body: notifyStrings.feed_referralCredit_body(creditAmount),
-      route: "vendor",
-      routeParams: { vendor_id: vendor.id },
     });
 
     try {

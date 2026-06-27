@@ -440,6 +440,7 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
       is_active: true,
       is_manual_verified: true,
       vendor_note: `test_session:${TEST_SESSION}`,
+      shop_photo_url: 'https://picsum.photos/200',
     })
     .select()
     .single();
@@ -462,4 +463,12 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
   await expect(card.getByText(/Home based/i)).toBeVisible();
   await expect(card.getByText(/Bronze|ब्रॉन्ज/i)).toBeVisible();
   await expect(card.getByText(categories[0].label, { exact: false }).first()).toBeVisible();
+
+  // Shop photo thumbnail is visible and opens lightbox
+  const avatar = card.locator('img[alt*="shop"]').first();
+  await expect(avatar).toBeVisible();
+  await avatar.click();
+  await expect(page.locator('.fixed.inset-0.z-50')).toBeVisible({ timeout: 3000 });
+  await page.locator('.fixed.inset-0.z-50').click();
+  await expect(page.locator('.fixed.inset-0.z-50')).not.toBeVisible({ timeout: 3000 });
 });

@@ -1,4 +1,5 @@
 import "@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -11,6 +12,15 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 type GatewayAction = "classify_category";
+
+type DbCategoryRow = {
+  id: string;
+  label: string;
+  emoji: string | null;
+  service_mode: string;
+};
+
+type ServiceMode = "help" | "delivery" | "appointment";
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: CORS_HEADERS });
@@ -61,54 +71,124 @@ async function callGroq(system: string, user: string, temperature = 0.2) {
   return { data, text };
 }
 
-/** Only these labels may be returned to clients; Groq output is validated against this list. */
-const ALLOWED_CATEGORIES = [
-  "Mechanic",
-  "Towing",
-  "Tyre Service",
-  "Key Maker",
-  "Ambulance",
-  "Nursing",
-  "Plumber",
-  "Electrician",
-  "Security",
-  "Pharmacy",
-  "Grocery Store",
-  "Medicine Delivery",
-  "Beautician",
-  "Fire Brigade",
-] as const;
-
-type AllowedCategory = (typeof ALLOWED_CATEGORIES)[number];
-
-const CATEGORY_META: Record<
-  AllowedCategory,
-  { mode: "help" | "delivery"; emoji: string; hindi: string }
-> = {
-  Mechanic: { mode: "help", emoji: "🔧", hindi: "मैकेनिक" },
-  Towing: { mode: "help", emoji: "🚛", hindi: "टोइंग" },
-  "Tyre Service": { mode: "help", emoji: "🛞", hindi: "टायर सर्विस" },
-  "Key Maker": { mode: "help", emoji: "🔑", hindi: "चाबी बनाने वाला" },
-  Ambulance: { mode: "help", emoji: "🚑", hindi: "एंबुलेंस" },
-  Nursing: { mode: "help", emoji: "🩺", hindi: "नर्सिंग" },
-  Plumber: { mode: "help", emoji: "🚰", hindi: "प्लम्बर" },
-  Electrician: { mode: "help", emoji: "💡", hindi: "इलेक्ट्रीशियन" },
-  Security: { mode: "help", emoji: "🛡️", hindi: "सिक्योरिटी" },
-  Pharmacy: { mode: "delivery", emoji: "💊", hindi: "फार्मेसी" },
-  "Grocery Store": { mode: "delivery", emoji: "🏪", hindi: "किराना स्टोर" },
-  "Medicine Delivery": { mode: "delivery", emoji: "💊", hindi: "दवाई डिलीवरी" },
-  Beautician: { mode: "help", emoji: "💄", hindi: "ब्यूटीशियन" },
-  "Fire Brigade": { mode: "help", emoji: "🔥", hindi: "फायर ब्रिगेड" },
+const CATEGORY_META = {
+  Beautician: { mode: "help" as const, emoji: "💄", hindi: "ब्यूटीशियन" },
 };
 
-function normalizeAllowedCanonical(raw: string): AllowedCategory | null {
-  const t = raw.trim().replace(/\s+/g, " ");
-  if (!t) return null;
-  const lower = t.toLowerCase();
-  for (const c of ALLOWED_CATEGORIES) {
-    if (c.toLowerCase() === lower) return c;
+const classifyFallback = {
+  canonical: "Other",
+  emoji: "✨",
+  hindi: "अन्य",
+  mode: "help" as const,
+};
+
+function normalizeServiceMode(raw: string | null | undefined): ServiceMode {
+  const mode = String(raw ?? "").trim().toLowerCase();
+  if (mode === "delivery" || mode === "appointment") return mode;
+  return "help";
+}
+
+function findDbCategory(dbCategories: DbCategoryRow[], label: string): DbCategoryRow | null {
+  const lower = label.trim().toLowerCase();
+  if (!lower) return null;
+  return dbCategories.find((c) => c.label.trim().toLowerCase() === lower) ?? null;
+}
+
+function resolveCanonicalFromLabels(
+  raw: string,
+  validLabels: Set<string>,
+  dbCategories: DbCategoryRow[],
+): string {
+  let canonical = raw.trim();
+  if (!canonical) return "Other";
+
+  if (!validLabels.has(canonical)) {
+    const matched = dbCategories.find(
+      (c) => c.label.trim().toLowerCase() === canonical.toLowerCase(),
+    );
+    canonical = matched?.label ?? "Other";
   }
-  return null;
+
+  if (!validLabels.has(canonical)) {
+    canonical = "Other";
+  }
+
+  return canonical;
+}
+
+async function fetchActiveCategories(
+  supabase: ReturnType<typeof createClient>,
+): Promise<{ categories: DbCategoryRow[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id, label, emoji, service_mode")
+    .eq("is_active", true);
+
+  if (error) {
+    console.error("ai-gateway categories load failed", error);
+    return { categories: [], error: error.message };
+  }
+
+  return { categories: (data ?? []) as DbCategoryRow[], error: null };
+}
+
+async function invokeSuggestCategory(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  input: string,
+  action: GatewayAction,
+) {
+  try {
+    const resp = await fetch(`${supabaseUrl}/functions/v1/suggest-category`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ description: input }),
+    });
+
+    if (!resp.ok) {
+      console.error("ai-gateway suggest-category failed", resp.status, await resp.text());
+      return jsonResponse({ action, result: classifyFallback });
+    }
+
+    const data = (await resp.json()) as {
+      success?: boolean;
+      category_name?: string;
+      service_mode?: string;
+      emoji?: string | null;
+    };
+
+    if (data.success && typeof data.category_name === "string" && data.category_name.trim()) {
+      return jsonResponse({
+        action,
+        result: {
+          canonical: data.category_name.trim(),
+          mode: normalizeServiceMode(data.service_mode),
+          emoji: data.emoji?.trim() || "✨",
+          hindi: "अन्य",
+        },
+      });
+    }
+
+    return jsonResponse({ action, result: classifyFallback });
+  } catch (err) {
+    console.error("ai-gateway suggest-category invoke failed", err);
+    return jsonResponse({ action, result: classifyFallback });
+  }
+}
+
+function resultFromDbCategory(
+  dbRow: DbCategoryRow,
+  hindi?: string,
+) {
+  return {
+    canonical: dbRow.label,
+    mode: normalizeServiceMode(dbRow.service_mode),
+    emoji: dbRow.emoji?.trim() || "✨",
+    hindi: hindi?.trim() || "अन्य",
+  };
 }
 
 Deno.serve(async (req) => {
@@ -138,6 +218,17 @@ Deno.serve(async (req) => {
     if (action === "classify_category") {
       const input = String(body?.term ?? body?.input ?? "").trim();
       if (!input) return jsonResponse({ error: "Missing input" }, 400);
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      const supabase =
+        supabaseUrl && serviceRoleKey
+          ? createClient(supabaseUrl, serviceRoleKey)
+          : null;
+
+      const { categories: dbCategories, error: catError } = supabase
+        ? await fetchActiveCategories(supabase)
+        : { categories: [] as DbCategoryRow[], error: "missing_service_role" };
 
       const lower = input.toLowerCase();
       if (/\bhospitals?\b/.test(lower)) {
@@ -181,40 +272,22 @@ Deno.serve(async (req) => {
         });
       }
 
-      const VALID_CATEGORIES = new Set([
-        "Mechanic",
-        "Towing",
-        "Tyre Service",
-        "Key Maker",
-        "Ambulance",
-        "Pharmacy",
-        "Nursing",
-        "Plumber",
-        "Electrician",
-        "Security",
-        "Tailor",
-        "Beautician",
-        "Cook",
-        "Barber",
-        "Therapist",
-        "Grocery Store",
-        "Other",
-      ]);
+      if (catError || dbCategories.length === 0) {
+        if (!supabaseUrl || !serviceRoleKey) {
+          return jsonResponse({ action, result: classifyFallback });
+        }
+        return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
+      }
 
-      const classifyFallback = {
-        canonical: "Other",
-        emoji: "✨",
-        hindi: "अन्य",
-        mode: "help" as const,
-      };
-
+      const validLabels = new Set(dbCategories.map((c) => c.label));
+      const categoryList = dbCategories.map((c) => c.label).join(", ");
       const escapedInput = input.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
       const system = `You are a strict category classifier for a hyperlocal service app in India called Aaspaas.
 
 User input: "${escapedInput}"
 
 You must classify this into ONE of these exact canonical categories:
-Mechanic, Towing, Tyre Service, Key Maker, Ambulance, Pharmacy, Nursing, Plumber, Electrician, Security, Tailor, Beautician, Cook, Barber, Therapist, Grocery Store, Other
+${categoryList}
 
 Rules:
 1. Return ONLY valid JSON, no other text
@@ -243,7 +316,10 @@ Response format:
         }>(text);
 
         if (!parsed || typeof parsed !== "object") {
-          return jsonResponse({ action, result: classifyFallback });
+          if (!supabaseUrl || !serviceRoleKey) {
+            return jsonResponse({ action, result: classifyFallback });
+          }
+          return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
         }
 
         const result = { ...parsed };
@@ -275,19 +351,17 @@ Response format:
         }
 
         if (typeof result.canonical !== "string" || !result.canonical.trim()) {
-          return jsonResponse({ action, result: classifyFallback });
+          if (!supabaseUrl || !serviceRoleKey) {
+            return jsonResponse({ action, result: classifyFallback });
+          }
+          return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
         }
 
-        let canonical = result.canonical.trim();
-        if (!VALID_CATEGORIES.has(canonical)) {
-          const matched = [...VALID_CATEGORIES].find(
-            (c) => c.toLowerCase() === canonical.toLowerCase(),
-          );
-          canonical = matched ?? "Other";
-        }
-        if (!VALID_CATEGORIES.has(canonical)) {
-          canonical = "Other";
-        }
+        const canonical = resolveCanonicalFromLabels(
+          result.canonical,
+          validLabels,
+          dbCategories,
+        );
 
         if (canonical === "Other") {
           return jsonResponse({
@@ -307,37 +381,26 @@ Response format:
           });
         }
 
-        const resolved = normalizeAllowedCanonical(canonical);
-        if (resolved) {
-          const meta = CATEGORY_META[resolved];
+        const dbRow = findDbCategory(dbCategories, canonical);
+        if (dbRow) {
           return jsonResponse({
             action,
-            result: {
-              canonical: resolved,
-              mode: meta.mode,
-              emoji: meta.emoji,
-              hindi: meta.hindi,
-            },
+            result: resultFromDbCategory(
+              dbRow,
+              typeof result.hindi === "string" ? result.hindi : undefined,
+            ),
           });
         }
 
-        return jsonResponse({
-          action,
-          result: {
-            canonical,
-            mode: "help",
-            emoji:
-              typeof result.emoji === "string" && result.emoji.trim()
-                ? result.emoji.trim()
-                : "✨",
-            hindi:
-              typeof result.hindi === "string" && result.hindi.trim()
-                ? result.hindi.trim()
-                : "अन्य",
-          },
-        });
+        if (!supabaseUrl || !serviceRoleKey) {
+          return jsonResponse({ action, result: classifyFallback });
+        }
+        return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
       } catch {
-        return jsonResponse({ action, result: classifyFallback });
+        if (!supabaseUrl || !serviceRoleKey) {
+          return jsonResponse({ action, result: classifyFallback });
+        }
+        return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
       }
     }
 

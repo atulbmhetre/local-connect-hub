@@ -24,7 +24,7 @@ export default defineConfig({
   webServer: {
     command: 'npx dotenv -e .env.playwright -- vite --port 8081',
     port: 8081,
-    reuseExistingServer: false,
+    reuseExistingServer: true,
     timeout: 60000,
     env: {
       VITE_SUPABASE_URL: 'https://hhdylnhqdzfabsolwxdz.supabase.co',

@@ -353,6 +353,8 @@ export function RadarVendorCard({
   const [rateCardItems, setRateCardItems] = useState<
     { name: string; price: number; unit: string | null }[]
   >([]);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const openRateCard = useCallback(async () => {
     setRateCardOpen(true);
@@ -673,6 +675,7 @@ export function RadarVendorCard({
         : s.radar_pill_help;
 
   return (
+    <>
     <div
       data-testid="radar-vendor-card"
       className={cn(
@@ -696,8 +699,12 @@ export function RadarVendorCard({
             <img
               src={vendor.shop_photo_url}
               alt={`${vendor.shop_name} shop`}
-              className="h-full w-full object-cover"
+              className="h-full w-full object-cover cursor-pointer"
               loading="lazy"
+              onClick={() => {
+                setLightboxUrl(vendor.shop_photo_url);
+                setLightboxOpen(true);
+              }}
             />
           ) : (
             <Store className="h-6 w-6 text-primary-foreground" aria-hidden />
@@ -1010,5 +1017,20 @@ export function RadarVendorCard({
         }}
       />
     </div>
+    {lightboxOpen && (
+      <div
+        className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+        onClick={() => setLightboxOpen(false)}
+      >
+        {lightboxUrl && (
+          <img
+            src={lightboxUrl}
+            alt=""
+            className="max-w-[80vw] max-h-[80vh] object-contain rounded-lg"
+          />
+        )}
+      </div>
+    )}
+    </>
   );
 }

@@ -11,7 +11,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { supabase, invokeNotifyUser, invokeInitiateCall } from "@/lib/supabase";
-import { saveNotification } from "@/lib/notifications";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
@@ -461,31 +460,6 @@ const LedgerView = () => {
         body: paidBody,
         type: "bill",
         ...(linkedKhataTx?.request_id ? { order_id: linkedKhataTx.request_id } : {}),
-      });
-      saveNotification({
-        userPhone: selectedPhone,
-        type: "bill",
-        title: paidTitle,
-        body: paidBody,
-        route: "my-orders",
-        ...(linkedKhataTx?.request_id
-          ? { routeParams: { order_id: linkedKhataTx.request_id } }
-          : {}),
-        isInformational: false,
-      });
-    } else {
-      const partialTitle = s.khata_partial_paid_title;
-      const partialBody = s.khata_partial_paid_body
-        .replace("{amount}", amountPaid.toFixed(0))
-        .replace("{shop}", shopName || "vendor")
-        .replace("{outstanding}", newOutstanding.toFixed(0));
-      saveNotification({
-        userPhone: selectedPhone,
-        type: "bill",
-        title: partialTitle,
-        body: partialBody,
-        route: "my-orders",
-        isInformational: false,
       });
     }
 
