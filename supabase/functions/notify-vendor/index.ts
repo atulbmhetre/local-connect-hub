@@ -12,6 +12,28 @@ const CORS_HEADERS = {
   "Content-Type": "application/json",
 };
 
+async function logFcmDelivery(
+  supabase: ReturnType<typeof createClient>,
+  opts: {
+    notification_type: string;
+    target_phone: string | null;
+    success: boolean;
+    raw_response: string;
+  },
+): Promise<void> {
+  try {
+    await supabase.from("fcm_delivery_log").insert({
+      notification_type: opts.notification_type,
+      target_phone: opts.target_phone,
+      success_count: opts.success ? 1 : 0,
+      failure_count: opts.success ? 0 : 1,
+      raw_response: opts.raw_response.slice(0, 500),
+    });
+  } catch (err) {
+    console.error("notify-vendor fcm_delivery_log insert failed", err);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -43,7 +65,7 @@ serve(async (req) => {
 
     const { data: vendor } = await supabase
       .from("vendors")
-      .select("fcm_token, category")
+      .select("fcm_token, category, phone")
       .eq("id", vendorId)
       .single();
 
@@ -123,15 +145,43 @@ serve(async (req) => {
       },
     );
 
-    if (!fcmRes.ok) {
-      const fcmData = await fcmRes.json();
-      console.error("notify-vendor fcm_response:", JSON.stringify(fcmData));
-      if (fcmData?.error?.status === "UNREGISTERED" || fcmData?.error?.code === 404) {
-        await deleteStaleToken(
-          vendor.fcm_token,
-          Deno.env.get("SUPABASE_URL")!,
-          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-        );
+    const rawResponse = await fcmRes.text();
+
+    if (fcmRes.ok) {
+      await logFcmDelivery(supabase, {
+        notification_type: "vendor-new-order",
+        target_phone: typeof vendor.phone === "string" ? vendor.phone.trim() : null,
+        success: true,
+        raw_response: rawResponse,
+      });
+    } else {
+      let fcmError: Record<string, unknown> | null = null;
+      try {
+        fcmError = JSON.parse(rawResponse) as Record<string, unknown>;
+      } catch {
+        fcmError = null;
+      }
+      console.error("notify-vendor fcm_response:", rawResponse);
+      await logFcmDelivery(supabase, {
+        notification_type: "vendor-new-order",
+        target_phone: typeof vendor.phone === "string" ? vendor.phone.trim() : null,
+        success: false,
+        raw_response: rawResponse,
+      });
+      if (
+        fcmError &&
+        typeof fcmError === "object" &&
+        fcmError.error &&
+        typeof fcmError.error === "object"
+      ) {
+        const errObj = fcmError.error as { status?: string; code?: number };
+        if (errObj.status === "UNREGISTERED" || errObj.code === 404) {
+          await deleteStaleToken(
+            vendor.fcm_token,
+            Deno.env.get("SUPABASE_URL")!,
+            Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          );
+        }
       }
     }
 

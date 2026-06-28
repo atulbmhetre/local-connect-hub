@@ -12,6 +12,33 @@ const CORS_HEADERS = {
   "Content-Type": "application/json",
 };
 
+async function logFcmDelivery(
+  supabase: ReturnType<typeof createClient>,
+  opts: {
+    notification_type: string;
+    target_phone: string | null;
+    success: boolean;
+    raw_response: string;
+  },
+): Promise<void> {
+  try {
+    await supabase.from("fcm_delivery_log").insert({
+      notification_type: opts.notification_type,
+      target_phone: opts.target_phone,
+      success_count: opts.success ? 1 : 0,
+      failure_count: opts.success ? 0 : 1,
+      raw_response: opts.raw_response.slice(0, 500),
+    });
+  } catch (err) {
+    console.error("notify-user fcm_delivery_log insert failed", err);
+  }
+}
+
+function userNotificationType(payload: Record<string, unknown>): string {
+  const raw = String(payload?.type ?? "notification").trim() || "notification";
+  return raw.startsWith("user-") ? raw : `user-${raw}`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -128,6 +155,8 @@ serve(async (req) => {
     }
 
     let sent = 0;
+    const notificationType = userNotificationType(payload);
+    const targetPhone = userPhone?.trim() || null;
 
     for (const fcmToken of tokens) {
       try {
@@ -158,21 +187,54 @@ serve(async (req) => {
           },
         );
 
+        const rawResponse = await fcmRes.text();
+
         if (fcmRes.ok) {
           sent += 1;
+          await logFcmDelivery(supabase, {
+            notification_type: notificationType,
+            target_phone: targetPhone,
+            success: true,
+            raw_response: rawResponse,
+          });
         } else {
-          const fcmData = await fcmRes.json();
-          console.error("notify-user fcm_response:", JSON.stringify(fcmData));
-          if (fcmData?.error?.status === "UNREGISTERED" || fcmData?.error?.code === 404) {
-            await deleteStaleToken(
-              fcmToken,
-              Deno.env.get("SUPABASE_URL")!,
-              Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-            );
+          let fcmError: Record<string, unknown> | null = null;
+          try {
+            fcmError = JSON.parse(rawResponse) as Record<string, unknown>;
+          } catch {
+            fcmError = null;
+          }
+          console.error("notify-user fcm_response:", rawResponse);
+          await logFcmDelivery(supabase, {
+            notification_type: notificationType,
+            target_phone: targetPhone,
+            success: false,
+            raw_response: rawResponse,
+          });
+          if (
+            fcmError &&
+            typeof fcmError === "object" &&
+            fcmError.error &&
+            typeof fcmError.error === "object"
+          ) {
+            const errObj = fcmError.error as { status?: string; code?: number };
+            if (errObj.status === "UNREGISTERED" || errObj.code === 404) {
+              await deleteStaleToken(
+                fcmToken,
+                Deno.env.get("SUPABASE_URL")!,
+                Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+              );
+            }
           }
         }
       } catch (tokenErr) {
         console.error("notify-user token send failed", tokenErr);
+        await logFcmDelivery(supabase, {
+          notification_type: notificationType,
+          target_phone: targetPhone,
+          success: false,
+          raw_response: tokenErr instanceof Error ? tokenErr.message : String(tokenErr),
+        });
       }
     }
 

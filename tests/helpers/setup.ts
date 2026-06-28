@@ -101,11 +101,11 @@ export async function createTestVendor(opts: RegisterVendorRpcOptions = {}) {
 export async function deleteVendorRegistrationArtifacts(vendorId: string) {
   await supabaseAdmin.from('vendor_categories').delete().eq('vendor_id', vendorId);
   await supabaseAdmin.from('vendor_verification').delete().eq('vendor_id', vendorId);
-  await supabase
+  await supabaseAdmin
     .from('user_notifications')
     .delete()
     .contains('route_params', { vendor_id: vendorId });
-  await supabase.from('vendors').delete().eq('id', vendorId);
+  await supabaseAdmin.from('vendors').delete().eq('id', vendorId);
 }
 
 export async function getActiveCategoryByServiceMode(serviceMode: string) {

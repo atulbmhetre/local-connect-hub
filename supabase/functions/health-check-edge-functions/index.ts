@@ -10,6 +10,7 @@ const CORS_HEADERS = {
 };
 
 const FETCH_TIMEOUT_MS = 30_000;
+const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
 
 type ErrorType = "billing" | "model" | "timeout" | "unknown";
 
@@ -159,6 +160,133 @@ async function pingTarget(
   }
 }
 
+async function checkExotel(
+  supabase: ReturnType<typeof createClient>,
+): Promise<CheckResult> {
+  const functionName = "exotel-api";
+  const sid = Deno.env.get("EXOTEL_SID")?.trim();
+  const apiKey = Deno.env.get("EXOTEL_API_KEY")?.trim();
+  const apiToken = Deno.env.get("EXOTEL_API_TOKEN")?.trim();
+
+  if (!sid || !apiKey || !apiToken) {
+    const msg = "Missing Exotel credentials (EXOTEL_SID, EXOTEL_API_KEY, EXOTEL_API_TOKEN)";
+    await upsertFailureAlert(supabase, functionName, "unknown", msg);
+    return {
+      function_name: functionName,
+      ok: false,
+      error_type: "unknown",
+      error: msg,
+    };
+  }
+
+  try {
+    const auth = btoa(`${apiKey}:${apiToken}`);
+    const resp = await fetch(`https://api.exotel.com/v1/Accounts/${sid}/`, {
+      method: "GET",
+      headers: { Authorization: `Basic ${auth}` },
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+    });
+
+    if (resp.status === 200 || resp.status === 401) {
+      await resolveAlert(supabase, functionName);
+      return { function_name: functionName, ok: true, status: resp.status };
+    }
+
+    if (resp.status >= 500) {
+      const rawError = (await resp.text()) || `HTTP ${resp.status}`;
+      await upsertFailureAlert(supabase, functionName, "unknown", rawError);
+      return {
+        function_name: functionName,
+        ok: false,
+        status: resp.status,
+        error_type: "unknown",
+        error: rawError.slice(0, 200),
+      };
+    }
+
+    const rawError = (await resp.text()) || `HTTP ${resp.status}`;
+    return {
+      function_name: functionName,
+      ok: false,
+      status: resp.status,
+      error_type: "unknown",
+      error: rawError.slice(0, 200),
+    };
+  } catch (err) {
+    const rawError = err instanceof Error ? err.message : String(err);
+    await upsertFailureAlert(supabase, functionName, "unknown", rawError);
+    return {
+      function_name: functionName,
+      ok: false,
+      error_type: "unknown",
+      error: rawError.slice(0, 200),
+    };
+  }
+}
+
+async function checkRazorpay(
+  supabase: ReturnType<typeof createClient>,
+): Promise<CheckResult> {
+  const functionName = "razorpay-api";
+  const keyId = Deno.env.get("RAZORPAY_KEY_ID")?.trim();
+  const keySecret = Deno.env.get("RAZORPAY_KEY_SECRET")?.trim();
+
+  if (!keyId || !keySecret) {
+    const msg = "Missing Razorpay credentials (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)";
+    await upsertFailureAlert(supabase, functionName, "unknown", msg);
+    return {
+      function_name: functionName,
+      ok: false,
+      error_type: "unknown",
+      error: msg,
+    };
+  }
+
+  try {
+    const auth = btoa(`${keyId}:${keySecret}`);
+    const resp = await fetch("https://api.razorpay.com/v1/payments?count=1", {
+      method: "GET",
+      headers: { Authorization: `Basic ${auth}` },
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+    });
+
+    if (resp.status === 200 || resp.status === 401) {
+      await resolveAlert(supabase, functionName);
+      return { function_name: functionName, ok: true, status: resp.status };
+    }
+
+    if (resp.status >= 500) {
+      const rawError = (await resp.text()) || `HTTP ${resp.status}`;
+      await upsertFailureAlert(supabase, functionName, "unknown", rawError);
+      return {
+        function_name: functionName,
+        ok: false,
+        status: resp.status,
+        error_type: "unknown",
+        error: rawError.slice(0, 200),
+      };
+    }
+
+    const rawError = (await resp.text()) || `HTTP ${resp.status}`;
+    return {
+      function_name: functionName,
+      ok: false,
+      status: resp.status,
+      error_type: "unknown",
+      error: rawError.slice(0, 200),
+    };
+  } catch (err) {
+    const rawError = err instanceof Error ? err.message : String(err);
+    await upsertFailureAlert(supabase, functionName, "unknown", rawError);
+    return {
+      function_name: functionName,
+      ok: false,
+      error_type: "unknown",
+      error: rawError.slice(0, 200),
+    };
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -187,6 +315,9 @@ serve(async (req) => {
     for (const target of TARGETS) {
       results.push(await pingTarget(supabaseUrl, serviceRoleKey, supabase, target));
     }
+
+    results.push(await checkExotel(supabase));
+    results.push(await checkRazorpay(supabase));
 
     return jsonResponse({
       success: true,
