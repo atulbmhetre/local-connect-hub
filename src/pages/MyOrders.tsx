@@ -811,10 +811,11 @@ const MyOrders = () => {
     setMarkingId(id);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    let updateQuery = supabase.from("requests").update({ status: "done" }).eq("id", id);
-    updateQuery =
-      userPhone != null ? updateQuery.eq("user_phone", userPhone) : updateQuery.eq("device_id", device_id);
-    const { error } = await updateQuery;
+    const { error } = await supabase.rpc("dismiss_order", {
+      p_request_id: id,
+      p_device_id: device_id ?? null,
+      p_user_phone: userPhone ?? null,
+    });
     setMarkingId(null);
     if (error) {
       toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
