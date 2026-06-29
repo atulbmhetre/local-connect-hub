@@ -100,11 +100,10 @@ export async function migrateUserPhone(newPhone: string, deviceId: string): Prom
   if (savedErr) {
     console.warn("[migrateUserPhone] saved_vendors", savedErr.message);
   }
-  const { error: reqErr } = await supabase
-    .from("requests")
-    .update({ user_phone: newPhone })
-    .eq("device_id", deviceId)
-    .or(orFilter);
+  const { error: reqErr } = await supabase.rpc("migrate_device_requests_phone", {
+    p_device_id: deviceId,
+    p_user_phone: newPhone,
+  });
   if (reqErr) {
     console.warn("[migrateUserPhone] requests", reqErr.message);
   }

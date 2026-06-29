@@ -262,11 +262,13 @@ export function IncomingOrdersSection({
   }, []);
 
   const clearOrderEditedFlag = useCallback(async (orderId: string) => {
-    const { error } = await supabase
-      .from("requests")
-      .update({ is_edited: false })
-      .eq("id", orderId)
-      .eq("is_edited", true);
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) return;
+    const { error } = await supabase.rpc("vendor_clear_order_edited", {
+      p_request_id: orderId,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+    });
     if (error) {
       console.error("clearOrderEditedFlag", error);
       return;
@@ -274,7 +276,7 @@ export function IncomingOrdersSection({
     setRows((prev) =>
       prev.map((r) => (r.id === orderId ? { ...r, is_edited: false } : r)),
     );
-  }, []);
+  }, [vendorId]);
 
   const selectFields =
     "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason, is_edited, payment_status, payment_utr, customer_latitude, customer_longitude";
@@ -314,10 +316,16 @@ export function IncomingOrdersSection({
 
   const markOrderBillPaid = async (billId: string, requestId: string) => {
     setMarkingBillPaidId(billId);
-    const { error } = await supabase
-      .from("order_bills")
-      .update({ payment_status: "paid", paid_at: new Date().toISOString() })
-      .eq("id", billId);
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
+    const { error } = await supabase.rpc("vendor_mark_bill_paid", {
+      p_bill_id: billId,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+    });
     setMarkingBillPaidId(null);
     if (error) {
       toast.error(error.message);
@@ -427,11 +435,13 @@ export function IncomingOrdersSection({
       if (staleFulfilled.length === 0) return orderList;
 
       const toDismissIds = staleFulfilled.map((r) => r.id);
-      const { error } = await supabase
-        .from("requests")
-        .update({ status: "done" })
-        .eq("vendor_id", vendorId)
-        .in("id", toDismissIds);
+      const vendorPhone = getUserPhone()?.trim();
+      if (!vendorPhone) return orderList;
+      const { error } = await supabase.rpc("vendor_dismiss_requests", {
+        p_vendor_id: vendorId,
+        p_vendor_phone: vendorPhone,
+        p_request_ids: toDismissIds,
+      });
 
       if (error) return orderList;
 
@@ -494,12 +504,16 @@ export function IncomingOrdersSection({
 
       const hadSent = !isHelpMode && activeList.some((r) => r.status === "sent");
       if (hadSent) {
-        const { error: upErr } = await supabase
-          .from("requests")
-          .update({ status: "seen" })
-          .eq("vendor_id", vendorId)
-          .eq("status", "sent");
-        if (upErr || !mounted.current) return;
+        const vendorPhone = getUserPhone()?.trim();
+        if (vendorPhone) {
+          const { error: upErr } = await supabase.rpc("vendor_mark_sent_seen", {
+            p_vendor_id: vendorId,
+            p_vendor_phone: vendorPhone,
+          });
+          if (upErr || !mounted.current) return;
+        } else if (!mounted.current) {
+          return;
+        }
         const { data: refreshed } = await supabase
           .from("requests")
           .select(selectFields)
@@ -598,19 +612,24 @@ export function IncomingOrdersSection({
   const acceptHelpOrder = async (id: string) => {
     void clearOrderEditedFlag(id);
     const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
     setMarkingId(id);
-    const { data, error } = await supabase
-      .from("requests")
-      .update({ status: "accepted" })
-      .eq("id", id)
-      .eq("status", "sent")
-      .select("id");
+    const { data: accepted, error } = await supabase.rpc("vendor_accept_order", {
+      p_request_id: id,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_from_status: "sent",
+    });
     setMarkingId(null);
     if (error) {
       toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
       return;
     }
-    if (!data?.length) {
+    if (!accepted) {
       toast.error(s.order_already_taken);
       setRows((prev) => prev.filter((r) => r.id !== id));
       return;
@@ -633,19 +652,24 @@ export function IncomingOrdersSection({
 
   const acceptDeliveryOrder = async (id: string, userPhone: string | null) => {
     void clearOrderEditedFlag(id);
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
     setMarkingId(id);
-    const { data, error } = await supabase
-      .from("requests")
-      .update({ status: "accepted" })
-      .eq("id", id)
-      .eq("status", "seen")
-      .select("id");
+    const { data: accepted, error } = await supabase.rpc("vendor_accept_order", {
+      p_request_id: id,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_from_status: "seen",
+    });
     setMarkingId(null);
     if (error) {
       toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
       return;
     }
-    if (!data?.length) {
+    if (!accepted) {
       toast.error(s.order_already_taken);
       void load({ silent: true });
       return;
@@ -665,12 +689,17 @@ export function IncomingOrdersSection({
 
   const markDone = async (id: string) => {
     const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
     setMarkingId(id);
-    const { error } = await supabase
-      .from("requests")
-      .update({ status: "fulfilled" })
-      .eq("id", id)
-      .eq("vendor_id", vendorId);
+    const { error } = await supabase.rpc("vendor_fulfil_order", {
+      p_request_id: id,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+    });
     setMarkingId(null);
     if (error) {
       if (error.message?.includes("cannot_fulfil_without_bill")) {
@@ -750,12 +779,17 @@ export function IncomingOrdersSection({
   };
 
   const dismissOrder = async (id: string) => {
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
     setMarkingId(id);
-    const { error } = await supabase
-      .from("requests")
-      .update({ status: "done" })
-      .eq("id", id)
-      .eq("vendor_id", vendorId);
+    const { error } = await supabase.rpc("vendor_dismiss_requests", {
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_request_ids: [id],
+    });
     setMarkingId(null);
     if (error) {
       toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
@@ -767,12 +801,17 @@ export function IncomingOrdersSection({
   const handleAppointmentAction = async (id: string, action: "confirmed" | "declined") => {
     if (action === "declined") return;
     const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdateAppt);
+      return;
+    }
     setMarkingId(id);
-    const { error } = await supabase
-      .from("requests")
-      .update({ appointment_status: action, status: "accepted" })
-      .eq("id", id)
-      .eq("vendor_id", vendorId);
+    const { error } = await supabase.rpc("vendor_confirm_appointment", {
+      p_request_id: id,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+    });
     setMarkingId(null);
     if (error) {
       console.error("handleAppointmentAction", action, error);
@@ -840,15 +879,19 @@ export function IncomingOrdersSection({
 
     setDeclining(true);
     setMarkingId(declineOrderId);
-    const { error } = await supabase
-      .from("requests")
-      .update({
-        appointment_status: "declined",
-        status: "seen",
-        cancel_reason: reasonText,
-      })
-      .eq("id", declineOrderId)
-      .eq("vendor_id", vendorId);
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setDeclining(false);
+      setMarkingId(null);
+      toast.error(s.incoming_errCouldNotUpdateAppt);
+      return;
+    }
+    const { error } = await supabase.rpc("vendor_decline_booking", {
+      p_request_id: declineOrderId,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_cancel_reason: reasonText,
+    });
     setDeclining(false);
     setMarkingId(null);
     if (error) {
@@ -993,12 +1036,18 @@ export function IncomingOrdersSection({
     if (!flagOrderId || !flagUserPhone || !selectedFlagType) return;
 
     setFlagSubmitting(true);
-    const { error } = await supabase.from("user_flags").insert({
-      request_id: flagOrderId,
-      vendor_id: vendorId,
-      user_phone: flagUserPhone,
-      flag_type: selectedFlagType,
-      notes: flagNotes.trim() || null,
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setFlagSubmitting(false);
+      return;
+    }
+    const { error } = await supabase.rpc("vendor_submit_user_flag", {
+      p_request_id: flagOrderId,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_user_phone: flagUserPhone,
+      p_flag_type: selectedFlagType,
+      p_notes: flagNotes.trim() || null,
     });
     setFlagSubmitting(false);
 
@@ -1022,21 +1071,21 @@ export function IncomingOrdersSection({
     const order = rows.find((r) => r.id === cancelOrderId);
     const isAppointmentOrder =
       order?.appointment_status === "confirmed" || !!order?.appointment_time;
-    const updatePayload: {
-      status: "cancelled";
-      cancel_reason: string;
-      appointment_status?: "cancelled";
-    } = { status: "cancelled", cancel_reason: reasonText };
-    if (isAppointmentOrder) {
-      updatePayload.appointment_status = "cancelled";
-    }
 
     setCancelling(true);
-    const { error } = await supabase
-      .from("requests")
-      .update(updatePayload)
-      .eq("id", cancelOrderId)
-      .eq("vendor_id", vendorId);
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setCancelling(false);
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
+    const { error } = await supabase.rpc("vendor_cancel_order", {
+      p_request_id: cancelOrderId,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_cancel_reason: reasonText,
+      p_cancel_appointment: isAppointmentOrder,
+    });
     setCancelling(false);
     if (error) {
       toast.error(error.message);

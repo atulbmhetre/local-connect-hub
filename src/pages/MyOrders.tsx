@@ -793,9 +793,14 @@ const MyOrders = () => {
         },
         (payload) => {
           if (!mounted.current) return;
+          const updated = payload.new as { id: string; status?: string };
+          if (updated.status === "done") {
+            setRows((prev) => prev.filter((r) => r.id !== updated.id));
+            return;
+          }
           setRows((prev) =>
             prev.map((r) =>
-              r.id === payload.new.id ? { ...r, ...payload.new } : r,
+              r.id === updated.id ? { ...r, ...payload.new } : r,
             ),
           );
         },
@@ -807,14 +812,18 @@ const MyOrders = () => {
     };
   }, []);
 
-  const markDone = async (id: string) => {
+  const markDone = async (target: RowWithShop | string) => {
+    const id = typeof target === "string" ? target : target.id;
+    const rowPhone = typeof target === "string" ? null : target.user_phone;
+    const rowDevice = typeof target === "string" ? null : target.device_id;
     setMarkingId(id);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     const { error } = await supabase.rpc("dismiss_order", {
       p_request_id: id,
-      p_device_id: device_id ?? null,
-      p_user_phone: userPhone ?? null,
+      p_device_id: rowDevice ?? device_id ?? null,
+      p_user_phone: rowPhone ?? userPhone ?? null,
+      p_appointment_status: null,
     });
     setMarkingId(null);
     if (error) {
@@ -829,10 +838,11 @@ const MyOrders = () => {
     setMarkingId(r.id);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    let updateQuery = supabase.from("requests").update({ status: "cancelled" }).eq("id", r.id);
-    updateQuery =
-      userPhone != null ? updateQuery.eq("user_phone", userPhone) : updateQuery.eq("device_id", device_id);
-    const { error } = await updateQuery;
+    const { error } = await supabase.rpc("cancel_customer_order", {
+      p_request_id: r.id,
+      p_device_id: r.device_id ?? device_id ?? null,
+      p_user_phone: r.user_phone ?? userPhone ?? null,
+    });
     setMarkingId(null);
     if (error) {
       toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
@@ -852,10 +862,16 @@ const MyOrders = () => {
 
   const cancelAppointment = async (r: RowWithShop) => {
     const vendorPhone = r.vendors?.phone?.trim();
-    const { error } = await supabase
-      .from("requests")
-      .update({ status: "done", appointment_status: "cancelled" })
-      .eq("id", r.id);
+    setMarkingId(r.id);
+    const device_id = getDeviceId();
+    const userPhone = getUserPhone();
+    const { error } = await supabase.rpc("dismiss_order", {
+      p_request_id: r.id,
+      p_device_id: r.device_id ?? device_id ?? null,
+      p_user_phone: r.user_phone ?? userPhone ?? null,
+      p_appointment_status: "cancelled",
+    });
+    setMarkingId(null);
     if (error) {
       toast.error(s.myOrders_errCouldNotCancel, { description: error.message });
       return;
@@ -990,17 +1006,13 @@ const MyOrders = () => {
       return;
     }
 
-    let updateQuery = supabase
-      .from("requests")
-      .update({
-        message: newMessage,
-        previous_message: oldMessage,
-        is_edited: true,
-      })
-      .eq("id", editOrder.id);
-    updateQuery =
-      userPhone != null ? updateQuery.eq("user_phone", userPhone) : updateQuery.eq("device_id", device_id);
-    const { error } = await updateQuery;
+    const { error } = await supabase.rpc("edit_customer_order", {
+      p_request_id: editOrder.id,
+      p_message: newMessage,
+      p_previous_message: oldMessage,
+      p_device_id: editOrder.device_id ?? device_id ?? null,
+      p_user_phone: editOrder.user_phone ?? userPhone ?? null,
+    });
     setSavingEdit(false);
 
     if (error) {
@@ -1273,7 +1285,7 @@ const MyOrders = () => {
                     type="button"
                     data-testid="order-dismiss-btn"
                     disabled={markingId === r.id}
-                    onClick={() => void markDone(r.id)}
+                    onClick={() => void markDone(r)}
                     className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
                   >
                     {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
@@ -1292,7 +1304,7 @@ const MyOrders = () => {
                     type="button"
                     data-testid="order-dismiss-btn"
                     disabled={markingId === r.id}
-                    onClick={() => void markDone(r.id)}
+                    onClick={() => void markDone(r)}
                     className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
                   >
                     {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
@@ -1716,7 +1728,7 @@ const MyOrders = () => {
                     type="button"
                     data-testid="order-dismiss-btn"
                     disabled={markingId === r.id}
-                    onClick={() => void markDone(r.id)}
+                    onClick={() => void markDone(r)}
                     className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
                   >
                     {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
@@ -1728,7 +1740,7 @@ const MyOrders = () => {
                       type="button"
                       data-testid="order-dismiss-btn"
                       disabled={markingId === r.id}
-                      onClick={() => void markDone(r.id)}
+                      onClick={() => void markDone(r)}
                       className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
                     >
                       {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
@@ -1968,8 +1980,8 @@ const MyOrders = () => {
         requestId={pendingDismissId ?? ""}
         onDismiss={async () => {
           setRatingSheetOpen(false);
-          const id = pendingDismissId;
-          if (id) await markDone(id);
+          const row = pendingDismissId ? rows.find((r) => r.id === pendingDismissId) : undefined;
+          if (pendingDismissId) await markDone(row ?? pendingDismissId);
           setPendingDismissId(null);
           setRatingVendor(null);
         }}

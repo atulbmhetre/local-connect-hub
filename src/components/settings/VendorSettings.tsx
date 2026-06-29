@@ -230,20 +230,16 @@ export function VendorSettingsOffers({
       setOfferLoading(false);
       return;
     }
-    const { error } = await supabase
-      .from("feed_posts")
-      .insert({
-        type: "offer",
-        vendor_id: vendorId,
-        user_phone: phone,
-        content,
-        is_hidden: false,
-        starts_at: offerDateToStartIso(offerStartsAt),
-        expires_at: offerDateToEndIso(offerEndsAt),
-        image_url: imageUrl,
-        lat,
-        lng,
-      });
+    const { error } = await supabase.rpc("vendor_post_offer", {
+      p_vendor_id: vendorId,
+      p_vendor_phone: phone,
+      p_content: content,
+      p_starts_at: offerDateToStartIso(offerStartsAt),
+      p_expires_at: offerDateToEndIso(offerEndsAt),
+      p_image_url: imageUrl,
+      p_lat: lat,
+      p_lng: lng,
+    });
     setOfferLoading(false);
     if (error) {
       console.error("postOffer", error);
@@ -262,11 +258,17 @@ export function VendorSettingsOffers({
 
   const removeOffer = async () => {
     if (!activeOffer) return;
+    const phone = getUserPhone();
+    if (!phone) {
+      toast.error(s.vendor_offer_phone_required);
+      return;
+    }
     setOfferLoading(true);
-    const { error } = await supabase
-      .from("feed_posts")
-      .update({ is_hidden: true })
-      .eq("id", activeOffer.id);
+    const { error } = await supabase.rpc("vendor_hide_feed_post", {
+      p_vendor_id: vendorId,
+      p_vendor_phone: phone,
+      p_post_id: activeOffer.id,
+    });
     setOfferLoading(false);
     if (error) {
       console.error("removeOffer", error);
@@ -536,6 +538,22 @@ export function VendorSettings({
   const getMode = useServiceModeLabel();
   const { config: appConfig } = useAppConfig();
 
+  const vendorPhone = userPhone ?? getUserPhone()?.trim() ?? null;
+
+  const patchVendor = useCallback(
+    async (patch: Record<string, unknown>) => {
+      if (!vendorPhone) {
+        return { error: { message: "identity_required" } };
+      }
+      return supabase.rpc("vendor_update_own", {
+        p_vendor_id: vendor.id,
+        p_vendor_phone: vendorPhone,
+        p_patch: patch,
+      });
+    },
+    [vendor.id, vendorPhone],
+  );
+
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
   const [cancelReasonsChanged, setCancelReasonsChanged] = useState(false);
   const [savingReasons, setSavingReasons] = useState(false);
@@ -639,14 +657,17 @@ export function VendorSettings({
         recurring: 1,
         handler: async (response: Record<string, string>) => {
           // Payment success — update subscription_status to active
-          await supabase
-            .from("vendors")
-            .update({
+          const vendorPhone = getUserPhone()?.trim();
+          if (!vendorPhone) return;
+          await supabase.rpc("vendor_update_own", {
+            p_vendor_id: vendor?.id,
+            p_vendor_phone: vendorPhone,
+            p_patch: {
               subscription_status: "active",
               subscription_id: response.razorpay_subscription_id ?? response.razorpay_payment_id,
               grace_ends_at: null,
-            })
-            .eq("id", vendor?.id);
+            },
+          });
           toast.success(s.vendor_sub_active);
         },
         prefill: {
@@ -677,10 +698,7 @@ export function VendorSettings({
     if (km === normalizeServiceRadiusKm(vendor.service_radius_km)) return;
     setSavingServiceRadius(true);
     try {
-      const { error } = await supabase
-        .from("vendors")
-        .update({ service_radius_km: km })
-        .eq("id", vendor.id);
+      const { error } = await patchVendor({ service_radius_km: km });
       if (error) {
         toast.error(error.message);
         return;
@@ -703,14 +721,11 @@ export function VendorSettings({
       });
       const latitude = pos.coords.latitude;
       const longitude = pos.coords.longitude;
-      const { error } = await supabase
-        .from("vendors")
-        .update({
-          latitude,
-          longitude,
-          profile_status: "complete",
-        })
-        .eq("id", vendor.id);
+      const { error } = await patchVendor({
+        latitude,
+        longitude,
+        profile_status: "complete",
+      });
       if (error) {
         toast.error(error.message);
         return;
@@ -766,13 +781,17 @@ export function VendorSettings({
     if (!text || sendingReplyId) return;
     setSendingReplyId(reviewId);
     const respondedAt = new Date().toISOString();
-    const { error } = await supabase
-      .from("vendor_reviews")
-      .update({
-        vendor_response: text,
-        vendor_responded_at: respondedAt,
-      })
-      .eq("id", reviewId);
+    if (!vendorPhone) {
+      setSendingReplyId(null);
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
+    const { error } = await supabase.rpc("vendor_reply_to_review", {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendorPhone,
+      p_review_id: reviewId,
+      p_response: text,
+    });
     setSendingReplyId(null);
     if (error) {
       toast.error(error.message);
@@ -832,10 +851,7 @@ export function VendorSettings({
   const saveLedgerCycleStart = async (date: string) => {
     if (!date || savingLedgerCycleStart) return;
     setSavingLedgerCycleStart(true);
-    const { error } = await supabase
-      .from("vendors")
-      .update({ ledger_cycle_start: date })
-      .eq("id", vendor.id);
+    const { error } = await patchVendor({ ledger_cycle_start: date });
     setSavingLedgerCycleStart(false);
     if (error) {
       toast.error(error.message);
@@ -871,10 +887,10 @@ export function VendorSettings({
     }
 
     setSavingKhataLimits(true);
-    const { error: updateError } = await supabase
-      .from("vendors")
-      .update({ khata_amber_limit: 0, khata_red_limit: 0 })
-      .eq("id", vendor.id);
+    const { error: updateError } = await patchVendor({
+      khata_amber_limit: 0,
+      khata_red_limit: 0,
+    });
     setSavingKhataLimits(false);
 
     if (updateError) {
@@ -898,10 +914,7 @@ export function VendorSettings({
     }
 
     setSavingKhataLimits(true);
-    const { error } = await supabase
-      .from("vendors")
-      .update({ khata_amber_limit: amber, khata_red_limit: red })
-      .eq("id", vendor.id);
+    const { error } = await patchVendor({ khata_amber_limit: amber, khata_red_limit: red });
     setSavingKhataLimits(false);
 
     if (error) {
@@ -922,7 +935,7 @@ export function VendorSettings({
       cancel_reason_3: cancelReasons[2].trim() || null,
       cancel_reason_4: cancelReasons[3].trim() || null,
     };
-    const { error } = await supabase.from("vendors").update(updates).eq("id", vendor.id);
+    const { error } = await patchVendor(updates);
     setSavingReasons(false);
     if (error) {
       toast.error(error.message);
@@ -934,14 +947,19 @@ export function VendorSettings({
   };
 
   const saveNewItem = async () => {
-    if (!newItem.name.trim() || !newItem.price) return;
-    await supabase.from("vendor_menu_items").insert({
-      vendor_id: vendor.id,
-      name: newItem.name.trim(),
-      price: parseFloat(newItem.price),
-      unit: newItem.unit.trim() || null,
-      description: newItem.description.trim() || null,
-      sort_order: menuItems.length,
+    if (!newItem.name.trim() || !newItem.price || !vendorPhone) return;
+    await supabase.rpc("vendor_insert_menu_items", {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendorPhone,
+      p_items: [
+        {
+          name: newItem.name.trim(),
+          price: parseFloat(newItem.price),
+          unit: newItem.unit.trim() || null,
+          description: newItem.description.trim() || null,
+          sort_order: menuItems.length,
+        },
+      ],
     });
     setNewItem({ name: "", price: "", unit: "", description: "" });
     setAddingItem(false);
@@ -949,30 +967,37 @@ export function VendorSettings({
   };
 
   const saveEditedMenuItem = async () => {
-    if (!editingMenuItem || !editDraft.name.trim() || !editDraft.price) return;
-    await supabase
-      .from("vendor_menu_items")
-      .update({
-        name: editDraft.name.trim(),
-        price: parseFloat(editDraft.price),
-        unit: editDraft.unit.trim() || null,
-        description: editDraft.description.trim() || null,
-      })
-      .eq("id", editingMenuItem.id);
+    if (!editingMenuItem || !editDraft.name.trim() || !editDraft.price || !vendorPhone) return;
+    await supabase.rpc("vendor_update_menu_item", {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendorPhone,
+      p_item_id: editingMenuItem.id,
+      p_name: editDraft.name.trim(),
+      p_price: parseFloat(editDraft.price),
+      p_unit: editDraft.unit.trim() || null,
+      p_description: editDraft.description.trim() || null,
+    });
     setEditingMenuItem(null);
     void loadMenu();
   };
 
   const toggleAvailability = async (item: MenuItem) => {
-    await supabase
-      .from("vendor_menu_items")
-      .update({ is_available: !item.is_available })
-      .eq("id", item.id);
+    if (!vendorPhone) return;
+    await supabase.rpc("vendor_toggle_menu_item_availability", {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendorPhone,
+      p_item_id: item.id,
+    });
     void loadMenu();
   };
 
   const deleteMenuItem = async (id: string) => {
-    await supabase.from("vendor_menu_items").delete().eq("id", id);
+    if (!vendorPhone) return;
+    await supabase.rpc("vendor_delete_menu_item", {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendorPhone,
+      p_item_id: id,
+    });
     void loadMenu();
   };
 
@@ -1003,21 +1028,22 @@ export function VendorSettings({
         body: JSON.stringify({ text }),
       });
       const result = await resp.json();
-      if (result.success && result.items?.length) {
-        await supabase.from("vendor_menu_items").insert(
-          result.items.map(
+      if (result.success && result.items?.length && vendorPhone) {
+        await supabase.rpc("vendor_insert_menu_items", {
+          p_vendor_id: vendor.id,
+          p_vendor_phone: vendorPhone,
+          p_items: result.items.map(
             (
               item: { description?: string; unit_price?: number; unit?: string },
               idx: number,
             ) => ({
-              vendor_id: vendor.id,
               name: item.description ?? "",
               price: item.unit_price ?? 0,
               unit: item.unit || null,
               sort_order: menuItems.length + idx,
             }),
           ),
-        );
+        });
         void loadMenu();
         toast.success(s.menu_voiceAdded);
       } else {
@@ -1055,21 +1081,22 @@ export function VendorSettings({
           body: JSON.stringify({ image_base64: base64, media_type: file.type }),
         });
         const result = await resp.json();
-        if (result.success && result.items?.length) {
-          await supabase.from("vendor_menu_items").insert(
-            result.items.map(
+        if (result.success && result.items?.length && vendorPhone) {
+          await supabase.rpc("vendor_insert_menu_items", {
+            p_vendor_id: vendor.id,
+            p_vendor_phone: vendorPhone,
+            p_items: result.items.map(
               (
                 item: { description?: string; unit_price?: number; unit?: string },
                 idx: number,
               ) => ({
-                vendor_id: vendor.id,
                 name: item.description ?? "",
                 price: item.unit_price ?? 0,
                 unit: item.unit || null,
                 sort_order: menuItems.length + idx,
               }),
             ),
-          );
+          });
           void loadMenu();
           toast.success(s.menu_imageAdded);
         } else {

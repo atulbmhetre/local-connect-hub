@@ -84,17 +84,15 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
   }, []);
 
   const markInformationalRead = useCallback(async (userPhone: string) => {
-    const now = new Date().toISOString();
-    const { error } = await supabase
-      .from("user_notifications")
-      .update({ is_read: true, read_at: now })
-      .eq("user_phone", userPhone)
-      .eq("is_informational", true)
-      .eq("is_read", false);
+    const { error } = await supabase.rpc("mark_user_notifications_read", {
+      p_user_phone: userPhone,
+      p_informational_only: true,
+    });
     if (error) {
       console.error("NotificationBell mark informational read", error);
       return;
     }
+    const now = new Date().toISOString();
     setNotifications((prev) =>
       prev.map((n) =>
         n.is_informational && !n.is_read ? { ...n, is_read: true, read_at: now } : n,
@@ -105,11 +103,10 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
 
   const markAllRead = useCallback(async (userPhone: string) => {
     const now = new Date().toISOString();
-    const { error } = await supabase
-      .from("user_notifications")
-      .update({ is_read: true, read_at: now })
-      .eq("user_phone", userPhone)
-      .eq("is_read", false);
+    const { error } = await supabase.rpc("mark_user_notifications_read", {
+      p_user_phone: userPhone,
+      p_informational_only: false,
+    });
     if (error) {
       console.error("NotificationBell mark all read", error);
       return;
@@ -137,7 +134,10 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
       if (!n.is_read) {
         setUnreadCount((count) => Math.max(0, count - 1));
       }
-      const { error } = await supabase.from("user_notifications").delete().eq("id", n.id);
+      const { error } = await supabase.rpc("delete_user_notification", {
+        p_user_phone: phone,
+        p_notification_id: n.id,
+      });
       if (error) {
         console.error("NotificationBell dismiss", error);
         void loadTray(phone);
@@ -151,10 +151,9 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     async (userPhone: string) => {
       setNotifications([]);
       setUnreadCount(0);
-      const { error } = await supabase
-        .from("user_notifications")
-        .delete()
-        .eq("user_phone", userPhone);
+      const { error } = await supabase.rpc("clear_user_notifications", {
+        p_user_phone: userPhone,
+      });
       if (error) {
         console.error("NotificationBell clear all", error);
         void loadTray(userPhone);
@@ -247,10 +246,10 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     if (!phone) return;
     const now = new Date().toISOString();
     if (!n.is_read) {
-      const { error } = await supabase
-        .from("user_notifications")
-        .update({ is_read: true, read_at: now })
-        .eq("id", n.id);
+      const { error } = await supabase.rpc("mark_user_notification_read", {
+        p_user_phone: phone,
+        p_notification_id: n.id,
+      });
       if (error) {
         console.error("NotificationBell mark read", error);
       } else {

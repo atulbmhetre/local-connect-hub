@@ -8,6 +8,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { supabase, invokeNotifyVendor } from "@/lib/supabase";
+import { getDeviceId } from "@/lib/deviceId";
+import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 
@@ -112,14 +114,12 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
       return;
     }
     setSubmitting(true);
-    const { error } = await supabase
-      .from("requests")
-      .update({
-        payment_utr: trimmed,
-        payment_status: "claimed",
-        payment_claimed_at: new Date().toISOString(),
-      })
-      .eq("id", order.id);
+    const { error } = await supabase.rpc("claim_customer_payment", {
+      p_request_id: order.id,
+      p_payment_utr: trimmed,
+      p_device_id: getDeviceId(),
+      p_user_phone: getUserPhone(),
+    });
     if (error) {
       toast.error(s.payment_confirm_error);
       setSubmitting(false);

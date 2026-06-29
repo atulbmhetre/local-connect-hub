@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 
@@ -32,10 +33,17 @@ export function VendorNoteEditor({
   const saveNote = async () => {
     setSaving(true);
     const trimmed = note.trim();
-    const { error } = await supabase
-      .from("vendors")
-      .update({ vendor_note: trimmed || null })
-      .eq("id", vendorId);
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setSaving(false);
+      toast.error(s.vendor_note_save_failed);
+      return;
+    }
+    const { error } = await supabase.rpc("vendor_update_own", {
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_patch: { vendor_note: trimmed || null },
+    });
     setSaving(false);
     if (error) {
       toast.error(s.vendor_note_save_failed, { description: error.message });

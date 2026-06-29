@@ -555,12 +555,12 @@ export function RadarVendorCard({
       return;
     }
     const device_id = getDeviceId();
-    const { error } = await supabase.from("saved_vendors").insert({
-      device_id,
-      vendor_id: vendor.id,
-      category: vendor.category,
-      nickname: vendor.shop_name,
-      user_phone: userPhone,
+    const { error } = await supabase.rpc("save_saved_vendor", {
+      p_vendor_id: vendor.id,
+      p_category: vendor.category,
+      p_nickname: vendor.shop_name,
+      p_device_id: device_id,
+      p_user_phone: userPhone,
     });
     if (error) {
       if (error.code === "23505") {
@@ -583,9 +583,11 @@ export function RadarVendorCard({
     if (!savedVendorLocked && !isSaved) return;
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    let del = supabase.from("saved_vendors").delete().eq("vendor_id", vendor.id);
-    del = userPhone != null ? del.eq("user_phone", userPhone) : del.eq("device_id", device_id);
-    const { error } = await del;
+    const { error } = await supabase.rpc("unsave_saved_vendor", {
+      p_vendor_id: vendor.id,
+      p_device_id: device_id,
+      p_user_phone: userPhone ?? null,
+    });
     if (error) {
       toast.error(s.couldNotRemove, { description: error.message });
       return;

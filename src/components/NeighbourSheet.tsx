@@ -55,9 +55,11 @@ export function NeighbourSheet({
     if (!vendor) return;
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    let del = supabase.from("saved_vendors").delete().eq("vendor_id", vendor.id);
-    del = userPhone != null ? del.eq("user_phone", userPhone) : del.eq("device_id", device_id);
-    const { error } = await del;
+    const { error } = await supabase.rpc("unsave_saved_vendor", {
+      p_vendor_id: vendor.id,
+      p_device_id: device_id,
+      p_user_phone: userPhone ?? null,
+    });
     if (error) {
       toast.error(s.couldNotRemove, { description: error.message });
       return;

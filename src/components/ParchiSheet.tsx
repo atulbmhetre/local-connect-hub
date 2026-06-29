@@ -499,31 +499,23 @@ export function ParchiSheet({
 
       setSending(true);
       const device_id = getDeviceId();
-      const insertPayload: Record<string, unknown> = {
-        device_id,
-        vendor_id: v.id,
-        message: text.slice(0, config.maxOrderMessageChars) + locationNote,
-        status: "sent",
-        user_phone: phone,
-        device_id_log: device_id,
-        delivery_address: finalAddress,
-        delivery_slot: selectedSlot,
-        delivery_slot_deadline:
+      const { data: insertedId, error } = await supabase.rpc("create_customer_request", {
+        p_device_id: device_id,
+        p_vendor_id: v.id,
+        p_message: text.slice(0, config.maxOrderMessageChars) + locationNote,
+        p_user_phone: phone,
+        p_device_id_log: device_id,
+        p_delivery_address: finalAddress,
+        p_delivery_slot: selectedSlot,
+        p_delivery_slot_deadline:
           effectiveVendor?.service_mode === "delivery"
             ? getDeliverySlotDeadline(selectedSlot)
             : null,
-        appointment_time: appointmentTimestamp,
-        appointment_status: appointmentTimestamp ? "pending" : null,
-      };
-      if (customerLat != null && customerLng != null) {
-        insertPayload.customer_latitude = customerLat;
-        insertPayload.customer_longitude = customerLng;
-      }
-      const { data: inserted, error } = await supabase
-        .from("requests")
-        .insert(insertPayload)
-        .select("id")
-        .single();
+        p_appointment_time: appointmentTimestamp,
+        p_appointment_status: appointmentTimestamp ? "pending" : null,
+        p_customer_latitude: customerLat ?? null,
+        p_customer_longitude: customerLng ?? null,
+      });
       if (error) {
         setSending(false);
         toast.error(s.parchi_errCouldNotSend, { description: error.message });
@@ -542,15 +534,15 @@ export function ParchiSheet({
         category: v.category,
         message: notifyBody,
         type: "new_order",
-        request_id: inserted.id,
+        request_id: insertedId,
       });
       if (saveAddress && newAddress.trim()) {
-        const { error: addrError } = await supabase.from("user_addresses").insert({
-          device_id: getDeviceId(),
-          user_phone: getUserPhone() ?? null,
-          label: "",
-          address_text: newAddress.trim(),
-          is_default: addresses.length === 0,
+        const { error: addrError } = await supabase.rpc("insert_user_address", {
+          p_device_id: getDeviceId(),
+          p_user_phone: getUserPhone() ?? null,
+          p_label: "",
+          p_address_text: newAddress.trim(),
+          p_is_default: addresses.length === 0,
         });
         if (addrError) console.error("Address save failed:", addrError.message);
       }
@@ -733,14 +725,12 @@ export function ParchiSheet({
       return;
     }
     setUtrSubmitting(true);
-    const { error } = await supabase
-      .from("requests")
-      .update({
-        payment_utr: trimmed,
-        payment_status: "claimed",
-        payment_claimed_at: new Date().toISOString(),
-      })
-      .eq("id", order.id);
+    const { error } = await supabase.rpc("claim_customer_payment", {
+      p_request_id: order.id,
+      p_payment_utr: trimmed,
+      p_device_id: getDeviceId(),
+      p_user_phone: getUserPhone(),
+    });
     if (error) {
       toast.error(error.message);
       setUtrSubmitting(false);

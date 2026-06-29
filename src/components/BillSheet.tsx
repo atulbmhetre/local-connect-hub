@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { supabase, invokeNotifyUser, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/supabase";
+import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
@@ -288,11 +289,13 @@ export function BillSheet({
   };
 
   const voidExistingUnpaidBills = async () => {
-    await supabase
-      .from("order_bills")
-      .update({ payment_status: "void" })
-      .eq("request_id", requestId)
-      .neq("payment_status", "paid");
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) return;
+    await supabase.rpc("vendor_void_unpaid_bills", {
+      p_request_id: requestId,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+    });
   };
 
   const executeSendBill = async (opts?: { isReplace?: boolean }) => {
