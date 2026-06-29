@@ -467,11 +467,7 @@ export default function LocalFeed() {
     if (!selectedCategoryMeta) return posts;
     const chipLabel = selectedCategoryMeta.label;
     return posts.filter((post) => {
-      if (post.type === "announcement" || post.type === "recommendation") return true;
-      if (post.type === "offer") {
-        return offerMatchesCategory(post.vendors?.category, chipLabel);
-      }
-      return true;
+      return offerMatchesCategory(post.vendors?.category, chipLabel);
     });
   }, [posts, selectedCategoryMeta]);
 
