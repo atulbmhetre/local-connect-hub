@@ -282,32 +282,25 @@ const LedgerView = () => {
   };
 
   const saveCustomerName = async () => {
-    if (!selectedPhone || savingName) return;
+    if (!vendorId || !selectedPhone || savingName) return;
     const trimmed = nameDraft.trim();
     if (!trimmed) return;
 
     setSavingName(true);
-    const { data: updated, error: updateError } = await supabase
-      .from("app_users")
-      .update({ name: trimmed })
-      .eq("phone", selectedPhone)
-      .select("phone");
+    const { data: saved, error: saveError } = await supabase.rpc(
+      "vendor_update_customer_name",
+      {
+        p_vendor_id: vendorId,
+        p_vendor_phone: vendorPhone,
+        p_customer_phone: selectedPhone,
+        p_name: trimmed,
+      },
+    );
 
-    if (updateError) {
+    if (saveError || !saved) {
       setSavingName(false);
-      toast.error(updateError.message);
+      toast.error(saveError?.message ?? s.incoming_errCouldNotUpdate);
       return;
-    }
-
-    if (!updated?.length) {
-      const { error: insertError } = await supabase
-        .from("app_users")
-        .insert({ phone: selectedPhone, name: trimmed });
-      if (insertError) {
-        setSavingName(false);
-        toast.error(insertError.message);
-        return;
-      }
     }
 
     setCustomerNameByPhone((prev) => {
@@ -372,48 +365,24 @@ const LedgerView = () => {
 
     setSavingPayment(true);
 
-    const { error: txError } = await supabase.from("khata_transactions").insert({
-      vendor_id: vendorId,
-      user_phone: selectedPhone,
-      amount: amountPaid,
-      note: s.khata_paymentReceivedNote,
-      payment_mode: "paid",
-      created_at: now,
-    });
+    const { data: newOutstandingValue, error: paymentError } = await supabase.rpc(
+      "vendor_record_khata_payment",
+      {
+        p_vendor_id: vendorId,
+        p_vendor_phone: vendorPhone,
+        p_customer_phone: selectedPhone,
+        p_amount: amountPaid,
+        p_note: s.khata_paymentReceivedNote,
+      },
+    );
 
-    if (txError) {
+    if (paymentError) {
       setSavingPayment(false);
-      toast.error(txError.message);
+      toast.error(paymentError.message);
       return;
     }
 
-    const { data: ledgerRow, error: readError } = await supabase
-      .from("khata_ledger")
-      .select("total_outstanding")
-      .eq("vendor_id", vendorId)
-      .eq("user_phone", selectedPhone)
-      .maybeSingle();
-
-    if (readError) {
-      setSavingPayment(false);
-      toast.error(readError.message);
-      return;
-    }
-
-    const freshValue = Number(ledgerRow?.total_outstanding ?? 0);
-    const newOutstanding = Math.max(0, freshValue - amountPaid);
-
-    const { error: ledgerError } = await supabase
-      .from("khata_ledger")
-      .update({ total_outstanding: newOutstanding, last_updated: now })
-      .eq("vendor_id", vendorId)
-      .eq("user_phone", selectedPhone);
-
-    if (ledgerError) {
-      setSavingPayment(false);
-      toast.error(ledgerError.message);
-      return;
-    }
+    const newOutstanding = Number(newOutstandingValue ?? 0);
 
     setEntries((prev) =>
       prev.map((e) =>

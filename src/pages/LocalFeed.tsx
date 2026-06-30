@@ -516,10 +516,10 @@ export default function LocalFeed() {
     const content = (replyDrafts[postId] ?? "").trim();
     if (!content) return;
 
-    const { error } = await supabase.from("feed_replies").insert({
-      post_id: postId,
-      user_phone: phone,
-      content,
+    const { error } = await supabase.rpc("submit_feed_reply", {
+      p_post_id: postId,
+      p_user_phone: phone,
+      p_content: content,
     });
 
     if (error) {

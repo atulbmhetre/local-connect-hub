@@ -39,6 +39,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { Badge } from "@/components/ui/badge";
 import {
   currentCycleTransactions,
+  filterKhataLedgerByOutstanding,
   formatKhataDate,
   khataPaymentModeLabel,
 } from "@/lib/khataDisplay";
@@ -467,11 +468,14 @@ const MyOrders = () => {
       .order("last_updated", { ascending: false });
 
     setMyKhata(
-      (data ?? []).map((k: { vendor_id: string; total_outstanding: number; vendors: { shop_name: string } | null }) => ({
-        vendor_id: k.vendor_id,
-        shop_name: k.vendors?.shop_name ?? "Unknown",
-        total_outstanding: k.total_outstanding,
-      })),
+      filterKhataLedgerByOutstanding(
+        (data ?? []).map((k: { vendor_id: string; total_outstanding: number; vendors: { shop_name: string } | null }) => ({
+          vendor_id: k.vendor_id,
+          shop_name: k.vendors?.shop_name ?? "Unknown",
+          total_outstanding: k.total_outstanding,
+        })),
+        false,
+      ),
     );
   };
 
@@ -1946,21 +1950,24 @@ const MyOrders = () => {
                 type="button"
                 onClick={async () => {
                   if (!editingReview) return;
-                  const { error } = await supabase
-                    .from("vendor_reviews")
-                    .update({
-                      rating: editingReview.rating,
-                      review_text: editingReview.text.trim() || null,
-                    })
-                    .eq("id", editingReview.id);
-                  if (error) {
+                  try {
+                    const { error } = await supabase.rpc("update_vendor_review", {
+                      p_review_id: editingReview.id,
+                      p_user_phone: getUserPhone(),
+                      p_rating: editingReview.rating,
+                      p_review_text: editingReview.text.trim() || null,
+                    });
+                    if (error) {
+                      toast.error(s.rating_errCouldNotSave);
+                      return;
+                    }
+                    await syncVendorRatingFromReviews(editingReview.vendorId);
+                    toast.success(s.review_updated);
+                    setEditingReview(null);
+                    void loadMyReviews();
+                  } catch {
                     toast.error(s.rating_errCouldNotSave);
-                    return;
                   }
-                  await syncVendorRatingFromReviews(editingReview.vendorId);
-                  toast.success(s.review_updated);
-                  setEditingReview(null);
-                  void loadMyReviews();
                 }}
                 className="w-full rounded-xl bg-brand text-page-bg py-3 font-semibold"
               >

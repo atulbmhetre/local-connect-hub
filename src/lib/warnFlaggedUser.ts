@@ -17,14 +17,21 @@ export async function warnFlaggedUser(
   phone: string,
   config: WarnFlaggedUserConfig,
 ): Promise<WarnFlaggedUserResult> {
-  const { data: appUserRow } = await supabase
-    .from("app_users")
-    .select("lang")
-    .eq("phone", phone)
-    .limit(1)
-    .maybeSingle();
+  const adminPhone = getUserPhone()?.trim();
+  if (!adminPhone) {
+    return { ok: false, error: "warn_count_not_saved" };
+  }
 
-  const rawLang = String(appUserRow?.lang ?? "").trim().toLowerCase();
+  const { data: langValue, error: langError } = await supabase.rpc("admin_get_user_lang", {
+    p_admin_phone: adminPhone,
+    p_user_phone: phone,
+  });
+
+  if (langError) {
+    return { ok: false, error: "warn_count_not_saved" };
+  }
+
+  const rawLang = String(langValue ?? "en").trim().toLowerCase();
   let userLang: Language = rawLang === "hi" || rawLang === "mr" ? rawLang : "en";
   if (!config.localizationEnabled) userLang = "en";
   else if (userLang === "hi" && !config.langHindiEnabled) userLang = "en";
@@ -40,10 +47,6 @@ export async function warnFlaggedUser(
     type: "account_warning",
   });
 
-  const adminPhone = getUserPhone()?.trim();
-  if (!adminPhone) {
-    return { ok: false, error: "warn_count_not_saved" };
-  }
   const { data: savedWarnCount, error: warnError } = await supabase.rpc("admin_warn_user", {
     p_admin_phone: adminPhone,
     p_user_phone: phone,

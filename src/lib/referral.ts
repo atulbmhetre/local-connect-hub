@@ -116,14 +116,17 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
       return false;
     }
 
-    const { error: userError } = await supabase.from("app_users").insert({
-      phone,
-      device_id: deviceId,
-      referral_code: generateUserReferralCode(phone),
-      referred_by_vendor_id: vendor.id,
-    });
+    const { data: userCreated, error: userError } = await supabase.rpc(
+      "create_referred_user",
+      {
+        p_phone: phone,
+        p_device_id: deviceId,
+        p_referral_code: stored,
+        p_referred_by_vendor_id: vendor.id,
+      },
+    );
 
-    if (userError) return false;
+    if (userError || !userCreated) return false;
 
     const triggeredAt = new Date().toISOString();
 

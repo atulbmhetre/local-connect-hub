@@ -174,15 +174,21 @@ export function RatingSheet({
 
     const deviceId = getDeviceId();
     const userPhone = getUserPhone();
+    if (!userPhone) {
+      setLoading(false);
+      toast.error(s.feed_phoneRequired);
+      onDismiss();
+      return;
+    }
 
-    const { error: insertError } = await supabase.from("vendor_reviews").insert({
-      vendor_id: vendorId,
-      request_id: requestId,
-      user_phone: userPhone,
-      device_id: deviceId,
-      rating: stars,
-      review_text: reviewText.trim() || null,
-      service_mode: serviceMode,
+    const { error: insertError } = await supabase.rpc("submit_vendor_review", {
+      p_vendor_id: vendorId,
+      p_request_id: requestId,
+      p_user_phone: userPhone,
+      p_device_id: deviceId,
+      p_rating: stars,
+      p_review_text: reviewText.trim() || null,
+      p_service_mode: serviceMode,
     });
 
     if (insertError) {
