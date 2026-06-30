@@ -586,7 +586,8 @@ const RadarSearch = () => {
             .from("vendor_categories")
             .select("vendor_id")
             .in("category_id", categoryIds)
-            .eq("status", "approved");
+            .eq("status", "approved")
+            .eq("service_mode", selectedMode);
           if (vcError) throw vcError;
           vendorIdFilter = [...new Set((vcRows ?? []).map((row) => row.vendor_id))];
           if (vendorIdFilter.length === 0) {
@@ -599,12 +600,13 @@ const RadarSearch = () => {
           setSuggestedCategoryName(null);
         }
 
+        const categoryModeSearch = vendorIdFilter !== null;
+
         let qTrackA = panIndiaOnly || !coords
           ? null
           : supabase
               .from("vendors")
               .select("*, verification_status")
-              .eq("service_mode", selectedMode)
               .eq("is_banned", false)
               .eq("profile_status", "complete")
               .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
@@ -612,6 +614,10 @@ const RadarSearch = () => {
               .lte("latitude", coords.lat + BBOX_DELTA_DEG)
               .gte("longitude", coords.lng - BBOX_DELTA_DEG)
               .lte("longitude", coords.lng + BBOX_DELTA_DEG);
+
+        if (qTrackA && !categoryModeSearch) {
+          qTrackA = qTrackA.eq("service_mode", selectedMode);
+        }
 
         if (qTrackA && selectedMode === "help") {
           qTrackA = qTrackA.eq("is_active", true);
@@ -624,10 +630,13 @@ const RadarSearch = () => {
         let qTrackB = supabase
           .from("vendors")
           .select("*, verification_status")
-          .eq("service_mode", selectedMode)
           .eq("is_banned", false)
           .eq("profile_status", "complete")
           .eq("service_radius_km", PAN_INDIA_RADIUS_KM);
+
+        if (!categoryModeSearch) {
+          qTrackB = qTrackB.eq("service_mode", selectedMode);
+        }
 
         if (selectedMode === "help") {
           qTrackB = qTrackB.eq("is_active", true);
