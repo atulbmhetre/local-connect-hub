@@ -388,6 +388,8 @@ const VendorMode = () => {
   const [editPhone, setEditPhone] = useState("");
   const [editUpiId, setEditUpiId] = useState("");
   const [savingShopDetails, setSavingShopDetails] = useState(false);
+  const editCategoriesLoadSeqRef = useRef(0);
+  const editSelectedCategoryIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     localStorage.setItem("aaspaas:role", "vendor");
@@ -758,27 +760,29 @@ const VendorMode = () => {
   };
 
   const toggleEditCategory = (categoryId: string) => {
-    let next: string[];
-    if (editSelectedCategoryIds.includes(categoryId)) {
-      next = editSelectedCategoryIds.filter((id) => id !== categoryId);
-    } else {
-      if (editSelectedCategoryIds.length >= MAX_REG_CATEGORIES) return;
-      next = [...editSelectedCategoryIds, categoryId];
-    }
-    setEditSelectedCategoryIds(next);
-    setEditSelectedCategories(
-      next
-        .map(
-          (id) =>
-            editAvailableCategories.find((c) => c.id === id) ??
-            editSelectedCategories.find((c) => c.id === id),
-        )
-        .filter((c): c is RegCategoryRow => c != null),
-    );
+    setEditSelectedCategoryIds((prev) => {
+      const next = prev.includes(categoryId)
+        ? prev.filter((id) => id !== categoryId)
+        : prev.length >= MAX_REG_CATEGORIES
+          ? prev
+          : [...prev, categoryId];
+      editSelectedCategoryIdsRef.current = next;
+      setEditSelectedCategories((prevSelected) =>
+        next
+          .map(
+            (id) =>
+              editAvailableCategories.find((c) => c.id === id) ??
+              prevSelected.find((c) => c.id === id),
+          )
+          .filter((c): c is RegCategoryRow => c != null),
+      );
+      return next;
+    });
   };
 
   const openEditShop = () => {
     if (!vendor) return;
+    const loadSeq = ++editCategoriesLoadSeqRef.current;
     setEditShopName(vendor.shop_name ?? "");
     setEditPhone(vendor.phone ?? "");
     setEditUpiId(vendor.upi_id ?? "");
@@ -788,6 +792,7 @@ const VendorMode = () => {
     );
     setEditAvailableCategories([]);
     setEditSelectedCategories([]);
+    editSelectedCategoryIdsRef.current = [];
     setEditSelectedCategoryIds([]);
     setEditCategoriesLoading(true);
     setEditShopOpen(true);
@@ -833,17 +838,22 @@ const VendorMode = () => {
         if (legacy) selected = [legacy];
       }
 
+      if (loadSeq !== editCategoriesLoadSeqRef.current) return;
+
+      const selectedIds = selected.map((c) => c.id);
+      editSelectedCategoryIdsRef.current = selectedIds;
       setEditSelectedCategories(selected);
-      setEditSelectedCategoryIds(selected.map((c) => c.id));
+      setEditSelectedCategoryIds(selectedIds);
       setEditCategoriesLoading(false);
     })();
   };
 
   const saveShopDetails = async () => {
     if (!vendor) return;
+    const categoryIdsToSave = editSelectedCategoryIdsRef.current;
     const primaryCategory =
-      editAvailableCategories.find((c) => c.id === editSelectedCategoryIds[0]) ??
-      editSelectedCategories[0] ??
+      editAvailableCategories.find((c) => c.id === categoryIdsToSave[0]) ??
+      editSelectedCategories.find((c) => c.id === categoryIdsToSave[0]) ??
       null;
     const primaryLabel = primaryCategory?.label ?? "";
     const primaryServiceMode = (primaryCategory?.service_mode ??
@@ -858,7 +868,7 @@ const VendorMode = () => {
     if (
       editVendorType === "" ||
       !resolvedShopName.trim() ||
-      editSelectedCategoryIds.length === 0 ||
+      categoryIdsToSave.length === 0 ||
       !primaryLabel ||
       !primaryServiceMode ||
       !editPhone.trim()
@@ -889,37 +899,23 @@ const VendorMode = () => {
       return;
     }
 
-    const { error: deleteVcError } = await supabase
-      .from("vendor_categories")
-      .delete()
-      .eq("vendor_id", vendor.id);
-    if (deleteVcError) {
-      console.error("vendor_categories delete", deleteVcError);
-      setSavingShopDetails(false);
-      toast.error("Failed to update categories");
-      return;
-    }
+    const categoryServiceModes = categoryIdsToSave.map((categoryId) => {
+      const cat =
+        editAvailableCategories.find((c) => c.id === categoryId) ??
+        editSelectedCategories.find((c) => c.id === categoryId);
+      return cat?.service_mode ?? primaryServiceMode;
+    });
 
-    const needsReview = editSelectedCategoryIds.length >= 3;
-    const { error: insertVcError } = await supabase.from("vendor_categories").insert(
-      editSelectedCategoryIds.map((categoryId, index) => {
-        const cat =
-          editAvailableCategories.find((c) => c.id === categoryId) ??
-          editSelectedCategories.find((c) => c.id === categoryId);
-        return {
-          vendor_id: vendor.id,
-          category_id: categoryId,
-          is_primary: index === 0,
-          status: "approved",
-          needs_review: needsReview,
-          service_mode: cat?.service_mode ?? primaryServiceMode,
-        };
-      }),
-    );
+    const { error: vcError } = await supabase.rpc("vendor_update_categories", {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: editPhone.trim(),
+      p_category_ids: categoryIdsToSave,
+      p_category_service_modes: categoryServiceModes,
+    });
     setSavingShopDetails(false);
-    if (insertVcError) {
-      console.error("vendor_categories insert", insertVcError);
-      toast.error("Shop saved but categories failed to update");
+    if (vcError) {
+      console.error("vendor_update_categories", vcError);
+      toast.error(s.vendor_categories_partial_save);
       return;
     }
 
@@ -2650,6 +2646,7 @@ const VendorMode = () => {
                           <button
                             key={cat.id}
                             type="button"
+                            data-testid={`vendor-edit-category-${cat.id}`}
                             disabled={disabled}
                             onClick={() => toggleEditCategory(cat.id)}
                             className={cn(
