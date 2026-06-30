@@ -66,6 +66,7 @@ const supabaseChain = {
   eq: vi.fn(function eq() {
     return supabaseChain;
   }),
+  is: vi.fn(async () => ({ count: 0, error: null })),
   in: vi.fn(function inn() {
     return supabaseChain;
   }),
@@ -98,6 +99,7 @@ vi.mock("@/hooks/useUserAddresses", () => ({
 vi.mock("@/lib/supabase", () => ({
   supabase: {
     from: vi.fn(() => supabaseChain),
+    rpc: vi.fn().mockResolvedValue({ error: null }),
     channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn() })),
     removeChannel: vi.fn(),
   },

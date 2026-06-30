@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { strings } from "@/lib/strings";
 
-const { notifications, mockDelete, loadIdRef } = vi.hoisted(() => {
+const { notifications, mockRpc, loadIdRef } = vi.hoisted(() => {
   const rows = {
     value: [] as Array<{
       id: string;
@@ -19,7 +19,7 @@ const { notifications, mockDelete, loadIdRef } = vi.hoisted(() => {
       created_at: string;
     }>,
   };
-  const mockDelete = vi.fn().mockResolvedValue({ error: null });
+  const mockRpc = vi.fn().mockResolvedValue({ error: null });
   let loadId = 0;
 
   const chain = {
@@ -27,14 +27,14 @@ const { notifications, mockDelete, loadIdRef } = vi.hoisted(() => {
     eq: vi.fn(() => chain),
     order: vi.fn(() => chain),
     limit: vi.fn(() => chain),
-    delete: vi.fn(() => ({ eq: mockDelete })),
+    delete: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) })),
     update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) })),
     maybeSingle: vi.fn(),
   };
 
   return {
     notifications: rows,
-    mockDelete,
+    mockRpc,
     loadIdRef: {
       bump: () => ++loadId,
       get: () => loadId,
@@ -60,7 +60,7 @@ vi.mock("@/lib/supabase", () => {
     limit: vi.fn(async function limit() {
       return { data: notifications.value, error: null };
     }),
-    delete: vi.fn(() => ({ eq: mockDelete })),
+    delete: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) })),
     update: vi.fn(() => {
       const updateChain = {
         eq: vi.fn(function eq() {
@@ -83,6 +83,7 @@ vi.mock("@/lib/supabase", () => {
   return {
     supabase: {
       from: vi.fn(() => chain),
+      rpc: mockRpc,
       channel: chain.channel,
       removeChannel: chain.removeChannel,
     },
@@ -150,6 +151,9 @@ describe("NotificationBell", () => {
     await waitFor(() => {
       expect(screen.queryByText("Order update")).not.toBeInTheDocument();
     });
-    expect(mockDelete).toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith("delete_user_notification", {
+      p_user_phone: "9876543210",
+      p_notification_id: "n1",
+    });
   });
 });

@@ -808,7 +808,11 @@ export default function LocalFeed() {
           {s.feed_empty}
         </p>
       ) : (
-        <ul className="flex flex-col gap-3 pb-4">
+        <>
+          <p className="text-xs text-muted-foreground text-center py-2 px-4">
+            {s.feed_auto_remove_note}
+          </p>
+          <ul className="flex flex-col gap-3 pb-4">
           {visiblePosts.map((post) => (
             <li
               key={post.id}
@@ -853,6 +857,7 @@ export default function LocalFeed() {
             </li>
           ))}
         </ul>
+        </>
       )}
 
       {showCompose && (

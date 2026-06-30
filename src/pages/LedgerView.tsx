@@ -121,7 +121,7 @@ const LedgerView = () => {
     parsedPaymentAmount > 0 &&
     parsedPaymentAmount <= selectedEntry.total_outstanding;
 
-  const loadEntries = useCallback(async (id: string) => {
+  const loadEntries = useCallback(async (id: string, vendorPhoneForNames: string) => {
     setLoading(true);
     const { data, error } = await supabase
       .from("khata_ledger")
@@ -139,31 +139,23 @@ const LedgerView = () => {
     const ledgerRows = data ?? [];
     setEntries(ledgerRows);
 
-    const phones = [
-      ...new Set(
-        ledgerRows
-          .map((row) => row.user_phone)
-          .filter((p): p is string => typeof p === "string" && p.length > 0),
-      ),
-    ];
-
-    if (phones.length === 0) {
+    if (ledgerRows.length === 0 || !vendorPhoneForNames) {
       setCustomerNameByPhone(new Map());
       setLoading(false);
       return;
     }
 
-    const { data: appUsers, error: namesError } = await supabase
-      .from("app_users")
-      .select("phone, name")
-      .in("phone", phones);
+    const { data: nameRows, error: namesError } = await supabase.rpc(
+      "get_vendor_customer_names",
+      { p_vendor_phone: vendorPhoneForNames },
+    );
 
     if (namesError) {
       console.error("loadCustomerNames", namesError);
       setCustomerNameByPhone(new Map());
     } else {
       const nameMap = new Map<string, string>();
-      for (const row of appUsers ?? []) {
+      for (const row of nameRows ?? []) {
         const phone = row.phone;
         const name = typeof row.name === "string" ? row.name.trim() : "";
         if (phone && name) nameMap.set(phone, name);
@@ -211,9 +203,10 @@ const LedgerView = () => {
       setLedgerCycleStart(vendor?.ledger_cycle_start ?? null);
       setKhataAmberLimit(Number(vendor?.khata_amber_limit) || 0);
       setKhataRedLimit(Number(vendor?.khata_red_limit) || 0);
-      setVendorPhone((vendor?.phone ?? "").replace(/[\s\-+]/g, "").trim());
+      const phone = (vendor?.phone ?? "").replace(/[\s\-+]/g, "").trim();
+      setVendorPhone(phone);
       setVendorServiceMode(vendor?.service_mode ?? "help");
-      await loadEntries(id);
+      await loadEntries(id, phone);
     })();
   }, [navigate, loadEntries]);
 

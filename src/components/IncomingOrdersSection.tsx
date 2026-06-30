@@ -731,7 +731,16 @@ export function IncomingOrdersSection({
     billAmount: number | null,
   ) => {
     setConfirmingPaymentId(requestId);
-    const { error } = await supabase.rpc("confirm_upi_payment", { p_request_id: requestId });
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setConfirmingPaymentId(null);
+      toast.error(s.payment_confirm_error);
+      return;
+    }
+    const { error } = await supabase.rpc("confirm_upi_payment", {
+      p_request_id: requestId,
+      p_vendor_phone: vendorPhone,
+    });
     setConfirmingPaymentId(null);
     if (error) {
       toast.error(s.payment_confirm_error);
@@ -757,7 +766,16 @@ export function IncomingOrdersSection({
 
   const disputePayment = async (requestId: string, userPhone: string) => {
     setDisputingPaymentId(requestId);
-    const { error } = await supabase.rpc("dispute_upi_payment", { p_request_id: requestId });
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setDisputingPaymentId(null);
+      toast.error(s.payment_dispute_error);
+      return;
+    }
+    const { error } = await supabase.rpc("dispute_upi_payment", {
+      p_request_id: requestId,
+      p_vendor_phone: vendorPhone,
+    });
     setDisputingPaymentId(null);
     if (error) {
       toast.error(s.payment_dispute_error);

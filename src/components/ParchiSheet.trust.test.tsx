@@ -8,7 +8,7 @@ window.scrollTo = vi.fn();
 Element.prototype.scrollTo = vi.fn();
 
 const mockFetchUserTrust = vi.fn();
-const mockInsert = vi.fn();
+const mockRpc = vi.fn();
 
 vi.mock("@/lib/supabase", () => ({
   supabase: {
@@ -16,12 +16,8 @@ vi.mock("@/lib/supabase", () => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
-      insert: mockInsert.mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({ data: { id: "order-1" }, error: null }),
-        }),
-      }),
     })),
+    rpc: (...args: unknown[]) => mockRpc(...args),
   },
   fetchUserTrust: (...args: unknown[]) => mockFetchUserTrust(...args),
   invokeNotifyVendor: vi.fn(),
@@ -86,6 +82,7 @@ const vendor = {
 describe("ParchiSheet trust flows", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRpc.mockResolvedValue({ data: "order-1", error: null });
     mockFetchUserTrust.mockResolvedValue({
       trust_score: 35,
       is_banned: false,
@@ -143,7 +140,13 @@ describe("ParchiSheet trust flows", () => {
     fireEvent.click(screen.getByTestId("parchi-medium-trust-confirm"));
 
     await waitFor(() => {
-      expect(mockInsert).toHaveBeenCalled();
+      expect(mockRpc).toHaveBeenCalledWith(
+        "create_customer_request",
+        expect.objectContaining({
+          p_vendor_id: "vendor-1",
+          p_user_phone: "9876543210",
+        }),
+      );
     });
   });
 });
