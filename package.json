@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "playwright:install": "dotenv -e .env.local -o -- playwright install chromium",
+    "test:e2e": "dotenv -e .env.local -o -- playwright test"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",

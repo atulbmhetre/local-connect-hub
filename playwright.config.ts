@@ -1,8 +1,22 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
 import dotenv from 'dotenv';
 
-const env = process.env.TEST_ENV || 'test';
-dotenv.config({ path: `.env.${env}` });
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+
+function loadEnvAndResolveBrowsersPath(): void {
+  dotenv.config({ path: path.join(projectRoot, '.env.local'), override: true });
+  const env = process.env.TEST_ENV || 'test';
+  dotenv.config({ path: path.join(projectRoot, `.env.${env}`) });
+
+  const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH?.trim();
+  if (browsersPath?.startsWith('.')) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = path.resolve(projectRoot, browsersPath);
+  }
+}
+
+loadEnvAndResolveBrowsersPath();
 
 export default defineConfig({
   testDir: './tests',

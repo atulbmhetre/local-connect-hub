@@ -35,6 +35,9 @@ vi.mock("@/lib/supabase", () => ({
       return chain;
     },
     rpc: (fnName: string, _params: unknown) => {
+      if (fnName === "admin_get_user_lang") {
+        return Promise.resolve({ data: appUserLang.value ?? "en", error: null });
+      }
       if (fnName === "admin_warn_user") {
         return mockAdminWarnUser();
       }

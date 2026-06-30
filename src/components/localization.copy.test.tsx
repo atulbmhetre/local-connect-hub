@@ -59,50 +59,54 @@ vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => false },
 }));
 
-const supabaseChain = {
-  select: vi.fn(function select() {
-    return supabaseChain;
-  }),
-  eq: vi.fn(function eq() {
-    return supabaseChain;
-  }),
-  is: vi.fn(async () => ({ count: 0, error: null })),
-  in: vi.fn(function inn() {
-    return supabaseChain;
-  }),
-  order: vi.fn(function order() {
-    return supabaseChain;
-  }),
-  limit: vi.fn(async () => ({ data: [], error: null, count: 0 })),
-  delete: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) })),
-  update: vi.fn(() => {
-    const updateChain = {
-      eq: vi.fn(function eq() {
-        return updateChain;
-      }),
-      then: (cb: (r: { error: null }) => void) => {
-        cb({ error: null });
-        return Promise.resolve({ error: null });
-      },
-    };
-    return updateChain;
-  }),
-  insert: vi.fn().mockResolvedValue({ error: null }),
-  maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-  single: vi.fn().mockResolvedValue({ data: null, error: null }),
-};
+const mockSupabase = vi.hoisted(() => {
+  const rpc = vi.fn().mockResolvedValue({ data: "order-1", error: null });
+  const chain = {
+    select: vi.fn(function select() {
+      return chain;
+    }),
+    eq: vi.fn(function eq() {
+      return chain;
+    }),
+    is: vi.fn(async () => ({ count: 0, error: null })),
+    in: vi.fn(function inn() {
+      return chain;
+    }),
+    order: vi.fn(function order() {
+      return chain;
+    }),
+    limit: vi.fn(async () => ({ data: [], error: null, count: 0 })),
+    delete: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) })),
+    update: vi.fn(() => {
+      const updateChain = {
+        eq: vi.fn(function eq() {
+          return updateChain;
+        }),
+        then: (cb: (r: { error: null }) => void) => {
+          cb({ error: null });
+          return Promise.resolve({ error: null });
+        },
+      };
+      return updateChain;
+    }),
+    insert: vi.fn().mockResolvedValue({ error: null }),
+    maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    single: vi.fn().mockResolvedValue({ data: null, error: null }),
+  };
+  return {
+    from: vi.fn(() => chain),
+    rpc,
+    channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn() })),
+    removeChannel: vi.fn(),
+  };
+});
 
 vi.mock("@/hooks/useUserAddresses", () => ({
   useUserAddresses: () => ({ addresses: [], loading: false }),
 }));
 
 vi.mock("@/lib/supabase", () => ({
-  supabase: {
-    from: vi.fn(() => supabaseChain),
-    rpc: vi.fn().mockResolvedValue({ error: null }),
-    channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn() })),
-    removeChannel: vi.fn(),
-  },
+  supabase: mockSupabase,
   fetchUserTrust: vi.fn(),
   invokeNotifyVendor: vi.fn(),
   upsertUser: vi.fn(),
