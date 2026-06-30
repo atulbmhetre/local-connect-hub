@@ -1,6 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabaseAdmin, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_SESSION } from './helpers/setup';
+import {
+  supabaseAdmin,
+  createTestCustomer,
+  cleanupTestData,
+  cleanupTestVendors,
+  seedOrderBill,
+  TEST_SESSION,
+} from './helpers/setup';
 
 const T = Date.now();
 const LOCAL_CUSTOMER_PHONE = `8800${String(T).slice(-6)}`;
@@ -125,6 +132,8 @@ test('AP-04-BROWSER: vendor marks appointment done — DB assert', async ({ page
     appointment_time: apptTime,
     appointment_status: 'confirmed',
   }).select().single();
+
+  await seedOrderBill(order!.id, apptVendor.id, { user_phone: LOCAL_CUSTOMER_PHONE });
 
   await loginAsVendor(page, apptVendor.phone, apptVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);

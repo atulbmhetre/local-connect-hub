@@ -188,6 +188,22 @@ export async function getActiveCategories(limit: number) {
   return data ?? [];
 }
 
+/** Minimal order_bills row so delivery/appointment Mark Done can fulfil (check_bill_before_fulfil). */
+export async function seedOrderBill(
+  requestId: string,
+  vendorId: string,
+  opts: { user_phone?: string; total_amount?: number } = {},
+) {
+  const { error } = await supabaseAdmin.from('order_bills').insert({
+    request_id: requestId,
+    vendor_id: vendorId,
+    user_phone: opts.user_phone ?? null,
+    total_amount: opts.total_amount ?? 100,
+    payment_status: 'unpaid',
+  });
+  if (error) throw error;
+}
+
 export async function seedVendorCategory(
   vendorId: string,
   category: { id: string; service_mode: string },

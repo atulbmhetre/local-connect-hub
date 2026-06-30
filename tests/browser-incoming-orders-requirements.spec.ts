@@ -3,6 +3,7 @@ import { loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
+  seedOrderBill,
   seedVendorCategory,
 } from './helpers/setup';
 
@@ -229,6 +230,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (createdRequestIds.length) {
+    await supabaseAdmin.from('order_bills').delete().in('request_id', createdRequestIds);
     await supabaseAdmin.from('requests').delete().in('id', createdRequestIds);
   }
   if (createdVendorIds.length) {
@@ -562,6 +564,7 @@ test('IO-CROSS-02 — Mark Done creates fulfilled status + customer notification
   await seedCustomer(customerPhone);
   const since = new Date().toISOString();
   const { id } = await seedRequest(vendor.id, customerPhone, msg, { status: 'accepted' });
+  await seedOrderBill(id, vendor.id, { user_phone: customerPhone });
   await loginVendorAndWaitOrders(page, vendor);
   const card = incomingCard(page, msg);
   await markDoneBtn(card).click();
