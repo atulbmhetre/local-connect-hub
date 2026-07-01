@@ -8,6 +8,7 @@ import {
   cleanupTestVendors,
   deleteVendorRegistrationArtifacts,
   getFirstActiveCategory,
+  getActiveCategoryByLabel,
   TEST_ADMIN_PHONE,
   TEST_SESSION,
 } from './helpers/setup';
@@ -128,6 +129,66 @@ test('VR-E2E-01: shop vendor registers without GPS as draft via browser form', a
     .limit(1);
   expect(notifications?.[0]?.route).toBe('vendor');
   expect(notifications?.[0]?.route_params).toMatchObject({ vendor_id: vendorId });
+
+  await deleteVendorRegistrationArtifacts(vendorId);
+});
+
+test('VR-MULTI-01: registration UI selects 2 categories and persists both in vendor_categories', async ({
+  page,
+}) => {
+  const electrician = await getActiveCategoryByLabel('Electrician');
+  const plumber = await getActiveCategoryByLabel('Plumber');
+  const phone = `99013${Date.now().toString().slice(-5)}`;
+  const ownerName = 'Multi Cat Owner';
+  const shopName = `Multi Cat Shop ${phone.slice(-4)}`;
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${APP_URL}/vendor`);
+  await page.waitForLoadState('networkidle');
+
+  await page.locator('button').filter({ hasText: '🏪 Shop' }).first().click();
+  await expect(page.getByPlaceholder('Ramesh Tyre Works')).toBeVisible({ timeout: 5000 });
+  await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
+  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
+  await page.getByRole('button', { name: 'Browse all categories' }).click();
+  const categoryChip = (label: string) =>
+    page.getByRole('button').filter({ hasText: label }).filter({ hasText: /Help|Delivery|Appointment/ });
+  await expect(categoryChip(electrician.label).first()).toBeVisible({ timeout: 15000 });
+  await categoryChip(electrician.label).first().click();
+  await expect(page.getByText('1/5 selected')).toBeVisible({ timeout: 5000 });
+  await categoryChip(plumber.label).first().click();
+  await expect(page.getByText('2/5 selected')).toBeVisible({ timeout: 5000 });
+  await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
+  await page.getByPlaceholder('name@okbank').fill('multicat@upi');
+
+  await page.getByRole('button', { name: 'Register me' }).click();
+  await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
+
+  const { data: vendor, error: vendorError } = await supabaseAdmin
+    .from('vendors')
+    .select('id')
+    .eq('phone', phone)
+    .single();
+  expect(vendorError).toBeNull();
+  const vendorId = vendor!.id;
+
+  const { data: categoryRows, error: categoryError } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('category_id, is_primary, categories(label)')
+    .eq('vendor_id', vendorId)
+    .order('is_primary', { ascending: false });
+  expect(categoryError).toBeNull();
+  expect(categoryRows?.length).toBe(2);
+
+  const labels = (categoryRows ?? []).map((row) => {
+    const cat = row.categories;
+    return Array.isArray(cat) ? cat[0]?.label : (cat as { label: string } | null)?.label;
+  });
+  expect(labels).toContain(electrician.label);
+  expect(labels).toContain(plumber.label);
+  expect(categoryRows?.[0]?.is_primary).toBe(true);
+  expect(categoryRows?.[1]?.is_primary).toBe(false);
 
   await deleteVendorRegistrationArtifacts(vendorId);
 });
