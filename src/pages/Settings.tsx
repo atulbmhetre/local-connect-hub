@@ -1055,83 +1055,32 @@ const Settings = () => {
   useEffect(() => {
     if (!isAdmin) return;
     const load = async () => {
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).toISOString();
-      const stuckCutoff = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
+      const adminPhone = getUserPhone()?.trim();
+      if (!adminPhone) return;
 
-      const [
-        { data: orders },
-        { count: totalVendors },
-        { count: stuckOrders },
-        { count: activeVendorsToday },
-        { count: newVendorsThisWeek },
-        { count: unverifiedVendors },
-        { count: riskyUsers },
-        { count: totalReferrals },
-      ] = await Promise.all([
-        supabase.from("requests").select("created_at"),
-        supabase.from("vendors").select("*", { count: "exact", head: true }),
-        supabase
-          .from("requests")
-          .select("id", { count: "exact", head: true })
-          .in("status", ["sent", "accepted"])
-          .lt("created_at", stuckCutoff),
-        supabase
-          .from("vendors")
-          .select("*", { count: "exact", head: true })
-          .gte("last_updated", startOfToday),
-        supabase
-          .from("vendors")
-          .select("*", { count: "exact", head: true })
-          .gte("last_updated", startOfWeek),
-        supabase
-          .from("vendors")
-          .select("*", { count: "exact", head: true })
-          .eq("is_manual_verified", false),
-        supabase
-          .from("users")
-          .select("phone", { count: "exact", head: true })
-          .lt("trust_score", 25)
-          .eq("is_banned", false),
-        supabase.from("referrals").select("id", { count: "exact", head: true }),
-      ]);
-
-      let avgVendorRating = 0;
-      try {
-        const ratedVendors = await fetchAllPages<{ avg_rating: number | null }>(
-          "admin-stats/rated-vendors",
-          (from, to) =>
-            supabase
-              .from("vendors")
-              .select("avg_rating")
-              .gt("avg_rating", 0)
-              .eq("is_active", true)
-              .range(from, to),
-        );
-        if (ratedVendors.length) {
-          const sum = ratedVendors.reduce((acc, v) => acc + Number(v.avg_rating), 0);
-          avgVendorRating = Math.round((sum / ratedVendors.length) * 10) / 10;
-        }
-      } catch (err) {
-        console.error("admin-stats/rated-vendors", err);
+      const { data, error } = await supabase.rpc("get_admin_dashboard_stats", {
+        p_admin_phone: adminPhone,
+      });
+      if (error) {
+        console.error("get_admin_dashboard_stats", error);
+        return;
       }
+      if (!data || typeof data !== "object") return;
 
-      if (orders) {
-        setAdminStats({
-          totalOrders: orders.length,
-          ordersToday: orders.filter((o) => o.created_at >= startOfToday).length,
-          ordersThisWeek: orders.filter((o) => o.created_at >= startOfWeek).length,
-          totalVendors: totalVendors ?? 0,
-          activeVendorsToday: activeVendorsToday ?? 0,
-          newVendorsThisWeek: newVendorsThisWeek ?? 0,
-          unverifiedVendors: unverifiedVendors ?? 0,
-          stuckOrders: stuckOrders ?? 0,
-          avgVendorRating,
-          riskyUsers: riskyUsers ?? 0,
-          totalReferrals: totalReferrals ?? 0,
-        });
-      }
+      const stats = data as Record<string, number>;
+      setAdminStats({
+        totalOrders: Number(stats.total_orders ?? 0),
+        ordersToday: Number(stats.orders_today ?? 0),
+        ordersThisWeek: Number(stats.orders_this_week ?? 0),
+        totalVendors: Number(stats.total_vendors ?? 0),
+        activeVendorsToday: Number(stats.active_vendors_today ?? 0),
+        newVendorsThisWeek: Number(stats.new_vendors_this_week ?? 0),
+        unverifiedVendors: Number(stats.unverified_vendors ?? 0),
+        stuckOrders: Number(stats.stuck_orders ?? 0),
+        avgVendorRating: Number(stats.avg_vendor_rating ?? 0),
+        riskyUsers: Number(stats.risky_users ?? 0),
+        totalReferrals: Number(stats.total_referrals ?? 0),
+      });
     };
     void load();
   }, [isAdmin]);
