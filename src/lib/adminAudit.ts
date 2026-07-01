@@ -29,13 +29,12 @@ export function logAdminAction(
   if (!adminPhone) return;
 
   void supabase
-    .from("admin_actions")
-    .insert({
-      admin_phone: adminPhone,
-      action_type: actionType,
-      target_type: targetType,
-      target_id: targetId,
-      reason: reason?.trim() || null,
+    .rpc("log_admin_action", {
+      p_admin_phone: adminPhone,
+      p_action_type: actionType,
+      p_target_type: targetType,
+      p_target_id: targetId,
+      p_notes: reason?.trim() || null,
     })
     .then(({ error }) => {
       if (error) console.error("logAdminAction", error);

@@ -1,16 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { logAdminAction } from "@/lib/adminAudit";
 
-const { mockInsert, mockGetUserPhone } = vi.hoisted(() => ({
-  mockInsert: vi.fn(),
+const { mockRpc, mockGetUserPhone } = vi.hoisted(() => ({
+  mockRpc: vi.fn(),
   mockGetUserPhone: vi.fn(() => "9999999999"),
 }));
 
 vi.mock("@/lib/supabase", () => ({
   supabase: {
-    from: vi.fn(() => ({
-      insert: mockInsert,
-    })),
+    rpc: mockRpc,
   },
 }));
 
@@ -21,7 +19,7 @@ vi.mock("@/lib/userIdentity", () => ({
 describe("logAdminAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockInsert.mockReturnValue({
+    mockRpc.mockReturnValue({
       then: (cb: (result: { error: null }) => void) => {
         cb({ error: null });
         return Promise.resolve({ error: null });
@@ -29,15 +27,15 @@ describe("logAdminAction", () => {
     });
   });
 
-  it("writes action_type, target_type, target_id, and reason", async () => {
+  it("writes action_type, target_type, target_id, and reason via RPC", async () => {
     logAdminAction("warn_user", "user", "9876543210", "Test note");
 
-    expect(mockInsert).toHaveBeenCalledWith({
-      admin_phone: "9999999999",
-      action_type: "warn_user",
-      target_type: "user",
-      target_id: "9876543210",
-      reason: "Test note",
+    expect(mockRpc).toHaveBeenCalledWith("log_admin_action", {
+      p_admin_phone: "9999999999",
+      p_action_type: "warn_user",
+      p_target_type: "user",
+      p_target_id: "9876543210",
+      p_notes: "Test note",
     });
   });
 });

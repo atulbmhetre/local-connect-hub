@@ -153,3 +153,49 @@ $$;
 
 REVOKE ALL ON FUNCTION public.submit_vendor_verification(uuid, text, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.submit_vendor_verification(uuid, text, text, text) TO anon, authenticated;
+
+-- ── Fix 4: admin_actions insert ──────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.log_admin_action(
+  p_admin_phone text,
+  p_action_type text,
+  p_target_type text,
+  p_target_id text,
+  p_notes text DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_phone text;
+BEGIN
+  v_phone := NULLIF(trim(p_admin_phone), '');
+  IF v_phone IS NULL THEN
+    RAISE EXCEPTION 'identity_required';
+  END IF;
+
+  IF NOT public.is_admin_phone(v_phone) THEN
+    RAISE EXCEPTION 'unauthorized';
+  END IF;
+
+  INSERT INTO public.admin_actions (
+    admin_phone,
+    action_type,
+    target_type,
+    target_id,
+    reason
+  )
+  VALUES (
+    v_phone,
+    p_action_type,
+    p_target_type,
+    p_target_id,
+    NULLIF(trim(p_notes), '')
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.log_admin_action(text, text, text, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.log_admin_action(text, text, text, text, text) TO anon, authenticated;
