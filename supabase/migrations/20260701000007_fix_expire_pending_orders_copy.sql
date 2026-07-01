@@ -1,6 +1,4 @@
--- Environment-agnostic fix: read notify-user URL and anon key from app_config at runtime.
--- Preserves slot/datetime-specific expiry copy and one-notification-per-customer dedup
--- from 20260618000003_fix_expiry_notification_copy.sql.
+-- Restore slot/datetime-specific expiry copy and per-customer dedup lost in initial 000006 deploy.
 
 CREATE OR REPLACE FUNCTION public.expire_pending_orders()
 RETURNS void
@@ -69,7 +67,6 @@ BEGIN
     RAISE EXCEPTION 'app_config key appointment_accept_timeout_hours is missing or invalid';
   END IF;
 
-  -- Help: vendor must accept within configured minutes
   WITH expired AS (
     UPDATE public.requests r
     SET status = 'expired'
@@ -81,15 +78,10 @@ BEGIN
     RETURNING r.id, r.user_phone
   )
   INSERT INTO _expired_for_notify (request_id, user_phone, notify_body)
-  SELECT
-    e.id,
-    trim(e.user_phone),
-    expired_body
+  SELECT e.id, trim(e.user_phone), expired_body
   FROM expired e
-  WHERE e.user_phone IS NOT NULL
-    AND trim(e.user_phone) <> '';
+  WHERE e.user_phone IS NOT NULL AND trim(e.user_phone) <> '';
 
-  -- Delivery: expire when slot deadline has passed (sent or seen, not accepted)
   WITH expired AS (
     UPDATE public.requests r
     SET status = 'expired'
@@ -114,10 +106,8 @@ BEGIN
       END
       || ' in time. Please try again.'
   FROM expired e
-  WHERE e.user_phone IS NOT NULL
-    AND trim(e.user_phone) <> '';
+  WHERE e.user_phone IS NOT NULL AND trim(e.user_phone) <> '';
 
-  -- Appointment: expire when appointment time has passed while still pending
   WITH expired AS (
     UPDATE public.requests r
     SET
@@ -144,10 +134,8 @@ BEGIN
       END
       || ' in time.'
   FROM expired e
-  WHERE e.user_phone IS NOT NULL
-    AND trim(e.user_phone) <> '';
+  WHERE e.user_phone IS NOT NULL AND trim(e.user_phone) <> '';
 
-  -- One inbox row per customer per run (DISTINCT ON user_phone)
   WITH reps AS (
     SELECT DISTINCT ON (user_phone)
       request_id,
@@ -208,6 +196,3 @@ BEGIN
   END LOOP;
 END;
 $expire$;
-
-COMMENT ON FUNCTION public.expire_pending_orders() IS
-  'Near-deadline warnings, expires stale help/delivery/appointment requests, inbox + FCM (notify-user) per customer per run. URLs from app_config.';
