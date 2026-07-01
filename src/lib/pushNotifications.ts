@@ -176,18 +176,13 @@ async function saveUserDeviceLocationSilently(userPhone: string, deviceId: strin
   try {
     await Geolocation.requestPermissions();
     const pos = await Geolocation.getCurrentPosition({ timeout: 10_000 });
-    // Row already exists from the FCM token upsert above. Do not use upsert here:
-    // user_devices.fcm_token is NOT NULL, and PostgREST upsert validates the INSERT
-    // candidate (null fcm_token) before ON CONFLICT, so the write silently fails.
-    const { error } = await supabase
-      .from("user_devices")
-      .update({
-        last_lat: pos.coords.latitude,
-        last_lng: pos.coords.longitude,
-        last_location_at: new Date().toISOString(),
-      })
-      .eq("user_phone", userPhone)
-      .eq("device_id", deviceId);
+    // Row must exist from upsert_user_device above; location-only RPC avoids NOT NULL fcm_token upsert issue.
+    const { error } = await supabase.rpc("update_user_device_location", {
+      p_user_phone: userPhone,
+      p_device_id: deviceId,
+      p_last_lat: pos.coords.latitude,
+      p_last_lng: pos.coords.longitude,
+    });
     if (error) throw error;
   } catch {
     /* best-effort silent */
@@ -203,15 +198,13 @@ export async function registerUserPushToken(userPhone: string) {
   const deviceId = getDeviceId();
 
   await setupPushListeners(async (tokenValue) => {
-    const { error } = await supabase.from("user_devices").upsert(
-      {
-        user_phone: userPhone,
-        device_id: deviceId,
-        fcm_token: tokenValue,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_phone,device_id" },
-    );
+    const { error } = await supabase.rpc("upsert_user_device", {
+      p_user_phone: userPhone,
+      p_device_id: deviceId,
+      p_fcm_token: tokenValue,
+      p_last_lat: null,
+      p_last_lng: null,
+    });
     if (error) {
       console.error("User push token save failed", error);
       return;

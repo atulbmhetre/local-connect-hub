@@ -30,15 +30,13 @@ export function useFeedNotificationsEnabled() {
     if (!phone) return;
     const deviceId = getDeviceId();
     void supabase
-      .from("user_devices")
-      .select("feed_notifications_enabled")
-      .eq("user_phone", phone)
-      .eq("device_id", deviceId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.feed_notifications_enabled != null) {
-          setEnabled(data.feed_notifications_enabled);
-        }
+      .rpc("get_user_device_feed_notifications", {
+        p_user_phone: phone,
+        p_device_id: deviceId,
+      })
+      .then(({ data, error }) => {
+        if (error || data == null) return;
+        setEnabled(data);
       });
   }, []);
 
@@ -64,14 +62,13 @@ export function useFeedNotificationsEnabled() {
 
       const deviceId = getDeviceId();
       void supabase
-        .from("user_devices")
-        .update({ feed_notifications_enabled: checked })
-        .eq("user_phone", phone)
-        .eq("device_id", deviceId)
-        .select("feed_notifications_enabled")
-        .maybeSingle()
+        .rpc("set_user_device_feed_notifications", {
+          p_user_phone: phone,
+          p_device_id: deviceId,
+          p_enabled: checked,
+        })
         .then(({ data, error }) => {
-          if (error || !data) {
+          if (error || data == null) {
             revertToggle(previous);
             toast.error(s.feed_notifyToggle_saveError);
             return;

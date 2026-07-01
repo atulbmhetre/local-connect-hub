@@ -2043,7 +2043,7 @@ const Settings = () => {
     const phone = localStorage.getItem("aaspaas:user_phone");
     if (phone) {
       await supabase.from("user_addresses").delete().eq("user_phone", phone);
-      await supabase.from("user_devices").delete().eq("user_phone", phone);
+      await supabase.rpc("delete_user_devices_for_phone", { p_user_phone: phone });
     }
     const keysToClear = [
       "aaspaas:user_phone",
