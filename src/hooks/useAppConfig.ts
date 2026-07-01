@@ -70,7 +70,7 @@ const STRING_KEYS = new Set<keyof AppConfig>([
 
 const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   vendor_trial_days: "vendorTrialDays",
-  subscription_price_inr: "subscriptionPriceInr",
+  vendor_subscription_price: "subscriptionPriceInr",
   help_call_limit_seconds: "helpCallLimitSeconds",
   delivery_call_limit_seconds: "deliveryCallLimitSeconds",
   appointment_call_limit_seconds: "appointmentCallLimitSeconds",
