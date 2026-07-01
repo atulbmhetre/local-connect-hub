@@ -30,6 +30,7 @@ import {
   invokeSuggestCategory,
   type CategorySuggestionResult,
 } from "@/lib/supabase";
+import { patchVendorOwn } from "@/lib/vendorPatch";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -423,7 +424,7 @@ const VendorMode = () => {
         .eq("id", vendorId)
         .maybeSingle()
         .then(({ data, error }) => {
-          if (cancelled) return;
+          if (cancelled || isTogglingRef.current) return;
           if (error) setError(error.message);
           else if (!data) {
             localStorage.removeItem(STORAGE_KEY);
@@ -447,11 +448,10 @@ const VendorMode = () => {
 
     const pingInterval = window.setInterval(() => {
       void (async () => {
-        if (!vendor?.is_active) return;
-        const { error } = await supabase
-          .from("vendors")
-          .update({ last_updated: new Date().toISOString() })
-          .eq("id", vendorId);
+        if (!vendor?.is_active || !vendor?.phone) return;
+        const { error } = await patchVendorOwn(vendorId, vendor.phone, {
+          last_updated: new Date().toISOString(),
+        });
         if (error) console.error("Vendor ping failed:", error.message);
       })();
     }, 20 * 60 * 1000);
@@ -461,7 +461,7 @@ const VendorMode = () => {
       supabase.removeChannel(channel);
       window.clearInterval(pingInterval);
     };
-  }, [vendorId]);
+  }, [vendorId, vendor?.is_active, vendor?.phone]);
 
   useEffect(() => {
     if (!vendor?.id) return;
@@ -599,11 +599,11 @@ const VendorMode = () => {
           { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
         );
       });
-      if (cancelled || !c) return;
-      const { error } = await supabase
-        .from("vendors")
-        .update({ latitude: c.lat, longitude: c.lng })
-        .eq("id", vendor.id);
+      if (cancelled || !c || !vendor.phone) return;
+      const { error } = await patchVendorOwn(vendor.id, vendor.phone, {
+        latitude: c.lat,
+        longitude: c.lng,
+      });
       if (error || cancelled) return;
       setVendor((prev) => (prev ? { ...prev, latitude: c.lat, longitude: c.lng } : prev));
     })();
@@ -877,21 +877,18 @@ const VendorMode = () => {
     }
     setSavingShopDetails(true);
 
-    const { error } = await supabase
-      .from("vendors")
-      .update({
-        shop_name: resolvedShopName.trim(),
-        category: primaryLabel,
-        service_mode: primaryServiceMode,
-        vendor_type: editVendorType,
-        phone: editPhone.trim(),
-        upi_id: editUpiId.trim() || null,
-        is_manual_verified: false,
-        verification_status: "identity_linked",
-        shop_photo_url: null,
-        upi_verified: false,
-      })
-      .eq("id", vendor.id);
+    const { error } = await patchVendorOwn(vendor.id, editPhone.trim(), {
+      shop_name: resolvedShopName.trim(),
+      category: primaryLabel,
+      service_mode: primaryServiceMode,
+      vendor_type: editVendorType,
+      phone: editPhone.trim(),
+      upi_id: editUpiId.trim() || null,
+      is_manual_verified: false,
+      verification_status: "identity_linked",
+      shop_photo_url: null,
+      upi_verified: false,
+    });
 
     if (error) {
       setSavingShopDetails(false);
@@ -1112,13 +1109,10 @@ const VendorMode = () => {
         if (!attachResult.ok) {
           console.error("attach_pending_category failed", attachResult.error);
         } else {
-          const { error: vendorUpdateError } = await supabase
-            .from("vendors")
-            .update({
-              category: resolvedCategoryLabel,
-              service_mode: resolvedPrimaryServiceMode,
-            })
-            .eq("id", newVendorId);
+          const { error: vendorUpdateError } = await patchVendorOwn(newVendorId, phoneValue, {
+            category: resolvedCategoryLabel,
+            service_mode: resolvedPrimaryServiceMode,
+          });
           if (vendorUpdateError) {
             console.error("vendor update after pending create", vendorUpdateError);
           }
@@ -1259,6 +1253,7 @@ const VendorMode = () => {
       });
       return false;
     }
+    isTogglingRef.current = true;
     setVendor({ ...vendor, is_active: next });
 
     let liveCoords: { lat: number; lng: number } | null = null;
@@ -1277,6 +1272,7 @@ const VendorMode = () => {
         });
         liveCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       } catch {
+        isTogglingRef.current = false;
         setVendor({ ...vendor, is_active: !next });
         toast.error(s.vendor_location_required, {
           description: s.vendor_location_required_body,
@@ -1294,12 +1290,8 @@ const VendorMode = () => {
       patch.longitude = liveCoords.lng;
     }
 
-    isTogglingRef.current = true;
     try {
-      const { error } = await supabase
-        .from("vendors")
-        .update(patch)
-        .eq("id", vendor.id);
+      const { error } = await patchVendorOwn(vendor.id, vendor.phone, patch);
       if (error) {
         setVendor({ ...vendor, is_active: !next });
         toast.error(s.vendor_status_failed, { description: error.message });
@@ -1413,10 +1405,7 @@ const VendorMode = () => {
     // Simulated bank-name lookup. Replace with a real PSP call later.
     await new Promise((r) => setTimeout(r, 900));
     const bank = vendor.upi_id.split("@")[1] ?? "bank";
-    const { error } = await supabase
-      .from("vendors")
-      .update({ upi_verified: true })
-      .eq("id", vendor.id);
+    const { error } = await patchVendorOwn(vendor.id, vendor.phone, { upi_verified: true });
     setVerifyingUpi(false);
     if (error) {
       toast.error(s.vendor_upi_check_failed, { description: error.message });
@@ -1465,20 +1454,17 @@ const VendorMode = () => {
     const { data: pub } = supabase.storage.from(SHOP_PHOTOS_BUCKET).getPublicUrl(path);
 
     // 3. Promote to business_verified (admin still gates the green glow).
-    const { error: updErr } = await supabase
-      .from("vendors")
-      .update({
-        shop_photo_url: pub.publicUrl,
-        verification_status: "business_verified" as VerificationStatus,
-        gps_match_distance: gpsMatchDistance,
-        ...(hasShopLocation
-          ? {}
-          : {
-              latitude: shot.coords.lat,
-              longitude: shot.coords.lng,
-            }),
-      })
-      .eq("id", vendor.id);
+    const { error: updErr } = await patchVendorOwn(vendor.id, vendor.phone, {
+      shop_photo_url: pub.publicUrl,
+      verification_status: "business_verified",
+      gps_match_distance: gpsMatchDistance,
+      ...(hasShopLocation
+        ? {}
+        : {
+            latitude: shot.coords.lat,
+            longitude: shot.coords.lng,
+          }),
+    });
     if (updErr) {
       toast.error(s.vendor_save_verification_failed, { description: updErr.message });
       return;
@@ -1512,10 +1498,9 @@ const VendorMode = () => {
     }
     const { data: pub } = supabase.storage.from(VENDOR_SELFIES_BUCKET).getPublicUrl(path);
 
-    const { error: updErr } = await supabase
-      .from("vendors")
-      .update({ photo_selfie: pub.publicUrl })
-      .eq("id", vendor.id);
+    const { error: updErr } = await patchVendorOwn(vendor.id, vendor.phone, {
+      photo_selfie: pub.publicUrl,
+    });
     if (updErr) {
       toast.error(s.vendor_save_verification_failed, { description: updErr.message });
       return;
@@ -1572,10 +1557,7 @@ const VendorMode = () => {
           }
         : {}),
     };
-    const { error } = await supabase
-      .from("vendors")
-      .update(patch)
-      .eq("id", vendor.id);
+    const { error } = await patchVendorOwn(vendor.id, vendor.phone, patch);
     setUpdatingLocation(false);
     if (error) {
       toast.error(s.vendor_location_update_failed, { description: error.message });

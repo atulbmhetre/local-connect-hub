@@ -3283,14 +3283,18 @@ const Settings = () => {
                         return;
                       }
                       const vendorId = vendorRow.id as string;
-                      const vendorPhone = (vendorRow.phone as string | null) ?? phone;
-                      const { error: updErr } = await supabase
-                        .from("vendors")
-                        .update({
-                          waiveoff_percent: percent,
-                          waiveoff_months_remaining: months,
-                        })
-                        .eq("id", vendorId);
+                      const adminPhone = getUserPhone()?.trim();
+                      if (!adminPhone) {
+                        toast.error("Admin phone required");
+                        setWaiveSubmitting(false);
+                        return;
+                      }
+                      const { error: updErr } = await supabase.rpc("admin_apply_vendor_waiveoff", {
+                        p_admin_phone: adminPhone,
+                        p_vendor_id: vendorId,
+                        p_percent: percent,
+                        p_months: months,
+                      });
                       if (updErr) {
                         toast.error(updErr.message);
                         setWaiveSubmitting(false);

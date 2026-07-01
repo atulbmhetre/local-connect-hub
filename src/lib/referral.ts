@@ -130,40 +130,18 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
 
     const triggeredAt = new Date().toISOString();
 
-    const { data: referral, error: referralError } = await supabase
-      .from("referrals")
-      .insert({
-        referrer_vendor_id: vendor.id,
-        referee_type: "user",
-        referee_id: phone,
-        status: "active",
-        trigger_rule: "active_once",
-        triggered_at: triggeredAt,
-        credits_created: false,
-      })
-      .select("id")
-      .single();
-
-    if (referralError || !referral) return false;
-
     const creditAmount = await getReferralUserCreditAmount();
 
-    const { error: creditError } = await supabase.from("vendor_credits").insert({
-      vendor_id: vendor.id,
-      referral_id: referral.id,
-      amount: creditAmount,
-      disbursement_month: 1,
-      disbursed: false,
-    });
+    const { data: referralId, error: rewardError } = await supabase.rpc(
+      "record_user_referral_reward",
+      {
+        p_referrer_vendor_id: vendor.id,
+        p_user_phone: phone,
+        p_credit_amount: creditAmount,
+      },
+    );
 
-    if (creditError) return false;
-
-    const { error: referralUpdateError } = await supabase
-      .from("referrals")
-      .update({ credits_created: true })
-      .eq("id", referral.id);
-
-    if (referralUpdateError) return false;
+    if (rewardError || !referralId) return false;
 
     // Session 42B violation: client-triggered notify — move to DB trigger post-launch.
     const notifyStrings = referralNotifyCopy();

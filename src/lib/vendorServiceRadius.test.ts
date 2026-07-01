@@ -3,16 +3,10 @@ import { toast } from "sonner";
 import { persistVendorServiceRadius } from "@/lib/vendorServiceRadius";
 import { strings } from "@/lib/strings";
 
-const mockUpdate = vi.hoisted(() => vi.fn());
+const mockRpc = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/supabase", () => ({
-  supabase: {
-    from: vi.fn(() => ({
-      update: vi.fn(() => ({
-        eq: mockUpdate,
-      })),
-    })),
-  },
+vi.mock("@/lib/vendorPatch", () => ({
+  patchVendorOwn: (...args: unknown[]) => mockRpc(...args),
 }));
 
 vi.mock("sonner", () => ({
@@ -28,14 +22,14 @@ describe("persistVendorServiceRadius", () => {
   });
 
   it("returns ok when update succeeds", async () => {
-    mockUpdate.mockResolvedValue({ error: null });
-    const result = await persistVendorServiceRadius("vendor-1", 25);
+    mockRpc.mockResolvedValue({ error: null });
+    const result = await persistVendorServiceRadius("vendor-1", "9900000001", 25);
     expect(result).toEqual({ ok: true });
   });
 
   it("surfaces vendor_radius_save_error toast on failure", async () => {
-    mockUpdate.mockResolvedValue({ error: { message: "permission denied" } });
-    const result = await persistVendorServiceRadius("vendor-1", 25);
+    mockRpc.mockResolvedValue({ error: { message: "permission denied" } });
+    const result = await persistVendorServiceRadius("vendor-1", "9900000001", 25);
     expect(result.ok).toBe(false);
 
     if (!result.ok) {

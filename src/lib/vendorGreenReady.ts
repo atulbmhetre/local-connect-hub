@@ -21,12 +21,9 @@ export async function checkAndNotifyAdminGreenReady(vendorId: string): Promise<v
     if (v.is_manual_verified) return;
     if (!meetsGreenCriteria(v)) return;
 
-    const { error: updateErr } = await supabase
-      .from("vendors")
-      .update({ verification_status: "green_pending" })
-      .eq("id", vendorId)
-      .neq("verification_status", "green_pending")
-      .eq("is_manual_verified", false);
+    const { error: updateErr } = await supabase.rpc("vendor_promote_green_pending", {
+      p_vendor_id: vendorId,
+    });
 
     if (updateErr) return;
   } catch (err) {

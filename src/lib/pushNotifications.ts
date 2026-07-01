@@ -3,6 +3,7 @@ import { PushNotifications, type PushNotificationSchema } from "@capacitor/push-
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Geolocation } from "@capacitor/geolocation";
 import { supabase } from "@/lib/supabase";
+import { fetchVendorPhone, patchVendorOwn } from "@/lib/vendorPatch";
 import { getDeviceId } from "@/lib/deviceId";
 import { getAppNavigate } from "@/lib/appNavigate";
 import { handlePushNotificationData } from "@/lib/notificationNavigation";
@@ -89,14 +90,17 @@ async function handleLocationPing(data: Record<string, string> | undefined): Pro
       });
     });
 
-    await supabase
-      .from("vendors")
-      .update({
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
-        last_updated: new Date().toISOString(),
-      })
-      .eq("id", vendorId);
+    const vendorPhone = await fetchVendorPhone(vendorId);
+    if (!vendorPhone) return;
+
+    const { error } = await patchVendorOwn(vendorId, vendorPhone, {
+      latitude: pos.coords.latitude,
+      longitude: pos.coords.longitude,
+      last_updated: new Date().toISOString(),
+    });
+    if (error) {
+      console.error("Location ping failed", error);
+    }
   } catch {
     /* best-effort silent ping */
   }
@@ -151,10 +155,12 @@ export async function registerPushToken(vendorId: string) {
   if (permission.receive !== "granted") return;
 
   await setupPushListeners(async (tokenValue) => {
-    const { error } = await supabase
-      .from("vendors")
-      .update({ fcm_token: tokenValue })
-      .eq("id", vendorId);
+    const vendorPhone = await fetchVendorPhone(vendorId);
+    if (!vendorPhone) {
+      console.error("Push token save failed: vendor phone not found");
+      return;
+    }
+    const { error } = await patchVendorOwn(vendorId, vendorPhone, { fcm_token: tokenValue });
     if (error) {
       console.error("Push token save failed", error);
     }

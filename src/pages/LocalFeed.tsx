@@ -711,19 +711,18 @@ export default function LocalFeed() {
               }
         : {};
 
-    const { error } = await supabase
-      .from("feed_posts")
-      .insert({
-        user_phone: phone,
-        vendor_id: null,
-        type: composeType,
-        content,
-        expires_at: expiresAt,
-        image_url: imageUrl,
-        lat,
-        lng,
-        ...recommendationFields,
-      });
+    const { error } = await supabase.rpc("submit_customer_feed_post", {
+      p_user_phone: phone,
+      p_type: composeType,
+      p_content: content,
+      p_expires_at: expiresAt,
+      p_image_url: imageUrl,
+      p_lat: lat,
+      p_lng: lng,
+      p_recommended_vendor_id: recommendationFields.recommended_vendor_id ?? null,
+      p_recommended_vendor_name: recommendationFields.recommended_vendor_name ?? null,
+      p_recommended_vendor_phone: recommendationFields.recommended_vendor_phone ?? null,
+    });
 
     setSubmitting(false);
 
