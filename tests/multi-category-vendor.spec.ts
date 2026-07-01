@@ -73,6 +73,33 @@ async function vendorVisibleInRadarCategorySearch(
   return modeMatches.includes(vendorId);
 }
 
+/** Mirrors RadarSearch.tsx empty-browse path (no search term): primary service_mode OR approved vc row for tab mode. */
+async function radarVendorIdsForEmptyBrowse(selectedMode: string): Promise<string[]> {
+  const { data: vcRows, error: vcError } = await supabase
+    .from('vendor_categories')
+    .select('vendor_id')
+    .eq('status', 'approved')
+    .eq('service_mode', selectedMode);
+  if (vcError) throw vcError;
+  const multiModeIds = [...new Set((vcRows ?? []).map((row) => row.vendor_id))];
+
+  const primaryIds = await radarVendorIdsForMode(selectedMode, null, false);
+  const secondaryIds =
+    multiModeIds.length > 0
+      ? await radarVendorIdsForMode(selectedMode, multiModeIds, true)
+      : [];
+
+  return [...new Set([...primaryIds, ...secondaryIds])];
+}
+
+async function vendorVisibleInRadarEmptyBrowse(
+  vendorId: string,
+  selectedMode: string,
+): Promise<boolean> {
+  const ids = await radarVendorIdsForEmptyBrowse(selectedMode);
+  return ids.includes(vendorId);
+}
+
 test.afterAll(async () => {
   await cleanupTestVendors();
 });
@@ -385,6 +412,45 @@ test('MCV-08: multi-mode vendor discoverability under help vs delivery radar tab
       'delivery',
     );
     expect(visibleInDeliveryTab).toBe(true);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+  }
+});
+
+test('MCV-09: multi-mode vendor visible on secondary mode tab during empty browse', async () => {
+  const helpCat = await getActiveCategoryByServiceMode('help');
+  const deliveryCat = await getActiveCategoryByServiceMode('delivery');
+
+  const phone = uniqueVendorPhone();
+  const result = await invokeRegisterVendorRpc({
+    phone,
+    category: helpCat.label,
+    service_mode: helpCat.service_mode,
+    category_ids: [helpCat.id, deliveryCat.id],
+    category_service_modes: ['help', 'delivery'],
+    vendor_note: `test_session:${TEST_SESSION}`,
+    profile_status: 'complete',
+  });
+  expect(result.error).toBeUndefined();
+  const vendorId = result.vendorId!;
+
+  try {
+    await supabaseAdmin
+      .from('vendors')
+      .update({
+        is_active: true,
+        profile_status: 'complete',
+        service_radius_km: 9999,
+        latitude: 18.5204,
+        longitude: 73.8567,
+      })
+      .eq('id', vendorId);
+
+    const visibleOnHelpBrowse = await vendorVisibleInRadarEmptyBrowse(vendorId, 'help');
+    expect(visibleOnHelpBrowse).toBe(true);
+
+    const visibleOnDeliveryBrowse = await vendorVisibleInRadarEmptyBrowse(vendorId, 'delivery');
+    expect(visibleOnDeliveryBrowse).toBe(true);
   } finally {
     await deleteVendorRegistrationArtifacts(vendorId);
   }

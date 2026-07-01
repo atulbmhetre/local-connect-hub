@@ -602,7 +602,21 @@ const RadarSearch = () => {
           setSuggestedCategoryName(null);
         }
 
+        /** Empty browse: include vendors with an approved category row for this tab's mode. */
+        let multiModeVendorIds: string[] | null = null;
+        if (!term) {
+          const { data: vcModeRows, error: vcModeError } = await supabase
+            .from("vendor_categories")
+            .select("vendor_id")
+            .eq("status", "approved")
+            .eq("service_mode", selectedMode);
+          if (vcModeError) throw vcModeError;
+          const ids = [...new Set((vcModeRows ?? []).map((row) => row.vendor_id))];
+          if (ids.length > 0) multiModeVendorIds = ids;
+        }
+
         const categoryModeSearch = vendorIdFilter !== null;
+        const emptyBrowseMultiMode = !term && multiModeVendorIds !== null;
 
         const bboxDeltaDeg = Math.max(BBOX_DELTA_DEG, userBracket / KM_PER_DEG_LAT);
 
@@ -631,6 +645,34 @@ const RadarSearch = () => {
                 .gte("service_radius_km", userBracket)
                 .lt("service_radius_km", PAN_INDIA_RADIUS_KM);
 
+        /** Empty browse: vendors whose primary service_mode differs but have a category row for this tab. */
+        let qTrackAMultiMode =
+          panIndiaOnly || !coords || !emptyBrowseMultiMode
+            ? null
+            : supabase
+                .from("vendors")
+                .select("*, verification_status")
+                .eq("is_banned", false)
+                .eq("profile_status", "complete")
+                .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
+                .gte("latitude", coords.lat - bboxDeltaDeg)
+                .lte("latitude", coords.lat + bboxDeltaDeg)
+                .gte("longitude", coords.lng - bboxDeltaDeg)
+                .lte("longitude", coords.lng + bboxDeltaDeg)
+                .in("id", multiModeVendorIds!);
+
+        let qTrackAWideMultiMode =
+          panIndiaOnly || !coords || !emptyBrowseMultiMode
+            ? null
+            : supabase
+                .from("vendors")
+                .select("*, verification_status")
+                .eq("is_banned", false)
+                .eq("profile_status", "complete")
+                .gte("service_radius_km", userBracket)
+                .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
+                .in("id", multiModeVendorIds!);
+
         if (qTrackA && !categoryModeSearch) {
           qTrackA = qTrackA.eq("service_mode", selectedMode);
         }
@@ -647,12 +689,28 @@ const RadarSearch = () => {
           qTrackAWide = qTrackAWide.eq("is_active", true);
         }
 
+        if (qTrackAMultiMode && selectedMode === "help") {
+          qTrackAMultiMode = qTrackAMultiMode.eq("is_active", true);
+        }
+
+        if (qTrackAWideMultiMode && selectedMode === "help") {
+          qTrackAWideMultiMode = qTrackAWideMultiMode.eq("is_active", true);
+        }
+
         if (qTrackA && vendorIdFilter) {
           qTrackA = qTrackA.in("id", vendorIdFilter);
         }
 
         if (qTrackAWide && vendorIdFilter) {
           qTrackAWide = qTrackAWide.in("id", vendorIdFilter);
+        }
+
+        if (qTrackAMultiMode && vendorIdFilter) {
+          qTrackAMultiMode = qTrackAMultiMode.in("id", vendorIdFilter);
+        }
+
+        if (qTrackAWideMultiMode && vendorIdFilter) {
+          qTrackAWideMultiMode = qTrackAWideMultiMode.in("id", vendorIdFilter);
         }
 
         let qTrackB = supabase
@@ -674,20 +732,56 @@ const RadarSearch = () => {
           qTrackB = qTrackB.in("id", vendorIdFilter);
         }
 
-        const [trackAResult, trackAWideResult, trackBResult] = await Promise.all([
+        let qTrackBMultiMode = emptyBrowseMultiMode
+          ? supabase
+              .from("vendors")
+              .select("*, verification_status")
+              .eq("is_banned", false)
+              .eq("profile_status", "complete")
+              .eq("service_radius_km", PAN_INDIA_RADIUS_KM)
+              .in("id", multiModeVendorIds!)
+          : null;
+
+        if (qTrackBMultiMode && selectedMode === "help") {
+          qTrackBMultiMode = qTrackBMultiMode.eq("is_active", true);
+        }
+
+        if (qTrackBMultiMode && vendorIdFilter) {
+          qTrackBMultiMode = qTrackBMultiMode.in("id", vendorIdFilter);
+        }
+
+        const [trackAResult, trackAWideResult, trackAMultiModeResult, trackAWideMultiModeResult, trackBResult, trackBMultiModeResult] =
+          await Promise.all([
           qTrackA ? qTrackA.limit(TRACK_A_LIMIT) : Promise.resolve({ data: [], error: null }),
           qTrackAWide
             ? qTrackAWide.limit(TRACK_A_LIMIT)
             : Promise.resolve({ data: [], error: null }),
+          qTrackAMultiMode
+            ? qTrackAMultiMode.limit(TRACK_A_LIMIT)
+            : Promise.resolve({ data: [], error: null }),
+          qTrackAWideMultiMode
+            ? qTrackAWideMultiMode.limit(TRACK_A_LIMIT)
+            : Promise.resolve({ data: [], error: null }),
           qTrackB.limit(TRACK_B_LIMIT),
+          qTrackBMultiMode
+            ? qTrackBMultiMode.limit(TRACK_B_LIMIT)
+            : Promise.resolve({ data: [], error: null }),
         ]);
 
         if (trackAResult.error) throw trackAResult.error;
         if (trackAWideResult.error) throw trackAWideResult.error;
+        if (trackAMultiModeResult.error) throw trackAMultiModeResult.error;
+        if (trackAWideMultiModeResult.error) throw trackAWideMultiModeResult.error;
         if (trackBResult.error) throw trackBResult.error;
+        if (trackBMultiModeResult.error) throw trackBMultiModeResult.error;
 
         const trackAVendorById = new Map<string, Vendor>();
-        for (const row of [...(trackAResult.data ?? []), ...(trackAWideResult.data ?? [])]) {
+        for (const row of [
+          ...(trackAResult.data ?? []),
+          ...(trackAWideResult.data ?? []),
+          ...(trackAMultiModeResult.data ?? []),
+          ...(trackAWideMultiModeResult.data ?? []),
+        ]) {
           trackAVendorById.set(row.id, row as Vendor);
         }
 
@@ -700,6 +794,13 @@ const RadarSearch = () => {
         ) as Vendor[];
 
         let trackBVendors = (trackBResult.data ?? []) as Vendor[];
+        if (trackBMultiModeResult.data?.length) {
+          const trackBById = new Map(trackBVendors.map((v) => [v.id, v]));
+          for (const row of trackBMultiModeResult.data) {
+            trackBById.set(row.id, row as Vendor);
+          }
+          trackBVendors = [...trackBById.values()];
+        }
 
         trackAVendors = excludeOfflineHelpVendors(trackAVendors);
         trackBVendors = excludeOfflineHelpVendors(trackBVendors);
