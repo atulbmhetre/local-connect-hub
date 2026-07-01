@@ -58,10 +58,14 @@ export async function invokeInitiateCall(body: {
 
 export async function upsertUser(phone: string): Promise<void> {
   try {
-    const { error } = await supabase.from("users").upsert(
-      { phone, last_active: new Date().toISOString() },
-      { onConflict: "phone" },
-    );
+    const lang =
+      (typeof localStorage !== "undefined"
+        ? localStorage.getItem("aaspaas:language")
+        : null) ?? "en";
+    const { error } = await supabase.rpc("upsert_app_user", {
+      p_phone: phone,
+      p_lang: lang,
+    });
     if (error) console.error("upsertUser", error);
   } catch (err) {
     console.error("upsertUser", err);
