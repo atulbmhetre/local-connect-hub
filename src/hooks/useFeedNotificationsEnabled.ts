@@ -30,13 +30,16 @@ export function useFeedNotificationsEnabled() {
     if (!phone) return;
     const deviceId = getDeviceId();
     void supabase
-      .rpc("get_user_device_feed_notifications", {
+      .rpc("get_user_device", {
         p_user_phone: phone,
         p_device_id: deviceId,
       })
       .then(({ data, error }) => {
         if (error || data == null) return;
-        setEnabled(data);
+        const row = data as { feed_notifications_enabled?: boolean | null };
+        if (typeof row.feed_notifications_enabled === "boolean") {
+          setEnabled(row.feed_notifications_enabled);
+        }
       });
   }, []);
 
