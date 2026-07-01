@@ -99,13 +99,42 @@ export async function createTestVendor(opts: RegisterVendorRpcOptions = {}) {
 }
 
 export async function deleteVendorRegistrationArtifacts(vendorId: string) {
-  await supabaseAdmin.from('vendor_categories').delete().eq('vendor_id', vendorId);
-  await supabaseAdmin.from('vendor_verification').delete().eq('vendor_id', vendorId);
-  await supabaseAdmin
-    .from('user_notifications')
-    .delete()
-    .contains('route_params', { vendor_id: vendorId });
-  await supabaseAdmin.from('vendors').delete().eq('id', vendorId);
+  const { data: requestRows } = await supabaseAdmin
+    .from('requests')
+    .select('id')
+    .eq('vendor_id', vendorId);
+  const requestIds = (requestRows ?? []).map((row) => row.id);
+  if (requestIds.length) {
+    await supabaseAdmin.from('order_bills').delete().in('request_id', requestIds);
+    await supabaseAdmin.from('vendor_reviews').delete().in('request_id', requestIds);
+    await supabaseAdmin.from('requests').delete().in('id', requestIds);
+  }
+
+  const { data: postRows } = await supabaseAdmin
+    .from('feed_posts')
+    .select('id')
+    .eq('vendor_id', vendorId);
+  const postIds = (postRows ?? []).map((row) => row.id);
+  if (postIds.length) {
+    await supabaseAdmin.from('feed_replies').delete().in('post_id', postIds);
+  }
+
+  await Promise.all([
+    supabaseAdmin.from('vendor_menu_items').delete().eq('vendor_id', vendorId),
+    supabaseAdmin.from('vendor_credits').delete().eq('vendor_id', vendorId),
+    supabaseAdmin.from('feed_posts').delete().eq('vendor_id', vendorId),
+    supabaseAdmin.from('vendor_categories').delete().eq('vendor_id', vendorId),
+    supabaseAdmin.from('vendor_verification').delete().eq('vendor_id', vendorId),
+    supabaseAdmin.from('vendor_reviews').delete().eq('vendor_id', vendorId),
+    supabaseAdmin.from('admin_actions').delete().eq('target_id', vendorId),
+    supabaseAdmin
+      .from('categories')
+      .update({ suggested_by_vendor_id: null })
+      .eq('suggested_by_vendor_id', vendorId),
+  ]);
+
+  const { error } = await supabaseAdmin.from('vendors').delete().eq('id', vendorId);
+  if (error) throw error;
 }
 
 export async function getActiveCategoryByServiceMode(serviceMode: string) {
