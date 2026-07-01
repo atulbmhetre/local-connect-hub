@@ -1506,12 +1506,11 @@ const VendorMode = () => {
       return;
     }
 
-    const { error: verErr } = await supabase.from("vendor_verification").insert({
-      vendor_id: vendor.id,
-      check_type: "photo_selfie",
-      status: "pending",
-      checked_by: "system",
-      is_latest: true,
+    const { error: verErr } = await supabase.rpc("submit_vendor_verification", {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendor.phone,
+      p_check_type: "photo_selfie",
+      p_doc_url: pub.publicUrl,
     });
     if (verErr) {
       console.error("photo_selfie verification insert", verErr);
