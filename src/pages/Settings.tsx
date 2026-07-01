@@ -2081,10 +2081,17 @@ const Settings = () => {
       return;
     }
     setSavingAddress(true);
-    const { error } = await supabase
-      .from("user_addresses")
-      .update({ address_text: trimmed })
-      .eq("id", editingAddressId);
+    const phone = userPhone?.trim();
+    if (!phone) {
+      setSavingAddress(false);
+      toast.error("Phone required to save address");
+      return;
+    }
+    const { error } = await supabase.rpc("update_user_address", {
+      p_user_phone: phone,
+      p_address_id: editingAddressId,
+      p_address_text: trimmed,
+    });
     setSavingAddress(false);
     if (error) {
       toast.error(error.message);
@@ -2097,7 +2104,16 @@ const Settings = () => {
   const confirmDeleteAddress = async () => {
     if (!deleteAddressId) return;
     setDeletingAddress(true);
-    const { error } = await supabase.from("user_addresses").delete().eq("id", deleteAddressId);
+    const phone = userPhone?.trim();
+    if (!phone) {
+      setDeletingAddress(false);
+      toast.error("Phone required to delete address");
+      return;
+    }
+    const { error } = await supabase.rpc("delete_user_address", {
+      p_user_phone: phone,
+      p_address_id: deleteAddressId,
+    });
     setDeletingAddress(false);
     if (error) {
       toast.error(error.message);
