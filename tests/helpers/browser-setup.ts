@@ -27,10 +27,13 @@ export async function clickRadarOrderCard(
     }
   }
   if (options?.shopName) {
-    const byShop = page.getByTestId('radar-vendor-card').filter({ hasText: options.shopName });
-    if (await byShop.first().isVisible({ timeout: 3000 }).catch(() => false)) {
-      await byShop.first().getByTestId('radar-vendor-card-order-btn').click();
-      return;
+    const shopNames = [options.shopName, options.shopName.replace(/^!/, '')];
+    for (const name of shopNames) {
+      const byShop = page.getByTestId('radar-vendor-card').filter({ hasText: name });
+      if (await byShop.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+        await byShop.first().getByTestId('radar-vendor-card-order-btn').click();
+        return;
+      }
     }
   }
   const card = page.getByTestId('radar-vendor-card').filter({

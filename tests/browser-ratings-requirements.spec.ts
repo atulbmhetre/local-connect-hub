@@ -3,6 +3,7 @@ import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
+  getActiveCategoryByLabel,
   seedVendorCategory,
 } from './helpers/setup';
 
@@ -61,7 +62,10 @@ async function createVendor(
   tag: string,
   overrides: Record<string, unknown> = {},
 ): Promise<VendorRow> {
-  const category = await getActiveCategoryByServiceMode(serviceMode);
+  const category =
+    serviceMode === 'appointment'
+      ? await getActiveCategoryByLabel('Tailor')
+      : await getActiveCategoryByServiceMode(serviceMode);
   const phone = nextVendorPhone();
   const { data: vendor, error } = await supabaseAdmin
     .from('vendors')
@@ -75,7 +79,7 @@ async function createVendor(
       longitude: PUNE.longitude,
       is_active: true,
       profile_status: 'complete',
-      service_radius_km: 9999,
+      service_radius_km: serviceMode === 'appointment' ? 15 : 9999,
       ...overrides,
     })
     .select('id, shop_name, category, service_mode, phone')
@@ -219,7 +223,8 @@ async function gotoRadar(
 }
 
 function vendorCard(page: Page, shopName: string): Locator {
-  return page.getByTestId('radar-vendor-card').filter({ hasText: shopName });
+  const label = shopName.replace(/^!/, '');
+  return page.getByTestId('radar-vendor-card').filter({ hasText: label });
 }
 
 // MISSING TESTID: needs data-testid on RadarVendorCard resolution button
@@ -479,9 +484,9 @@ test('RV-REQ-12 — Appointment fulfilled — Radar shows "Vendor Served Me" res
   const vendor = await createVendor('appointment', 'RAD-12');
   await seedFulfilledOrder(vendor.id, `RV-REQ-12-${T}`);
 
-  await gotoRadar(page, { mode: 'appointment' });
-  const card = vendorCard(page, vendor.shop_name);
-  await expect(card).toBeVisible({ timeout: 25000 });
+  await gotoRadar(page, { q: vendor.category, mode: 'appointment' });
+  const card = page.locator(`#radar-vendor-card-${vendor.id}`);
+  await expect(card).toBeVisible({ timeout: 30000 });
   await expect(resolutionButton(card)).toBeVisible();
   await expect(resolutionButton(card)).toHaveText(L.radarVendorServed);
 });

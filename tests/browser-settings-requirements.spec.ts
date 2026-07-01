@@ -580,10 +580,7 @@ test('SET-RAD-01 — Vendor can update service radius and it saves to DB', async
   await page.goto(`${APP_URL}/vendor`);
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 15000 });
-  // Click vendor tab in settings
-  await page.getByTestId('settings-tab-vendor').click();
-  await page.waitForTimeout(500);
-  // Wait for ServiceRadiusChips to be visible — look for the chip buttons directly
+  await page.getByRole('button', { name: L.shopInfo }).click();
   await expect(page.getByText('5 km').first()).toBeVisible({ timeout: 10000 });
   await page.getByText('5 km').first().click();
   await expect(page.locator('[data-sonner-toast]').getByText('Service area updated')).toBeVisible({

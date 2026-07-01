@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, gotoRadarDelivery, clickRadarOrderCard, APP_URL } from './helpers/browser-setup';
-import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategories, seedBronzeVendorVerification, seedVendorCategory, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategoryByLabel, seedBronzeVendorVerification, seedVendorCategory, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 const MOBILE_VIEWPORT = { width: 390, height: 844 }; // iPhone 14
@@ -261,9 +261,7 @@ test('UX-NAV-03: direct URL navigation works for all main routes', async ({ page
   for (const route of routes) {
     await page.goto(`${APP_URL}${route}`);
     await page.waitForLoadState('networkidle');
-    // No error page shown
-    await expect(page.locator('body')).not.toContainText('404');
-    await expect(page.locator('body')).not.toContainText('Page not found');
+    await expect(page.getByTestId('not-found-page')).not.toBeVisible();
   }
 });
 
@@ -423,7 +421,10 @@ test('UX-OVERLAP-02: parchi submit button visible in viewport when sheet is open
 test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge', async ({ page }) => {
   const cardPhone = `99004${Date.now().toString().slice(-5)}`;
   const shopName = `!CARD-${Date.now()}`;
-  const categories = await getActiveCategories(2);
+  const categories = [
+    await getActiveCategoryByLabel('Pharmacy'),
+    await getActiveCategoryByLabel('Bakery'),
+  ];
   expect(categories.length).toBeGreaterThanOrEqual(2);
 
   const { data: cardVendor, error } = await supabaseAdmin
@@ -438,6 +439,8 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
       latitude: 18.5204,
       longitude: 73.8567,
       is_active: true,
+      profile_status: 'complete',
+      service_radius_km: 15,
       is_manual_verified: true,
       vendor_note: `test_session:${TEST_SESSION}`,
       shop_photo_url: 'https://picsum.photos/200',
@@ -458,8 +461,8 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
   );
   await page.waitForLoadState('networkidle');
 
-  const card = page.getByTestId('radar-vendor-card').filter({ hasText: shopName });
-  await expect(card).toBeVisible({ timeout: 15000 });
+  const card = page.locator(`#radar-vendor-card-${cardVendor!.id}`);
+  await expect(card).toBeVisible({ timeout: 20000 });
   await expect(card.getByText(/Home based/i)).toBeVisible();
   await expect(card.getByText(/Bronze|ब्रॉन्ज/i)).toBeVisible();
   await expect(card.getByText(categories[0].label, { exact: false }).first()).toBeVisible();

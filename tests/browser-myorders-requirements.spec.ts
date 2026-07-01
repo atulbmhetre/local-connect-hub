@@ -7,6 +7,7 @@ import {
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
+  getActiveCategoryByLabel,
   seedVendorCategory,
 } from './helpers/setup';
 
@@ -59,7 +60,12 @@ async function createPanIndiaVendor(
   serviceMode: 'delivery' | 'appointment' | 'help',
   tag: string,
 ) {
-  const category = await getActiveCategoryByServiceMode(serviceMode);
+  const category =
+    serviceMode === 'appointment'
+      ? await getActiveCategoryByLabel('Tailor')
+      : serviceMode === 'delivery'
+        ? await getActiveCategoryByLabel('Pharmacy')
+        : await getActiveCategoryByServiceMode(serviceMode);
   const shopName = `!${tag}-${T}`;
   const { data: vendor, error } = await supabaseAdmin
     .from('vendors')
@@ -73,9 +79,9 @@ async function createPanIndiaVendor(
       longitude: 73.8567,
       is_active: true,
       profile_status: 'complete',
-      service_radius_km: 9999,
+      service_radius_km: 15,
     })
-    .select('id, shop_name, service_mode')
+    .select('id, shop_name, service_mode, category')
     .single();
   if (error) throw error;
   await seedVendorCategory(vendor.id, category);
@@ -135,14 +141,21 @@ async function loginAndGoToOrder(
 
 async function openParchiSheet(
   page: Page,
-  vendor: { id: string; shop_name: string },
+  vendor: { id: string; shop_name: string; category?: string },
   mode: 'delivery' | 'appointment' | 'help',
 ) {
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
-  await page.goto(`${APP_URL}/radar?mode=${mode}`);
-  await clickRadarOrderCard(page, { vendorId: vendor.id, shopName: vendor.shop_name });
-  await page.waitForSelector('[data-testid="parchi-sheet"]', { timeout: 20000 });
+  const q =
+    (mode === 'appointment' || mode === 'delivery') && vendor.category
+      ? `&q=${encodeURIComponent(vendor.category)}`
+      : '';
+  await page.goto(`${APP_URL}/radar?mode=${mode}${q}`);
+  await page.waitForLoadState('networkidle');
+  const card = page.locator(`#radar-vendor-card-${vendor.id}`);
+  await expect(card).toBeVisible({ timeout: 30000 });
+  await card.getByTestId('radar-vendor-card-order-btn').click({ timeout: 10000 });
+  await expect(page.getByTestId('parchi-sheet')).toBeVisible({ timeout: 20000 });
 }
 
 function amberOverdueTitle(card: Locator, title: string): Locator {

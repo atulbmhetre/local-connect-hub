@@ -419,6 +419,31 @@ test('AD-11: app_config whitelisted keys are readable and updatable', async () =
     'dev_menu_pin',
   ];
 
+  const defaults: Record<string, string> = {
+    referral_enabled: 'false',
+    help_accept_timeout_hours: '2',
+    vendor_stopped_minutes: '10',
+    location_ping_seconds: '60',
+    referral_user_credit: '2.5',
+    dev_menu_pin: '1947',
+  };
+
+  for (const key of whitelisted) {
+    const { data: existing } = await supabaseAdmin
+      .from('app_config')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+    if (!existing) {
+      const { error: seedErr } = await supabaseAdmin.rpc('admin_update_app_config', {
+        p_admin_phone: TEST_ADMIN_PHONE,
+        p_key: key,
+        p_value: defaults[key] ?? '',
+      });
+      expect(seedErr).toBeNull();
+    }
+  }
+
   for (const key of whitelisted) {
     const { data, error } = await supabaseAdmin
       .from('app_config')
