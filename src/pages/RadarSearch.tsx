@@ -50,6 +50,7 @@ import {
 import {
   DEFAULT_SERVICE_RADIUS_KM,
   PAN_INDIA_RADIUS_KM,
+  normalizeServiceRadiusKm,
 } from "@/lib/serviceRadius";
 import {
   excludeOfflineHelpVendors,
@@ -258,8 +259,9 @@ function buildVendorCategoriesMap(
   return out;
 }
 
-/** ~55 km at Indian latitudes; slightly wider than max search radius. */
+/** ~55 km at Indian latitudes; floor for customer-centered bbox. */
 const BBOX_DELTA_DEG = 0.5;
+const KM_PER_DEG_LAT = 111;
 const GPS_TIMEOUT_MS = 10_000;
 const TRACK_A_LIMIT = 80;
 const TRACK_B_LIMIT = 20;
@@ -485,7 +487,7 @@ const RadarSearch = () => {
 
   const fetchVendors = useCallback(
     async (opts: { silent?: boolean }) => {
-      const userBracket = searchRadiusKm;
+      const userBracket = normalizeServiceRadiusKm(searchRadiusKm);
       const panIndiaOnly = userBracket === PAN_INDIA_RADIUS_KM;
 
       if (!coords && !panIndiaOnly) {
@@ -602,6 +604,8 @@ const RadarSearch = () => {
 
         const categoryModeSearch = vendorIdFilter !== null;
 
+        const bboxDeltaDeg = Math.max(BBOX_DELTA_DEG, userBracket / KM_PER_DEG_LAT);
+
         let qTrackA = panIndiaOnly || !coords
           ? null
           : supabase
@@ -610,21 +614,45 @@ const RadarSearch = () => {
               .eq("is_banned", false)
               .eq("profile_status", "complete")
               .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
-              .gte("latitude", coords.lat - BBOX_DELTA_DEG)
-              .lte("latitude", coords.lat + BBOX_DELTA_DEG)
-              .gte("longitude", coords.lng - BBOX_DELTA_DEG)
-              .lte("longitude", coords.lng + BBOX_DELTA_DEG);
+              .gte("latitude", coords.lat - bboxDeltaDeg)
+              .lte("latitude", coords.lat + bboxDeltaDeg)
+              .gte("longitude", coords.lng - bboxDeltaDeg)
+              .lte("longitude", coords.lng + bboxDeltaDeg);
+
+        /** Wide-radius vendors may sit outside the customer bbox but still cover the customer. */
+        let qTrackAWide =
+          panIndiaOnly || !coords
+            ? null
+            : supabase
+                .from("vendors")
+                .select("*, verification_status")
+                .eq("is_banned", false)
+                .eq("profile_status", "complete")
+                .gte("service_radius_km", userBracket)
+                .lt("service_radius_km", PAN_INDIA_RADIUS_KM);
 
         if (qTrackA && !categoryModeSearch) {
           qTrackA = qTrackA.eq("service_mode", selectedMode);
+        }
+
+        if (qTrackAWide && !categoryModeSearch) {
+          qTrackAWide = qTrackAWide.eq("service_mode", selectedMode);
         }
 
         if (qTrackA && selectedMode === "help") {
           qTrackA = qTrackA.eq("is_active", true);
         }
 
+        if (qTrackAWide && selectedMode === "help") {
+          qTrackAWide = qTrackAWide.eq("is_active", true);
+        }
+
         if (qTrackA && vendorIdFilter) {
           qTrackA = qTrackA.in("id", vendorIdFilter);
+        }
+
+        if (qTrackAWide && vendorIdFilter) {
+          qTrackAWide = qTrackAWide.in("id", vendorIdFilter);
         }
 
         let qTrackB = supabase
@@ -646,15 +674,24 @@ const RadarSearch = () => {
           qTrackB = qTrackB.in("id", vendorIdFilter);
         }
 
-        const [trackAResult, trackBResult] = await Promise.all([
+        const [trackAResult, trackAWideResult, trackBResult] = await Promise.all([
           qTrackA ? qTrackA.limit(TRACK_A_LIMIT) : Promise.resolve({ data: [], error: null }),
+          qTrackAWide
+            ? qTrackAWide.limit(TRACK_A_LIMIT)
+            : Promise.resolve({ data: [], error: null }),
           qTrackB.limit(TRACK_B_LIMIT),
         ]);
 
         if (trackAResult.error) throw trackAResult.error;
+        if (trackAWideResult.error) throw trackAWideResult.error;
         if (trackBResult.error) throw trackBResult.error;
 
-        let trackAVendors = (trackAResult.data ?? []).filter(
+        const trackAVendorById = new Map<string, Vendor>();
+        for (const row of [...(trackAResult.data ?? []), ...(trackAWideResult.data ?? [])]) {
+          trackAVendorById.set(row.id, row as Vendor);
+        }
+
+        let trackAVendors = [...trackAVendorById.values()].filter(
           (v) =>
             v.latitude != null &&
             v.longitude != null &&

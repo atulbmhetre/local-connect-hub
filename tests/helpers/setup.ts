@@ -240,7 +240,7 @@ export async function seedBronzeVendorVerification(vendorId: string) {
     { vendor_id: vendorId, check_type: 'photo_shop', status: 'passed', checked_by: 'system', is_latest: true },
     { vendor_id: vendorId, check_type: 'photo_selfie', status: 'passed', checked_by: 'system', is_latest: true },
     { vendor_id: vendorId, check_type: 'gps', status: 'passed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'admin_check', status: 'pending', checked_by: 'system', is_latest: true },
+    { vendor_id: vendorId, check_type: 'admin_check', status: 'dormant', checked_by: 'system', is_latest: true },
     { vendor_id: vendorId, check_type: 'aadhaar_digilocker', status: 'dormant', checked_by: 'system', is_latest: true },
   ]);
   if (error) throw error;
