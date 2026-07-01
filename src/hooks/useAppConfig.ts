@@ -92,7 +92,6 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   help_accept_timeout_hours: "helpAcceptTimeoutHours",
   ai_category_confidence_threshold: "aiCategoryConfidenceThreshold",
   payments_enabled: "payments_enabled",
-  vendor_subscription_price: "vendor_subscription_price",
   razorpay_key_id: "razorpay_key_id",
 };
 
