@@ -22,12 +22,20 @@ import { cn } from "@/lib/utils";
 import { feedAuthorLabel } from "@/lib/khataDisplay";
 import { uploadFeedImage } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
+import { FeedReachChips } from "@/components/FeedReachChips";
 import { SettingsSectionLabel, SettingsCard } from "@/components/settings/SettingsSection";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useLanguage } from "@/lib/language";
 import { strings } from "@/lib/strings";
 import { buildRecommendedVendorRadarUrl, resolveRecommendedVendorRadarLink } from "@/lib/feedVendorLink";
 import { maskPhoneNumbers } from "@/lib/textUtils";
+import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
+import {
+  DEFAULT_FEED_REACH_KM,
+  capFeedReachToMax,
+  feedReachChipOptionsUpTo,
+  normalizeFeedReachKm,
+} from "@/lib/feedReach";
 type FeedStrings = typeof strings.en;
 const MAX_CONTENT = 200;
 const FLAG_HIDE_THRESHOLD = 5;
@@ -35,8 +43,6 @@ const FEED_CACHE_KEY = "aaspaas:feed_cache";
 const FEED_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 const FEED_CACHE_MAX_POSTS = 20;
 const GPS_TIMEOUT_MS = 10_000;
-/** Default reach when post row has NULL/0 reach_radius_km (matches DB backfill). */
-const DEFAULT_FEED_REACH_KM = 2;
 
 type FeedCachePayload = {
   timestamp: number;
@@ -83,7 +89,17 @@ type FeedPost = {
   recommended_vendor_name: string | null;
   recommended_vendor_phone: string | null;
   vendors: { shop_name: string; category: string | null } | null;
-  recommended_vendor: { shop_name: string; service_mode: string | null } | null;
+  recommended_vendor: {
+    shop_name: string;
+    service_mode: string | null;
+    service_radius_km?: number | null;
+  } | null;
+};
+
+type VendorSearchHit = {
+  id: string;
+  shop_name: string;
+  service_radius_km: number | null;
 };
 
 type FeedReply = {
@@ -92,11 +108,6 @@ type FeedReply = {
   user_phone: string;
   content: string;
   created_at: string;
-};
-
-type VendorSearchHit = {
-  id: string;
-  shop_name: string;
 };
 
 type FeedCategory = {
@@ -175,13 +186,31 @@ function parseFeedPostsFromRpc(data: unknown): FeedPost[] {
   return data as FeedPost[];
 }
 
-function filterPostsByLocation(posts: FeedPost[], coords: GeoCoords): FeedPost[] {
-  return posts.filter((post) => {
-    if (post.lat == null || post.lng == null) return false;
-    const reachKm = post.reach_radius_km && post.reach_radius_km > 0
+function postEffectiveReachKm(post: FeedPost): number {
+  const postReach =
+    post.reach_radius_km && post.reach_radius_km > 0
       ? post.reach_radius_km
       : DEFAULT_FEED_REACH_KM;
-    return distanceKm(coords, { lat: post.lat, lng: post.lng }) <= reachKm;
+  if (post.type === "recommendation" && post.recommended_vendor_id) {
+    const vendorRadius = post.recommended_vendor?.service_radius_km;
+    if (vendorRadius != null && vendorRadius > 0) {
+      return Math.min(postReach, vendorRadius);
+    }
+  }
+  return postReach;
+}
+
+function filterPostsByLocation(
+  posts: FeedPost[],
+  coords: GeoCoords,
+  readerRadiusKm: number | null = null,
+): FeedPost[] {
+  return posts.filter((post) => {
+    if (post.lat == null || post.lng == null) return false;
+    const effectiveReach = postEffectiveReachKm(post);
+    const maxDist =
+      readerRadiusKm == null ? effectiveReach : Math.min(effectiveReach, readerRadiusKm);
+    return distanceKm(coords, { lat: post.lat, lng: post.lng }) <= maxDist;
   });
 }
 
@@ -265,6 +294,11 @@ export default function LocalFeed() {
   const [showManualVendor, setShowManualVendor] = useState(false);
   const [recommendedVendorName, setRecommendedVendorName] = useState("");
   const [recommendedVendorPhone, setRecommendedVendorPhone] = useState("");
+  const [composeReachKm, setComposeReachKm] = useState<number>(DEFAULT_FEED_REACH_KM);
+  const [taggedVendorServiceRadiusKm, setTaggedVendorServiceRadiusKm] = useState<number | null>(
+    null,
+  );
+  const [readerDiscoveryRadiusKm, setReaderDiscoveryRadiusKm] = useState<number | null>(5);
 
   const [categories, setCategories] = useState<FeedCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -274,6 +308,27 @@ export default function LocalFeed() {
     longitude: number | null;
   } | null>(null);
   const viewerPhone = getUserPhone();
+
+  useEffect(() => {
+    const phone = viewerPhone?.trim();
+    if (!phone) return;
+    void supabase.rpc("get_feed_preferences", { p_user_phone: phone }).then(({ data, error }) => {
+      if (error) {
+        console.error("get_feed_preferences", error);
+        return;
+      }
+      const raw = (data as { feed_discovery_radius_km?: number | null } | null)
+        ?.feed_discovery_radius_km;
+      setReaderDiscoveryRadiusKm(raw === null ? null : (raw ?? 5));
+    });
+  }, [viewerPhone]);
+
+  const composeReachOptions = useMemo(() => {
+    if (composeType === "recommendation" && recommendedVendorId && taggedVendorServiceRadiusKm != null) {
+      return feedReachChipOptionsUpTo(taggedVendorServiceRadiusKm);
+    }
+    return undefined;
+  }, [composeType, recommendedVendorId, taggedVendorServiceRadiusKm]);
 
   useEffect(() => {
     const vendorId = localStorage.getItem("aaspaas:vendor_id");
@@ -302,7 +357,7 @@ export default function LocalFeed() {
       setVendorSearchLoading(true);
       void supabase
         .from("vendors")
-        .select("id, shop_name")
+        .select("id, shop_name, service_radius_km")
         .eq("is_active", true)
         .ilike("shop_name", `%${q}%`)
         .order("shop_name", { ascending: true })
@@ -348,6 +403,7 @@ export default function LocalFeed() {
         p_reader_lat: readerCoords.lat,
         p_reader_lng: readerCoords.lng,
         p_limit: 50,
+        p_reader_radius_km: readerDiscoveryRadiusKm,
       });
 
       if (error) {
@@ -355,7 +411,7 @@ export default function LocalFeed() {
         const { data: fallbackData, error: fallbackError } = await supabase
           .from("feed_posts")
           .select(
-            "*, vendors!vendor_id(shop_name, category), recommended_vendor:vendors!recommended_vendor_id(shop_name, service_mode)",
+            "*, vendors!vendor_id(shop_name, category), recommended_vendor:vendors!recommended_vendor_id(shop_name, service_mode, service_radius_km)",
           )
           .eq("is_hidden", false)
           .or("expires_at.is.null,expires_at.gt.now()")
@@ -363,7 +419,11 @@ export default function LocalFeed() {
           .order("created_at", { ascending: false })
           .limit(50);
         if (fallbackError) throw fallbackError;
-        const nextPosts = filterPostsByLocation((fallbackData ?? []) as FeedPost[], readerCoords);
+        const nextPosts = filterPostsByLocation(
+          (fallbackData ?? []) as FeedPost[],
+          readerCoords,
+          readerDiscoveryRadiusKm,
+        );
         setPosts(nextPosts);
         writeFeedCache(nextPosts);
         return;
@@ -381,7 +441,7 @@ export default function LocalFeed() {
     } finally {
       setLoading(false);
     }
-  }, [s.feed_errLoad]);
+  }, [s.feed_errLoad, readerDiscoveryRadiusKm]);
 
   useEffect(() => {
     void fetchPosts();
@@ -582,6 +642,8 @@ export default function LocalFeed() {
     setShowManualVendor(false);
     setRecommendedVendorName("");
     setRecommendedVendorPhone("");
+    setComposeReachKm(DEFAULT_FEED_REACH_KM);
+    setTaggedVendorServiceRadiusKm(null);
   };
 
   const selectRecommendedVendor = (vendor: VendorSearchHit) => {
@@ -592,6 +654,9 @@ export default function LocalFeed() {
     setShowManualVendor(false);
     setRecommendedVendorName("");
     setRecommendedVendorPhone("");
+    const vendorRadius = normalizeServiceRadiusKm(vendor.service_radius_km);
+    setTaggedVendorServiceRadiusKm(vendorRadius);
+    setComposeReachKm(normalizeFeedReachKm(vendorRadius));
   };
 
   const clearRecommendedVendor = () => {
@@ -599,12 +664,19 @@ export default function LocalFeed() {
     setRecommendedVendorShopName(null);
     setVendorSearchQuery("");
     setVendorSearchResults([]);
+    setTaggedVendorServiceRadiusKm(null);
+    setComposeReachKm(DEFAULT_FEED_REACH_KM);
   };
 
   const toggleManualVendor = () => {
     setShowManualVendor((prev) => {
       const next = !prev;
-      if (next) clearRecommendedVendor();
+      if (next) {
+        clearRecommendedVendor();
+      } else {
+        setTaggedVendorServiceRadiusKm(null);
+        setComposeReachKm(DEFAULT_FEED_REACH_KM);
+      }
       return next;
     });
   };
@@ -717,6 +789,7 @@ export default function LocalFeed() {
       p_recommended_vendor_id: recommendationFields.recommended_vendor_id ?? null,
       p_recommended_vendor_name: recommendationFields.recommended_vendor_name ?? null,
       p_recommended_vendor_phone: recommendationFields.recommended_vendor_phone ?? null,
+      p_reach_radius_km: normalizeFeedReachKm(composeReachKm),
     });
 
     setSubmitting(false);
@@ -922,6 +995,8 @@ export default function LocalFeed() {
                         if (recommendedVendorId) {
                           setRecommendedVendorId(null);
                           setRecommendedVendorShopName(null);
+                          setTaggedVendorServiceRadiusKm(null);
+                          setComposeReachKm(DEFAULT_FEED_REACH_KM);
                         }
                       }}
                       placeholder={s.feed_recommendVendor_search}
@@ -1010,6 +1085,30 @@ export default function LocalFeed() {
                 />
               </div>
             )}
+
+            <div className="mb-4 px-4 space-y-2">
+              <SettingsSectionLabel>{s.feed_reachLabel}</SettingsSectionLabel>
+              <FeedReachChips
+                mode="poster"
+                value={composeReachKm}
+                options={composeReachOptions}
+                onChange={(km) =>
+                  setComposeReachKm(
+                    capFeedReachToMax(
+                      normalizeFeedReachKm(km ?? DEFAULT_FEED_REACH_KM),
+                      taggedVendorServiceRadiusKm,
+                    ),
+                  )
+                }
+              />
+              {composeType === "recommendation" &&
+                recommendedVendorId &&
+                taggedVendorServiceRadiusKm != null && (
+                  <p className="text-xs text-muted-foreground">
+                    {s.feed_reachTaggedVendorHint(taggedVendorServiceRadiusKm)}
+                  </p>
+                )}
+            </div>
 
             <Button
               className="w-full"
