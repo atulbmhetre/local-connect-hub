@@ -1,11 +1,14 @@
 -- vendors.created_at for new-vendor stats (column missing on some envs).
 
 ALTER TABLE public.vendors
-  ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+  ADD COLUMN IF NOT EXISTS created_at timestamptz;
 
 UPDATE public.vendors
-SET created_at = COALESCE(last_updated, now())
+SET created_at = COALESCE(last_updated, '2024-06-01'::timestamptz)
 WHERE created_at IS NULL;
+
+ALTER TABLE public.vendors
+  ALTER COLUMN created_at SET DEFAULT now();
 
 -- Re-apply stats RPC (uses vendors.created_at for new_vendors_this_week).
 CREATE OR REPLACE FUNCTION public.get_admin_dashboard_stats(p_admin_phone text)
