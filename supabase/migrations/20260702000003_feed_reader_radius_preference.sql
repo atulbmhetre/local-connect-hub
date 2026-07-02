@@ -74,3 +74,146 @@ GRANT EXECUTE ON FUNCTION public.get_feed_preferences(text) TO anon, authenticat
 
 REVOKE ALL ON FUNCTION public.set_feed_discovery_radius(text, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.set_feed_discovery_radius(text, integer) TO anon, authenticated;
+
+-- ── submit_customer_feed_post: poster reach param (Change 2) ─────────────────
+
+CREATE OR REPLACE FUNCTION public.submit_customer_feed_post(
+  p_user_phone text,
+  p_type text,
+  p_content text,
+  p_expires_at timestamptz DEFAULT NULL,
+  p_image_url text DEFAULT NULL,
+  p_lat double precision DEFAULT NULL,
+  p_lng double precision DEFAULT NULL,
+  p_recommended_vendor_id uuid DEFAULT NULL,
+  p_recommended_vendor_name text DEFAULT NULL,
+  p_recommended_vendor_phone text DEFAULT NULL,
+  p_reach_radius_km numeric DEFAULT 5
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_phone text;
+  v_type text;
+  v_id uuid;
+  v_expires_at timestamptz;
+BEGIN
+  v_phone := NULLIF(trim(p_user_phone), '');
+  IF v_phone IS NULL THEN
+    RAISE EXCEPTION 'user_phone_required';
+  END IF;
+
+  IF NULLIF(trim(p_content), '') IS NULL THEN
+    RAISE EXCEPTION 'content_required';
+  END IF;
+
+  v_type := NULLIF(trim(p_type), '');
+  v_expires_at := p_expires_at;
+  IF v_type IN ('announcement', 'recommendation') AND v_expires_at IS NULL THEN
+    v_expires_at := now() + interval '7 days';
+  END IF;
+
+  INSERT INTO public.feed_posts (
+    user_phone,
+    vendor_id,
+    type,
+    content,
+    expires_at,
+    image_url,
+    lat,
+    lng,
+    reach_radius_km,
+    recommended_vendor_id,
+    recommended_vendor_name,
+    recommended_vendor_phone
+  )
+  VALUES (
+    v_phone,
+    NULL,
+    v_type,
+    trim(p_content),
+    v_expires_at,
+    NULLIF(trim(p_image_url), ''),
+    p_lat,
+    p_lng,
+    COALESCE(NULLIF(p_reach_radius_km, 0), 5),
+    p_recommended_vendor_id,
+    NULLIF(trim(p_recommended_vendor_name), ''),
+    NULLIF(trim(p_recommended_vendor_phone), '')
+  )
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.vendor_post_offer(
+  p_vendor_id uuid,
+  p_vendor_phone text,
+  p_content text,
+  p_starts_at timestamptz DEFAULT NULL,
+  p_expires_at timestamptz DEFAULT NULL,
+  p_image_url text DEFAULT NULL,
+  p_lat double precision DEFAULT NULL,
+  p_lng double precision DEFAULT NULL,
+  p_reach_radius_km numeric DEFAULT 5
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.vendors WHERE id = p_vendor_id AND phone = p_vendor_phone
+  ) THEN
+    RAISE EXCEPTION 'not_found_or_unauthorized';
+  END IF;
+
+  INSERT INTO public.feed_posts (
+    type,
+    vendor_id,
+    user_phone,
+    content,
+    is_hidden,
+    starts_at,
+    expires_at,
+    image_url,
+    lat,
+    lng,
+    reach_radius_km
+  )
+  VALUES (
+    'offer',
+    p_vendor_id,
+    p_vendor_phone,
+    p_content,
+    false,
+    p_starts_at,
+    p_expires_at,
+    p_image_url,
+    p_lat,
+    p_lng,
+    COALESCE(NULLIF(p_reach_radius_km, 0), 5)
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.submit_customer_feed_post(
+  text, text, text, timestamptz, text, double precision, double precision,
+  uuid, text, text, numeric
+) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.submit_customer_feed_post(
+  text, text, text, timestamptz, text, double precision, double precision,
+  uuid, text, text, numeric
+) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.vendor_post_offer(
+  uuid, text, text, timestamptz, timestamptz, text, double precision, double precision, numeric
+) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.vendor_post_offer(
+  uuid, text, text, timestamptz, timestamptz, text, double precision, double precision, numeric
+) TO anon, authenticated;

@@ -45,6 +45,8 @@ import { getUserPhone } from "@/lib/userIdentity";
 import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
 import { uploadFeedImage } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
+import { FeedReachChips } from "@/components/FeedReachChips";
+import { DEFAULT_FEED_REACH_KM, normalizeFeedReachKm } from "@/lib/feedReach";
 
 export type MenuItem = {
   id: string;
@@ -118,6 +120,7 @@ export function VendorSettingsOffers({
   vendorLatitude,
   vendorLongitude,
   shopName,
+  vendorServiceRadiusKm,
 }: {
   vendorId: string;
   /** Batch-fetched by the parent; refetched locally only after posting an offer. */
@@ -125,6 +128,7 @@ export function VendorSettingsOffers({
   vendorLatitude: number | null;
   vendorLongitude: number | null;
   shopName: string;
+  vendorServiceRadiusKm: number;
 }) {
   const { s } = useLanguage();
   const [activeOffer, setActiveOffer] = useState<VendorActiveOffer | null>(initialActiveOffer);
@@ -137,6 +141,9 @@ export function VendorSettingsOffers({
   const [offerImageFile, setOfferImageFile] = useState<File | null>(null);
   const [offerImagePreview, setOfferImagePreview] = useState<string | null>(null);
   const [offersOpen, setOffersOpen] = useState(false);
+  const [offerReachKm, setOfferReachKm] = useState(() =>
+    normalizeFeedReachKm(vendorServiceRadiusKm),
+  );
 
   const loadActiveOffer = useCallback(async () => {
     const { data, error } = await supabase
@@ -239,6 +246,7 @@ export function VendorSettingsOffers({
       p_image_url: imageUrl,
       p_lat: lat,
       p_lng: lng,
+      p_reach_radius_km: normalizeFeedReachKm(offerReachKm),
     });
     setOfferLoading(false);
     if (error) {
@@ -362,6 +370,14 @@ export function VendorSettingsOffers({
               {offerEndError && (
                 <p className="text-xs text-destructive mt-1">{offerEndError}</p>
               )}
+            </div>
+            <div className="space-y-2">
+              <SettingsSectionLabel>{s.feed_reachLabel}</SettingsSectionLabel>
+              <FeedReachChips
+                mode="poster"
+                value={offerReachKm}
+                onChange={(km) => setOfferReachKm(normalizeFeedReachKm(km ?? DEFAULT_FEED_REACH_KM))}
+              />
             </div>
             <button
               type="button"
@@ -1522,6 +1538,7 @@ export function VendorSettings({
         vendorLatitude={vendor.latitude}
         vendorLongitude={vendor.longitude}
         shopName={vendor.shop_name}
+        vendorServiceRadiusKm={normalizeServiceRadiusKm(vendor.service_radius_km)}
       />
 
       {Capacitor.isNativePlatform() && (

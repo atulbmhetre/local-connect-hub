@@ -639,6 +639,15 @@ export const strings = {
     settings_feedNotificationsHint:
       'Get notified about announcements and recommendations near you',
     settings_feedNotificationsSaved: 'Feed notification preference saved',
+    settings_feedDiscoveryRadius: 'Show me posts within:',
+    settings_feedDiscoveryRadiusHint:
+      'Only posts within this distance from your location appear in the feed',
+    settings_feedDiscoveryRadiusSaved: 'Feed discovery radius saved',
+    feed_reachCityWide: 'My whole city',
+    feed_reachKm: (km: number) => `${km} km`,
+    feed_reachLabel: 'Who can see this post?',
+    feed_reachTaggedVendorHint: (km: number) =>
+      `Reach is capped at this vendor's service area (${km} km)`,
     feed_notifyToggle_saveError: "Couldn't save preference. Please try again.",
     feed_offer_push_title: 'New offer nearby',
     feed_offer_push_body: (shopName: string) => `${shopName} has a new offer for you`,
@@ -1850,6 +1859,15 @@ export const strings = {
     settings_feedNotificationsHint:
       'आपके पास की घोषणाएँ और सुझाव की सूचना पाएं',
     settings_feedNotificationsSaved: 'फ़ीड सूचना सेटिंग सेव हो गई',
+    settings_feedDiscoveryRadius: 'मुझे इतनी दूरी के पोस्ट दिखाएँ:',
+    settings_feedDiscoveryRadiusHint:
+      'आपके स्थान से इस दूरी के अंदर के पोस्ट ही फ़ीड में दिखेंगे',
+    settings_feedDiscoveryRadiusSaved: 'फ़ीड दूरी सेटिंग सेव हो गई',
+    feed_reachCityWide: 'पूरा शहर',
+    feed_reachKm: (km: number) => `${km} किमी`,
+    feed_reachLabel: 'यह पोस्ट किसे दिखे?',
+    feed_reachTaggedVendorHint: (km: number) =>
+      `पहुँच इस विक्रेता के सेवा क्षेत्र (${km} किमी) तक सीमित है`,
     feed_notifyToggle_saveError: 'प्राथमिकता सेव नहीं हो सकी। कृपया फिर से कोशिश करें।',
     feed_offer_push_title: 'पास में नया ऑफर',
     feed_offer_push_body: (shopName: string) => `${shopName} का नया ऑफर आया है`,
@@ -3061,6 +3079,15 @@ export const strings = {
     settings_feedNotificationsHint:
       'जवळच्या घोषणा आणि सूचनांची सूचना मिळवा',
     settings_feedNotificationsSaved: 'फीड सूचना सेटिंग जतन झाली',
+    settings_feedDiscoveryRadius: 'मला या अंतराचे पोस्ट दाखवा:',
+    settings_feedDiscoveryRadiusHint:
+      'तुमच्या स्थानापासून या अंतरातील पोस्टच फीडमध्ये दिसतील',
+    settings_feedDiscoveryRadiusSaved: 'फीड शोध त्रिज्या सेटिंग जतन झाली',
+    feed_reachCityWide: 'संपूर्ण शहर',
+    feed_reachKm: (km: number) => `${km} किमी`,
+    feed_reachLabel: 'हा पोस्ट कोणाला दिसेल?',
+    feed_reachTaggedVendorHint: (km: number) =>
+      `पोहोच या विक्रेत्याच्या सेवा क्षेत्रात (${km} किमी) मर्यादित आहे`,
     feed_notifyToggle_saveError: 'प्राधान्य सेव्ह होऊ शकले नाही. कृपया पुन्हा प्रयत्न करा.',
     feed_offer_push_title: 'जवळ नवीन ऑफर',
     feed_offer_push_body: (shopName: string) => `${shopName} चा नवीन ऑफर आला आहे`,
