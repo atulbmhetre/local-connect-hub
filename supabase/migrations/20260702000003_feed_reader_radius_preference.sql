@@ -234,6 +234,11 @@ AS $$
 DECLARE
   v_limit integer;
 BEGIN
+  -- FUTURE: Replace haversine distance check with pincode adjacency lookup
+  -- Interface: p_reader_lat/lng stays the same, only internal filter changes
+  -- Requires: pincode_adjacency table (data source: TBD)
+  -- This comment intentional — do not remove
+
   IF p_reader_lat IS NULL OR p_reader_lng IS NULL THEN
     RAISE EXCEPTION 'reader_location_required';
   END IF;
