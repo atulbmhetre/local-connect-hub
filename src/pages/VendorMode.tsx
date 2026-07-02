@@ -356,6 +356,8 @@ const VendorMode = () => {
   const [phone, setPhone] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
+  const [locationInlineError, setLocationInlineError] = useState<string | null>(null);
+  const [showLocationHelp, setShowLocationHelp] = useState(false);
 
   // ---- profile actions ----
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -539,21 +541,32 @@ const VendorMode = () => {
     return new Promise((resolve) => {
       if (!("geolocation" in navigator)) {
         if (!opts?.silent) toast.error(s.vendor_geo_not_supported);
+        setLocationInlineError(s.vendor_geo_not_supported);
         resolve(null);
         return;
       }
       setLocating(true);
+      setLocationInlineError(null);
       navigator.geolocation.getCurrentPosition(
         (p) => {
           const c = { lat: p.coords.latitude, lng: p.coords.longitude };
           setCoords(c);
           setLocating(false);
+          setLocationInlineError(null);
+          setShowLocationHelp(false);
           if (!opts?.silent) toast.success(s.vendor_location_captured);
           resolve(c);
         },
         (err) => {
           setLocating(false);
-          if (!opts?.silent) toast.error(s.vendor_location_failed, { description: err.message });
+          const code = (err as GeolocationPositionError | undefined)?.code;
+          let msg = s.vendor_location_failed;
+          if (code === 1) msg = s.vendor_location_error_permission_denied;
+          if (code === 2) msg = s.vendor_location_error_unavailable;
+          if (code === 3) msg = s.vendor_location_error_timeout;
+          setLocationInlineError(msg);
+          setShowLocationHelp(true);
+          if (!opts?.silent) toast.error(msg);
           resolve(null);
         },
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
@@ -1271,11 +1284,18 @@ const VendorMode = () => {
           });
         });
         liveCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      } catch {
+      } catch (err) {
+        const code = (err as GeolocationPositionError | undefined)?.code;
+        let msg = s.vendor_location_required_body;
+        if (code === 1) msg = s.vendor_location_error_permission_denied;
+        if (code === 2) msg = s.vendor_location_error_unavailable;
+        if (code === 3) msg = s.vendor_location_error_timeout;
+        setLocationInlineError(msg);
+        setShowLocationHelp(true);
         isTogglingRef.current = false;
         setVendor({ ...vendor, is_active: !next });
         toast.error(s.vendor_location_required, {
-          description: s.vendor_location_required_body,
+          description: msg,
         });
         return false;
       }
@@ -2010,6 +2030,23 @@ const VendorMode = () => {
                   ? `${s.vendor_location_set} (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`
                   : s.vendor_capture_location}
               </button>
+              {locationInlineError && (
+                <p className="mt-2 text-xs text-destructive text-center px-2">{locationInlineError}</p>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowLocationHelp((v) => !v)}
+                className="mt-1 text-xs text-muted-foreground underline underline-offset-2 w-full"
+              >
+                {s.vendor_location_help_title}
+              </button>
+              {showLocationHelp && (
+                <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                  <p>1. {s.vendor_location_help_step1}</p>
+                  <p>2. {s.vendor_location_help_step2}</p>
+                  <p>3. {s.vendor_location_help_step3}</p>
+                </div>
+              )}
             </>
           )}
           {vendorType === "visiting" && (

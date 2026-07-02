@@ -125,6 +125,22 @@ const getPosition = () =>
     }),
   );
 
+function getFeedGeoErrorMessage(
+  err: unknown,
+  s: {
+    feed_location_error_permission_denied: string;
+    feed_location_error_unavailable: string;
+    feed_location_error_timeout: string;
+    feed_locationRequired: string;
+  },
+): string {
+  const code = (err as GeolocationPositionError | undefined)?.code;
+  if (code === 1) return s.feed_location_error_permission_denied;
+  if (code === 2) return s.feed_location_error_unavailable;
+  if (code === 3) return s.feed_location_error_timeout;
+  return s.feed_locationRequired;
+}
+
 async function getGeoCoords(): Promise<GeoCoords | null> {
   try {
     const pos = await getPosition();
@@ -298,6 +314,8 @@ export default function LocalFeed() {
   const [taggedVendorServiceRadiusKm, setTaggedVendorServiceRadiusKm] = useState<number | null>(
     null,
   );
+  const [composeLocationError, setComposeLocationError] = useState<string | null>(null);
+  const [showComposeLocationHelp, setShowComposeLocationHelp] = useState(false);
   const [readerDiscoveryRadiusKm, setReaderDiscoveryRadiusKm] = useState<number | null>(5);
 
   const [categories, setCategories] = useState<FeedCategory[]>([]);
@@ -645,6 +663,8 @@ export default function LocalFeed() {
     setRecommendedVendorPhone("");
     setComposeReachKm(DEFAULT_FEED_REACH_KM);
     setTaggedVendorServiceRadiusKm(null);
+    setComposeLocationError(null);
+    setShowComposeLocationHelp(false);
   };
 
   const selectRecommendedVendor = (vendor: VendorSearchHit) => {
@@ -685,8 +705,13 @@ export default function LocalFeed() {
   const openCompose = async () => {
     try {
       await getPosition();
-    } catch {
-      toast.error(s.feed_gps_required);
+      setComposeLocationError(null);
+      setShowComposeLocationHelp(false);
+    } catch (err) {
+      const msg = getFeedGeoErrorMessage(err, s);
+      setComposeLocationError(msg);
+      setShowComposeLocationHelp(true);
+      toast.error(msg);
       return;
     }
     resetCompose();
@@ -734,8 +759,11 @@ export default function LocalFeed() {
       const pos = await getPosition();
       lat = pos.coords.latitude;
       lng = pos.coords.longitude;
-    } catch {
-      toast.error(s.feed_locationRequired);
+    } catch (err) {
+      const msg = getFeedGeoErrorMessage(err, s);
+      setComposeLocationError(msg);
+      setShowComposeLocationHelp(true);
+      toast.error(msg);
       return;
     }
 
@@ -1110,6 +1138,26 @@ export default function LocalFeed() {
                   </p>
                 )}
             </div>
+
+            {composeLocationError && (
+              <div className="mb-4 px-4 space-y-2">
+                <p className="text-xs text-destructive">{composeLocationError}</p>
+                <button
+                  type="button"
+                  onClick={() => setShowComposeLocationHelp((v) => !v)}
+                  className="text-xs text-muted-foreground underline underline-offset-2"
+                >
+                  {s.feed_location_help_title}
+                </button>
+                {showComposeLocationHelp && (
+                  <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                    <p>1. {s.feed_location_help_step1}</p>
+                    <p>2. {s.feed_location_help_step2}</p>
+                    <p>3. {s.feed_location_help_step3}</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <Button
               className="w-full"

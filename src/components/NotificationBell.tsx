@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
+import { getDeviceId } from "@/lib/deviceId";
 import { formatTimeAgo } from "@/lib/orders";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
@@ -49,30 +50,27 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
   const loadIdRef = useRef(0);
 
   const refreshUnreadCount = useCallback(async (userPhone: string) => {
-    const { count, error } = await supabase
-      .from("user_notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_phone", userPhone)
-      .is("read_at", null);
+    const { data, error } = await supabase.rpc("get_user_notifications", {
+      p_user_phone: userPhone,
+      p_device_id: getDeviceId(),
+      p_limit: 100,
+    });
     if (error) {
       console.error("NotificationBell unread count", error);
       return;
     }
-    setUnreadCount(count ?? 0);
+    const rows = (Array.isArray(data) ? data : []) as UserNotification[];
+    setUnreadCount(rows.filter((n) => !n.is_read).length);
   }, []);
 
   const loadTray = useCallback(async (userPhone: string) => {
     const loadId = ++loadIdRef.current;
     setLoading(true);
-    const { data, error } = await supabase
-      .from("user_notifications")
-      .select(
-        "id, user_phone, type, title, body, route, route_params, is_informational, is_read, read_at, created_at",
-      )
-      .eq("user_phone", userPhone)
-      .order("is_read", { ascending: true })
-      .order("created_at", { ascending: false })
-      .limit(50);
+    const { data, error } = await supabase.rpc("get_user_notifications", {
+      p_user_phone: userPhone,
+      p_device_id: getDeviceId(),
+      p_limit: 50,
+    });
     if (loadId !== loadIdRef.current) return;
     setLoading(false);
     if (error) {
@@ -80,7 +78,9 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
       setNotifications([]);
       return;
     }
-    setNotifications((data ?? []) as UserNotification[]);
+    const rows = (Array.isArray(data) ? data : []) as UserNotification[];
+    setNotifications(rows);
+    setUnreadCount(rows.filter((n) => !n.is_read).length);
   }, []);
 
   const markInformationalRead = useCallback(async (userPhone: string) => {

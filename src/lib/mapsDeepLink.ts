@@ -37,7 +37,7 @@ export function isAppointmentAtVendorShop(row: Pick<CustomerMapsFields, "message
 }
 
 export function buildCoordsMapsUrl(lat: number, lng: number): string {
-  return `https://www.google.com/maps?q=${lat},${lng}`;
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
 }
 
 export function buildAddressMapsUrl(address: string): string {

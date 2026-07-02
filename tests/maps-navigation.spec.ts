@@ -136,7 +136,7 @@ async function clickMapsAndGetUrl(page: Page, btn: Locator): Promise<string> {
 }
 
 function expectCoordsUrl(url: string, lat: number, lng: number) {
-  expect(url).toBe(`https://www.google.com/maps?q=${lat},${lng}`);
+  expect(url).toBe(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
 }
 
 function expectAddressUrl(url: string, address: string) {
