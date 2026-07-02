@@ -654,6 +654,7 @@ const Settings = () => {
     ordersToday: 0,
     ordersThisWeek: 0,
     totalVendors: 0,
+    totalCustomers: 0,
     activeVendorsToday: 0,
     newVendorsThisWeek: 0,
     unverifiedVendors: 0,
@@ -846,6 +847,21 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState<"settings" | "admin">("settings");
   const [pendingCatOpen, setPendingCatOpen] = useState(false);
   const [lowRatingsOpen, setLowRatingsOpen] = useState(false);
+  const [recommendationsOpen, setRecommendationsOpen] = useState(false);
+  const [recommendations, setRecommendations] = useState<
+    {
+      id: string;
+      user_phone: string;
+      content: string;
+      recommended_vendor_id: string | null;
+      recommended_vendor_name: string | null;
+      recommended_vendor_phone: string | null;
+      reach_radius_km: number | null;
+      created_at: string;
+      expires_at: string | null;
+    }[]
+  >([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [lowRatings, setLowRatings] = useState<
     {
       id: string;
@@ -866,6 +882,9 @@ const Settings = () => {
   const [adminConfigDraft, setAdminConfigDraft] = useState<Partial<Record<AdminConfigKey, string>>>(
     {},
   );
+  const [adminConfigDefaults, setAdminConfigDefaults] = useState<
+    Partial<Record<AdminConfigKey, string>>
+  >({});
   const [adminConfigSaving, setAdminConfigSaving] = useState<AdminConfigKey | null>(null);
   const [adminConfigErrors, setAdminConfigErrors] = useState<Partial<Record<AdminConfigKey, string>>>(
     {},
@@ -1106,6 +1125,7 @@ const Settings = () => {
         ordersToday: Number(stats.orders_today ?? 0),
         ordersThisWeek: Number(stats.orders_this_week ?? 0),
         totalVendors: Number(stats.total_vendors ?? 0),
+        totalCustomers: Number(stats.total_customers ?? 0),
         activeVendorsToday: Number(stats.active_vendors_today ?? 0),
         newVendorsThisWeek: Number(stats.new_vendors_this_week ?? 0),
         unverifiedVendors: Number(stats.unverified_vendors ?? 0),
@@ -1121,17 +1141,23 @@ const Settings = () => {
   const loadAdminConfig = async () => {
     const { data, error } = await supabase
       .from("app_config")
-      .select("key, value")
+      .select("key, value, default_value")
       .in("key", [...ADMIN_CONFIG_WHITELIST]);
     if (error) {
       console.error("loadAdminConfig", error);
       return;
     }
     const values: Partial<Record<AdminConfigKey, string>> = {};
+    const defaults: Partial<Record<AdminConfigKey, string>> = {};
     for (const key of ADMIN_CONFIG_WHITELIST) {
       const row = data?.find((r) => r.key === key);
-      values[key] = row?.value != null ? String(row.value) : "";
+      const defaultValue =
+        row?.default_value != null ? String(row.default_value) : "";
+      defaults[key] = defaultValue;
+      const liveValue = row?.value != null ? String(row.value).trim() : "";
+      values[key] = liveValue || defaultValue;
     }
+    setAdminConfigDefaults(defaults);
     setAdminConfigValues(values);
     setAdminConfigDraft(values);
   };
@@ -1385,6 +1411,27 @@ const Settings = () => {
     if (!isAdmin) return;
     void loadLowRatings();
   }, [isAdmin]);
+
+  const loadRecommendations = async () => {
+    const adminPhone = getUserPhone()?.trim();
+    if (!adminPhone) return;
+    setRecommendationsLoading(true);
+    const { data, error } = await supabase.rpc("get_recommendations_for_admin", {
+      p_admin_phone: adminPhone,
+    });
+    setRecommendationsLoading(false);
+    if (error) {
+      console.error("get_recommendations_for_admin", error);
+      setRecommendations([]);
+      return;
+    }
+    setRecommendations(Array.isArray(data) ? (data as typeof recommendations) : []);
+  };
+
+  useEffect(() => {
+    if (!isAdmin || !recommendationsOpen) return;
+    void loadRecommendations();
+  }, [isAdmin, recommendationsOpen]);
 
   const deleteLowRating = async (row: (typeof lowRatings)[number]) => {
     setLowRatingDeletingId(row.id);
@@ -2752,6 +2799,10 @@ const Settings = () => {
                 <p className="text-[10px] text-muted-foreground mt-1">{s.settings_total}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
+                <p className="text-xl font-bold text-secondary">{adminStats.totalCustomers}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_total_customers}</p>
+              </div>
+              <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.activeVendorsToday}</p>
                 <p className="text-[10px] text-muted-foreground mt-1">{s.settings_activeToday}</p>
               </div>
@@ -3108,6 +3159,58 @@ const Settings = () => {
           </SettingsCollapsible>
 
           <SettingsCollapsible
+            label={`${s.admin_recommendations_title} (${recommendations.length})`}
+            open={recommendationsOpen}
+            onToggle={() => setRecommendationsOpen((o) => !o)}
+          >
+            {recommendationsLoading ? (
+              <p className="text-sm text-muted-foreground px-4 py-3">{s.feed_loadingAria}</p>
+            ) : recommendations.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-4 py-3">{s.admin_recommendations_empty}</p>
+            ) : (
+              <div className="space-y-3 px-4 py-3">
+                {recommendations.map((rec) => {
+                  const vendorLabel =
+                    rec.recommended_vendor_name?.trim() ||
+                    (rec.recommended_vendor_phone
+                      ? maskPhoneLast4(rec.recommended_vendor_phone)
+                      : "—");
+                  const reachKm =
+                    rec.reach_radius_km != null && rec.reach_radius_km > 0
+                      ? `${rec.reach_radius_km} km`
+                      : "5 km";
+                  return (
+                    <div
+                      key={rec.id}
+                      className="rounded-2xl border border-surface-border p-3 space-y-2"
+                    >
+                      <p className="text-sm text-foreground">{rec.content}</p>
+                      <div className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+                        <p>
+                          {s.admin_recommendations_poster}: {maskPhoneLast4(rec.user_phone)}
+                        </p>
+                        <p>
+                          {s.admin_recommendations_vendor}: {vendorLabel}
+                        </p>
+                        <p>
+                          {s.admin_recommendations_reach}: {reachKm}
+                        </p>
+                        <p>
+                          {s.admin_recommendations_expires}:{" "}
+                          {rec.expires_at
+                            ? new Date(rec.expires_at).toLocaleString()
+                            : "—"}
+                        </p>
+                        <p>{new Date(rec.created_at).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </SettingsCollapsible>
+
+          <SettingsCollapsible
             label={`${s.admin_lowRatings_title} (${lowRatings.length})`}
             open={lowRatingsOpen}
             onToggle={() => setLowRatingsOpen((o) => !o)}
@@ -3361,6 +3464,11 @@ const Settings = () => {
                     <p className="text-xs font-semibold text-muted-foreground">
                       {ADMIN_CONFIG_LABELS[key]}
                     </p>
+                    {adminConfigDefaults[key] ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        {s.admin_config_default(adminConfigDefaults[key]!)}
+                      </p>
+                    ) : null}
                     {configType === "boolean" ? (
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-sm text-muted-foreground">
