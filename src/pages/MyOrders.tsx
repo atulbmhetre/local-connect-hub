@@ -5,7 +5,6 @@ import {
   supabase,
   invokeNotifyVendor,
   distanceMeters,
-  buildVendorBrief,
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
 } from "@/lib/supabase";
@@ -37,6 +36,7 @@ import {
 } from "@/components/settings/SettingsSection";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Badge } from "@/components/ui/badge";
+import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import {
   currentCycleTransactions,
   filterKhataLedgerByOutstanding,
@@ -347,16 +347,11 @@ const MyOrders = () => {
   const [vendorStoppedByOrderId, setVendorStoppedByOrderId] = useState<Record<string, boolean>>({});
   const [locationTick, setLocationTick] = useState(0);
   const [helpCallVendor, setHelpCallVendor] = useState<{
-    vendorId: string;
-    shopName: string;
-    phone: string;
+    vendor: AiBridgeVendor;
     userNeed: string;
     distanceKm: number | null;
   } | null>(null);
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
-  const [aiSheetLoading, setAiSheetLoading] = useState(false);
-  const [aiBriefText, setAiBriefText] = useState<string | null>(null);
-  const [aiBriefFailed, setAiBriefFailed] = useState(false);
   const [paymentSheetOrder, setPaymentSheetOrder] = useState<null | {
     id: string;
     status: string;
@@ -730,9 +725,6 @@ const MyOrders = () => {
   const closeAiSheet = useCallback((open: boolean) => {
     setAiSheetOpen(open);
     if (!open) {
-      setAiSheetLoading(false);
-      setAiBriefText(null);
-      setAiBriefFailed(false);
       setHelpCallVendor(null);
     }
   }, []);
@@ -752,34 +744,23 @@ const MyOrders = () => {
           : null;
 
       setHelpCallVendor({
-        vendorId: order.vendor_id,
-        shopName: order.vendors?.shop_name ?? s.myOrders_shopFallback,
-        phone,
+        vendor: {
+          id: order.vendor_id,
+          name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
+          shop_name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
+          category: "help",
+          vendor_note: null,
+          phone,
+          service_mode: order.vendors?.service_mode ?? "help",
+          verification_status: "unverified",
+          is_manual_verified: false,
+          total_helped: 0,
+          on_time_rate: null,
+        },
         userNeed: stripLocationTag(order.message),
         distanceKm: distM != null ? distM / 1000 : null,
       });
       setAiSheetOpen(true);
-      setAiSheetLoading(true);
-      setAiBriefFailed(false);
-      setAiBriefText(null);
-
-      const result = await buildVendorBrief({
-        vendor_name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
-        shop_name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
-        category: "help",
-        distance_km: distM != null ? distM / 1000 : null,
-        user_need: stripLocationTag(order.message) || "help",
-      });
-
-      if (!mounted.current) return;
-      setAiSheetLoading(false);
-      if (result.ok) {
-        setAiBriefText(result.brief);
-        setAiBriefFailed(false);
-      } else {
-        setAiBriefText(null);
-        setAiBriefFailed(true);
-      }
     },
     [s.myOrders_shopFallback, userCoords, vendorLiveById],
   );
@@ -1673,7 +1654,7 @@ const MyOrders = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            window.open(`tel:${r.user_phone}`, "_self");
+                            void openHelpVendorCall(r);
                             setTimeout(() => setCalledVendor((p) => ({ ...p, [r.id]: true })), 3000);
                           }}
                           className="w-full rounded-lg border border-brand/40 text-brand text-xs font-semibold py-2"
@@ -2063,60 +2044,16 @@ const MyOrders = () => {
         </SheetContent>
       </Sheet>
 
-      <Sheet open={aiSheetOpen} onOpenChange={closeAiSheet}>
-        <SheetContent
-          side="bottom"
-          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
-        >
-          <SheetHeader className="text-left space-y-1 pr-8">
-            <SheetTitle className="text-white font-display">{s.aiBridge}</SheetTitle>
-            <SheetDescription className="text-gray-400">
-              {aiSheetLoading
-                ? s.briefingVendor
-                : aiBriefFailed
-                  ? s.aiBriefUnavailable
-                  : s.radar_your_brief}
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="mt-4 space-y-4">
-            {aiSheetLoading && (
-              <div className="flex items-center gap-3 py-6 text-gray-300">
-                <Loader2 className="h-6 w-6 animate-spin text-brand shrink-0" />
-                <p className="text-sm">{s.briefingVendor}</p>
-              </div>
-            )}
-
-            {!aiSheetLoading && aiBriefFailed && (
-              <p className="text-sm text-amber-200/90 leading-relaxed">{s.aiBriefUnavailable}</p>
-            )}
-
-            {!aiSheetLoading && !aiBriefFailed && aiBriefText && (
-              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{aiBriefText}</p>
-            )}
-
-            {!aiSheetLoading && helpCallVendor && (
-              <div className="flex flex-col gap-2 pt-2">
-                <button
-                  type="button"
-                  className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
-                  onClick={() => window.open(telHref(helpCallVendor.phone), "_self")}
-                >
-                  <PhoneCall className="h-4 w-4" />
-                  {s.callNow}
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded-xl border border-surface-border bg-transparent text-gray-300 py-3 font-semibold active:scale-[0.99] transition-transform"
-                  onClick={() => closeAiSheet(false)}
-                >
-                  {s.radar_cancel}
-                </button>
-              </div>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+      {helpCallVendor && (
+        <AiBridgeSheet
+          open={aiSheetOpen}
+          onClose={() => closeAiSheet(false)}
+          vendor={helpCallVendor.vendor}
+          callerPhone={getUserPhone() ?? ""}
+          userNeed={helpCallVendor.userNeed}
+          distanceKm={helpCallVendor.distanceKm}
+        />
+      )}
       </div>
     </AppShell>
   );
