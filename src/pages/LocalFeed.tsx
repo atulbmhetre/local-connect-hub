@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { distanceKm, fetchActiveVendorCategoryLabels, isValidPhone, supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
+import { getDeviceId } from "@/lib/deviceId";
 import { cn } from "@/lib/utils";
 import { feedAuthorLabel } from "@/lib/khataDisplay";
 import { uploadFeedImage } from "@/lib/imageUpload";
@@ -34,9 +35,8 @@ const FEED_CACHE_KEY = "aaspaas:feed_cache";
 const FEED_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 const FEED_CACHE_MAX_POSTS = 20;
 const GPS_TIMEOUT_MS = 10_000;
-const GPS_BBOX_FAST_MS = 3000;
-/** ~50 km at Indian latitudes; matches server bounding box. */
-const BBOX_DELTA_DEG = 0.45;
+/** Default reach when post row has NULL/0 reach_radius_km (matches DB backfill). */
+const DEFAULT_FEED_REACH_KM = 2;
 
 type FeedCachePayload = {
   timestamp: number;
@@ -75,6 +75,7 @@ type FeedPost = {
   image_url: string | null;
   lat: number | null;
   lng: number | null;
+  reach_radius_km: number | null;
   flagged_count: number;
   is_hidden: boolean;
   created_at: string;
@@ -147,36 +148,40 @@ function writeFeedCache(posts: FeedPost[]) {
   }
 }
 
-function buildFeedQuery(coords: GeoCoords | null) {
-  let query = supabase
-    .from("feed_posts")
-    .select(
-      "*, vendors!vendor_id(shop_name, category), recommended_vendor:vendors!recommended_vendor_id(shop_name, service_mode)",
-    )
-    .eq("is_hidden", false)
-    .or("expires_at.is.null,expires_at.gt.now()")
-    .or("starts_at.is.null,starts_at.lte.now()")
-    .order("created_at", { ascending: false })
-    .limit(50);
+async function resolveReaderCoords(): Promise<GeoCoords | null> {
+  const gps = await getGeoCoords();
+  if (gps) return gps;
 
-  if (coords) {
-    query = query
-      .gte("lat", coords.lat - BBOX_DELTA_DEG)
-      .lte("lat", coords.lat + BBOX_DELTA_DEG)
-      .gte("lng", coords.lng - BBOX_DELTA_DEG)
-      .lte("lng", coords.lng + BBOX_DELTA_DEG);
+  const phone = getUserPhone()?.trim();
+  const deviceId = getDeviceId();
+  if (!phone || !deviceId) return null;
+
+  const { data, error } = await supabase.rpc("get_user_device", {
+    p_user_phone: phone,
+    p_device_id: deviceId,
+  });
+  if (error) {
+    console.error("resolveReaderCoords/get_user_device", error);
+    return null;
   }
 
-  return query;
+  const row = data as { last_lat: number | null; last_lng: number | null } | null;
+  if (row?.last_lat == null || row?.last_lng == null) return null;
+  return { lat: row.last_lat, lng: row.last_lng };
 }
 
-/** Roughly matches ±0.45° bounding box at mid-latitudes. */
-const FEED_NEAR_RADIUS_KM = 50;
+function parseFeedPostsFromRpc(data: unknown): FeedPost[] {
+  if (!Array.isArray(data)) return [];
+  return data as FeedPost[];
+}
 
 function filterPostsByLocation(posts: FeedPost[], coords: GeoCoords): FeedPost[] {
   return posts.filter((post) => {
-    if (post.lat == null || post.lng == null) return true;
-    return distanceKm(coords, { lat: post.lat, lng: post.lng }) <= FEED_NEAR_RADIUS_KM;
+    if (post.lat == null || post.lng == null) return false;
+    const reachKm = post.reach_radius_km && post.reach_radius_km > 0
+      ? post.reach_radius_km
+      : DEFAULT_FEED_REACH_KM;
+    return distanceKm(coords, { lat: post.lat, lng: post.lng }) <= reachKm;
   });
 }
 
@@ -330,46 +335,41 @@ export default function LocalFeed() {
       setLoading(true);
     }
 
-    const gpsStart = Date.now();
-    let gpsCoords: GeoCoords | null = null;
-    let gpsResolvedAt: number | null = null;
-
-    const gpsPromise = getGeoCoords().then((coords) => {
-      gpsResolvedAt = Date.now() - gpsStart;
-      gpsCoords = coords;
-      return coords;
-    });
-
-    const feedNoBboxPromise = buildFeedQuery(null);
-
-    const firstFinished = await Promise.race([
-      gpsPromise.then(() => "gps" as const),
-      feedNoBboxPromise.then(() => "feed" as const),
-    ]);
-
-    let nextPosts: FeedPost[] = [];
-
     try {
-      if (
-        firstFinished === "gps" &&
-        gpsCoords != null &&
-        gpsResolvedAt != null &&
-        gpsResolvedAt <= GPS_BBOX_FAST_MS
-      ) {
-        const { data, error } = await buildFeedQuery(gpsCoords);
-        if (error) throw error;
-        nextPosts = (data ?? []) as FeedPost[];
-      } else {
-        const { data, error } = await feedNoBboxPromise;
-        if (error) throw error;
-        let rows = (data ?? []) as FeedPost[];
-        const coords = gpsCoords ?? (await gpsPromise);
-        if (coords) {
-          rows = filterPostsByLocation(rows, coords);
+      const readerCoords = await resolveReaderCoords();
+      if (!readerCoords) {
+        if (!showingCached) {
+          setPosts([]);
         }
-        nextPosts = rows;
+        return;
       }
 
+      const { data, error } = await supabase.rpc("get_local_feed_posts", {
+        p_reader_lat: readerCoords.lat,
+        p_reader_lng: readerCoords.lng,
+        p_limit: 50,
+      });
+
+      if (error) {
+        console.warn("get_local_feed_posts unavailable, using client filter", error);
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from("feed_posts")
+          .select(
+            "*, vendors!vendor_id(shop_name, category), recommended_vendor:vendors!recommended_vendor_id(shop_name, service_mode)",
+          )
+          .eq("is_hidden", false)
+          .or("expires_at.is.null,expires_at.gt.now()")
+          .or("starts_at.is.null,starts_at.lte.now()")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (fallbackError) throw fallbackError;
+        const nextPosts = filterPostsByLocation((fallbackData ?? []) as FeedPost[], readerCoords);
+        setPosts(nextPosts);
+        writeFeedCache(nextPosts);
+        return;
+      }
+
+      const nextPosts = parseFeedPostsFromRpc(data);
       setPosts(nextPosts);
       writeFeedCache(nextPosts);
     } catch (error) {
@@ -381,7 +381,7 @@ export default function LocalFeed() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [s.feed_errLoad]);
 
   useEffect(() => {
     void fetchPosts();
