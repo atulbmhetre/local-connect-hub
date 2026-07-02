@@ -526,6 +526,7 @@ export default function LocalFeed() {
     });
   }, [posts, selectedCategoryMeta]);
 
+  // Replies are never geo-filtered — readers see all replies on a visible post.
   const loadReplies = async (postId: string) => {
     setLoadingReplies((prev) => new Set(prev).add(postId));
     const { data, error } = await supabase
