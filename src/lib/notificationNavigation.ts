@@ -3,8 +3,10 @@ import type { NavigateFunction } from "react-router-dom";
 const ROUTE_PATHS: Record<string, string> = {
   vendor: "/vendor",
   "my-orders": "/my-orders",
+  orders: "/my-orders",
   settings: "/settings",
   feed: "/feed",
+  radar: "/radar",
 };
 
 export function resolveRoutePath(route: string | null | undefined): string {
@@ -28,6 +30,10 @@ export function navigateFromNotification(
     navigate(path, { state: { highlightOrderId: params.order_id } });
     return;
   }
+  if ((key === "my-orders" || key === "orders") && params.request_id) {
+    navigate(path, { state: { highlightOrderId: params.request_id } });
+    return;
+  }
   if (key === "vendor" && params.order_id) {
     navigate(path, { state: { highlightOrderId: params.order_id } });
     return;
@@ -44,6 +50,10 @@ export function navigateFromNotification(
     navigate(path, {
       state: params.post_id ? { highlightPostId: params.post_id } : undefined,
     });
+    return;
+  }
+  if (key === "radar" && params.vendor_id) {
+    navigate(path, { state: { highlightVendorId: params.vendor_id } });
     return;
   }
   if (key === "vendor") {

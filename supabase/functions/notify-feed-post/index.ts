@@ -133,11 +133,10 @@ async function maybeNotifyAdminVendorLead(
       body: JSON.stringify({
         title: "New vendor lead",
         body: `${name} (${phone}) recommended by community in your area. Consider inviting them to AasPaas.`,
-        data: {
-          post_id: postId,
-          vendor_name: name,
-          vendor_phone: phone,
-        },
+        type: "feed_recommendation",
+        route: "feed",
+        route_params: { post_id: postId },
+        post_id: postId,
       }),
     });
   } catch (err) {

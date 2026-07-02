@@ -7,10 +7,15 @@ import { fetchVendorPhone, patchVendorOwn } from "@/lib/vendorPatch";
 import { getDeviceId } from "@/lib/deviceId";
 import { getAppNavigate } from "@/lib/appNavigate";
 import { handlePushNotificationData } from "@/lib/notificationNavigation";
+import { storePendingPushNav } from "@/lib/pendingPushNav";
 
 const VENDOR_ID_KEY = "aaspaas:vendor_id";
 export const VENDOR_SOUND_KEY = "aaspaas:vendor_sound";
 export const VENDOR_VIBRATE_KEY = "aaspaas:vendor_vibrate";
+
+let navigationListenersReady = false;
+let registrationListenerAttached = false;
+let foregroundListenerAttached = false;
 
 export function isVendorSoundEnabled(): boolean {
   const v = localStorage.getItem(VENDOR_SOUND_KEY);
@@ -31,16 +36,11 @@ export function setVendorVibrateEnabled(enabled: boolean): void {
 }
 
 function vibrateOnOrderPush(role: "vendor" | "user"): void {
-  // Vendors can mute the buzz in settings; customer pushes always vibrate.
   if (role === "vendor" && !isVendorVibrateEnabled()) return;
   if (!("vibrate" in navigator)) return;
   navigator.vibrate([500, 200, 500]);
 }
 
-/**
- * Android FCM does not display a system notification for pushes that arrive
- * while the app is in foreground — schedule a local one so it's visible.
- */
 async function showForegroundNotification(notification: PushNotificationSchema): Promise<void> {
   const title =
     notification.title ?? (notification.data?.title as string | undefined) ?? "Aaspaas";
@@ -50,7 +50,6 @@ async function showForegroundNotification(notification: PushNotificationSchema):
     await LocalNotifications.schedule({
       notifications: [
         {
-          // Java int range; collisions within the same ms are practically impossible here.
           id: Date.now() % 2147483647,
           title,
           body,
@@ -64,9 +63,15 @@ async function showForegroundNotification(notification: PushNotificationSchema):
   }
 }
 
-function navigateFromPushData(data: Record<string, unknown> | undefined): void {
+export function navigateFromPushData(data: Record<string, unknown> | undefined): void {
+  if (!data || data.type === "location_ping") return;
   const navigate = getAppNavigate();
-  if (!navigate) return;
+  if (!navigate) {
+    if (typeof data.route === "string" && data.route.trim()) {
+      storePendingPushNav(data);
+    }
+    return;
+  }
   handlePushNotificationData(navigate, data);
 }
 
@@ -106,10 +111,7 @@ async function handleLocationPing(data: Record<string, string> | undefined): Pro
   }
 }
 
-async function setupPushListeners(
-  onToken: (token: string) => Promise<void>,
-  role: "vendor" | "user",
-): Promise<void> {
+async function ensureNotificationChannels(): Promise<void> {
   await PushNotifications.createChannel({
     id: "order_alert",
     name: "Order Alerts",
@@ -119,25 +121,26 @@ async function setupPushListeners(
     sound: "default",
     vibration: true,
   });
-
-  await PushNotifications.register();
-  await PushNotifications.removeAllListeners();
-
-  await PushNotifications.addListener("registration", async (token) => {
-    await onToken(token.value);
+  await PushNotifications.createChannel({
+    id: "default",
+    name: "General",
+    description: "Feed and general notifications",
+    importance: 4,
+    visibility: 1,
+    sound: "default",
+    vibration: true,
   });
+}
 
-  await PushNotifications.addListener("registrationError", (error) => {
-    console.error("Push registration failed", error);
-  });
+/**
+ * Register tap listeners once at app boot so cold-start notification taps are not lost.
+ * Token registration remains in registerPushToken / registerUserPushToken.
+ */
+export async function initPushNavigationListeners(): Promise<void> {
+  if (!Capacitor.isNativePlatform() || navigationListenersReady) return;
+  navigationListenersReady = true;
 
-  await PushNotifications.addListener("pushNotificationReceived", (notification) => {
-    void handleLocationPing(notification.data);
-    if (notification.data?.type === "location_ping") return;
-    vibrateOnOrderPush(role);
-    void showForegroundNotification(notification);
-    console.info("Push received in foreground", notification);
-  });
+  await ensureNotificationChannels();
 
   await PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
     navigateFromPushData(action.notification.data as Record<string, unknown> | undefined);
@@ -148,13 +151,48 @@ async function setupPushListeners(
   });
 }
 
+async function attachRegistrationListener(
+  onToken: (token: string) => Promise<void>,
+): Promise<void> {
+  if (registrationListenerAttached) return;
+  registrationListenerAttached = true;
+
+  await PushNotifications.addListener("registration", async (token) => {
+    await onToken(token.value);
+  });
+
+  await PushNotifications.addListener("registrationError", (error) => {
+    console.error("Push registration failed", error);
+  });
+}
+
+async function setupPushRegistration(
+  onToken: (token: string) => Promise<void>,
+  role: "vendor" | "user",
+): Promise<void> {
+  await initPushNavigationListeners();
+  await attachRegistrationListener(onToken);
+  await PushNotifications.register();
+
+  if (!foregroundListenerAttached) {
+    foregroundListenerAttached = true;
+    await PushNotifications.addListener("pushNotificationReceived", (notification) => {
+      void handleLocationPing(notification.data);
+      if (notification.data?.type === "location_ping") return;
+      vibrateOnOrderPush(role);
+      void showForegroundNotification(notification);
+      console.info("Push received in foreground", notification);
+    });
+  }
+}
+
 export async function registerPushToken(vendorId: string) {
   if (!Capacitor.isNativePlatform()) return;
 
   const permission = await PushNotifications.requestPermissions();
   if (permission.receive !== "granted") return;
 
-  await setupPushListeners(async (tokenValue) => {
+  await setupPushRegistration(async (tokenValue) => {
     const vendorPhone = await fetchVendorPhone(vendorId);
     if (!vendorPhone) {
       console.error("Push token save failed: vendor phone not found");
@@ -167,16 +205,10 @@ export async function registerPushToken(vendorId: string) {
   }, "vendor");
 }
 
-/**
- * Best-effort GPS snapshot for user_devices; never throws or surfaces errors.
- * Upserts on (user_phone, device_id) so the write lands even if the device
- * row doesn't exist yet; the token upsert later fills fcm_token on the same row.
- */
 async function saveUserDeviceLocationSilently(userPhone: string, deviceId: string): Promise<void> {
   try {
     await Geolocation.requestPermissions();
     const pos = await Geolocation.getCurrentPosition({ timeout: 10_000 });
-    // Row must exist from upsert_user_device above; location-only RPC avoids NOT NULL fcm_token upsert issue.
     const { error } = await supabase.rpc("update_user_device_location", {
       p_user_phone: userPhone,
       p_device_id: deviceId,
@@ -197,7 +229,7 @@ export async function registerUserPushToken(userPhone: string) {
 
   const deviceId = getDeviceId();
 
-  await setupPushListeners(async (tokenValue) => {
+  await setupPushRegistration(async (tokenValue) => {
     const { error } = await supabase.rpc("upsert_user_device", {
       p_user_phone: userPhone,
       p_device_id: deviceId,

@@ -39,8 +39,8 @@ export function buildFcmData(
       route = "my-orders";
       if (orderId) routeParams = { order_id: orderId };
     } else if (type === "payment_claimed" || type === "payment_confirmed") {
-      route = "orders";
-      if (orderId) routeParams = { request_id: orderId };
+      route = "vendor";
+      if (orderId) routeParams = { order_id: orderId };
     } else if (
       type === "new_order" ||
       (type === "order_update" && orderId)
@@ -111,8 +111,8 @@ export function buildVendorFcmData(
       (type === "payment_claimed" || type === "payment_confirmed") &&
       orderId
     ) {
-      route = "orders";
-      routeParams = { request_id: orderId };
+      route = "vendor";
+      routeParams = { order_id: orderId };
     } else if (type === "new_order" || (type === "order_update" && orderId) || orderId) {
       route = "vendor";
       if (orderId) routeParams = { order_id: orderId };

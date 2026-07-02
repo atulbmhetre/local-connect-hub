@@ -4,10 +4,12 @@ import "./index.css";
 import { initThemeFromStorage } from "./lib/theme";
 import { checkAndStoreReferral } from "./lib/referral";
 import { initSentry } from "./lib/sentry";
+import { initPushNavigationListeners } from "./lib/pushNotifications";
 
 initSentry();
 initThemeFromStorage();
 checkAndStoreReferral();
+void initPushNavigationListeners();
 
 try {
   if (localStorage.getItem("aaspaas:large_text") === "true") {

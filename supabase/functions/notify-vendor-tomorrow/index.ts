@@ -142,6 +142,8 @@ serve(async (req) => {
                 data: {
                   title: TITLE,
                   body: BODY,
+                  route: "vendor",
+                  type: "appointment_reminder",
                 },
                 android: {
                   priority: "high",
