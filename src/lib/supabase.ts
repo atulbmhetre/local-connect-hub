@@ -760,19 +760,45 @@ export function isGreenLive(v: Vendor) {
   return meetsGreenCriteria(v) && v.is_manual_verified;
 }
 
+export async function fetchActiveVendorCategoryLabels(): Promise<Set<string>> {
+  const [legacyRes, vcRes, activeVendorRes] = await Promise.all([
+    supabase.from("vendors").select("category").eq("is_active", true),
+    supabase
+      .from("vendor_categories")
+      .select("vendor_id, categories(label)")
+      .eq("status", "approved"),
+    supabase.from("vendors").select("id").eq("is_active", true),
+  ]);
+
+  const activeVendorIds = new Set((activeVendorRes.data ?? []).map((v) => v.id));
+  const labels = new Set<string>();
+
+  for (const row of legacyRes.data ?? []) {
+    if (typeof row.category === "string" && row.category.length > 0) {
+      labels.add(row.category);
+    }
+  }
+
+  for (const row of vcRes.data ?? []) {
+    if (!activeVendorIds.has(row.vendor_id)) continue;
+    const category = row.categories as { label: string } | null;
+    if (category?.label) labels.add(category.label);
+  }
+
+  return labels;
+}
+
 export async function fetchCategories(): Promise<Category[]> {
-  const [catResult, vendorResult] = await Promise.all([
+  const [catResult, activeVendorCategories] = await Promise.all([
     supabase
       .from("categories")
       .select("*")
       .eq("is_active", true)
       .order("sort_order", { ascending: true }),
-    supabase.from("vendors").select("category").eq("is_active", true),
+    fetchActiveVendorCategoryLabels(),
   ]);
 
   if (catResult.error || !catResult.data) return [];
-
-  const activeVendorCategories = new Set((vendorResult.data ?? []).map((v) => v.category));
 
   return (catResult.data as Category[]).filter((c) => activeVendorCategories.has(c.label));
 }

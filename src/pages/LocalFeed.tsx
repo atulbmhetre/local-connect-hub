@@ -15,7 +15,7 @@ import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { distanceKm, isValidPhone, supabase } from "@/lib/supabase";
+import { distanceKm, fetchActiveVendorCategoryLabels, isValidPhone, supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
 import { feedAuthorLabel } from "@/lib/khataDisplay";
@@ -417,9 +417,9 @@ export default function LocalFeed() {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      const [catsRes, vendorsRes] = await Promise.all([
-        supabase.from("categories").select("id, label, emoji").order("sort_order", { ascending: true }),
-        supabase.from("vendors").select("category").eq("is_active", true),
+      const [catsRes, activeLabels] = await Promise.all([
+        supabase.from("categories").select("id, label, emoji").eq("is_active", true).order("sort_order", { ascending: true }),
+        fetchActiveVendorCategoryLabels(),
       ]);
       if (cancelled) return;
       if (catsRes.error) {
@@ -427,11 +427,6 @@ export default function LocalFeed() {
         setCategories([]);
         return;
       }
-      const activeLabels = new Set(
-        (vendorsRes.data ?? [])
-          .map((v) => v.category)
-          .filter((c): c is string => typeof c === "string" && c.length > 0),
-      );
       const filtered = ((catsRes.data ?? []) as FeedCategory[]).filter((c) =>
         categoryHasActiveVendor(c.label, activeLabels),
       );
@@ -686,8 +681,8 @@ export default function LocalFeed() {
     }
 
     const expiresAt =
-      composeType === "announcement"
-        ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
+      composeType === "announcement" || composeType === "recommendation"
+        ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
         : null;
 
     const recommendationFields =
