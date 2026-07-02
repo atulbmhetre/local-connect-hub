@@ -1161,7 +1161,17 @@ export function IncomingOrdersSection({
     return () => window.clearTimeout(t);
   }, [highlightOrderId, loading, rows.length]);
 
-  const badge = (status: string) => {
+  const acceptedStatusLabel = (r: Pick<OrderRequestRow, "appointment_status" | "status">): string => {
+    if (serviceMode !== "appointment") {
+      return s.status_accepted;
+    }
+    return r.appointment_status === "confirmed"
+      ? s.status_accepted_appointment_confirmed
+      : s.status_accepted_appointment_awaiting;
+  };
+
+  const badge = (r: Pick<OrderRequestRow, "status" | "appointment_status">) => {
+    const status = r.status;
     if (status === "sent")
       return (
         <span
@@ -1186,7 +1196,7 @@ export function IncomingOrdersSection({
           data-testid="incoming-order-status"
           className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40"
         >
-          {s.status_accepted}
+          {acceptedStatusLabel(r)}
         </span>
       );
     if (status === "fulfilled")
@@ -1289,7 +1299,7 @@ export function IncomingOrdersSection({
                 <span className="text-[11px] text-muted-foreground tabular-nums">
                   {formatTimeAgo(r.created_at)}
                 </span>
-                {shouldShowStatusBadge(r) && badge(r.status)}
+                {shouldShowStatusBadge(r) && badge(r)}
               </div>
               <div className="flex items-start gap-2">
                 <p className="flex-1 min-w-0 text-sm text-foreground leading-snug whitespace-pre-wrap break-words">

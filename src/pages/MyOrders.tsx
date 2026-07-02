@@ -175,6 +175,11 @@ const userStatusLabel = (
   },
   s: ReturnType<typeof useLanguage>["s"],
 ) => {
+  if (r.status === "accepted" && r.vendors?.service_mode === "appointment") {
+    return r.appointment_status === "confirmed"
+      ? s.status_accepted_appointment_confirmed
+      : s.status_accepted_appointment_awaiting;
+  }
   if (r.appointment_status === "confirmed") return s.myOrders_apptConfirmed;
   if (r.appointment_status === "declined") return s.myOrders_apptDeclined;
   if (r.status === "accepted" && r.vendors?.service_mode === "delivery") {
@@ -1269,13 +1274,7 @@ const MyOrders = () => {
                   orderStatusPillClass(r),
                 )}
               >
-                {r.status === "cancelled"
-                  ? cancelledOrderStatusLabel(r, s)
-                  : r.status === "accepted" && r.vendors?.service_mode === "help"
-                    ? s.status_accepted
-                    : r.status === "accepted" && r.vendors?.service_mode === "delivery"
-                      ? s.status_accepted_delivery
-                      : userStatusLabel(r, s)}
+                {userStatusLabel(r, s)}
               </span>
               {isDeliveryAcceptedOverdue(r) && (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
