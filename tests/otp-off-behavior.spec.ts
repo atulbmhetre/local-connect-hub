@@ -145,5 +145,6 @@ test.describe('OTP-off production fidelity (no Supabase session)', () => {
     const stats = data as Record<string, number>;
     expect(stats.total_orders).toBe(expectedTotal ?? 0);
     expect(stats.total_vendors).toBeGreaterThan(0);
+    expect(typeof stats.total_customers).toBe('number');
   });
 });
