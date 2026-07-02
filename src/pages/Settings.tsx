@@ -57,6 +57,7 @@ import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useFeedNotificationsEnabled } from "@/hooks/useFeedNotificationsEnabled";
+import { FeedReachChips } from "@/components/FeedReachChips";
 import {
   Select,
   SelectContent,
@@ -810,6 +811,38 @@ const Settings = () => {
   };
   const { enabled: feedNotificationsEnabled, onCheckedChange: onFeedNotificationsChange } =
     useFeedNotificationsEnabled();
+  const [feedDiscoveryRadiusKm, setFeedDiscoveryRadiusKm] = useState<number | null>(5);
+
+  useEffect(() => {
+    const phone = userPhone?.trim();
+    if (!phone) return;
+    void supabase.rpc("get_feed_preferences", { p_user_phone: phone }).then(({ data, error }) => {
+      if (error) {
+        console.error("get_feed_preferences", error);
+        return;
+      }
+      const raw = (data as { feed_discovery_radius_km?: number | null } | null)
+        ?.feed_discovery_radius_km;
+      setFeedDiscoveryRadiusKm(raw === null ? null : (raw ?? 5));
+    });
+  }, [userPhone]);
+
+  const onFeedDiscoveryRadiusChange = async (km: number | null) => {
+    const phone = userPhone?.trim();
+    if (!phone) return;
+    setFeedDiscoveryRadiusKm(km);
+    const { error } = await supabase.rpc("set_feed_discovery_radius", {
+      p_user_phone: phone,
+      p_radius_km: km,
+    });
+    if (error) {
+      console.error("set_feed_discovery_radius", error);
+      toast.error(s.feed_notifyToggle_saveError);
+      return;
+    }
+    toast.success(s.settings_feedDiscoveryRadiusSaved);
+  };
+
   const [activeTab, setActiveTab] = useState<"settings" | "admin">("settings");
   const [pendingCatOpen, setPendingCatOpen] = useState(false);
   const [lowRatingsOpen, setLowRatingsOpen] = useState(false);
@@ -2549,13 +2582,25 @@ const Settings = () => {
         </>
       )}
 
-      {/*
-        Feed push notifications use FCM, which is not available on web. This toggle
-        controls push notification preference and is meaningless on a platform that
-        cannot receive push notifications. Native-only by design.
-      */}
-      {Capacitor.isNativePlatform() && (
-        <SettingsCard className="mx-4 mb-3 border-surface-border">
+      <SettingsCard className="mx-4 mb-3 border-surface-border">
+        <SettingsRow
+          label={s.settings_feedDiscoveryRadius}
+          sublabel={s.settings_feedDiscoveryRadiusHint}
+        />
+        <div className="px-4 pb-3.5">
+          <FeedReachChips
+            mode="reader"
+            value={feedDiscoveryRadiusKm}
+            onChange={(km) => void onFeedDiscoveryRadiusChange(km)}
+            disabled={!userPhone}
+          />
+        </div>
+        {/*
+          Feed push notifications use FCM, which is not available on web. This toggle
+          controls push notification preference and is meaningless on a platform that
+          cannot receive push notifications. Native-only by design.
+        */}
+        {Capacitor.isNativePlatform() && (
           <SettingsRow
             label={s.settings_feedNotifications}
             sublabel={s.settings_feedNotificationsHint}
@@ -2566,8 +2611,8 @@ const Settings = () => {
               onCheckedChange={onFeedNotificationsChange}
             />
           </SettingsRow>
-        </SettingsCard>
-      )}
+        )}
+      </SettingsCard>
 
       <SettingsParentCollapsible
         label={s.settings_connection_privacy}
