@@ -200,6 +200,7 @@ export function IncomingOrdersSection({
   const [billUserPhone, setBillUserPhone] = useState<string | null>(null);
   const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBillSummary>>({});
   const [markingBillPaidId, setMarkingBillPaidId] = useState<string | null>(null);
+  const [addingBillToKhataId, setAddingBillToKhataId] = useState<string | null>(null);
   const [confirmingPaymentId, setConfirmingPaymentId] = useState<string | null>(null);
   const [disputingPaymentId, setDisputingPaymentId] = useState<string | null>(null);
   const [flagOrderId, setFlagOrderId] = useState<string | null>(null);
@@ -313,6 +314,109 @@ export function IncomingOrdersSection({
     }
     setBillsByRequestId(billMap);
   }, []);
+
+  const fetchKhataOutstanding = useCallback(
+    async (userPhone: string): Promise<number> => {
+      const phone = userPhone.trim();
+      if (!phone) return 0;
+      const { data, error } = await supabase
+        .from("khata_ledger")
+        .select("total_outstanding")
+        .eq("vendor_id", vendorId)
+        .eq("user_phone", phone)
+        .maybeSingle();
+      if (error) return 0;
+      return Number(data?.total_outstanding) || 0;
+    },
+    [vendorId],
+  );
+
+  const mapAddBillToKhataError = (message: string) => {
+    if (message.includes("bill_not_unpaid")) {
+      toast.error(s.bill_errKhataNotUnpaid);
+      return;
+    }
+    if (message.includes("bill_already_khata")) {
+      toast.error(s.bill_errKhataAlready);
+      return;
+    }
+    if (message.includes("customer_phone_required")) {
+      toast.error(s.bill_errKhataNoPhone);
+      return;
+    }
+    if (message.includes("unauthorised")) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
+    toast.error(message);
+  };
+
+  const executeAddBillToKhata = async (
+    billId: string,
+    requestId: string,
+    projectedOutstanding: number,
+  ) => {
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
+    setAddingBillToKhataId(billId);
+    const { error } = await supabase.rpc("add_bill_to_khata", {
+      p_bill_id: billId,
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+    });
+    setAddingBillToKhataId(null);
+    if (error) {
+      mapAddBillToKhataError(error.message);
+      return;
+    }
+    void loadBillsForOrders(rows.map((row) => row.id));
+    toast.success(s.khata_entryAdded);
+    if (
+      khataAmberLimit > 0 &&
+      projectedOutstanding >= khataAmberLimit &&
+      (khataRedLimit <= 0 || projectedOutstanding < khataRedLimit)
+    ) {
+      toast.warning(s.bill_khataLimitWarning);
+    }
+  };
+
+  const promptAddBillToKhata = async (
+    bill: OrderBillSummary,
+    requestId: string,
+    userPhone: string | null,
+  ) => {
+    const phone = userPhone?.trim();
+    if (!phone) {
+      toast.error(s.bill_errKhataNoPhone);
+      return;
+    }
+
+    let projectedOutstanding = bill.total_amount;
+    if (khataAmberLimit > 0 || khataRedLimit > 0) {
+      const outstanding = await fetchKhataOutstanding(phone);
+      projectedOutstanding = outstanding + bill.total_amount;
+    }
+
+    const run = () => void executeAddBillToKhata(bill.id, requestId, projectedOutstanding);
+
+    if (khataRedLimit > 0 && projectedOutstanding >= khataRedLimit) {
+      toast.warning(
+        s.bill_khataOverLimitConfirm.replace("{customer}", maskPhoneLast4(phone)),
+        {
+          action: {
+            label: s.bill_addToKhata,
+            onClick: run,
+          },
+        },
+      );
+      return;
+    }
+
+    run();
+  };
 
   const markOrderBillPaid = async (billId: string, requestId: string) => {
     setMarkingBillPaidId(billId);
@@ -1601,19 +1705,34 @@ export function IncomingOrdersSection({
 
               {canShowBillButton(r) && (
                 <>
-                  <button
-                    type="button"
-                    data-testid="incoming-bill-btn"
-                    onClick={() => {
-                      setBillRequestId(r.id);
-                      setBillUserPhone(r.user_phone);
-                    }}
-                    className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold py-2.5 active:scale-[0.99]"
-                  >
-                    {s.bill_title}
-                  </button>
+                  {(() => {
+                    const existingBill = billsByRequestId[r.id];
+                    return (
+                      <button
+                        type="button"
+                        data-testid="incoming-bill-btn"
+                        onClick={() => {
+                          if (existingBill) {
+                            document
+                              .getElementById(`incoming-bill-preview-${r.id}`)
+                              ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                            return;
+                          }
+                          setBillRequestId(r.id);
+                          setBillUserPhone(r.user_phone);
+                        }}
+                        className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold py-2.5 active:scale-[0.99]"
+                      >
+                        {existingBill ? s.bill_view_title : s.bill_title}
+                      </button>
+                    );
+                  })()}
                   {billsByRequestId[r.id] && (
-                    <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-2">
+                    <div
+                      id={`incoming-bill-preview-${r.id}`}
+                      data-testid="incoming-bill-preview"
+                      className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-2"
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs font-semibold text-foreground">
                           {s.bill_total}: ₹{billsByRequestId[r.id].total_amount.toFixed(2)}
@@ -1644,6 +1763,26 @@ export function IncomingOrdersSection({
                             {markingBillPaidId === billsByRequestId[r.id].id
                               ? s.incoming_saving
                               : s.khata_markPaid}
+                          </button>
+                        )}
+                      {billsByRequestId[r.id].payment_status === "unpaid" &&
+                        billsByRequestId[r.id].payment_mode !== "khata" && (
+                          <button
+                            type="button"
+                            data-testid="incoming-add-bill-to-khata-btn"
+                            disabled={addingBillToKhataId === billsByRequestId[r.id].id}
+                            onClick={() =>
+                              void promptAddBillToKhata(
+                                billsByRequestId[r.id],
+                                r.id,
+                                r.user_phone,
+                              )
+                            }
+                            className="w-full rounded-lg border border-primary/50 text-primary text-xs font-semibold py-2 disabled:opacity-50"
+                          >
+                            {addingBillToKhataId === billsByRequestId[r.id].id
+                              ? s.incoming_saving
+                              : s.bill_addToKhata}
                           </button>
                         )}
                     </div>

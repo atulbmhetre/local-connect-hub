@@ -69,10 +69,6 @@ serve(async (req) => {
       .eq("id", vendorId)
       .single();
 
-    if (!vendor?.fcm_token) {
-      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: CORS_HEADERS });
-    }
-
     const categoryKey = record?.category ?? vendor?.category ?? "New";
 
     let notificationTitle = record?.notification_title as string | undefined;
@@ -93,6 +89,49 @@ serve(async (req) => {
         : `New Order — ${displayLabel}`;
     }
 
+    const fcmData = buildVendorFcmData(
+      record,
+      String(vendorId ?? ""),
+      notificationTitle,
+      message,
+    );
+
+    const vendorPhone =
+      typeof vendor?.phone === "string" ? vendor.phone.trim() : "";
+    let inboxRoute = fcmData.route ?? null;
+    let inboxRouteParams: Record<string, string> | undefined;
+    if (fcmData.route_params) {
+      try {
+        inboxRouteParams = JSON.parse(fcmData.route_params) as Record<string, string>;
+      } catch {
+        inboxRouteParams = undefined;
+      }
+    }
+
+    if (vendorPhone && (notificationTitle.trim() || message.trim())) {
+      try {
+        const { error: inboxError } = await supabase.from("user_notifications").insert({
+          user_phone: vendorPhone,
+          title: notificationTitle,
+          body: message,
+          type: (record?.type as string | undefined) ?? "notification",
+          route: inboxRoute,
+          route_params: inboxRouteParams ?? null,
+          is_informational: false,
+          read_at: null,
+        });
+        if (inboxError) {
+          console.error("notify-vendor inbox insert failed", inboxError);
+        }
+      } catch (inboxErr) {
+        console.error("notify-vendor inbox insert failed", inboxErr);
+      }
+    }
+
+    if (!vendor?.fcm_token) {
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: CORS_HEADERS });
+    }
+
     const clientEmail = Deno.env.get("FCM_CLIENT_EMAIL")!;
     const privateKey = Deno.env.get("FCM_PRIVATE_KEY")!.replace(/\\n/g, "\n");
     const projectId = Deno.env.get("FCM_PROJECT_ID")!;
@@ -108,13 +147,6 @@ serve(async (req) => {
     const client = await auth.getClient();
     const tokenResponse = await client.getAccessToken();
     const accessToken = tokenResponse.token;
-
-    const fcmData = buildVendorFcmData(
-      record,
-      String(vendorId ?? ""),
-      notificationTitle,
-      message,
-    );
 
     const fcmRes = await fetch(
       `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,

@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { App } from "@capacitor/app";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -28,6 +30,7 @@ export interface PaymentSheetProps {
     upi_id: string;
     phone: string;
     upi_qr_url: string | null;
+    upi_qr_payee_id: string | null;
   };
 }
 
@@ -42,15 +45,25 @@ const TABS: { id: PaymentTab; label: string }[] = [
 export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps) {
   const { s } = useLanguage();
   const [activeTab, setActiveTab] = useState<PaymentTab>("upi");
-  const [timer, setTimer] = useState(30);
-  const [timerActive, setTimerActive] = useState(false);
   const [payTapped, setPayTapped] = useState(false);
+  const [userConfirmedPaid, setUserConfirmedPaid] = useState(false);
+  const [showReturnPrompt, setShowReturnPrompt] = useState(false);
   const [utr, setUtr] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [localPaymentStatus, setLocalPaymentStatus] = useState(order.payment_status);
 
+  const payTappedRef = useRef(payTapped);
+  const userConfirmedPaidRef = useRef(userConfirmedPaid);
+  useEffect(() => {
+    payTappedRef.current = payTapped;
+  }, [payTapped]);
+  useEffect(() => {
+    userConfirmedPaidRef.current = userConfirmedPaid;
+  }, [userConfirmedPaid]);
+
   const amountLabel = order.amountRupees.toFixed(2);
   const vendorQrUrl = vendor.upi_qr_url?.trim() || "";
+  const vendorQrPayeeId = vendor.upi_qr_payee_id?.trim() || "";
 
   useEffect(() => {
     setLocalPaymentStatus(order.payment_status);
@@ -59,33 +72,44 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
   useEffect(() => {
     if (!open) {
       setActiveTab("upi");
-      setTimer(30);
-      setTimerActive(false);
       setPayTapped(false);
+      setUserConfirmedPaid(false);
+      setShowReturnPrompt(false);
       setUtr("");
       setSubmitting(false);
     }
   }, [open]);
 
   useEffect(() => {
-    if (!timerActive) return;
-    const id = window.setInterval(() => {
-      setTimer((t) => {
-        if (t <= 1) {
-          setTimerActive(false);
-          return 0;
-        }
-        return t - 1;
+    const onResume = () => {
+      if (!payTappedRef.current || userConfirmedPaidRef.current) return;
+      setShowReturnPrompt(true);
+    };
+
+    if (Capacitor.isNativePlatform()) {
+      let removeListener: (() => void) | undefined;
+      void App.addListener("appStateChange", ({ isActive }) => {
+        if (isActive) onResume();
+      }).then((handle) => {
+        removeListener = () => void handle.remove();
       });
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [timerActive]);
+      return () => {
+        removeListener?.();
+      };
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") onResume();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
 
   const selectTab = (tab: PaymentTab) => {
     setActiveTab(tab);
-    setTimer(30);
-    setTimerActive(false);
     setPayTapped(false);
+    setUserConfirmedPaid(false);
+    setShowReturnPrompt(false);
     setUtr("");
   };
 
@@ -93,8 +117,8 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
     const deepLink = `upi://pay?pa=${pa}&pn=${encodeURIComponent(vendor.shop_name)}&am=${order.amountRupees}&tn=AaspaasOrder-${order.id}`;
     window.open(deepLink, "_blank");
     setPayTapped(true);
-    setTimer(30);
-    setTimerActive(true);
+    setUserConfirmedPaid(false);
+    setShowReturnPrompt(false);
   };
 
   const handlePayNowUpi = () => {
@@ -105,6 +129,11 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
   const handlePayNowMobile = () => {
     if (!vendor.phone) return;
     openDeepLink(`${vendor.phone}@upi`);
+  };
+
+  const handlePayNowQr = () => {
+    if (!vendorQrPayeeId) return;
+    openDeepLink(vendorQrPayeeId);
   };
 
   const handleSubmitUtr = useCallback(async () => {
@@ -138,8 +167,40 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
 
   const showUtrInput =
     activeTab === "qr"
-      ? !!vendorQrUrl
-      : payTapped && !timerActive && timer === 0;
+      ? vendorQrPayeeId
+        ? userConfirmedPaid
+        : !!vendorQrUrl
+      : userConfirmedPaid;
+
+  const returnPromptBlock = showReturnPrompt ? (
+    <div className="space-y-2 rounded-xl border border-surface-border bg-surface px-3 py-3">
+      <p className="text-sm text-foreground text-center font-medium">{s.payment_didYouPay}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setShowReturnPrompt(false);
+            setUserConfirmedPaid(true);
+          }}
+          className="rounded-xl bg-brand text-white text-sm font-semibold py-2.5 active:scale-[0.98]"
+        >
+          {s.payment_yesPaid}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setShowReturnPrompt(false);
+            setPayTapped(false);
+            setUserConfirmedPaid(false);
+            setUtr("");
+          }}
+          className="rounded-xl border border-surface-border text-sm font-semibold py-2.5 active:scale-[0.98]"
+        >
+          {s.payment_noPaid}
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   const handleOpenChange = (next: boolean) => {
     if (!next) onClose();
@@ -198,11 +259,7 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
                       {s.payment_pay_now}
                     </button>
                   )}
-                  {timerActive && timer > 0 && (
-                    <p className="text-sm text-muted-foreground text-center">
-                      {s.payment_timer.replace("{n}", String(timer))}
-                    </p>
-                  )}
+                  {returnPromptBlock}
                 </div>
               )}
 
@@ -217,20 +274,29 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
                       {s.payment_pay_now}
                     </button>
                   )}
-                  {timerActive && timer > 0 && (
-                    <p className="text-sm text-muted-foreground text-center">
-                      {s.payment_timer.replace("{n}", String(timer))}
-                    </p>
-                  )}
+                  {returnPromptBlock}
                 </div>
               )}
 
               {activeTab === "qr" && (
                 <div className="space-y-3 text-center">
-                  {!vendorQrUrl ? (
+                  {!vendorQrUrl && !vendorQrPayeeId ? (
                     <p className="text-xs text-muted-foreground">
                       Vendor hasn&apos;t uploaded a QR code yet
                     </p>
+                  ) : vendorQrPayeeId ? (
+                    <div className="space-y-3">
+                      {!payTapped && (
+                        <button
+                          type="button"
+                          onClick={handlePayNowQr}
+                          className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
+                        >
+                          {s.payment_pay_now}
+                        </button>
+                      )}
+                      {returnPromptBlock}
+                    </div>
                   ) : (
                     <>
                       <img
@@ -305,8 +371,9 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
                 onClick={() => {
                   setLocalPaymentStatus("unpaid");
                   setUtr("");
-                  setTimer(30);
-                  setTimerActive(false);
+                  setPayTapped(false);
+                  setUserConfirmedPaid(false);
+                  setShowReturnPrompt(false);
                 }}
                 className="w-full min-h-11 rounded-2xl border border-surface-border text-sm font-semibold text-foreground py-3 active:scale-[0.98] transition-transform"
               >

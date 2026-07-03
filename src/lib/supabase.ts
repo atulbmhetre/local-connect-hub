@@ -663,6 +663,7 @@ export type RegisterVendorParams = {
   category_ids: string[];
   category_service_modes: string[];
   upi_qr_url?: string | null;
+  upi_qr_payee_id?: string | null;
 };
 
 export type RegisterVendorResult =
@@ -690,6 +691,7 @@ export async function invokeRegisterVendor(
       p_category_ids: params.category_ids,
       p_category_service_modes: params.category_service_modes,
       p_upi_qr_url: params.upi_qr_url ?? null,
+      p_upi_qr_payee_id: params.upi_qr_payee_id ?? null,
     });
     if (error) {
       return { ok: false, error: error.message, code: error.code };

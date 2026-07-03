@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import jsQR from "jsqr";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
@@ -117,6 +118,45 @@ function isDuplicateVendorPhoneError(error: { code?: string; message?: string })
     (msg.includes("duplicate") || msg.includes("unique")) &&
     (msg.includes("phone") || msg.includes("vendors"))
   );
+}
+
+const UPI_VPA_REGEX = /^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/;
+
+export function parseUpiPayeeIdFromQrPayload(data: string): string | null {
+  const trimmed = data.trim();
+  if (!trimmed) return null;
+  if (!trimmed.startsWith("upi://pay")) return null;
+  try {
+    const queryStart = trimmed.indexOf("?");
+    const search = queryStart >= 0 ? trimmed.slice(queryStart + 1) : trimmed;
+    const pa = new URLSearchParams(search).get("pa")?.trim();
+    if (!pa || !UPI_VPA_REGEX.test(pa)) return null;
+    return pa;
+  } catch {
+    return null;
+  }
+}
+
+async function decodeUpiPayeeIdFromImageFile(file: File): Promise<string | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bitmap.close();
+      return null;
+    }
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const result = jsQR(imageData.data, imageData.width, imageData.height);
+    if (!result?.data) return null;
+    return parseUpiPayeeIdFromQrPayload(result.data);
+  } catch {
+    return null;
+  }
 }
 
 type ServiceModeValue = "" | "help" | "delivery" | "appointment" | "booking";
@@ -351,6 +391,7 @@ const VendorMode = () => {
   const [upi, setUpi] = useState("");
   const [upiBlurred, setUpiBlurred] = useState(false);
   const [upiQrUrl, setUpiQrUrl] = useState("");
+  const [upiQrPayeeId, setUpiQrPayeeId] = useState<string | null>(null);
   const [upiQrUploading, setUpiQrUploading] = useState(false);
   const upiQrInputRef = useRef<HTMLInputElement>(null);
   const [phone, setPhone] = useState("");
@@ -757,6 +798,7 @@ const VendorMode = () => {
 
   const handleUpiQrFile = async (file: File) => {
     setUpiQrUploading(true);
+    setUpiQrPayeeId(null);
     const path = `upi-qr/${Date.now()}_${file.name}`;
     const { error: upErr } = await supabase.storage.from("vendor-docs").upload(path, file, {
       contentType: file.type || "image/jpeg",
@@ -769,6 +811,8 @@ const VendorMode = () => {
     }
     const { data: pub } = supabase.storage.from("vendor-docs").getPublicUrl(path);
     setUpiQrUrl(pub.publicUrl);
+    const payeeId = await decodeUpiPayeeIdFromImageFile(file);
+    setUpiQrPayeeId(payeeId);
     setUpiQrUploading(false);
   };
 
@@ -1055,6 +1099,7 @@ const VendorMode = () => {
       phone: phone.trim(),
       upi_id: upi.trim(),
       upi_qr_url: upiQrUrl || null,
+      upi_qr_payee_id: upiQrPayeeId,
       service_mode: primaryServiceMode,
       vendor_type: vendorType,
       vendor_note: vendorNote.trim() || null,
@@ -1965,7 +2010,10 @@ const VendorMode = () => {
                   />
                   <button
                     type="button"
-                    onClick={() => setUpiQrUrl("")}
+                    onClick={() => {
+                      setUpiQrUrl("");
+                      setUpiQrPayeeId(null);
+                    }}
                     className="text-sm font-medium text-destructive hover:underline"
                   >
                     Remove

@@ -586,6 +586,8 @@ export const strings = {
     myOrders_cancelledByVendor: 'Cancelled by vendor',
     myOrders_userCancelledNotifyTitle: 'Order cancelled by customer',
     myOrders_userCancelledNotifyBody: 'The customer has cancelled their order',
+    myOrders_orderDismissedNotifyTitle: 'Customer marked order as done',
+    myOrders_orderDismissedNotifyBody: 'The customer has marked this order as done on their end',
     myOrders_vendorCancelledDefault: 'Vendor cancelled this order',
     vendor_stopped_warning:
       'Your helper seems to have stopped. Are they okay? Try calling them.',
@@ -967,6 +969,7 @@ export const strings = {
       '⚠️ Please confirm you want to place this order. Vendors travel to fulfil requests — only place orders you genuinely need.',
     parchi_trust_medium_confirmBtn: 'Yes, place order',
     bill_title: '📋 Create Bill',
+    bill_view_title: 'View Bill',
     bill_addItem: '＋ Add Item',
     bill_total: 'Total',
     bill_cash: '💵 Cash',
@@ -976,6 +979,9 @@ export const strings = {
     bill_notes: 'Notes (optional)',
     bill_send: 'Send Bill',
     bill_sent: 'Bill sent!',
+    bill_confirmSendTitle: 'Send this bill?',
+    bill_confirmSendBody:
+      'Once sent, this bill cannot be edited — you can only void and replace it.',
     bill_sendFailed: 'Could not send bill. Try again.',
     bill_notifTitle: 'Bill from your vendor',
     bill_itemName: 'Item name',
@@ -988,6 +994,14 @@ export const strings = {
     bill_already_sent_body:
       'A bill was already sent for this order. Send again to replace it?',
     bill_marked_paid: 'Bill marked as paid',
+    bill_addToKhata: 'Add to Khata',
+    bill_khataLimitWarning:
+      "This will push the customer's dues above your warning limit.",
+    bill_khataOverLimitConfirm:
+      'This will push {customer} over their khata limit — add anyway?',
+    bill_errKhataNotUnpaid: 'Bill is already paid or voided',
+    bill_errKhataAlready: 'Already on khata',
+    bill_errKhataNoPhone: 'Missing customer phone',
     bill_editWarning:
       'Please review carefully — bills cannot be edited after sending. You can only void and replace.',
     bill_voiceUnavailable: 'Voice not available',
@@ -1174,6 +1188,9 @@ export const strings = {
     payment_qr: 'Scan QR Code',
     payment_amount_label: 'Amount to Pay',
     payment_timer: 'Opening your UPI app... ({n}s)',
+    payment_didYouPay: 'Did you complete the payment?',
+    payment_yesPaid: 'Yes',
+    payment_noPaid: 'No',
     payment_enter_utr: 'Enter UTR / Transaction ID',
     payment_submit_utr: 'Submit Payment',
     payment_claimed: 'Payment Sent — Awaiting vendor confirmation',
@@ -1816,6 +1833,8 @@ export const strings = {
     myOrders_cancelledByVendor: 'विक्रेता ने रद्द किया',
     myOrders_userCancelledNotifyTitle: 'ग्राहक ने ऑर्डर रद्द किया',
     myOrders_userCancelledNotifyBody: 'ग्राहक ने अपना ऑर्डर रद्द कर दिया है',
+    myOrders_orderDismissedNotifyTitle: 'ग्राहक ने ऑर्डर पूर्ण चिह्नित किया',
+    myOrders_orderDismissedNotifyBody: 'ग्राहक ने अपनी ओर से इस ऑर्डर को पूर्ण चिह्नित कर दिया है',
     myOrders_vendorCancelledDefault: 'विक्रेता ने यह ऑर्डर रद्द कर दिया',
     vendor_stopped_warning:
       'आपका सहायक रुक गया लगता है। क्या वे ठीक हैं? उन्हें कॉल करें।',
@@ -2197,6 +2216,7 @@ export const strings = {
       '⚠️ कृपया पुष्टि करें कि आप यह ऑर्डर देना चाहते हैं। विक्रेता अनुरोध पूरे करने के लिए यात्रा करते हैं — केवल वही ऑर्डर दें जिसकी आपको वास्तव में आवश्यकता हो।',
     parchi_trust_medium_confirmBtn: 'हाँ, ऑर्डर भेजें',
     bill_title: '📋 बिल बनाएं',
+    bill_view_title: 'बिल देखें',
     bill_addItem: '＋ आइटम जोड़ें',
     bill_total: 'कुल',
     bill_cash: '💵 नकद',
@@ -2206,6 +2226,9 @@ export const strings = {
     bill_notes: 'नोट्स (वैकल्पिक)',
     bill_send: 'बिल भेजें',
     bill_sent: 'बिल भेज दिया!',
+    bill_confirmSendTitle: 'क्या यह बिल भेजें?',
+    bill_confirmSendBody:
+      'भेजने के बाद, इस बिल को संपादित नहीं किया जा सकता — केवल रद्द करके नया भेज सकते हैं।',
     bill_sendFailed: 'बिल नहीं भेज सका। पुनः प्रयास करें।',
     bill_notifTitle: 'विक्रेता से बिल',
     bill_itemName: 'आइटम का नाम',
@@ -2218,6 +2241,14 @@ export const strings = {
     bill_already_sent_body:
       'इस ऑर्डर के लिए पहले से बिल भेजा जा चुका है। बदलने के लिए फिर से भेजें?',
     bill_marked_paid: 'बिल भुगतान किया गया',
+    bill_addToKhata: 'खाते में जोड़ें',
+    bill_khataLimitWarning:
+      'इससे ग्राहक का बकाया आपकी चेतावनी सीमा से ऊपर चला जाएगा।',
+    bill_khataOverLimitConfirm:
+      'इससे {customer} की खाता सीमा पार हो जाएगी — फिर भी जोड़ें?',
+    bill_errKhataNotUnpaid: 'बिल पहले से भुगतान या रद्द है',
+    bill_errKhataAlready: 'पहले से खाते में है',
+    bill_errKhataNoPhone: 'ग्राहक का फ़ोन नंबर नहीं है',
     bill_editWarning:
       'कृपया ध्यान से जांचें — बिल भेजने के बाद संपादित नहीं किया जा सकता। केवल रद्द करके नया भेज सकते हैं।',
     bill_voiceUnavailable: 'आवाज उपलब्ध नहीं',
@@ -2404,6 +2435,9 @@ export const strings = {
     payment_qr: 'QR कोड स्कैन करें',
     payment_amount_label: 'भुगतान की राशि',
     payment_timer: 'आपका UPI ऐप खोला जा रहा है... ({n}s)',
+    payment_didYouPay: 'क्या आपने भुगतान पूरा किया?',
+    payment_yesPaid: 'हाँ',
+    payment_noPaid: 'नहीं',
     payment_enter_utr: 'UTR / लेनदेन ID दर्ज करें',
     payment_submit_utr: 'भुगतान जमा करें',
     payment_claimed: 'भुगतान भेजा गया — विक्रेता की पुष्टि की प्रतीक्षा',
@@ -3046,6 +3080,8 @@ export const strings = {
     myOrders_cancelledByVendor: 'विक्रेत्याने रद्द केले',
     myOrders_userCancelledNotifyTitle: 'ग्राहकाने ऑर्डर रद्द केले',
     myOrders_userCancelledNotifyBody: 'ग्राहकाने त्यांचा ऑर्डर रद्द केला आहे',
+    myOrders_orderDismissedNotifyTitle: 'ग्राहकाने ऑर्डर पूर्ण म्हणून चिन्हांकित केले',
+    myOrders_orderDismissedNotifyBody: 'ग्राहकाने त्यांच्या बाजूने हा ऑर्डर पूर्ण म्हणून चिन्हांकित केला आहे',
     myOrders_vendorCancelledDefault: 'विक्रेत्याने हा ऑर्डर रद्द केला',
     vendor_stopped_warning:
       'तुमचा मदतनीस थांबला असल्यासारखे वाटते. ते ठीक आहेत का? कॉल करा.',
@@ -3426,6 +3462,7 @@ export const strings = {
       '⚠️ कृपया पुष्टी करा की तुम्हाला हा ऑर्डर द्यायचा आहे. विक्रेते विनंत्या पूर्ण करण्यासाठी प्रवास करतात — फक्त खरोखर गरजेचे ऑर्डर द्या.',
     parchi_trust_medium_confirmBtn: 'होय, ऑर्डर द्या',
     bill_title: '📋 बिल तयार करा',
+    bill_view_title: 'बिल पहा',
     bill_addItem: '＋ आयटम जोडा',
     bill_total: 'एकूण',
     bill_cash: '💵 रोख',
@@ -3435,6 +3472,9 @@ export const strings = {
     bill_notes: 'नोट्स (ऐच्छिक)',
     bill_send: 'बिल पाठवा',
     bill_sent: 'बिल पाठवले!',
+    bill_confirmSendTitle: 'हा बिल पाठवायचा?',
+    bill_confirmSendBody:
+      'पाठवल्यानंतर, हा बिल संपादित करता येत नाही — फक्त रद्द करून पुन्हा पाठवू शकता.',
     bill_sendFailed: 'बिल पाठवता आले नाही. पुन्हा प्रयत्न करा.',
     bill_notifTitle: 'विक्रेत्याकडून बिल',
     bill_itemName: 'आयटमचे नाव',
@@ -3447,6 +3487,14 @@ export const strings = {
     bill_already_sent_body:
       'या ऑर्डरसाठी आधीच बिल पाठवले आहे. बदलण्यासाठी पुन्हा पाठवायचे?',
     bill_marked_paid: 'बिल भरले म्हणून नोंदवले',
+    bill_addToKhata: 'खात्यात जोडा',
+    bill_khataLimitWarning:
+      'यामुळे ग्राहकाची थकबाकी तुमच्या सावधगिरी मर्यादेपेक्षा वाढेल.',
+    bill_khataOverLimitConfirm:
+      'यामुळे {customer} ची खाता मर्यादा ओलांडेल — तरीही जोडायचे?',
+    bill_errKhataNotUnpaid: 'बिल आधीच भरले किंवा रद्द केले',
+    bill_errKhataAlready: 'आधीच खात्यात आहे',
+    bill_errKhataNoPhone: 'ग्राहकाचा फोन नंबर नाही',
     bill_editWarning:
       'कृपया काळजीपूर्वक तपासा — बिल पाठवल्यानंतर संपादित करता येत नाही. फक्त रद्द करून पुन्हा पाठवू शकता.',
     bill_voiceUnavailable: 'आवाज उपलब्ध नाही',
@@ -3633,6 +3681,9 @@ export const strings = {
     payment_qr: 'QR कोड स्कॅन करा',
     payment_amount_label: 'देय रक्कम',
     payment_timer: 'तुमचे UPI अॅप उघडत आहे... ({n}s)',
+    payment_didYouPay: 'तुम्ही पेमेंट पूर्ण केले का?',
+    payment_yesPaid: 'होय',
+    payment_noPaid: 'नाही',
     payment_enter_utr: 'UTR / व्यवहार ID टाका',
     payment_submit_utr: 'पेमेंट सादर करा',
     payment_claimed: 'पेमेंट पाठवले — विक्रेत्याच्या पुष्टीची वाट पाहत आहे',

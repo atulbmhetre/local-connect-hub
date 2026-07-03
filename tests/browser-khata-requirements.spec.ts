@@ -26,6 +26,8 @@ const L = {
   khataPaidNotifBody: 'Your ledger has been cleared',
   billNotifTitle: 'Bill from your vendor',
   billSent: 'Bill sent!',
+  sendBill: 'Send Bill',
+  confirmSendTitle: 'Send this bill?',
   khataRecordPayment: 'Record Payment',
   khataSavePayment: 'Save Payment',
   billCash: '💵 Cash',
@@ -196,6 +198,12 @@ async function fillBillLine(page: Page, description: string, unitPrice: number) 
   await page.getByPlaceholder('Item name').fill(description);
   const priceInput = page.locator('input[aria-label="Unit price"]');
   await priceInput.fill(String(unitPrice));
+}
+
+async function confirmSendBillInDialog(page: Page) {
+  const dialog = page.getByRole('alertdialog').filter({ hasText: L.confirmSendTitle });
+  await expect(dialog).toBeVisible({ timeout: 5000 });
+  await dialog.getByRole('button', { name: L.sendBill }).click();
 }
 
 test.afterAll(async () => {
@@ -482,6 +490,7 @@ test('KB-REQ-12 — Customer notified when vendor sends bill', async ({ page }) 
 
   const since = new Date(Date.now() - 30000).toISOString();
   await page.getByTestId('bill-submit-btn').click();
+  await confirmSendBillInDialog(page);
   await expect(page.locator('[data-sonner-toast]').getByText(L.billSent)).toBeVisible({
     timeout: 10000,
   });

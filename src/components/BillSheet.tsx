@@ -70,6 +70,7 @@ export function BillSheet({
   const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "khata">("cash");
   const [sending, setSending] = useState(false);
   const [replaceDialogOpen, setReplaceDialogOpen] = useState(false);
+  const [confirmSendDialogOpen, setConfirmSendDialogOpen] = useState(false);
   const [notes, setNotes] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
@@ -361,6 +362,11 @@ export function BillSheet({
       return;
     }
 
+    setConfirmSendDialogOpen(true);
+  };
+
+  const confirmSendBill = async () => {
+    setConfirmSendDialogOpen(false);
     setSending(true);
     await executeSendBill();
   };
@@ -387,6 +393,27 @@ export function BillSheet({
             onClick={(e) => {
               e.preventDefault();
               void confirmReplaceBill();
+            }}
+          >
+            {s.bill_send}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <AlertDialog open={confirmSendDialogOpen} onOpenChange={setConfirmSendDialogOpen}>
+      <AlertDialogContent className="rounded-2xl border border-border bg-card">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{s.bill_confirmSendTitle}</AlertDialogTitle>
+          <AlertDialogDescription>{s.bill_confirmSendBody}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+          <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={sending}
+            onClick={(e) => {
+              e.preventDefault();
+              void confirmSendBill();
             }}
           >
             {s.bill_send}

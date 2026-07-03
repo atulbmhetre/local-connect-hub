@@ -226,6 +226,14 @@ function isDeliveryAcceptedOverdue(
   return t < Date.now();
 }
 
+export function wasOrderEngaged(r: Pick<RowWithShop, "status" | "appointment_status">): boolean {
+  return (
+    r.status === "accepted" ||
+    r.status === "fulfilled" ||
+    r.appointment_status === "confirmed"
+  );
+}
+
 function isBookingConfirmedOverdue(
   r: Pick<OrderRequestRow, "appointment_time" | "appointment_status" | "status">,
 ): boolean {
@@ -364,6 +372,7 @@ const MyOrders = () => {
     upi_id: string;
     phone: string;
     upi_qr_url: string | null;
+    upi_qr_payee_id: string | null;
   }>(null);
   const [paymentSheetLoadingId, setPaymentSheetLoadingId] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -804,6 +813,7 @@ const MyOrders = () => {
 
   const markDone = async (target: RowWithShop | string) => {
     const id = typeof target === "string" ? target : target.id;
+    const row = typeof target === "string" ? null : target;
     const rowPhone = typeof target === "string" ? null : target.user_phone;
     const rowDevice = typeof target === "string" ? null : target.device_id;
     setMarkingId(id);
@@ -819,6 +829,18 @@ const MyOrders = () => {
     if (error) {
       toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
       return;
+    }
+    if (row && wasOrderEngaged(row)) {
+      const vendorPhone = row.vendors?.phone?.trim();
+      if (vendorPhone) {
+        void invokeNotifyVendor({
+          vendor_id: row.vendor_id,
+          notification_title: s.myOrders_orderDismissedNotifyTitle,
+          message: s.myOrders_orderDismissedNotifyBody,
+          request_id: row.id,
+          type: "order_update",
+        });
+      }
     }
     setRows((prev) => prev.filter((r) => r.id !== id));
   };
@@ -838,7 +860,7 @@ const MyOrders = () => {
       toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
       return;
     }
-    if (vendorPhone) {
+    if (vendorPhone && wasOrderEngaged(r)) {
       void invokeNotifyVendor({
         vendor_id: r.vendor_id,
         notification_title: s.myOrders_userCancelledNotifyTitle,
@@ -866,7 +888,7 @@ const MyOrders = () => {
       toast.error(s.myOrders_errCouldNotCancel, { description: error.message });
       return;
     }
-    if (vendorPhone) {
+    if (vendorPhone && wasOrderEngaged(r)) {
       void invokeNotifyVendor({
         vendor_id: r.vendor_id,
         notification_title: s.myOrders_userCancelledNotifyTitle,
@@ -1090,7 +1112,7 @@ const MyOrders = () => {
     setPaymentSheetLoadingId(r.id);
     const { data: vendorData, error } = await supabase
       .from("vendors")
-      .select("upi_id, upi_qr_url, phone")
+      .select("upi_id, upi_qr_url, upi_qr_payee_id, phone")
       .eq("id", r.vendor_id)
       .single();
     setPaymentSheetLoadingId(null);
@@ -1110,6 +1132,7 @@ const MyOrders = () => {
       upi_id: vendorData.upi_id ?? "",
       phone: vendorData.phone ?? r.vendors?.phone ?? "",
       upi_qr_url: vendorData.upi_qr_url ?? null,
+      upi_qr_payee_id: vendorData.upi_qr_payee_id ?? null,
     });
   };
 
@@ -1316,7 +1339,7 @@ const MyOrders = () => {
                                 ? `×${item.quantity}${item.unit ? item.unit : ""}`
                                 : ""}
                             </span>
-                            <span>₹{item.total_price.toFixed(2)}</span>
+                            <span>₹{(item.total_price ?? item.quantity * item.unit_price).toFixed(2)}</span>
                           </div>
                         ))}
                       </div>
