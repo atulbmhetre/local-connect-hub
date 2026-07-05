@@ -17,6 +17,14 @@ import {
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { getVoiceLang } from "@/lib/voiceUtils";
+import { persistVendorServiceRadius } from "@/lib/vendorServiceRadius";
+import { NetworkExhaustedError, withNetworkRetry } from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -712,15 +720,38 @@ export function VendorSettings({
 
   const handleServiceRadiusChange = async (km: number) => {
     if (km === normalizeServiceRadiusKm(vendor.service_radius_km)) return;
+    if (!vendorPhone) {
+      toast.error(s.vendor_radius_save_error);
+      return;
+    }
     setSavingServiceRadius(true);
     try {
-      const { error } = await patchVendor({ service_radius_km: km });
-      if (error) {
-        toast.error(error.message);
+      const result = await withNetworkRetry(
+        () => persistVendorServiceRadius(vendor.id, vendorPhone, km),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (!result.ok) {
+        toast.error(s.vendor_radius_save_error);
         return;
       }
       onVendorUpdated({ ...vendor, service_radius_km: km });
       toast.success(s.vendor_radius_saved);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleServiceRadiusChange(km), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
     } finally {
       setSavingServiceRadius(false);
     }

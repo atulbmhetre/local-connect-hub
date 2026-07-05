@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -25,6 +25,12 @@ import { VerificationBadge, vendorTier } from "@/components/VerificationBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { useLanguage } from "@/lib/language";
 import { toast } from "sonner";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
 import { cn } from "@/lib/utils";
 
 // Stalled threshold: if helper coords don't move for 2 minutes, alert.
@@ -76,6 +82,7 @@ const LiveTracking = () => {
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [loading, setLoading] = useState(true);
+  const [networkLoadStatus, setNetworkLoadStatus] = useState<"retrying" | "failed" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<{ lat: number; lng: number } | null>(null);
   const [helper, setHelper] = useState<{ lat: number; lng: number } | null>(null);
@@ -97,40 +104,53 @@ const LiveTracking = () => {
   const torchTrackRef = useRef<MediaStreamTrack | null>(null);
   const flashTimerRef = useRef<number | null>(null);
 
+  const fetchVendor = useCallback(async () => {
+    if (!vendorId) return;
+    setLoading(true);
+    setNetworkLoadStatus(null);
+    setError(null);
+    try {
+      const { data, error: fetchError } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.from("vendors").select("*").eq("id", vendorId).maybeSingle(),
+          ),
+        {
+          onRetrying: () => setNetworkLoadStatus("retrying"),
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      if (fetchError) {
+        setError(fetchError.message);
+        return;
+      }
+      if (!data) {
+        setError("Responder no longer available.");
+        return;
+      }
+      const v = data as Vendor;
+      setVendor(v);
+      if (v.latitude != null && v.longitude != null) {
+        const h = { lat: v.latitude, lng: v.longitude };
+        setHelper(h);
+        lastCoordsRef.current = h;
+        lastMoveRef.current = Date.now();
+      }
+    } catch (e: unknown) {
+      if (e instanceof NetworkExhaustedError) {
+        setNetworkLoadStatus("failed");
+      } else {
+        setError(e instanceof Error ? e.message : "Could not load responder.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [vendorId]);
+
   // Fetch vendor + initial helper coords.
   useEffect(() => {
-    if (!vendorId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from("vendors")
-          .select("*")
-          .eq("id", vendorId)
-          .maybeSingle();
-        if (error) throw error;
-        if (!data) throw new Error("Responder no longer available.");
-        if (cancelled) return;
-        const v = data as Vendor;
-        setVendor(v);
-        if (v.latitude != null && v.longitude != null) {
-          const h = { lat: v.latitude, lng: v.longitude };
-          setHelper(h);
-          lastCoordsRef.current = h;
-          lastMoveRef.current = Date.now();
-        }
-      } catch (e: unknown) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Could not load responder.");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [vendorId]);
+    void fetchVendor();
+  }, [fetchVendor]);
 
   // User GPS — high accuracy, watched.
   useEffect(() => {
@@ -348,9 +368,38 @@ const LiveTracking = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-page-bg grid place-items-center text-white">
-        <div className="flex items-center gap-2 text-sm text-gray-400">
+        <div className="flex flex-col items-center gap-2 text-sm text-gray-400 px-6 text-center">
           <Loader2 className="h-4 w-4 animate-spin text-brand" />
-          Opening secure tracking channel…
+          {networkLoadStatus === "retrying"
+            ? s.network_retrying
+            : "Opening secure tracking channel…"}
+        </div>
+      </div>
+    );
+  }
+
+  if (networkLoadStatus === "failed") {
+    return (
+      <div className="min-h-screen bg-page-bg text-white p-6 flex flex-col gap-4">
+        <button
+          onClick={() => navigate(-1)}
+          className="h-10 w-10 grid place-items-center rounded-xl bg-surface border border-white/10"
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <div className="rounded-2xl bg-destructive/10 border border-destructive/40 p-4 flex gap-3">
+          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          <div className="space-y-3">
+            <p className="text-sm">{s.network_failed}</p>
+            <button
+              type="button"
+              onClick={() => void fetchVendor()}
+              className="rounded-xl bg-card border border-white/10 px-4 py-2 text-sm font-semibold active:scale-[0.98]"
+            >
+              {s.network_retry_btn}
+            </button>
+          </div>
         </div>
       </div>
     );

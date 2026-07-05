@@ -106,6 +106,9 @@ export const strings = {
     ai_bridge_call_failed: 'Call failed. Please try again.',
     ai_bridge_call_now: '📞 Call Now',
     radar_connection_error: 'Connection Error',
+    network_retrying: 'Connection is slow — still trying...',
+    network_failed: "Couldn't connect. Check your internet and try again.",
+    network_retry_btn: 'Try again',
     radar_location_required_title: 'Location needed',
     radar_location_required_body:
       'We need your location to find vendors near you. Please enable location access and try again.',
@@ -1358,6 +1361,9 @@ export const strings = {
     ai_bridge_call_failed: 'कॉल विफल। कृपया पुनः प्रयास करें।',
     ai_bridge_call_now: '📞 अभी कॉल करें',
     radar_connection_error: 'कनेक्शन त्रुटी',
+    network_retrying: 'कनेक्शन धीमा है — फिर भी कोशिश जारी...',
+    network_failed: 'कनेक्ट नहीं हो सका। अपना इंटरनेट जांचें और फिर कोशिश करें।',
+    network_retry_btn: 'फिर कोशिश करें',
     radar_location_required_title: 'स्थान आवश्यक है',
     radar_location_required_body:
       'आपके पास के विक्रेता खोजने के लिए हमें आपका स्थान चाहिए। कृपया स्थान पहुंच सक्षम करें और पुनः प्रयास करें।',
@@ -2607,6 +2613,9 @@ export const strings = {
     ai_bridge_call_failed: 'कॉल अयशस्वी. पुन्हा प्रयत्न करा.',
     ai_bridge_call_now: '📞 आत्ताच कॉल करा',
     radar_connection_error: 'कनेक्शन त्रुटी',
+    network_retrying: 'कनेक्शन हळू आहे — अजून प्रयत्न करत आहोत...',
+    network_failed: 'कनेक्ट होऊ शकले नाही. तुमचे इंटरनेट तपासा आणि पुन्हा प्रयत्न करा.',
+    network_retry_btn: 'पुन्हा प्रयत्न करा',
     radar_location_required_title: 'स्थान आवश्यक आहे',
     radar_location_required_body:
       'तुमच्या जवळचे विक्रेते शोधण्यासाठी आम्हाला तुमचे स्थान हवे आहे. कृपया स्थान प्रवेश सक्षम करा आणि पुन्हा प्रयत्न करा.',
