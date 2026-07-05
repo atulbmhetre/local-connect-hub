@@ -23,9 +23,11 @@ describe("buildCoordsMapsUrl / buildAddressMapsUrl / resolveCustomerMapsUrl", ()
   it("MAPS-UNIT-01: coords provided → returns q=lat,lng with correct precision", () => {
     const lat = 18.50743;
     const lng = 73.80774;
-    expect(buildCoordsMapsUrl(lat, lng)).toBe("https://www.google.com/maps?q=18.50743,73.80774");
+    expect(buildCoordsMapsUrl(lat, lng)).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=18.50743,73.80774",
+    );
     expect(resolveCustomerMapsUrl(row({ customer_latitude: lat, customer_longitude: lng }))).toBe(
-      "https://www.google.com/maps?q=18.50743,73.80774",
+      "https://www.google.com/maps/dir/?api=1&destination=18.50743,73.80774",
     );
   });
 
@@ -46,7 +48,7 @@ describe("buildCoordsMapsUrl / buildAddressMapsUrl / resolveCustomerMapsUrl", ()
         delivery_address: "Some address",
       }),
     );
-    expect(url).toBe("https://www.google.com/maps?q=18.52,73.85");
+    expect(url).toBe("https://www.google.com/maps/dir/?api=1&destination=18.52,73.85");
   });
 
   it("MAPS-UNIT-04: null coords + null address → returns null", () => {
@@ -63,7 +65,7 @@ describe("buildCoordsMapsUrl / buildAddressMapsUrl / resolveCustomerMapsUrl", ()
 
   it("MAPS-UNIT-05: coords 0,0 → treated as valid coords", () => {
     expect(resolveCustomerMapsUrl(row({ customer_latitude: 0, customer_longitude: 0 }))).toBe(
-      "https://www.google.com/maps?q=0,0",
+      "https://www.google.com/maps/dir/?api=1&destination=0,0",
     );
   });
 
@@ -88,7 +90,7 @@ describe("resolveVendorNavigateToCustomerUrl / resolveCustomerNavigateToVendorUr
       customer_latitude: 18.1,
       customer_longitude: 73.2,
     }));
-    expect(url).toBe("https://www.google.com/maps?q=18.1,73.2");
+    expect(url).toBe("https://www.google.com/maps/dir/?api=1&destination=18.1,73.2");
   });
 
   it("MAPS-UNIT-09: help mode, vendor navigates to customer location", () => {
@@ -96,7 +98,7 @@ describe("resolveVendorNavigateToCustomerUrl / resolveCustomerNavigateToVendorUr
       customer_latitude: 19.0,
       customer_longitude: 72.5,
     }));
-    expect(url).toBe("https://www.google.com/maps?q=19,72.5");
+    expect(url).toBe("https://www.google.com/maps/dir/?api=1&destination=19,72.5");
   });
 
   it("MAPS-UNIT-10: booking come to me, vendor navigates to customer location", () => {
@@ -105,7 +107,7 @@ describe("resolveVendorNavigateToCustomerUrl / resolveCustomerNavigateToVendorUr
       customer_latitude: 18.50743,
       customer_longitude: 73.80774,
     }));
-    expect(url).toBe("https://www.google.com/maps?q=18.50743,73.80774");
+    expect(url).toBe("https://www.google.com/maps/dir/?api=1&destination=18.50743,73.80774");
   });
 
   it("MAPS-UNIT-11: booking I'll come to you, customer navigates to vendor shop", () => {
@@ -118,7 +120,7 @@ describe("resolveVendorNavigateToCustomerUrl / resolveCustomerNavigateToVendorUr
         longitude: 73.8567,
       },
     });
-    expect(url).toBe("https://www.google.com/maps?q=18.5204,73.8567");
+    expect(url).toBe("https://www.google.com/maps/dir/?api=1&destination=18.5204,73.8567");
   });
 
   it("MAPS-UNIT-12: booking I'll come to you, vendor side → no map", () => {

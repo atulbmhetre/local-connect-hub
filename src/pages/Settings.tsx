@@ -40,6 +40,13 @@ import {
   type Vendor,
 } from "@/lib/supabase";
 import { NotificationBell } from "@/components/NotificationBell";
+import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { logAdminAction } from "@/lib/adminAudit";
@@ -908,6 +915,7 @@ const Settings = () => {
     }[]
   >([]);
   const [subLoading, setSubLoading] = useState(false);
+  const [subNetworkStatus, setSubNetworkStatus] = useState<"retrying" | "failed" | null>(null);
   const [waivePhone, setWaivePhone] = useState("");
   const [waivePercent, setWaivePercent] = useState("");
   const [waiveMonths, setWaiveMonths] = useState("");
@@ -1503,34 +1511,54 @@ const Settings = () => {
 
   const loadSubVendors = async () => {
     setSubLoading(true);
-    const { data, error } = await supabase
-      .from("vendors")
-      .select(
-        "id, shop_name, phone, subscription_status, trial_ends_at, grace_ends_at, subscription_current_period_end, waiveoff_percent, waiveoff_months_remaining",
-      )
-      .in("subscription_status", ["grace", "expired", "cancelled"])
-      .order("grace_ends_at", { ascending: true, nullsFirst: false });
-    setSubLoading(false);
-    if (error) {
-      console.error("loadSubVendors", error);
-      toast.error(error.message);
-      return;
+    setSubNetworkStatus(null);
+    try {
+      const { data, error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase
+              .from("vendors")
+              .select(
+                "id, shop_name, phone, subscription_status, trial_ends_at, grace_ends_at, subscription_current_period_end, waiveoff_percent, waiveoff_months_remaining",
+              )
+              .in("subscription_status", ["grace", "expired", "cancelled"])
+              .order("grace_ends_at", { ascending: true, nullsFirst: false }),
+          ),
+        {
+          onRetrying: () => setSubNetworkStatus("retrying"),
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      if (error) {
+        console.error("loadSubVendors", error);
+        toast.error(error.message);
+        return;
+      }
+      setSubVendors(
+        (data ?? []).map((row) => ({
+          id: row.id as string,
+          shop_name: (row.shop_name as string | null)?.trim() || "Vendor",
+          phone: (row.phone as string | null) ?? null,
+          subscription_status: (row.subscription_status as string | null) ?? "trial",
+          trial_ends_at: (row.trial_ends_at as string | null) ?? null,
+          grace_ends_at: (row.grace_ends_at as string | null) ?? null,
+          subscription_current_period_end:
+            (row.subscription_current_period_end as string | null) ?? null,
+          waiveoff_percent: (row.waiveoff_percent as number | null) ?? null,
+          waiveoff_months_remaining:
+            (row.waiveoff_months_remaining as number | null) ?? null,
+        })),
+      );
+      setSubNetworkStatus(null);
+    } catch (err) {
+      if (err instanceof NetworkExhaustedError) {
+        setSubNetworkStatus("failed");
+      } else {
+        throw err;
+      }
+    } finally {
+      setSubLoading(false);
     }
-    setSubVendors(
-      (data ?? []).map((row) => ({
-        id: row.id as string,
-        shop_name: (row.shop_name as string | null)?.trim() || "Vendor",
-        phone: (row.phone as string | null) ?? null,
-        subscription_status: (row.subscription_status as string | null) ?? "trial",
-        trial_ends_at: (row.trial_ends_at as string | null) ?? null,
-        grace_ends_at: (row.grace_ends_at as string | null) ?? null,
-        subscription_current_period_end:
-          (row.subscription_current_period_end as string | null) ?? null,
-        waiveoff_percent: (row.waiveoff_percent as number | null) ?? null,
-        waiveoff_months_remaining:
-          (row.waiveoff_months_remaining as number | null) ?? null,
-      })),
-    );
   };
 
   const formatAdminDate = (value: string | null): string => {
@@ -2071,7 +2099,16 @@ const Settings = () => {
   const reset = async () => {
     const phone = localStorage.getItem("aaspaas:user_phone");
     if (phone) {
-      await supabase.from("user_addresses").delete().eq("user_phone", phone);
+      const { data: addressRows } = await supabase
+        .from("user_addresses")
+        .select("id")
+        .eq("user_phone", phone);
+      for (const row of addressRows ?? []) {
+        await supabase.rpc("delete_user_address", {
+          p_user_phone: phone,
+          p_address_id: row.id,
+        });
+      }
       await supabase.rpc("delete_user_devices_for_phone", { p_user_phone: phone });
     }
     const keysToClear = [
@@ -2090,7 +2127,7 @@ const Settings = () => {
       "aaspaas:voice_lang",
     ];
     keysToClear.forEach((key) => localStorage.removeItem(key));
-    location.reload();
+    window.location.reload();
   };
 
   const startEditAddress = (addr: (typeof addresses)[number]) => {
@@ -2211,7 +2248,7 @@ const Settings = () => {
     } catch {
       /* ignore */
     }
-    window.setTimeout(() => location.reload(), 1500);
+    window.setTimeout(() => window.location.reload(), 1500);
   };
 
   const cancelAccountDeletion = async () => {
@@ -2748,7 +2785,7 @@ const Settings = () => {
                 type="button"
                 onClick={() => {
                   localStorage.setItem('aaspaas:user_phone', devPhone);
-                  location.reload();
+                  window.location.reload();
                 }}
                 className="rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground"
               >
@@ -3279,15 +3316,25 @@ const Settings = () => {
             }}
           >
             <div className="space-y-3">
-              {subLoading && (
+              {subNetworkStatus && (
+                <NetworkErrorBanner
+                  status={subNetworkStatus}
+                  className="mb-0"
+                  onRetry={
+                    subNetworkStatus === "failed" ? () => void loadSubVendors() : undefined
+                  }
+                />
+              )}
+              {subLoading && !subNetworkStatus && (
                 <p className="text-sm text-muted-foreground">Loading subscription data…</p>
               )}
-              {!subLoading && subVendors.length === 0 && (
+              {!subLoading && subNetworkStatus !== "failed" && subVendors.length === 0 && (
                 <p className="text-sm text-muted-foreground">
                   No vendors currently in grace/expired/cancelled state.
                 </p>
               )}
               {!subLoading &&
+                subNetworkStatus !== "failed" &&
                 subVendors.map((v) => {
                   const phoneLabel = v.phone ? maskPhoneLast4(v.phone) : "—";
                   const status = v.subscription_status;

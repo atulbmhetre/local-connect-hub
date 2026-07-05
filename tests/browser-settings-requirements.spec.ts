@@ -459,40 +459,48 @@ test('SET-REQ-16 — Admin App Config shows all 24 whitelisted keys', async ({ p
 test('SET-REQ-17 — Admin config UPSERT — saves new key that does not exist in DB', async ({
   page,
 }) => {
-  await supabaseAdmin.from('app_config').delete().eq('key', 'vendor_trial_days');
+  // Isolated probe key — never touch real settings like vendor_trial_days (safe on PROD).
+  const probeKey = `test_config_probe_${T}`;
+  try {
+    await supabaseAdmin.from('app_config').delete().eq('key', probeKey);
 
-  await loginAsAdmin(page, DEVICE_ID);
-  await gotoSettings(page);
-  await waitForSettingsAdminReady(page);
-  await page.getByRole('button', { name: L.appConfig }).click();
-  const panel = page.getByTestId('admin-panel');
-  const row = panel
-    .locator('div.rounded-2xl.border.border-border.p-3')
-    .filter({ hasText: L.vendorTrialLabel });
-  await expect(row).toBeVisible({ timeout: 15000 });
-  await row.scrollIntoViewIfNeeded();
-  const input = row.locator('input');
-  await input.click();
-  await input.clear();
-  await input.pressSequentially('21');
-  await expect(input).toHaveValue('21');
-  await input.press('Tab');
-  await row.getByRole('button', { name: 'Save' }).click();
-  await expect(page.locator('[data-sonner-toast]').getByText('Config updated')).toBeVisible({
-    timeout: 8000,
-  });
-  await page.waitForTimeout(1500);
+    await loginAsAdmin(page, DEVICE_ID);
+    await gotoSettings(page);
+    await waitForSettingsAdminReady(page);
+    await page.getByRole('button', { name: L.appConfig }).click();
+    await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 15000 });
 
-  await expect
-    .poll(async () => {
-      const { data } = await supabaseAdmin
-        .from('app_config')
-        .select('value')
-        .eq('key', 'vendor_trial_days')
-        .maybeSingle();
-      return data?.value ?? null;
-    })
-    .toBe('21');
+    // Same RPC the admin UI Save button uses (admin_update_app_config), with a test-only key.
+    const adminPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
+    expect(adminPhone).toBeTruthy();
+
+    const rpcError = await page.evaluate(
+      async ({ adminPhone, probeKey }) => {
+        const { supabase } = await import('/src/lib/supabase.ts');
+        const { error } = await supabase.rpc('admin_update_app_config', {
+          p_admin_phone: adminPhone,
+          p_key: probeKey,
+          p_value: '21',
+        });
+        return error?.message ?? null;
+      },
+      { adminPhone: adminPhone!, probeKey },
+    );
+    expect(rpcError, rpcError ?? undefined).toBeNull();
+
+    await expect
+      .poll(async () => {
+        const { data } = await supabaseAdmin
+          .from('app_config')
+          .select('value')
+          .eq('key', probeKey)
+          .maybeSingle();
+        return data?.value ?? null;
+      })
+      .toBe('21');
+  } finally {
+    await supabaseAdmin.from('app_config').delete().eq('key', probeKey);
+  }
 });
 
 test('SET-REQ-18 — Admin Pending Categories section visible', async ({ page }) => {

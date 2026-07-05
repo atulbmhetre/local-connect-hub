@@ -135,7 +135,7 @@ test('TRUST-03: user flag inserted correctly', async () => {
       vendor_id: testVendor.id,
       request_id: order.id,
       user_phone: TEST_CUSTOMER_PHONE,
-      flag_type: 'no_show',
+      flag_type: 'noshow',
       notes: 'Customer never showed up',
       reviewed_by_admin: false,
     })
@@ -143,7 +143,7 @@ test('TRUST-03: user flag inserted correctly', async () => {
     .single();
 
   expect(error).toBeNull();
-  expect(data.flag_type).toBe('no_show');
+  expect(data.flag_type).toBe('noshow');
   expect(data.reviewed_by_admin).toBe(false);
 });
 

@@ -400,43 +400,6 @@ function supabaseAuthStorageKey(): string | null {
   return ref ? `sb-${ref}-auth-token` : null;
 }
 
-const SESSION_CACHE_FILE = path.join(os.tmpdir(), 'aaspaas-session-cache.json');
-
-type CachedSession = {
-  access_token: string;
-  refresh_token: string;
-  expires_at: number;
-};
-
-function readSessionCache(phone: string): CachedSession | null {
-  try {
-    const raw = fs.readFileSync(SESSION_CACHE_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as Record<string, CachedSession>;
-    const entry = parsed[phone];
-    if (!entry) return null;
-    if (entry.expires_at > Math.floor(Date.now() / 1000)) return entry;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function writeSessionCache(phone: string, session: CachedSession): void {
-  try {
-    let data: Record<string, CachedSession> = {};
-    try {
-      const raw = fs.readFileSync(SESSION_CACHE_FILE, 'utf8');
-      data = JSON.parse(raw) as Record<string, CachedSession>;
-    } catch {
-      // file missing or invalid — start fresh
-    }
-    data[phone] = session;
-    fs.writeFileSync(SESSION_CACHE_FILE, JSON.stringify(data), 'utf8');
-  } catch {
-    // ignore write failures
-  }
-}
-
 function testAuthEmail(tenDigitPhone: string): string {
   return `test+91${tenDigitPhone}@aaspaas.invalid`;
 }
@@ -504,68 +467,85 @@ async function ensureTestAuthUser(tenDigitPhone: string, logTag: string): Promis
   return false;
 }
 
-/** Mint session via service role — bypasses SMS OTP rate limits in browser tests. */
-async function mintSessionViaAdmin(
+/** Sign in inside the browser so auth-js handles ES256/JWKS against the same project as tests. */
+async function signInTestUserInBrowser(
+  page: Page,
   tenDigitPhone: string,
   logTag: string,
-): Promise<CachedSession | null> {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
-
-  const ready = await ensureTestAuthUser(tenDigitPhone, logTag);
-  if (!ready) return null;
-
-  const authClient = createClient(
-    process.env.VITE_SUPABASE_URL!,
-    process.env.VITE_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  );
-
-  const { data, error } = await authClient.auth.signInWithPassword({
-    email: testAuthEmail(tenDigitPhone),
-    password: testAuthPassword(tenDigitPhone),
-  });
-
-  const session = data?.session;
-  if (error || !session?.access_token || session.expires_at == null) {
-    console.warn(
-      `[${logTag}] admin signInWithPassword failed:`,
-      error?.message ?? 'missing session',
+): Promise<boolean> {
+  const email = testAuthEmail(tenDigitPhone);
+  const password = testAuthPassword(tenDigitPhone);
+  const expectedUrl = process.env.VITE_SUPABASE_URL ?? '';
+  try {
+    await page.evaluate(
+      async ({ email, password, expectedUrl }) => {
+        const { supabase, SUPABASE_URL } = await import('/src/lib/supabase.ts');
+        if (expectedUrl && SUPABASE_URL !== expectedUrl) {
+          throw new Error(
+            `Supabase URL mismatch: app uses ${SUPABASE_URL}, tests expect ${expectedUrl}. ` +
+              'Restart Playwright so webServer starts Vite with VITE_SUPABASE_URL from .env.test.',
+          );
+        }
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw new Error(error.message);
+      },
+      { email, password, expectedUrl },
     );
-    return null;
+    return true;
+  } catch (err) {
+    console.warn(`[${logTag}] browser signInWithPassword failed:`, err);
+    return false;
   }
-
-  return {
-    access_token: session.access_token,
-    refresh_token: session.refresh_token,
-    expires_at: session.expires_at,
-  };
 }
 
-async function writeSessionToPage(
+async function verifyOtpInBrowser(
   page: Page,
-  storageKey: string,
-  session: CachedSession,
-): Promise<void> {
-  await page.evaluate(
-    async ({ key, payload }) => {
-      localStorage.setItem(key, JSON.stringify(payload));
-      const { supabase } = await import('/src/lib/supabase.ts');
-      const { error } = await supabase.auth.setSession({
-        access_token: payload.access_token,
-        refresh_token: payload.refresh_token,
-      });
-      if (error) throw new Error(`setSession failed: ${error.message}`);
-    },
-    {
-      key: storageKey,
-      payload: {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-        token_type: 'bearer',
-        expires_at: session.expires_at,
+  tenDigitPhone: string,
+  otp: string,
+  logTag: string,
+): Promise<boolean> {
+  const otpPhone = `91${tenDigitPhone}`;
+  try {
+    await page.evaluate(
+      async ({ otpPhone, otp }) => {
+        const { supabase } = await import('/src/lib/supabase.ts');
+        const { error } = await supabase.auth.verifyOtp({
+          phone: otpPhone,
+          token: otp,
+          type: 'sms',
+        });
+        if (error) throw new Error(error.message);
       },
-    },
-  );
+      { otpPhone, otp },
+    );
+    return true;
+  } catch (err) {
+    console.warn(`[${logTag}] browser verifyOtp failed:`, err);
+    return false;
+  }
+}
+
+async function clearSupabaseAuthStorage(page: Page): Promise<void> {
+  const storageKey = supabaseAuthStorageKey();
+  if (!storageKey) return;
+  await page.evaluate((key) => {
+    localStorage.removeItem(key);
+  }, storageKey);
+}
+
+/** Ensure auth.users row exists (service role) then browser password sign-in. */
+async function mintSessionViaAdmin(
+  page: Page,
+  tenDigitPhone: string,
+  logTag: string,
+): Promise<boolean> {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return false;
+
+  const ready = await ensureTestAuthUser(tenDigitPhone, logTag);
+  if (!ready) return false;
+
+  await clearSupabaseAuthStorage(page);
+  return signInTestUserInBrowser(page, tenDigitPhone, logTag);
 }
 
 const OTP_COUNT_FILE = path.join(os.tmpdir(), 'aaspaas-otp-count.json');
@@ -660,29 +640,19 @@ async function signInWithOtpThrottled(
   return { error };
 }
 
-/** Mint a browser Supabase session — admin password sign-in in tests, OTP fallback otherwise. */
+/** Mint a browser Supabase session — admin password sign-in in browser, OTP fallback otherwise. */
 export async function mintBrowserSupabaseSession(
   page: Page,
   phone: string,
   logTag: string,
 ) {
   try {
-    const storageKey = supabaseAuthStorageKey();
-    if (!storageKey) {
+    if (!supabaseAuthStorageKey()) {
       console.error(`[${logTag}] session mint failed: invalid VITE_SUPABASE_URL`);
       return;
     }
 
-    const cached = readSessionCache(phone);
-    if (cached) {
-      await writeSessionToPage(page, storageKey, cached);
-      return;
-    }
-
-    const adminSession = await mintSessionViaAdmin(phone, logTag);
-    if (adminSession) {
-      writeSessionCache(phone, adminSession);
-      await writeSessionToPage(page, storageKey, adminSession);
+    if (await mintSessionViaAdmin(page, phone, logTag)) {
       return;
     }
 
@@ -718,31 +688,10 @@ export async function mintBrowserSupabaseSession(
       return;
     }
 
-    const { data: verifyData, error: verifyError } = await otpClient.auth.verifyOtp({
-      phone: otpPhone,
-      token: otp,
-      type: 'sms',
-    });
-    const session = verifyData?.session;
-    if (verifyError || !session?.access_token || session.expires_at == null) {
-      console.error(
-        `[${logTag}] verifyOtp failed:`,
-        verifyError?.message ?? 'missing session',
-      );
-      return;
+    await clearSupabaseAuthStorage(page);
+    if (!(await verifyOtpInBrowser(page, phone, otp, logTag))) {
+      console.error(`[${logTag}] browser OTP verify failed`);
     }
-
-    writeSessionCache(phone, {
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      expires_at: session.expires_at,
-    });
-
-    await writeSessionToPage(page, storageKey, {
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      expires_at: session.expires_at,
-    });
   } catch (err) {
     console.error(`[${logTag}] session mint failed:`, err);
   }

@@ -417,6 +417,88 @@ test('MCV-08: multi-mode vendor discoverability under help vs delivery radar tab
   }
 });
 
+test('MCV-10: shop vendor registers with sole delivery-mode category', async () => {
+  const deliveryCat = await getActiveCategoryByServiceMode('delivery');
+  const phone = uniqueVendorPhone();
+
+  const result = await invokeRegisterVendorRpc({
+    phone,
+    vendor_type: 'shop',
+    category: deliveryCat.label,
+    service_mode: deliveryCat.service_mode,
+    category_ids: [deliveryCat.id],
+    category_service_modes: ['delivery'],
+    vendor_note: `test_session:${TEST_SESSION}`,
+  });
+  expect(result.error).toBeUndefined();
+  const vendorId = result.vendorId!;
+
+  try {
+    const { data: vendor, error: vendorError } = await supabaseAdmin
+      .from('vendors')
+      .select('vendor_type, service_mode, category')
+      .eq('id', vendorId)
+      .single();
+    expect(vendorError).toBeNull();
+    expect(vendor?.vendor_type).toBe('shop');
+    expect(vendor?.service_mode).toBe('delivery');
+    expect(vendor?.category).toBe(deliveryCat.label);
+
+    const { data: rows, error } = await supabaseAdmin
+      .from('vendor_categories')
+      .select('category_id, is_primary, service_mode')
+      .eq('vendor_id', vendorId);
+    expect(error).toBeNull();
+    expect(rows?.length).toBe(1);
+    expect(rows?.[0]?.category_id).toBe(deliveryCat.id);
+    expect(rows?.[0]?.is_primary).toBe(true);
+    expect(rows?.[0]?.service_mode).toBe('delivery');
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+  }
+});
+
+test('MCV-11: shop vendor registers with sole appointment-mode category', async () => {
+  const appointmentCat = await getActiveCategoryByServiceMode('appointment');
+  const phone = uniqueVendorPhone();
+
+  const result = await invokeRegisterVendorRpc({
+    phone,
+    vendor_type: 'shop',
+    category: appointmentCat.label,
+    service_mode: appointmentCat.service_mode,
+    category_ids: [appointmentCat.id],
+    category_service_modes: ['appointment'],
+    vendor_note: `test_session:${TEST_SESSION}`,
+  });
+  expect(result.error).toBeUndefined();
+  const vendorId = result.vendorId!;
+
+  try {
+    const { data: vendor, error: vendorError } = await supabaseAdmin
+      .from('vendors')
+      .select('vendor_type, service_mode, category')
+      .eq('id', vendorId)
+      .single();
+    expect(vendorError).toBeNull();
+    expect(vendor?.vendor_type).toBe('shop');
+    expect(vendor?.service_mode).toBe('appointment');
+    expect(vendor?.category).toBe(appointmentCat.label);
+
+    const { data: rows, error } = await supabaseAdmin
+      .from('vendor_categories')
+      .select('category_id, is_primary, service_mode')
+      .eq('vendor_id', vendorId);
+    expect(error).toBeNull();
+    expect(rows?.length).toBe(1);
+    expect(rows?.[0]?.category_id).toBe(appointmentCat.id);
+    expect(rows?.[0]?.is_primary).toBe(true);
+    expect(rows?.[0]?.service_mode).toBe('appointment');
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+  }
+});
+
 test('MCV-09: multi-mode vendor visible on secondary mode tab during empty browse', async () => {
   const helpCat = await getActiveCategoryByServiceMode('help');
   const deliveryCat = await getActiveCategoryByServiceMode('delivery');

@@ -94,6 +94,10 @@ vi.mock("@/lib/userIdentity", () => ({
   getUserPhone: () => "9876543210",
 }));
 
+vi.mock("@/lib/deviceId", () => ({
+  getDeviceId: () => "test-device",
+}));
+
 vi.mock("@/lib/language", () => ({
   useLanguage: () => ({ s: strings.en, lang: "en" as const, setLang: () => {} }),
 }));
@@ -110,6 +114,12 @@ describe("NotificationBell", () => {
   beforeEach(() => {
     notifications.value = [];
     vi.clearAllMocks();
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === "get_user_notifications") {
+        return { data: notifications.value, error: null };
+      }
+      return { data: null, error: null };
+    });
   });
 
   it("shows empty state copy when there are no notifications", async () => {

@@ -36,9 +36,11 @@ export default defineConfig({
   },
   reporter: [['html', { outputFolder: 'playwright-report' }], ['list']],
   webServer: {
-    command: 'npx dotenv -e .env.playwright -- vite --port 8081',
+    command: 'npx dotenv -e .env.test -e .env.playwright -- vite --port 8081',
     port: 8081,
-    reuseExistingServer: true,
+    // Default false: a reused dev server often lacks VITE_SUPABASE_URL and falls back to PROD in supabase.ts.
+    // Set PW_REUSE_DEV_SERVER=true only when your local Vite on :8081 already loads .env.test.
+    reuseExistingServer: process.env.PW_REUSE_DEV_SERVER === 'true',
     timeout: 60000,
     env: {
       VITE_SUPABASE_URL: 'https://hhdylnhqdzfabsolwxdz.supabase.co',

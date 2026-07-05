@@ -40,11 +40,21 @@ import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import {
   currentCycleTransactions,
   filterKhataLedgerByOutstanding,
+  formatKhataBalanceDisplay,
   formatKhataDate,
   khataPaymentModeLabel,
 } from "@/lib/khataDisplay";
 import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
 import { openGoogleMaps, resolveCustomerNavigateToVendorUrl } from "@/lib/mapsDeepLink";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
+import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
+import { fetchEditedBillIds } from "@/lib/billEdit";
 
 const MAX_LEN = 200;
 
@@ -295,6 +305,8 @@ const MyOrders = () => {
   const [rows, setRows] = useState<RowWithShop[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBill>>({});
+  const [editedBillIds, setEditedBillIds] = useState<Set<string>>(() => new Set());
+  const [historyBillId, setHistoryBillId] = useState<string | null>(null);
   const [myReviews, setMyReviews] = useState<
     Record<
       string,
@@ -332,7 +344,16 @@ const MyOrders = () => {
     }[]
   >([]);
   const [khataTxLoading, setKhataTxLoading] = useState(false);
+  const [khataTxNetworkStatus, setKhataTxNetworkStatus] = useState<
+    "retrying" | "failed" | null
+  >(null);
+  const khataDetailRetryRef = useRef<{
+    vendor_id: string;
+    shop_name: string;
+    total_outstanding: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [networkLoadStatus, setNetworkLoadStatus] = useState<"retrying" | "failed" | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [ratingSheetOpen, setRatingSheetOpen] = useState(false);
   const [ratingVendor, setRatingVendor] = useState<{
@@ -443,6 +464,8 @@ const MyOrders = () => {
       };
     }
     setBillsByRequestId(billMap);
+    const edited = await fetchEditedBillIds(Object.values(billMap).map((b) => b.id));
+    setEditedBillIds(edited);
   };
 
   const loadMyReviews = async () => {
@@ -495,54 +518,103 @@ const MyOrders = () => {
   }) => {
     const userPhone = getUserPhone();
     if (!userPhone) return;
+    khataDetailRetryRef.current = entry;
     setKhataDetail(entry);
     setKhataTxLoading(true);
-    const { data, error } = await supabase
-      .from("khata_transactions")
-      .select("id, amount, note, payment_mode, created_at")
-      .eq("vendor_id", entry.vendor_id)
-      .eq("user_phone", userPhone)
-      .order("created_at", { ascending: true });
-    setKhataTxLoading(false);
-    if (error) {
-      toast.error(error.message);
-      setKhataTransactions([]);
-      return;
+    setKhataTxNetworkStatus(null);
+    try {
+      const { data, error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase
+              .from("khata_transactions")
+              .select("id, amount, note, payment_mode, created_at")
+              .eq("vendor_id", entry.vendor_id)
+              .eq("user_phone", userPhone)
+              .order("created_at", { ascending: true }),
+          ),
+        {
+          onRetrying: () => setKhataTxNetworkStatus("retrying"),
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      if (error) {
+        toast.error(error.message);
+        setKhataTransactions([]);
+        return;
+      }
+      setKhataTransactions(currentCycleTransactions(data ?? []));
+      setKhataTxNetworkStatus(null);
+    } catch (err) {
+      if (err instanceof NetworkExhaustedError) {
+        setKhataTxNetworkStatus("failed");
+        setKhataTransactions([]);
+      } else {
+        throw err;
+      }
+    } finally {
+      setKhataTxLoading(false);
     }
-    setKhataTransactions(currentCycleTransactions(data ?? []));
   };
 
   const closeKhataDetail = () => {
     setKhataDetail(null);
     setKhataTransactions([]);
+    setKhataTxNetworkStatus(null);
+    khataDetailRetryRef.current = null;
   };
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setLoading(true);
+    if (!opts?.silent) {
+      setLoading(true);
+      setNetworkLoadStatus(null);
+    }
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    let listQuery = supabase
-      .from("requests")
-      .select(
-        "id, device_id, vendor_id, message, status, payment_status, created_at, updated_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, delivery_slot_deadline, delivery_address, customer_latitude, customer_longitude, is_edited, vendors(shop_name, service_mode, phone, latitude, longitude)",
-      )
-      .neq("status", "done")
-      .order("created_at", { ascending: false });
-    listQuery =
-      userPhone != null ? listQuery.eq("user_phone", userPhone) : listQuery.eq("device_id", device_id);
-    const { data, error } = await listQuery;
-    if (!mounted.current) return;
-    if (error) {
-      setRows([]);
-      setLoading(false);
-      return;
+    try {
+      const { data, error } = await withNetworkRetry(async () => {
+        let listQuery = supabase
+          .from("requests")
+          .select(
+            "id, device_id, vendor_id, message, status, payment_status, created_at, updated_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, delivery_slot_deadline, delivery_address, customer_latitude, customer_longitude, is_edited, vendors(shop_name, service_mode, phone, latitude, longitude)",
+          )
+          .neq("status", "done")
+          .order("created_at", { ascending: false });
+        listQuery =
+          userPhone != null
+            ? listQuery.eq("user_phone", userPhone)
+            : listQuery.eq("device_id", device_id);
+        return throwOnSupabaseNetworkError(await listQuery.retry(false));
+      }, {
+        onRetrying: () => {
+          if (!opts?.silent && mounted.current) setNetworkLoadStatus("retrying");
+        },
+        shouldRetry: () => getNavigatorOnline(),
+      });
+      if (!mounted.current) return;
+      if (error) {
+        setRows([]);
+        if (!opts?.silent) setLoading(false);
+        return;
+      }
+      const list = (data ?? []) as unknown as RowWithShop[];
+      setRows([...list]);
+      setNetworkLoadStatus(null);
+      void loadBills(list.map((r) => r.id));
+      void loadMyReviews();
+      void loadMyKhata();
+      if (!opts?.silent) setLoading(false);
+    } catch (err) {
+      if (!mounted.current) return;
+      if (err instanceof NetworkExhaustedError) {
+        if (!opts?.silent) {
+          setNetworkLoadStatus("failed");
+          setLoading(false);
+        }
+        return;
+      }
+      throw err;
     }
-    const list = (data ?? []) as unknown as RowWithShop[];
-    setRows([...list]);
-    void loadBills(list.map((r) => r.id));
-    void loadMyReviews();
-    void loadMyKhata();
-    if (!opts?.silent) setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -1196,25 +1268,32 @@ const MyOrders = () => {
                 )}
               >
                 <span className="text-sm font-bold text-foreground">{k.shop_name}</span>
-                <span
-                  className={cn(
-                    "text-sm font-bold tabular-nums shrink-0",
-                    k.total_outstanding > 0 ? "text-amber-400" : "text-green-400",
-                  )}
-                >
-                  ₹{k.total_outstanding.toFixed(2)}
-                </span>
+                {(() => {
+                  const balance = formatKhataBalanceDisplay(k.total_outstanding, s);
+                  return (
+                    <span className={cn("text-sm font-bold tabular-nums shrink-0", balance.colorClass)}>
+                      {balance.text}
+                    </span>
+                  );
+                })()}
               </button>
             ))}
           </SettingsCard>
         </>
       )}
 
+      {networkLoadStatus && (
+        <NetworkErrorBanner
+          status={networkLoadStatus}
+          onRetry={networkLoadStatus === "failed" ? () => void load() : undefined}
+        />
+      )}
+
       {loading ? (
         <div className="flex justify-center py-16 text-muted-foreground">
           <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
         </div>
-      ) : rows.length === 0 ? (
+      ) : networkLoadStatus === "failed" ? null : rows.length === 0 ? (
         <div className="rounded-2xl border border-border bg-card p-6 text-center space-y-4">
           <p className="text-sm text-muted-foreground leading-relaxed">
             {s.myOrders_noOrders}
@@ -1326,7 +1405,19 @@ const MyOrders = () => {
                   const bill = billsByRequestId[r.id];
                   return (
                     <div className="rounded-xl border border-brand-border bg-brand/5 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-brand">{s.bill_title}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold text-brand">{s.bill_title}</p>
+                        {editedBillIds.has(bill.id) && (
+                          <button
+                            type="button"
+                            data-testid="my-orders-bill-edited-badge"
+                            onClick={() => setHistoryBillId(bill.id)}
+                            className="text-[10px] font-semibold text-brand underline shrink-0"
+                          >
+                            {s.bill_editedBadge}
+                          </button>
+                        )}
+                      </div>
                       <div className="space-y-1">
                         {bill.items.map((item, i) => (
                           <div
@@ -2016,11 +2107,22 @@ const MyOrders = () => {
           </SheetHeader>
           <div className="mt-4 flex flex-col min-h-0 flex-1 overflow-hidden">
             <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
-              {khataTxLoading ? (
+              {khataTxNetworkStatus && (
+                <NetworkErrorBanner
+                  status={khataTxNetworkStatus}
+                  className="mb-0"
+                  onRetry={
+                    khataTxNetworkStatus === "failed" && khataDetailRetryRef.current
+                      ? () => void openKhataDetail(khataDetailRetryRef.current!)
+                      : undefined
+                  }
+                />
+              )}
+              {khataTxLoading && !khataTxNetworkStatus ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
-              ) : khataTransactions.length === 0 ? (
+              ) : khataTxNetworkStatus === "failed" ? null : khataTransactions.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">No transactions</p>
               ) : (
                 <ul className="space-y-2">
@@ -2055,17 +2157,30 @@ const MyOrders = () => {
                 </ul>
               )}
             </div>
-            {khataDetail && (
-              <div className="border-t border-surface-border pt-4 mt-4 shrink-0 flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Total outstanding</span>
-                <span className="text-lg font-bold text-warning tabular-nums">
-                  ₹{khataDetail.total_outstanding.toFixed(2)}
-                </span>
-              </div>
-            )}
+            {khataDetail && (() => {
+              const balance = formatKhataBalanceDisplay(khataDetail.total_outstanding, s);
+              return (
+                <div className="border-t border-surface-border pt-4 mt-4 shrink-0 flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">
+                    {khataDetail.total_outstanding < 0 ? s.khata_refundDue : "Total outstanding"}
+                  </span>
+                  <span className={cn("text-lg font-bold tabular-nums", balance.colorClass)}>
+                    {khataDetail.total_outstanding < 0
+                      ? `₹${Math.abs(khataDetail.total_outstanding).toFixed(2)}`
+                      : `₹${khataDetail.total_outstanding.toFixed(2)}`}
+                  </span>
+                </div>
+              );
+            })()}
           </div>
         </SheetContent>
       </Sheet>
+
+      <BillEditHistorySheet
+        billId={historyBillId}
+        isOpen={historyBillId !== null}
+        onClose={() => setHistoryBillId(null)}
+      />
 
       {helpCallVendor && (
         <AiBridgeSheet

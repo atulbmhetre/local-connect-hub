@@ -32,6 +32,13 @@ import {
   type CategorySuggestionResult,
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -368,6 +375,8 @@ const VendorMode = () => {
   const [loading, setLoading] = useState(false);
   const [vendorOrderStats, setVendorOrderStats] = useState<VendorOrderStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [networkLoadStatus, setNetworkLoadStatus] = useState<"retrying" | "failed" | null>(null);
+  const [vendorFetchTick, setVendorFetchTick] = useState(0);
 
   // ---- registration form ----
   const [vendorType, setVendorType] = useState<VendorTypeValue>("");
@@ -419,6 +428,7 @@ const VendorMode = () => {
   const pushRegisteredVendorRef = useRef<string | null>(null);
   const alreadyRegisteredRef = useRef<HTMLDivElement>(null);
   const isTogglingRef = useRef(false);
+  const vendorFetchInFlightRef = useRef(false);
   const [highlightAlreadyRegistered, setHighlightAlreadyRegistered] = useState(false);
   const [goLivePromptVisible, setGoLivePromptVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -463,22 +473,59 @@ const VendorMode = () => {
   useEffect(() => {
     if (!vendorId) return;
     let cancelled = false;
-    if (!isTogglingRef.current) {
+
+    const fetchVendor = async () => {
+      if (isTogglingRef.current || vendorFetchInFlightRef.current) return;
+      vendorFetchInFlightRef.current = true;
       setLoading(true);
-      supabase
-        .from("vendors")
-        .select("*")
-        .eq("id", vendorId)
-        .maybeSingle()
-        .then(({ data, error }) => {
-          if (cancelled || isTogglingRef.current) return;
-          if (error) setError(error.message);
-          else if (!data) {
-            localStorage.removeItem(STORAGE_KEY);
-            setVendorId(null);
-          } else setVendor(data as Vendor);
-          setLoading(false);
-        });
+      setNetworkLoadStatus(null);
+      try {
+        const { data, error: fetchError } = await withNetworkRetry(
+          async () =>
+            throwOnSupabaseNetworkError(
+              await supabase
+                .from("vendors")
+                .select("*")
+                .eq("id", vendorId)
+                .maybeSingle()
+                .retry(false),
+            ),
+          {
+            onRetrying: () => {
+              if (!cancelled) setNetworkLoadStatus("retrying");
+            },
+            shouldRetry: () => getNavigatorOnline(),
+          },
+        );
+        if (cancelled || isTogglingRef.current) return;
+        if (fetchError) {
+          setError(s.vendor_load_registered_failed);
+          setNetworkLoadStatus(null);
+        } else if (!data) {
+          localStorage.removeItem(STORAGE_KEY);
+          setVendorId(null);
+          setNetworkLoadStatus(null);
+        } else {
+          setVendor(data as Vendor);
+          setNetworkLoadStatus(null);
+          setError(null);
+        }
+      } catch (err) {
+        if (cancelled || isTogglingRef.current) return;
+        if (err instanceof NetworkExhaustedError) {
+          setNetworkLoadStatus("failed");
+          setError(null);
+        } else {
+          throw err;
+        }
+      } finally {
+        vendorFetchInFlightRef.current = false;
+        if (!cancelled && !isTogglingRef.current) setLoading(false);
+      }
+    };
+
+    if (!isTogglingRef.current) {
+      void fetchVendor();
     }
 
     const channel = supabase
@@ -505,10 +552,11 @@ const VendorMode = () => {
 
     return () => {
       cancelled = true;
+      vendorFetchInFlightRef.current = false;
       supabase.removeChannel(channel);
       window.clearInterval(pingInterval);
     };
-  }, [vendorId, vendor?.is_active, vendor?.phone]);
+  }, [vendorId, vendorFetchTick]);
 
   useEffect(() => {
     if (!vendor?.id) return;
@@ -1683,7 +1731,18 @@ const VendorMode = () => {
         <NotificationBell extraCount={unreadCount} className="shrink-0 ml-3" />
       </header>
 
-      {error && (
+      {networkLoadStatus && (
+        <NetworkErrorBanner
+          status={networkLoadStatus}
+          onRetry={
+            networkLoadStatus === "failed"
+              ? () => setVendorFetchTick((t) => t + 1)
+              : undefined
+          }
+        />
+      )}
+
+      {error && !networkLoadStatus && (
         <div className="mb-4 rounded-2xl bg-destructive/10 border border-destructive/30 p-4 flex gap-3">
           <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
           <p className="text-sm text-destructive break-words">{error}</p>
