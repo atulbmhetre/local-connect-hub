@@ -14,6 +14,9 @@ import {
 import { cn } from "@/lib/utils";
 import { openGoogleMaps, resolveVendorNavigateToCustomerUrl } from "@/lib/mapsDeepLink";
 import { BillSheet } from "@/components/BillSheet";
+import { BillEditSheet } from "@/components/BillEditSheet";
+import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
+import { fetchEditedBillIds, type VendorEditBillResult } from "@/lib/billEdit";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { getUserPhone } from "@/lib/userIdentity";
@@ -34,6 +37,15 @@ type OrderBillSummary = {
   id: string;
   total_amount: number;
   payment_mode: "cash" | "upi" | "khata";
+  payment_status: string;
+};
+
+type EditBillTarget = {
+  billId: string;
+  requestId: string;
+  userPhone: string | null;
+  total_amount: number;
+  payment_mode: OrderBillSummary["payment_mode"];
   payment_status: string;
 };
 
@@ -199,6 +211,9 @@ export function IncomingOrdersSection({
   const [billRequestId, setBillRequestId] = useState<string | null>(null);
   const [billUserPhone, setBillUserPhone] = useState<string | null>(null);
   const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBillSummary>>({});
+  const [editedBillIds, setEditedBillIds] = useState<Set<string>>(() => new Set());
+  const [editBillTarget, setEditBillTarget] = useState<EditBillTarget | null>(null);
+  const [historyBillId, setHistoryBillId] = useState<string | null>(null);
   const [markingBillPaidId, setMarkingBillPaidId] = useState<string | null>(null);
   const [addingBillToKhataId, setAddingBillToKhataId] = useState<string | null>(null);
   const [confirmingPaymentId, setConfirmingPaymentId] = useState<string | null>(null);
@@ -287,6 +302,7 @@ export function IncomingOrdersSection({
   const loadBillsForOrders = useCallback(async (requestIds: string[]) => {
     if (requestIds.length === 0) {
       setBillsByRequestId({});
+      setEditedBillIds(new Set());
       return;
     }
     const { data } = await supabase
@@ -297,6 +313,7 @@ export function IncomingOrdersSection({
 
     if (!data?.length) {
       setBillsByRequestId({});
+      setEditedBillIds(new Set());
       return;
     }
 
@@ -313,6 +330,8 @@ export function IncomingOrdersSection({
       }
     }
     setBillsByRequestId(billMap);
+    const edited = await fetchEditedBillIds(Object.values(billMap).map((b) => b.id));
+    setEditedBillIds(edited);
   }, []);
 
   const fetchKhataOutstanding = useCallback(
@@ -1734,10 +1753,22 @@ export function IncomingOrdersSection({
                       className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-2"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-semibold text-foreground">
-                          {s.bill_total}: ₹{billsByRequestId[r.id].total_amount.toFixed(2)}
-                        </p>
-                        <span className="text-[10px] text-muted-foreground">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="text-xs font-semibold text-foreground">
+                            {s.bill_total}: ₹{billsByRequestId[r.id].total_amount.toFixed(2)}
+                          </p>
+                          {editedBillIds.has(billsByRequestId[r.id].id) && (
+                            <button
+                              type="button"
+                              data-testid="incoming-bill-edited-badge"
+                              onClick={() => setHistoryBillId(billsByRequestId[r.id].id)}
+                              className="text-[10px] font-semibold text-brand underline shrink-0"
+                            >
+                              {s.bill_editedBadge}
+                            </button>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground shrink-0">
                           {billsByRequestId[r.id].payment_mode === "cash"
                             ? s.bill_cash
                             : billsByRequestId[r.id].payment_mode === "upi"
@@ -1785,6 +1816,25 @@ export function IncomingOrdersSection({
                               : s.bill_addToKhata}
                           </button>
                         )}
+                      {billsByRequestId[r.id].payment_status !== "void" && (
+                        <button
+                          type="button"
+                          data-testid="incoming-edit-bill-btn"
+                          onClick={() =>
+                            setEditBillTarget({
+                              billId: billsByRequestId[r.id].id,
+                              requestId: r.id,
+                              userPhone: r.user_phone,
+                              total_amount: billsByRequestId[r.id].total_amount,
+                              payment_mode: billsByRequestId[r.id].payment_mode,
+                              payment_status: billsByRequestId[r.id].payment_status,
+                            })
+                          }
+                          className="w-full rounded-lg border border-surface-border text-foreground text-xs font-semibold py-2 active:scale-[0.99]"
+                        >
+                          {s.bill_edit}
+                        </button>
+                      )}
                     </div>
                   )}
                 </>
@@ -2142,6 +2192,41 @@ export function IncomingOrdersSection({
           </button>
         </SheetContent>
       </Sheet>
+
+      {editBillTarget && (
+        <BillEditSheet
+          isOpen={editBillTarget !== null}
+          onClose={() => setEditBillTarget(null)}
+          billId={editBillTarget.billId}
+          requestId={editBillTarget.requestId}
+          vendorId={vendorId}
+          userPhone={editBillTarget.userPhone}
+          shopName={shopName}
+          originalTotal={editBillTarget.total_amount}
+          paymentMode={editBillTarget.payment_mode}
+          paymentStatus={editBillTarget.payment_status}
+          onSuccess={(result: VendorEditBillResult) => {
+            const updated = result.bill;
+            setBillsByRequestId((prev) => ({
+              ...prev,
+              [editBillTarget.requestId]: {
+                id: updated.id,
+                total_amount: Number(updated.total_amount),
+                payment_mode: updated.payment_mode as OrderBillSummary["payment_mode"],
+                payment_status: updated.payment_status,
+              },
+            }));
+            setEditedBillIds((prev) => new Set(prev).add(updated.id));
+            setEditBillTarget(null);
+          }}
+        />
+      )}
+
+      <BillEditHistorySheet
+        billId={historyBillId}
+        isOpen={historyBillId !== null}
+        onClose={() => setHistoryBillId(null)}
+      />
 
       {billRequestId && (
         <BillSheet
