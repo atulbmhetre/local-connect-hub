@@ -9,6 +9,7 @@ import {
   deleteVendorRegistrationArtifacts,
   getFirstActiveCategory,
   getActiveCategoryByLabel,
+  getActiveCategoryByServiceMode,
   TEST_ADMIN_PHONE,
   TEST_SESSION,
 } from './helpers/setup';
@@ -189,6 +190,136 @@ test('VR-MULTI-01: registration UI selects 2 categories and persists both in ven
   expect(labels).toContain(plumber.label);
   expect(categoryRows?.[0]?.is_primary).toBe(true);
   expect(categoryRows?.[1]?.is_primary).toBe(false);
+
+  await deleteVendorRegistrationArtifacts(vendorId);
+});
+
+test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode category', async ({
+  page,
+}) => {
+  const deliveryCat = await getActiveCategoryByServiceMode('delivery');
+  const phone = `99014${Date.now().toString().slice(-5)}`;
+  const ownerName = 'Delivery Shop Owner';
+  const shopName = `Delivery Shop ${phone.slice(-4)}`;
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${APP_URL}/vendor`);
+  await page.waitForLoadState('networkidle');
+
+  await page.locator('button').filter({ hasText: '🏪 Shop' }).first().click();
+  await expect(page.getByPlaceholder('Ramesh Tyre Works')).toBeVisible({ timeout: 5000 });
+  await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
+  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
+  await page.getByRole('button', { name: 'Browse all categories' }).click();
+  const categoryChip = (label: string) =>
+    page.getByRole('button').filter({ hasText: label }).filter({ hasText: /🚚 Delivery/ });
+  await expect(categoryChip(deliveryCat.label).first()).toBeVisible({ timeout: 15000 });
+  await categoryChip(deliveryCat.label).first().click();
+  await expect(page.getByText('1/5 selected')).toBeVisible({ timeout: 5000 });
+  await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
+  await page.getByPlaceholder('name@okbank').fill('deliveryshop@upi');
+
+  await page.getByRole('button', { name: 'Register me' }).click();
+  await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
+
+  await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('No orders yet!')).toBeVisible({ timeout: 10000 });
+
+  await page.getByRole('button', { name: /Complete your verification/i }).click();
+  await page.getByRole('button', { name: /Edit Shop Details/i }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Shop Details' })).toBeVisible({
+    timeout: 10000,
+  });
+  const editSheet = page.locator('[role="dialog"]').filter({ hasText: 'Edit Shop Details' });
+  await expect(editSheet.getByText(deliveryCat.label).first()).toBeVisible();
+  await expect(editSheet.getByText('🚚 Delivery').first()).toBeVisible();
+
+  const { data: vendor, error: vendorError } = await supabaseAdmin
+    .from('vendors')
+    .select('id, vendor_type, service_mode, category')
+    .eq('phone', phone)
+    .single();
+  expect(vendorError).toBeNull();
+  expect(vendor?.vendor_type).toBe('shop');
+  expect(vendor?.service_mode).toBe('delivery');
+  expect(vendor?.category).toBe(deliveryCat.label);
+
+  const vendorId = vendor!.id;
+  const { data: categoryRows, error: categoryError } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('category_id, is_primary, service_mode')
+    .eq('vendor_id', vendorId);
+  expect(categoryError).toBeNull();
+  expect(categoryRows?.length).toBe(1);
+  expect(categoryRows?.[0]?.category_id).toBe(deliveryCat.id);
+  expect(categoryRows?.[0]?.is_primary).toBe(true);
+  expect(categoryRows?.[0]?.service_mode).toBe('delivery');
+
+  await deleteVendorRegistrationArtifacts(vendorId);
+});
+
+test('VR-SHOP-APPT-01: shop vendor registers via UI with appointment-mode category', async ({
+  page,
+}) => {
+  const appointmentCat = await getActiveCategoryByServiceMode('appointment');
+  const phone = `99015${Date.now().toString().slice(-5)}`;
+  const ownerName = 'Appt Shop Owner';
+  const shopName = `Appt Shop ${phone.slice(-4)}`;
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${APP_URL}/vendor`);
+  await page.waitForLoadState('networkidle');
+
+  await page.locator('button').filter({ hasText: '🏪 Shop' }).first().click();
+  await expect(page.getByPlaceholder('Ramesh Tyre Works')).toBeVisible({ timeout: 5000 });
+  await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
+  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
+  await page.getByRole('button', { name: 'Browse all categories' }).click();
+  const categoryChip = (label: string) =>
+    page.getByRole('button').filter({ hasText: label }).filter({ hasText: /🗓️ Appointment/ });
+  await expect(categoryChip(appointmentCat.label).first()).toBeVisible({ timeout: 15000 });
+  await categoryChip(appointmentCat.label).first().click();
+  await expect(page.getByText('1/5 selected')).toBeVisible({ timeout: 5000 });
+  await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
+  await page.getByPlaceholder('name@okbank').fill('apptshop@upi');
+
+  await page.getByRole('button', { name: 'Register me' }).click();
+  await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
+
+  await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('No orders yet!')).toBeVisible({ timeout: 10000 });
+
+  await page.getByRole('button', { name: /Complete your verification/i }).click();
+  await page.getByRole('button', { name: /Edit Shop Details/i }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Shop Details' })).toBeVisible({
+    timeout: 10000,
+  });
+  const editSheet = page.locator('[role="dialog"]').filter({ hasText: 'Edit Shop Details' });
+  await expect(editSheet.getByText(appointmentCat.label).first()).toBeVisible();
+  await expect(editSheet.getByText('🗓️ Appointment').first()).toBeVisible();
+
+  const { data: vendor, error: vendorError } = await supabaseAdmin
+    .from('vendors')
+    .select('id, vendor_type, service_mode, category')
+    .eq('phone', phone)
+    .single();
+  expect(vendorError).toBeNull();
+  expect(vendor?.vendor_type).toBe('shop');
+  expect(vendor?.service_mode).toBe('appointment');
+  expect(vendor?.category).toBe(appointmentCat.label);
+
+  const vendorId = vendor!.id;
+  const { data: categoryRows, error: categoryError } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('category_id, is_primary, service_mode')
+    .eq('vendor_id', vendorId);
+  expect(categoryError).toBeNull();
+  expect(categoryRows?.length).toBe(1);
+  expect(categoryRows?.[0]?.category_id).toBe(appointmentCat.id);
+  expect(categoryRows?.[0]?.is_primary).toBe(true);
+  expect(categoryRows?.[0]?.service_mode).toBe('appointment');
 
   await deleteVendorRegistrationArtifacts(vendorId);
 });

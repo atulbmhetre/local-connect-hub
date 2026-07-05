@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { clientIp } from "../_shared/rateLimitUtils.ts";
 import {
   REFERRAL_CREDIT_BODY,
   REFERRAL_CREDIT_TITLE,
@@ -200,6 +201,21 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    const ip = clientIp(req);
+    const { data: allowed, error: rlError } = await supabase.rpc("check_and_log_rate_limit", {
+      p_function_name: "process-vendor-referral",
+      p_identifier_type: "ip",
+      p_identifier: ip,
+      p_max_requests: 10,
+      p_window_seconds: 60,
+    });
+    if (rlError) {
+      console.error("process-vendor-referral rate limit RPC failed", rlError);
+      // fail open — never block a real referral due to a rate-limit infra error
+    } else if (allowed === false) {
+      return jsonResponse({ success: false, error: "Too many requests, please wait a moment and try again." });
+    }
 
     if (!(await isReferralEnabled(supabase))) {
       return jsonResponse({ skipped: true });

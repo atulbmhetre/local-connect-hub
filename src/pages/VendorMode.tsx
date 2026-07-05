@@ -120,6 +120,10 @@ function isDuplicateVendorPhoneError(error: { code?: string; message?: string })
   );
 }
 
+function isRateLimitedError(error: { code?: string; message?: string }): boolean {
+  return (error.message ?? "").toLowerCase().includes("rate_limited");
+}
+
 const UPI_VPA_REGEX = /^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/;
 
 export function parseUpiPayeeIdFromQrPayload(data: string): string | null {
@@ -1137,6 +1141,12 @@ const VendorMode = () => {
           alreadyRegisteredRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
         }, 100);
         window.setTimeout(() => setHighlightAlreadyRegistered(false), 2500);
+        return;
+      }
+      if (isRateLimitedError(registerResult)) {
+        setLoading(false);
+        toast.error(s.vendor_registration_rate_limited);
+        setError(null);
         return;
       }
       setError(registerResult.error);

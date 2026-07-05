@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { clientIp } from "../_shared/rateLimitUtils.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +20,7 @@ type RequestBody = {
   vendor_id?: string;
   create_pending?: boolean;
   healthCheck?: boolean;
+  device_id?: string;
 };
 
 type AiSuggestion = {
@@ -44,6 +46,30 @@ function jsonResponse(payload: unknown, status = 200) {
     status,
     headers: CORS_HEADERS,
   });
+}
+
+async function checkRateLimit(
+  supabase: ReturnType<typeof createClient>,
+  identifierType: "device_id" | "ip",
+  identifier: string,
+  maxRequests: number,
+): Promise<boolean | null> {
+  const { data, error } = await supabase.rpc("check_and_log_rate_limit", {
+    p_function_name: "suggest-category",
+    p_identifier_type: identifierType,
+    p_identifier: identifier,
+    p_max_requests: maxRequests,
+    p_window_seconds: 60,
+  });
+  if (error) {
+    console.error(
+      "suggest-category rate limit RPC failed",
+      identifierType,
+      error,
+    );
+    return null;
+  }
+  return data === true;
 }
 
 function toTitleCase(raw: string): string {
@@ -392,6 +418,35 @@ serve(async (req) => {
       return jsonResponse({ status: "ok" });
     }
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceRoleKey) {
+      return jsonResponse({ success: false, error: "Server misconfigured" }, 500);
+    }
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    const deviceId = body.device_id?.trim() || undefined;
+    const ipAddress = clientIp(req);
+
+    if (deviceId) {
+      const deviceAllowed = await checkRateLimit(supabase, "device_id", deviceId, 5);
+      if (deviceAllowed === false) {
+        return jsonResponse({
+          success: false,
+          error: "Too many requests, please wait a moment and try again.",
+        }, 429);
+      }
+    }
+
+    const ipAllowed = await checkRateLimit(supabase, "ip", ipAddress, 20);
+    if (ipAllowed === false) {
+      return jsonResponse({
+        success: false,
+        error: "Too many requests, please wait a moment and try again.",
+      }, 429);
+    }
+
     const description = body.description?.trim();
     if (!description || description.length < 3) {
       return jsonResponse({
@@ -403,13 +458,6 @@ serve(async (req) => {
     const vendorId = body.vendor_id?.trim() || undefined;
     const createPending = body.create_pending === true;
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!supabaseUrl || !serviceRoleKey) {
-      return jsonResponse({ success: false, error: "Server misconfigured" }, 500);
-    }
-
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
     const { threshold, model } = await loadConfig(supabase);
 
     const { data: categories, error: catError } = await supabase

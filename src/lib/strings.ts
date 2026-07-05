@@ -281,7 +281,9 @@ export const strings = {
     vendor_golive_prompt_body:
       "Tap the power button above to go live. Customers can only find you when you're live.",
     vendor_duplicate_phone:
-      "This number is already registered. Use 'Already registered?' below to find your shop.",
+      "This number is already registered. Use 'Already registered?' below to find your shop.",,
+    vendor_registration_rate_limited:
+      'Too many attempts. Please wait a few minutes and try again.'
     vendor_admin_notify_title: '🏪 New vendor registered',
     vendor_category_create_failed: 'Could not create suggested category',
     vendor_radius_save_error:
@@ -1531,7 +1533,9 @@ export const strings = {
     vendor_golive_prompt_body:
       'लाइव होने के लिए ऊपर पावर बटन दबाएं। जब आप लाइव हों तभी ग्राहक आपको खोज सकते हैं।',
     vendor_duplicate_phone:
-      "यह नंबर पहले से पंजीकृत है। अपनी दुकान खोजने के लिए नीचे 'पहले से पंजीकृत?' उपयोग करें।",
+      "यह नंबर पहले से पंजीकृत है। अपनी दुकान खोजने के लिए नीचे 'पहले से पंजीकृत?' उपयोग करें।",,
+    vendor_registration_rate_limited:
+      'बहुत अधिक प्रयासे। कृपया कुछ मिनट प्रतीक्षा करें और पुनः प्रयास करें।'
     vendor_admin_notify_title: '🏪 नया दुकानदार रजिस्टर हुआ',
     vendor_category_create_failed: 'सुझाई गई श्रेणी नहीं बना सकी',
     vendor_radius_save_error:
@@ -2778,7 +2782,9 @@ export const strings = {
     vendor_golive_prompt_body:
       'लाइव होण्यासाठी वरील पॉवर बटण दाबा. तुम्ही लाइव्ह असतानाच ग्राहक तुम्हाला शोधू शकतात.',
     vendor_duplicate_phone:
-      "हा नंबर आधीच नोंदणीकृत आहे. तुमचे दुकान शोधण्यासाठी खाली 'आधीच नोंदणी केली?' वापरा.",
+      "हा नंबर आधीच नोंदणीकृत आहे. तुमचे दुकान शोधण्यासाठी खाली 'आधीच नोंदणी केली?' वापरा.",,
+    vendor_registration_rate_limited:
+      'खूप प्रयत्न झाले. कृपया काही मिनिटे थांबा आणि पुन्हा प्रयत्न करा.'
     vendor_admin_notify_title: '🏪 नवीन विक्रेता नोंदणी झाली',
     vendor_category_create_failed: 'सुचवलेली श्रेणी तयार करता आली नाही',
     vendor_radius_save_error:

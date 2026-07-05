@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getDeviceId } from "@/lib/deviceId";
 
 const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL || "https://rpxsyeqskvhjmbkxnpmd.supabase.co";
@@ -177,10 +178,14 @@ export async function invokeSuggestCategory(body: {
   description: string;
   vendor_id?: string;
   create_pending?: boolean;
+  device_id?: string;
 }): Promise<CategorySuggestionResult> {
   try {
     const { data, error } = await supabase.functions.invoke("suggest-category", {
-      body,
+      body: {
+        ...body,
+        device_id: body.device_id ?? getDeviceId(),
+      },
     });
     if (error) {
       return { success: false, error: error.message };
