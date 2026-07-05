@@ -4,6 +4,12 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
+const SUPABASE_DIRECT_MUTATION_SELECTOR =
+  "CallExpression[callee.property.name=/^(insert|update|delete|upsert)$/][callee.object.type='CallExpression'][callee.object.callee.property.name='from'][callee.object.callee.object.name='supabase']";
+
+const SUPABASE_DIRECT_MUTATION_MESSAGE =
+  "Direct Supabase table mutations are banned — use a SECURITY DEFINER RPC instead (see docs/db-conventions.md)";
+
 export default tseslint.config(
   {
     ignores: [
@@ -14,6 +20,19 @@ export default tseslint.config(
       "coverage/**",
       "**/build/**",
     ],
+  },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: SUPABASE_DIRECT_MUTATION_SELECTOR,
+          message: SUPABASE_DIRECT_MUTATION_MESSAGE,
+        },
+      ],
+    },
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],

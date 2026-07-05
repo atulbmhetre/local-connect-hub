@@ -91,12 +91,10 @@ export function clearUserPhone(): void {
  * Point saved_vendors and requests for this device to the canonical phone (best-effort).
  */
 export async function migrateUserPhone(newPhone: string, deviceId: string): Promise<void> {
-  const orFilter = `user_phone.is.null,user_phone.neq.${newPhone}`;
-  const { error: savedErr } = await supabase
-    .from("saved_vendors")
-    .update({ user_phone: newPhone })
-    .eq("device_id", deviceId)
-    .or(orFilter);
+  const { error: savedErr } = await supabase.rpc("migrate_saved_vendors_phone", {
+    p_device_id: deviceId,
+    p_user_phone: newPhone,
+  });
   if (savedErr) {
     console.warn("[migrateUserPhone] saved_vendors", savedErr.message);
   }
