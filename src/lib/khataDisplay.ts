@@ -34,9 +34,47 @@ export function khataPaymentModeLabel(mode: string, s: typeof strings.en): strin
   return mode;
 }
 
-/** khata_ledger.total_outstanding — unsettled while > 0 */
+/** Positive = customer owes vendor; negative = vendor owes customer (refund due); 0 = settled. */
+export function khataOutstandingColorClass(
+  outstanding: number,
+  amberLimit: number,
+  redLimit: number,
+): string {
+  if (outstanding < 0) return "text-blue-400";
+  if (redLimit > 0 && outstanding >= redLimit) return "text-red-400";
+  if (amberLimit > 0 && outstanding >= amberLimit) return "text-amber-400";
+  return "text-green-400";
+}
+
+/** khata_ledger.total_outstanding — unsettled while non-zero (includes customer credit). */
 export function isKhataLedgerUnsettled(totalOutstanding: number): boolean {
-  return Number(totalOutstanding) > 0;
+  return Number(totalOutstanding) !== 0;
+}
+
+export function formatKhataBalanceDisplay(
+  outstanding: number,
+  s: typeof strings.en,
+  amberLimit = 0,
+  redLimit = 0,
+): { text: string; colorClass: string } {
+  const colorClass = khataOutstandingColorClass(outstanding, amberLimit, redLimit);
+  if (outstanding < 0) {
+    return {
+      text: s.khata_refundDueAmount.replace("{amount}", Math.abs(outstanding).toFixed(2)),
+      colorClass,
+    };
+  }
+  return {
+    text: `₹${outstanding.toFixed(2)}`,
+    colorClass,
+  };
+}
+
+export function mapKhataRefundError(message: string, s: typeof strings.en): string {
+  if (message.includes("no_customer_credit")) return s.khata_errNoCustomerCredit;
+  if (message.includes("amount_exceeds_credit")) return s.khata_errAmountExceedsCredit;
+  if (message.includes("invalid_amount")) return s.khata_errInvalidAmount;
+  return message;
 }
 
 export function filterKhataLedgerByOutstanding<T extends { total_outstanding: number }>(
