@@ -38,6 +38,11 @@ import {
   withNetworkRetry,
 } from "@/lib/withNetworkRetry";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { toast } from "sonner";
 import {
@@ -1414,7 +1419,19 @@ const VendorMode = () => {
     }
 
     try {
-      const { error } = await patchVendorOwn(vendor.id, vendor.phone, patch);
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await patchVendorOwn(vendor.id, vendor.phone, patch),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
       if (error) {
         setVendor({ ...vendor, is_active: !next });
         toast.error(s.vendor_status_failed, { description: error.message });
@@ -1434,6 +1451,17 @@ const VendorMode = () => {
           : s.vendor_offline_body,
       });
       return true;
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        setVendor({ ...vendor, is_active: !next });
+        showNetworkFailedToast(() => void applyActiveState(next), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+        return false;
+      }
+      throw err;
     } finally {
       isTogglingRef.current = false;
     }
@@ -1528,17 +1556,42 @@ const VendorMode = () => {
     // Simulated bank-name lookup. Replace with a real PSP call later.
     await new Promise((r) => setTimeout(r, 900));
     const bank = vendor.upi_id.split("@")[1] ?? "bank";
-    const { error } = await patchVendorOwn(vendor.id, vendor.phone, { upi_verified: true });
-    setVerifyingUpi(false);
-    if (error) {
-      toast.error(s.vendor_upi_check_failed, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await patchVendorOwn(vendor.id, vendor.phone, { upi_verified: true }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.vendor_upi_check_failed, { description: error.message });
+        return;
+      }
+      void checkAndNotifyAdminGreenReady(vendor.id);
+      setVendor((prev) => (prev ? { ...prev, upi_verified: true } : prev));
+      toast.success(`${s.vendor_upi_verified}${bank.toUpperCase()}`, {
+        description: s.vendor_upi_bank_valid,
+      });
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void verifyUpi(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setVerifyingUpi(false);
     }
-    void checkAndNotifyAdminGreenReady(vendor.id);
-    setVendor((prev) => (prev ? { ...prev, upi_verified: true } : prev));
-    toast.success(`${s.vendor_upi_verified}${bank.toUpperCase()}`, {
-      description: s.vendor_upi_bank_valid,
-    });
   };
 
   const handleShopPhoto = async (shot: CapturedShot) => {
@@ -1564,44 +1617,78 @@ const VendorMode = () => {
 
     // 2. Upload to Storage.
     const path = `${vendor.id}/${Date.now()}.jpg`;
-    const { error: upErr } = await supabase.storage
-      .from(SHOP_PHOTOS_BUCKET)
-      .upload(path, shot.blob, {
-        contentType: "image/jpeg",
-        upsert: true,
-      });
-    if (upErr) {
-      toast.error(s.vendor_upload_failed, { description: upErr.message });
-      return;
-    }
-    const { data: pub } = supabase.storage.from(SHOP_PHOTOS_BUCKET).getPublicUrl(path);
+    try {
+      const { error: upErr } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.storage.from(SHOP_PHOTOS_BUCKET).upload(path, shot.blob, {
+              contentType: "image/jpeg",
+              upsert: true,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (upErr) {
+        toast.error(s.vendor_upload_failed, { description: upErr.message });
+        return;
+      }
+      const { data: pub } = supabase.storage.from(SHOP_PHOTOS_BUCKET).getPublicUrl(path);
 
-    // 3. Promote to business_verified (admin still gates the green glow).
-    const { error: updErr } = await patchVendorOwn(vendor.id, vendor.phone, {
-      shop_photo_url: pub.publicUrl,
-      verification_status: "business_verified",
-      gps_match_distance: gpsMatchDistance,
-      ...(hasShopLocation
-        ? {}
-        : {
-            latitude: shot.coords.lat,
-            longitude: shot.coords.lng,
-          }),
-    });
-    if (updErr) {
-      toast.error(s.vendor_save_verification_failed, { description: updErr.message });
-      return;
+      // 3. Promote to business_verified (admin still gates the green glow).
+      const { error: updErr } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await patchVendorOwn(vendor.id, vendor.phone, {
+              shop_photo_url: pub.publicUrl,
+              verification_status: "business_verified",
+              gps_match_distance: gpsMatchDistance,
+              ...(hasShopLocation
+                ? {}
+                : {
+                    latitude: shot.coords.lat,
+                    longitude: shot.coords.lng,
+                  }),
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (updErr) {
+        toast.error(s.vendor_save_verification_failed, { description: updErr.message });
+        return;
+      }
+      void checkAndNotifyAdminGreenReady(vendor.id);
+      if (!hasShopLocation) {
+        toast.success("Shop photo saved and location set ✓");
+        return;
+      }
+      toast.success(s.vendor_photo_verified, {
+        description: vendor.is_manual_verified
+          ? s.vendor_green_badge_live
+          : s.vendor_awaiting_admin,
+      });
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleShopPhoto(shot), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
     }
-    void checkAndNotifyAdminGreenReady(vendor.id);
-    if (!hasShopLocation) {
-      toast.success("Shop photo saved and location set ✓");
-      return;
-    }
-    toast.success(s.vendor_photo_verified, {
-      description: vendor.is_manual_verified
-        ? s.vendor_green_badge_live
-        : s.vendor_awaiting_admin,
-    });
   };
 
   const handleSelfiePhoto = async (shot: CapturedShot) => {
@@ -1609,38 +1696,72 @@ const VendorMode = () => {
     setSelfieCameraOpen(false);
 
     const path = `${vendor.id}/selfie.jpg`;
-    const { error: upErr } = await supabase.storage
-      .from(VENDOR_SELFIES_BUCKET)
-      .upload(path, shot.blob, {
-        contentType: "image/jpeg",
-        upsert: true,
+    try {
+      const { error: upErr } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.storage.from(VENDOR_SELFIES_BUCKET).upload(path, shot.blob, {
+              contentType: "image/jpeg",
+              upsert: true,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (upErr) {
+        toast.error(s.vendor_upload_failed, { description: upErr.message });
+        return;
+      }
+      const { data: pub } = supabase.storage.from(VENDOR_SELFIES_BUCKET).getPublicUrl(path);
+
+      const { error: updErr } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await patchVendorOwn(vendor.id, vendor.phone, {
+              photo_selfie: pub.publicUrl,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (updErr) {
+        toast.error(s.vendor_save_verification_failed, { description: updErr.message });
+        return;
+      }
+
+      const { error: verErr } = await supabase.rpc("submit_vendor_verification", {
+        p_vendor_id: vendor.id,
+        p_vendor_phone: vendor.phone,
+        p_check_type: "photo_selfie",
+        p_doc_url: pub.publicUrl,
       });
-    if (upErr) {
-      toast.error(s.vendor_upload_failed, { description: upErr.message });
-      return;
-    }
-    const { data: pub } = supabase.storage.from(VENDOR_SELFIES_BUCKET).getPublicUrl(path);
+      if (verErr) {
+        console.error("photo_selfie verification insert", verErr);
+      }
 
-    const { error: updErr } = await patchVendorOwn(vendor.id, vendor.phone, {
-      photo_selfie: pub.publicUrl,
-    });
-    if (updErr) {
-      toast.error(s.vendor_save_verification_failed, { description: updErr.message });
-      return;
+      setVendor((prev) => (prev ? { ...prev, photo_selfie: pub.publicUrl } : prev));
+      toast.success(s.vendor_selfie_captured);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleSelfiePhoto(shot), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
     }
-
-    const { error: verErr } = await supabase.rpc("submit_vendor_verification", {
-      p_vendor_id: vendor.id,
-      p_vendor_phone: vendor.phone,
-      p_check_type: "photo_selfie",
-      p_doc_url: pub.publicUrl,
-    });
-    if (verErr) {
-      console.error("photo_selfie verification insert", verErr);
-    }
-
-    setVendor((prev) => (prev ? { ...prev, photo_selfie: pub.publicUrl } : prev));
-    toast.success(s.vendor_selfie_captured);
   };
 
   const openSelfieCamera = () => {
@@ -1679,33 +1800,58 @@ const VendorMode = () => {
           }
         : {}),
     };
-    const { error } = await patchVendorOwn(vendor.id, vendor.phone, patch);
-    setUpdatingLocation(false);
-    if (error) {
-      toast.error(s.vendor_location_update_failed, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await patchVendorOwn(vendor.id, vendor.phone, patch),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.vendor_location_update_failed, { description: error.message });
+        return;
+      }
+      setVendor((prev) =>
+        prev
+          ? {
+              ...prev,
+              latitude: c.lat,
+              longitude: c.lng,
+              ...(downgraded
+                ? {
+                    verification_status: "identity_linked" as VerificationStatus,
+                    shop_photo_url: null,
+                    is_manual_verified: false,
+                  }
+                : {}),
+            }
+          : prev,
+      );
+      toast(downgraded ? s.vendor_reverification_required : s.vendor_location_updated, {
+        description: downgraded
+          ? s.vendor_reverification_body
+          : s.vendor_location_updated_body,
+      });
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void updateShopLocation(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setUpdatingLocation(false);
     }
-    setVendor((prev) =>
-      prev
-        ? {
-            ...prev,
-            latitude: c.lat,
-            longitude: c.lng,
-            ...(downgraded
-              ? {
-                  verification_status: "identity_linked" as VerificationStatus,
-                  shop_photo_url: null,
-                  is_manual_verified: false,
-                }
-              : {}),
-          }
-        : prev,
-    );
-    toast(downgraded ? s.vendor_reverification_required : s.vendor_location_updated, {
-      description: downgraded
-        ? s.vendor_reverification_body
-        : s.vendor_location_updated_body,
-    });
   };
 
   return (

@@ -16,6 +16,17 @@ import {
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 
 export type SavedVendorInfo = {
   nickname: string;
@@ -55,23 +66,47 @@ export function NeighbourSheet({
     if (!vendor) return;
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    const { error } = await supabase.rpc("unsave_saved_vendor", {
-      p_vendor_id: vendor.id,
-      p_device_id: device_id,
-      p_user_phone: userPhone ?? null,
-    });
-    if (error) {
-      toast.error(s.couldNotRemove, { description: error.message });
-      return;
-    }
     try {
-      sessionStorage.removeItem(`aaspaas:saved:${vendor.id}`);
-    } catch {
-      /* ignore */
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("unsave_saved_vendor", {
+              p_vendor_id: vendor.id,
+              p_device_id: device_id,
+              p_user_phone: userPhone ?? null,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.couldNotRemove, { description: error.message });
+        return;
+      }
+      try {
+        sessionStorage.removeItem(`aaspaas:saved:${vendor.id}`);
+      } catch {
+        /* ignore */
+      }
+      onClose();
+      onRemove();
+      toast.success(s.removedFromNeighbourhood);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleRemove(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
     }
-    onClose();
-    onRemove();
-    toast.success(s.removedFromNeighbourhood);
   };
 
   return (

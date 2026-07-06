@@ -52,6 +52,11 @@ import {
   withNetworkRetry,
 } from "@/lib/withNetworkRetry";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
 import { fetchEditedBillIds } from "@/lib/billEdit";
@@ -891,30 +896,55 @@ const MyOrders = () => {
     setMarkingId(id);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    const { error } = await supabase.rpc("dismiss_order", {
-      p_request_id: id,
-      p_device_id: rowDevice ?? device_id ?? null,
-      p_user_phone: rowPhone ?? userPhone ?? null,
-      p_appointment_status: null,
-    });
-    setMarkingId(null);
-    if (error) {
-      toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
-      return;
-    }
-    if (row && wasOrderEngaged(row)) {
-      const vendorPhone = row.vendors?.phone?.trim();
-      if (vendorPhone) {
-        void invokeNotifyVendor({
-          vendor_id: row.vendor_id,
-          notification_title: s.myOrders_orderDismissedNotifyTitle,
-          message: s.myOrders_orderDismissedNotifyBody,
-          request_id: row.id,
-          type: "order_update",
-        });
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("dismiss_order", {
+              p_request_id: id,
+              p_device_id: rowDevice ?? device_id ?? null,
+              p_user_phone: rowPhone ?? userPhone ?? null,
+              p_appointment_status: null,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
+        return;
       }
+      if (row && wasOrderEngaged(row)) {
+        const vendorPhone = row.vendors?.phone?.trim();
+        if (vendorPhone) {
+          void invokeNotifyVendor({
+            vendor_id: row.vendor_id,
+            notification_title: s.myOrders_orderDismissedNotifyTitle,
+            message: s.myOrders_orderDismissedNotifyBody,
+            request_id: row.id,
+            type: "order_update",
+          });
+        }
+      }
+      setRows((prev) => prev.filter((r) => r.id !== id));
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void markDone(target), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setMarkingId(null);
     }
-    setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
   const handleRemoveOrder = async (r: RowWithShop) => {
@@ -922,26 +952,51 @@ const MyOrders = () => {
     setMarkingId(r.id);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    const { error } = await supabase.rpc("cancel_customer_order", {
-      p_request_id: r.id,
-      p_device_id: r.device_id ?? device_id ?? null,
-      p_user_phone: r.user_phone ?? userPhone ?? null,
-    });
-    setMarkingId(null);
-    if (error) {
-      toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("cancel_customer_order", {
+              p_request_id: r.id,
+              p_device_id: r.device_id ?? device_id ?? null,
+              p_user_phone: r.user_phone ?? userPhone ?? null,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
+        return;
+      }
+      if (vendorPhone && wasOrderEngaged(r)) {
+        void invokeNotifyVendor({
+          vendor_id: r.vendor_id,
+          notification_title: s.myOrders_userCancelledNotifyTitle,
+          message: s.myOrders_userCancelledNotifyBody,
+          request_id: r.id,
+          type: "order_update",
+        });
+      }
+      setRows((prev) => prev.filter((row) => row.id !== r.id));
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleRemoveOrder(r), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setMarkingId(null);
     }
-    if (vendorPhone && wasOrderEngaged(r)) {
-      void invokeNotifyVendor({
-        vendor_id: r.vendor_id,
-        notification_title: s.myOrders_userCancelledNotifyTitle,
-        message: s.myOrders_userCancelledNotifyBody,
-        request_id: r.id,
-        type: "order_update",
-      });
-    }
-    setRows((prev) => prev.filter((row) => row.id !== r.id));
   };
 
   const cancelAppointment = async (r: RowWithShop) => {
@@ -949,28 +1004,53 @@ const MyOrders = () => {
     setMarkingId(r.id);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    const { error } = await supabase.rpc("dismiss_order", {
-      p_request_id: r.id,
-      p_device_id: r.device_id ?? device_id ?? null,
-      p_user_phone: r.user_phone ?? userPhone ?? null,
-      p_appointment_status: "cancelled",
-    });
-    setMarkingId(null);
-    if (error) {
-      toast.error(s.myOrders_errCouldNotCancel, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("dismiss_order", {
+              p_request_id: r.id,
+              p_device_id: r.device_id ?? device_id ?? null,
+              p_user_phone: r.user_phone ?? userPhone ?? null,
+              p_appointment_status: "cancelled",
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.myOrders_errCouldNotCancel, { description: error.message });
+        return;
+      }
+      if (vendorPhone && wasOrderEngaged(r)) {
+        void invokeNotifyVendor({
+          vendor_id: r.vendor_id,
+          notification_title: s.myOrders_userCancelledNotifyTitle,
+          message: s.myOrders_userCancelledNotifyBody,
+          request_id: r.id,
+          type: "order_update",
+        });
+      }
+      toast.success(s.myOrders_bookingCancelled);
+      setRows((prev) => prev.filter((row) => row.id !== r.id));
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void cancelAppointment(r), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setMarkingId(null);
     }
-    if (vendorPhone && wasOrderEngaged(r)) {
-      void invokeNotifyVendor({
-        vendor_id: r.vendor_id,
-        notification_title: s.myOrders_userCancelledNotifyTitle,
-        message: s.myOrders_userCancelledNotifyBody,
-        request_id: r.id,
-        type: "order_update",
-      });
-    }
-    toast.success(s.myOrders_bookingCancelled);
-    setRows((prev) => prev.filter((row) => row.id !== r.id));
   };
 
   const openEditSheet = (r: RowWithShop) => {
@@ -1070,103 +1150,138 @@ const MyOrders = () => {
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
 
-    const { data: statusRow, error: statusError } = await supabase
-      .from("requests")
-      .select("status")
-      .eq("id", editOrder.id)
-      .maybeSingle();
+    try {
+      const { data: statusRow, error: statusError } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase
+              .from("requests")
+              .select("status")
+              .eq("id", editOrder.id)
+              .maybeSingle(),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
 
-    if (statusError) {
-      setSavingEdit(false);
-      toast.error(s.myOrders_errCouldNotUpdate, { description: statusError.message });
-      return;
-    }
+      if (statusError) {
+        toast.error(s.myOrders_errCouldNotUpdate, { description: statusError.message });
+        return;
+      }
 
-    const currentStatus = statusRow?.status;
-    if (currentStatus !== "sent" && currentStatus !== "seen") {
-      setSavingEdit(false);
-      toast.error(s.order_no_longer_editable);
+      const currentStatus = statusRow?.status;
+      if (currentStatus !== "sent" && currentStatus !== "seen") {
+        toast.error(s.order_no_longer_editable);
+        closeEditSheet();
+        return;
+      }
+
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("edit_customer_order", {
+              p_request_id: editOrder.id,
+              p_message: newMessage,
+              p_previous_message: oldMessage,
+              p_device_id: editOrder.device_id ?? device_id ?? null,
+              p_user_phone: editOrder.user_phone ?? userPhone ?? null,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+
+      if (error) {
+        toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
+        return;
+      }
+
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === editOrder.id
+            ? {
+                ...r,
+                message: newMessage,
+                previous_message: oldMessage,
+                is_edited: true,
+              }
+            : r,
+        ),
+      );
+
+      const hasAppointment =
+        editOrder.appointment_time != null && String(editOrder.appointment_time).trim() !== "";
+      const today = new Date().toDateString();
+      const referenceDate = hasAppointment
+        ? new Date(editOrder.appointment_time!).toDateString()
+        : new Date(editOrder.created_at).toDateString();
+      const isSameDay = referenceDate === today;
+      const customerName = userPhone ?? "Customer";
+
+      const notificationTitle = hasAppointment
+        ? isSameDay
+          ? "⚠️ Customer edited today's booking!"
+          : "✏️ Booking edited"
+        : isSameDay
+          ? "⚠️ Customer edited today's order!"
+          : "✏️ Order edited";
+      const notificationBody = hasAppointment
+        ? isSameDay
+          ? `${customerName} changed their order — check details now`
+          : `${customerName} updated their booking details`
+        : isSameDay
+          ? `${customerName} changed their order — check details now`
+          : `${customerName} updated their order details`;
+
+      const vendorPhone = editOrder.vendors?.phone?.trim();
+      let skipPush = false;
+      if (vendorPhone) {
+        const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+        const { data: recentNotif } = await supabase
+          .from("user_notifications")
+          .select("id")
+          .eq("user_phone", vendorPhone)
+          .eq("type", "order_update")
+          .gt("created_at", twoMinAgo)
+          .limit(1);
+        skipPush = (recentNotif?.length ?? 0) > 0;
+      }
+
+      if (!skipPush) {
+        void invokeNotifyVendor({
+          vendor_id: editOrder.vendor_id,
+          notification_title: notificationTitle,
+          message: notificationBody,
+          request_id: editOrder.id,
+          type: "order_update",
+        });
+      }
+
+      toast.success(s.orderUpdated);
       closeEditSheet();
-      return;
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void saveOrderEdit(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setSavingEdit(false);
     }
-
-    const { error } = await supabase.rpc("edit_customer_order", {
-      p_request_id: editOrder.id,
-      p_message: newMessage,
-      p_previous_message: oldMessage,
-      p_device_id: editOrder.device_id ?? device_id ?? null,
-      p_user_phone: editOrder.user_phone ?? userPhone ?? null,
-    });
-    setSavingEdit(false);
-
-    if (error) {
-      toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
-      return;
-    }
-
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === editOrder.id
-          ? {
-              ...r,
-              message: newMessage,
-              previous_message: oldMessage,
-              is_edited: true,
-            }
-          : r,
-      ),
-    );
-
-    const hasAppointment =
-      editOrder.appointment_time != null && String(editOrder.appointment_time).trim() !== "";
-    const today = new Date().toDateString();
-    const referenceDate = hasAppointment
-      ? new Date(editOrder.appointment_time!).toDateString()
-      : new Date(editOrder.created_at).toDateString();
-    const isSameDay = referenceDate === today;
-    const customerName = userPhone ?? "Customer";
-
-    const notificationTitle = hasAppointment
-      ? isSameDay
-        ? "⚠️ Customer edited today's booking!"
-        : "✏️ Booking edited"
-      : isSameDay
-        ? "⚠️ Customer edited today's order!"
-        : "✏️ Order edited";
-    const notificationBody = hasAppointment
-      ? isSameDay
-        ? `${customerName} changed their order — check details now`
-        : `${customerName} updated their booking details`
-      : isSameDay
-        ? `${customerName} changed their order — check details now`
-        : `${customerName} updated their order details`;
-
-    const vendorPhone = editOrder.vendors?.phone?.trim();
-    let skipPush = false;
-    if (vendorPhone) {
-      const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-      const { data: recentNotif } = await supabase
-        .from("user_notifications")
-        .select("id")
-        .eq("user_phone", vendorPhone)
-        .eq("type", "order_update")
-        .gt("created_at", twoMinAgo)
-        .limit(1);
-      skipPush = (recentNotif?.length ?? 0) > 0;
-    }
-
-    if (!skipPush) {
-      void invokeNotifyVendor({
-        vendor_id: editOrder.vendor_id,
-        notification_title: notificationTitle,
-        message: notificationBody,
-        request_id: editOrder.id,
-        type: "order_update",
-      });
-    }
-
-    toast.success(s.orderUpdated);
-    closeEditSheet();
   };
 
   const handleFulfilledDismiss = (r: RowWithShop) => {

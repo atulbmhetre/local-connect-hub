@@ -35,6 +35,17 @@ import { getUserPhone, isPhoneKnown, migrateUserPhone } from "@/lib/userIdentity
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useUserAddresses, type SavedAddress } from "@/hooks/useUserAddresses";
 import { cn } from "@/lib/utils";
@@ -499,68 +510,93 @@ export function ParchiSheet({
 
       setSending(true);
       const device_id = getDeviceId();
-      const { data: insertedId, error } = await supabase.rpc("create_customer_request", {
-        p_device_id: device_id,
-        p_vendor_id: v.id,
-        p_message: text.slice(0, config.maxOrderMessageChars) + locationNote,
-        p_user_phone: phone,
-        p_device_id_log: device_id,
-        p_delivery_address: finalAddress,
-        p_delivery_slot: selectedSlot,
-        p_delivery_slot_deadline:
-          effectiveVendor?.service_mode === "delivery"
-            ? getDeliverySlotDeadline(selectedSlot)
-            : null,
-        p_appointment_time: appointmentTimestamp,
-        p_appointment_status: appointmentTimestamp ? "pending" : null,
-        p_customer_latitude: customerLat ?? null,
-        p_customer_longitude: customerLng ?? null,
-      });
-      if (error) {
-        setSending(false);
-        toast.error(s.parchi_errCouldNotSend, { description: error.message });
-        return;
-      }
-      void upsertUser(phone);
-      void incrementUserOrders(phone);
-      const fullMessage = text.slice(0, config.maxOrderMessageChars) + locationNote;
-      const notifyBody = fullMessage
-        .replace(/\s*\[Come to my place\]/g, "")
-        .replace(/\s*\[I'll visit your shop\]/g, "")
-        .replace(/\s*\[Location TBD\]/g, "")
-        .trim();
-      void invokeNotifyVendor({
-        vendor_id: v.id,
-        category: v.category,
-        message: notifyBody,
-        type: "new_order",
-        request_id: insertedId,
-      });
-      if (saveAddress && newAddress.trim()) {
-        const { error: addrError } = await supabase.rpc("insert_user_address", {
-          p_device_id: getDeviceId(),
-          p_user_phone: getUserPhone() ?? null,
-          p_label: "",
-          p_address_text: newAddress.trim(),
-          p_is_default: addresses.length === 0,
-        });
-        if (addrError) console.error("Address save failed:", addrError.message);
-      }
-      setSending(false);
-      toast.success(
-        v.service_mode === "appointment"
-          ? s.parchi_toastBookingSuccess
-          : s.parchi_toastOrderSuccess,
-      );
       try {
-        sessionStorage.setItem(`aaspaas:parchi:${v.id}`, "1");
-      } catch {
-        /* ignore */
+        const { data: insertedId, error } = await withNetworkRetry(
+          async () =>
+            throwOnSupabaseNetworkError(
+              await supabase.rpc("create_customer_request", {
+                p_device_id: device_id,
+                p_vendor_id: v.id,
+                p_message: text.slice(0, config.maxOrderMessageChars) + locationNote,
+                p_user_phone: phone,
+                p_device_id_log: device_id,
+                p_delivery_address: finalAddress,
+                p_delivery_slot: selectedSlot,
+                p_delivery_slot_deadline:
+                  effectiveVendor?.service_mode === "delivery"
+                    ? getDeliverySlotDeadline(selectedSlot)
+                    : null,
+                p_appointment_time: appointmentTimestamp,
+                p_appointment_status: appointmentTimestamp ? "pending" : null,
+                p_customer_latitude: customerLat ?? null,
+                p_customer_longitude: customerLng ?? null,
+              }),
+            ),
+          {
+            onRetrying: () => {
+              showNetworkRetryingToast({ retrying: s.network_retrying });
+            },
+            shouldRetry: () => getNavigatorOnline(),
+          },
+        );
+        dismissNetworkRetryingToast();
+        if (error) {
+          setSending(false);
+          toast.error(s.parchi_errCouldNotSend, { description: error.message });
+          return;
+        }
+        void upsertUser(phone);
+        void incrementUserOrders(phone);
+        const fullMessage = text.slice(0, config.maxOrderMessageChars) + locationNote;
+        const notifyBody = fullMessage
+          .replace(/\s*\[Come to my place\]/g, "")
+          .replace(/\s*\[I'll visit your shop\]/g, "")
+          .replace(/\s*\[Location TBD\]/g, "")
+          .trim();
+        void invokeNotifyVendor({
+          vendor_id: v.id,
+          category: v.category,
+          message: notifyBody,
+          type: "new_order",
+          request_id: insertedId,
+        });
+        if (saveAddress && newAddress.trim()) {
+          const { error: addrError } = await supabase.rpc("insert_user_address", {
+            p_device_id: getDeviceId(),
+            p_user_phone: getUserPhone() ?? null,
+            p_label: "",
+            p_address_text: newAddress.trim(),
+            p_is_default: addresses.length === 0,
+          });
+          if (addrError) console.error("Address save failed:", addrError.message);
+        }
+        setSending(false);
+        toast.success(
+          v.service_mode === "appointment"
+            ? s.parchi_toastBookingSuccess
+            : s.parchi_toastOrderSuccess,
+        );
+        try {
+          sessionStorage.setItem(`aaspaas:parchi:${v.id}`, "1");
+        } catch {
+          /* ignore */
+        }
+        setMessage("");
+        setPendingPhone(null);
+        onOrderSent?.();
+        onClose();
+      } catch (err) {
+        dismissNetworkRetryingToast();
+        if (err instanceof NetworkExhaustedError) {
+          setSending(false);
+          showNetworkFailedToast(() => void executeOrderInsert(phone), {
+            failed: s.network_failed,
+            retryBtn: s.network_retry_btn,
+          });
+        } else {
+          throw err;
+        }
       }
-      setMessage("");
-      setPendingPhone(null);
-      onOrderSent?.();
-      onClose();
     },
     [
       effectiveVendor,

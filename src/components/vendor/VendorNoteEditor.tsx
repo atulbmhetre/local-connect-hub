@@ -4,6 +4,17 @@ import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 
 type Props = {
   vendorId: string;
@@ -39,19 +50,44 @@ export function VendorNoteEditor({
       toast.error(s.vendor_note_save_failed);
       return;
     }
-    const { error } = await supabase.rpc("vendor_update_own", {
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-      p_patch: { vendor_note: trimmed || null },
-    });
-    setSaving(false);
-    if (error) {
-      toast.error(s.vendor_note_save_failed, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_update_own", {
+              p_vendor_id: vendorId,
+              p_vendor_phone: vendorPhone,
+              p_patch: { vendor_note: trimmed || null },
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.vendor_note_save_failed, { description: error.message });
+        return;
+      }
+      onSaved(trimmed);
+      setNoteChanged(false);
+      toast.success(s.vendor_note_saved);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void saveNote(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setSaving(false);
     }
-    onSaved(trimmed);
-    setNoteChanged(false);
-    toast.success(s.vendor_note_saved);
   };
 
   return (

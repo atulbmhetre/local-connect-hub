@@ -20,6 +20,17 @@ import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 import type { TrustLevel } from "@/lib/trustLevel";
 
 const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
@@ -555,47 +566,95 @@ export function RadarVendorCard({
       return;
     }
     const device_id = getDeviceId();
-    const { error } = await supabase.rpc("save_saved_vendor", {
-      p_vendor_id: vendor.id,
-      p_category: vendor.category,
-      p_nickname: vendor.shop_name,
-      p_device_id: device_id,
-      p_user_phone: userPhone,
-    });
-    if (error) {
-      if (error.code === "23505") {
-        writeSessionSaved(vendor.id);
-        setSavedVendorLocked(true);
-        markNeighboursDirty();
-        toast.success(`✅ ${s.radar_saved_success}`);
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("save_saved_vendor", {
+              p_vendor_id: vendor.id,
+              p_category: vendor.category,
+              p_nickname: vendor.shop_name,
+              p_device_id: device_id,
+              p_user_phone: userPhone,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        if (error.code === "23505") {
+          writeSessionSaved(vendor.id);
+          setSavedVendorLocked(true);
+          markNeighboursDirty();
+          toast.success(`✅ ${s.radar_saved_success}`);
+          return;
+        }
+        toast.error(s.radar_could_not_save, { description: error.message });
         return;
       }
-      toast.error(s.radar_could_not_save, { description: error.message });
-      return;
+      writeSessionSaved(vendor.id);
+      setSavedVendorLocked(true);
+      markNeighboursDirty();
+      toast.success(`✅ ${s.radar_saved_success}`);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleSaveVendor(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
     }
-    writeSessionSaved(vendor.id);
-    setSavedVendorLocked(true);
-    markNeighboursDirty();
-    toast.success(`✅ ${s.radar_saved_success}`);
   }, [isSaved, savedVendorLocked, vendor, s]);
 
   const handleUnsaveVendor = useCallback(async () => {
     if (!savedVendorLocked && !isSaved) return;
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    const { error } = await supabase.rpc("unsave_saved_vendor", {
-      p_vendor_id: vendor.id,
-      p_device_id: device_id,
-      p_user_phone: userPhone ?? null,
-    });
-    if (error) {
-      toast.error(s.couldNotRemove, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("unsave_saved_vendor", {
+              p_vendor_id: vendor.id,
+              p_device_id: device_id,
+              p_user_phone: userPhone ?? null,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.couldNotRemove, { description: error.message });
+        return;
+      }
+      clearSessionSaved(vendor.id);
+      setSavedVendorLocked(false);
+      markNeighboursDirty();
+      toast.success(s.neighbours_removed);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleUnsaveVendor(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
     }
-    clearSessionSaved(vendor.id);
-    setSavedVendorLocked(false);
-    markNeighboursDirty();
-    toast.success(s.neighbours_removed);
   }, [isSaved, savedVendorLocked, vendor.id, s]);
 
   const handleResolution = useCallback(async () => {
@@ -618,17 +677,42 @@ export function RadarVendorCard({
     const isDelivery = serviceMode === "delivery";
     const rpc = isDelivery ? "increment_vendor_delivered" : "increment_vendor_helped";
     setResolutionBusy(true);
-    const { error } = await supabase.rpc(rpc, { p_vendor_id: vendor.id });
-    setResolutionBusy(false);
-    if (error) {
-      toast.error(s.radar_could_not_save, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc(rpc, { p_vendor_id: vendor.id }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.radar_could_not_save, { description: error.message });
+        return;
+      }
+      writeResolutionMarked(vendor.id);
+      setResolutionMarked(true);
+      if (isDelivery) setDeliveredCount((c) => c + 1);
+      else setHelpCount((c) => c + 1);
+      toast.success(s.radar_thank_community);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleResolution(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setResolutionBusy(false);
     }
-    writeResolutionMarked(vendor.id);
-    setResolutionMarked(true);
-    if (isDelivery) setDeliveredCount((c) => c + 1);
-    else setHelpCount((c) => c + 1);
-    toast.success(s.radar_thank_community);
   }, [
     resolutionMarked,
     resolutionBusy,

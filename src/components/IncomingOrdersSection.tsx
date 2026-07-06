@@ -20,6 +20,17 @@ import { fetchEditedBillIds, type VendorEditBillResult } from "@/lib/billEdit";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { getUserPhone } from "@/lib/userIdentity";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 
 type TrustInfo = {
   trust_score: number;
@@ -741,36 +752,61 @@ export function IncomingOrdersSection({
       return;
     }
     setMarkingId(id);
-    const { data: accepted, error } = await supabase.rpc("vendor_accept_order", {
-      p_request_id: id,
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-      p_from_status: "sent",
-    });
-    setMarkingId(null);
-    if (error) {
-      toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
-      return;
-    }
-    if (!accepted) {
-      toast.error(s.order_already_taken);
-      setRows((prev) => prev.filter((r) => r.id !== id));
-      return;
-    }
-    if (userPhone) {
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title: s.incoming_helpAcceptedNotifyTitle,
-        body: s.incoming_helpAcceptedNotifyBody,
-        type: "order_accepted",
-        order_id: id,
+    try {
+      const { data: accepted, error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_accept_order", {
+              p_request_id: id,
+              p_vendor_id: vendorId,
+              p_vendor_phone: vendorPhone,
+              p_from_status: "sent",
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+        return;
+      }
+      if (!accepted) {
+        toast.error(s.order_already_taken);
+        setRows((prev) => prev.filter((r) => r.id !== id));
+        return;
+      }
+      if (userPhone) {
+        void invokeNotifyUser({
+          user_phone: userPhone,
+          title: s.incoming_helpAcceptedNotifyTitle,
+          body: s.incoming_helpAcceptedNotifyBody,
+          type: "order_accepted",
+          order_id: id,
+        });
+      }
+      setRows((prev) => {
+        const next = prev.map((r) => (r.id === id ? { ...r, status: "accepted" } : r));
+        onUnreadCount?.(countUnreadIncomingOrders(next, serviceMode));
+        return next;
       });
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void acceptHelpOrder(id), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setMarkingId(null);
     }
-    setRows((prev) => {
-      const next = prev.map((r) => (r.id === id ? { ...r, status: "accepted" } : r));
-      onUnreadCount?.(countUnreadIncomingOrders(next, serviceMode));
-      return next;
-    });
   };
 
   const acceptDeliveryOrder = async (id: string, userPhone: string | null) => {
@@ -781,33 +817,58 @@ export function IncomingOrdersSection({
       return;
     }
     setMarkingId(id);
-    const { data: accepted, error } = await supabase.rpc("vendor_accept_order", {
-      p_request_id: id,
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-      p_from_status: "seen",
-    });
-    setMarkingId(null);
-    if (error) {
-      toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
-      return;
-    }
-    if (!accepted) {
-      toast.error(s.order_already_taken);
+    try {
+      const { data: accepted, error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_accept_order", {
+              p_request_id: id,
+              p_vendor_id: vendorId,
+              p_vendor_phone: vendorPhone,
+              p_from_status: "seen",
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+        return;
+      }
+      if (!accepted) {
+        toast.error(s.order_already_taken);
+        void load({ silent: true });
+        return;
+      }
+      const phone = userPhone?.trim();
+      if (phone) {
+        void invokeNotifyUser({
+          user_phone: phone,
+          title: s.incoming_orderAcceptedTitle,
+          body: s.incoming_orderAcceptedBody,
+          type: "order_update",
+          order_id: id,
+        });
+      }
       void load({ silent: true });
-      return;
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void acceptDeliveryOrder(id, userPhone), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setMarkingId(null);
     }
-    const phone = userPhone?.trim();
-    if (phone) {
-      void invokeNotifyUser({
-        user_phone: phone,
-        title: s.incoming_orderAcceptedTitle,
-        body: s.incoming_orderAcceptedBody,
-        type: "order_update",
-        order_id: id,
-      });
-    }
-    void load({ silent: true });
   };
 
   const markDone = async (id: string) => {
@@ -818,33 +879,58 @@ export function IncomingOrdersSection({
       return;
     }
     setMarkingId(id);
-    const { error } = await supabase.rpc("vendor_fulfil_order", {
-      p_request_id: id,
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-    });
-    setMarkingId(null);
-    if (error) {
-      if (error.message?.includes("cannot_fulfil_without_bill")) {
-        toast.error(s.payment_no_bill_error);
-      } else {
-        toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_fulfil_order", {
+              p_request_id: id,
+              p_vendor_id: vendorId,
+              p_vendor_phone: vendorPhone,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        if (error.message?.includes("cannot_fulfil_without_bill")) {
+          toast.error(s.payment_no_bill_error);
+        } else {
+          toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+        }
+        return;
       }
-      return;
+      if (serviceMode === "delivery") {
+        void supabase.rpc("recalculate_vendor_on_time_rate", { p_vendor_id: vendorId });
+      }
+      if (userPhone) {
+        void invokeNotifyUser({
+          user_phone: userPhone,
+          title: s.incoming_orderFulfilledNotifyTitle,
+          body: s.incoming_orderFulfilledNotifyBody,
+          type: "order_update",
+          order_id: id,
+        });
+      }
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void markDone(id), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setMarkingId(null);
     }
-    if (serviceMode === "delivery") {
-      void supabase.rpc("recalculate_vendor_on_time_rate", { p_vendor_id: vendorId });
-    }
-    if (userPhone) {
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title: s.incoming_orderFulfilledNotifyTitle,
-        body: s.incoming_orderFulfilledNotifyBody,
-        type: "order_update",
-        order_id: id,
-      });
-    }
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
   };
 
   const confirmPayment = async (
@@ -926,17 +1012,42 @@ export function IncomingOrdersSection({
       return;
     }
     setMarkingId(id);
-    const { error } = await supabase.rpc("vendor_dismiss_requests", {
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-      p_request_ids: [id],
-    });
-    setMarkingId(null);
-    if (error) {
-      toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_dismiss_requests", {
+              p_vendor_id: vendorId,
+              p_vendor_phone: vendorPhone,
+              p_request_ids: [id],
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(s.incoming_errCouldNotUpdate, { description: error.message });
+        return;
+      }
+      setRows((prev) => prev.filter((r) => r.id !== id));
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void dismissOrder(id), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setMarkingId(null);
     }
-    setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
   const handleAppointmentAction = async (id: string, action: "confirmed" | "declined") => {
@@ -948,32 +1059,57 @@ export function IncomingOrdersSection({
       return;
     }
     setMarkingId(id);
-    const { error } = await supabase.rpc("vendor_confirm_appointment", {
-      p_request_id: id,
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-    });
-    setMarkingId(null);
-    if (error) {
-      console.error("handleAppointmentAction", action, error);
-      toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_confirm_appointment", {
+              p_request_id: id,
+              p_vendor_id: vendorId,
+              p_vendor_phone: vendorPhone,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        console.error("handleAppointmentAction", action, error);
+        toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
+        return;
+      }
+      if (userPhone) {
+        void invokeNotifyUser({
+          user_phone: userPhone,
+          title: s.incoming_bookingConfirmedNotifyTitle,
+          body: s.incoming_bookingConfirmedNotifyBody,
+          type: "order_update",
+          order_id: id,
+        });
+      }
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === id ? { ...r, appointment_status: action, status: "accepted" } : r,
+        ),
+      );
+      toast.success(s.incoming_apptConfirmed);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleAppointmentAction(id, action), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setMarkingId(null);
     }
-    if (userPhone) {
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title: s.incoming_bookingConfirmedNotifyTitle,
-        body: s.incoming_bookingConfirmedNotifyBody,
-        type: "order_update",
-        order_id: id,
-      });
-    }
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === id ? { ...r, appointment_status: action, status: "accepted" } : r,
-      ),
-    );
-    toast.success(s.incoming_apptConfirmed);
   };
 
   const closeDeclineSheet = () => {
@@ -1027,44 +1163,69 @@ export function IncomingOrdersSection({
       toast.error(s.incoming_errCouldNotUpdateAppt);
       return;
     }
-    const { error } = await supabase.rpc("vendor_decline_booking", {
-      p_request_id: declineOrderId,
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-      p_cancel_reason: reasonText,
-    });
-    setDeclining(false);
-    setMarkingId(null);
-    if (error) {
-      console.error("confirmDeclineBooking", error);
-      toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_decline_booking", {
+              p_request_id: declineOrderId,
+              p_vendor_id: vendorId,
+              p_vendor_phone: vendorPhone,
+              p_cancel_reason: reasonText,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        console.error("confirmDeclineBooking", error);
+        toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
+        return;
+      }
+      if (userPhone) {
+        const title = s.incoming_bookingDeclinedNotifyTitle;
+        const body = s.incoming_bookingDeclinedNotifyBody(reasonText);
+        void invokeNotifyUser({
+          user_phone: userPhone,
+          title,
+          body,
+          type: "order_update",
+          order_id: declineOrderId,
+        });
+      }
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === declineOrderId
+            ? {
+                ...r,
+                appointment_status: "declined",
+                status: "seen",
+                cancel_reason: reasonText,
+              }
+            : r,
+        ),
+      );
+      closeDeclineSheet();
+      toast.success(s.incoming_apptDeclined);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void confirmDeclineBooking(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setDeclining(false);
+      setMarkingId(null);
     }
-    if (userPhone) {
-      const title = s.incoming_bookingDeclinedNotifyTitle;
-      const body = s.incoming_bookingDeclinedNotifyBody(reasonText);
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title,
-        body,
-        type: "order_update",
-        order_id: declineOrderId,
-      });
-    }
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === declineOrderId
-          ? {
-              ...r,
-              appointment_status: "declined",
-              status: "seen",
-              cancel_reason: reasonText,
-            }
-          : r,
-      ),
-    );
-    closeDeclineSheet();
-    toast.success(s.incoming_apptDeclined);
   };
 
   const closeCancelSheet = () => {
