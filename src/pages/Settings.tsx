@@ -2039,7 +2039,7 @@ const Settings = () => {
       }
       const trustDiff = trustLevelRank(b.trustLevel) - trustLevelRank(a.trustLevel);
       if (trustDiff !== 0) return trustDiff;
-      return a.shop_name.localeCompare(b.shop_name);
+      return (a.shop_name ?? "").localeCompare(b.shop_name ?? "");
     });
   }, [vendorList]);
 
