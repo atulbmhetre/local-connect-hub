@@ -230,11 +230,16 @@ function RadarModeSelector({
 function buildVendorCategoriesMap(
   rows: {
     vendor_id: string;
+    category_id: string;
     is_primary: boolean | null;
     categories: { label: string; emoji: string } | { label: string; emoji: string }[] | null;
   }[],
+  matchedCategoryIdsByVendor?: Map<string, Set<string>>,
 ): Map<string, { label: string; emoji: string }[]> {
-  const map = new Map<string, { label: string; emoji: string; is_primary: boolean }[]>();
+  const map = new Map<
+    string,
+    { label: string; emoji: string; is_primary: boolean; category_id: string }[]
+  >();
 
   for (const row of rows) {
     const cat = row.categories;
@@ -246,13 +251,22 @@ function buildVendorCategoriesMap(
       label: resolved.label,
       emoji: resolved.emoji ?? "✨",
       is_primary: row.is_primary === true,
+      category_id: row.category_id,
     });
     map.set(row.vendor_id, list);
   }
 
   const out = new Map<string, { label: string; emoji: string }[]>();
   for (const [vendorId, list] of map) {
-    list.sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
+    const matched = matchedCategoryIdsByVendor?.get(vendorId);
+    list.sort((a, b) => {
+      if (matched) {
+        const aMatch = matched.has(a.category_id) ? 1 : 0;
+        const bMatch = matched.has(b.category_id) ? 1 : 0;
+        if (aMatch !== bMatch) return bMatch - aMatch;
+      }
+      return Number(b.is_primary) - Number(a.is_primary);
+    });
     out.set(
       vendorId,
       list.map(({ label, emoji }) => ({ label, emoji })),
@@ -509,6 +523,7 @@ const RadarSearch = () => {
       }
       try {
         let vendorIdFilter: string[] | null = null;
+        let matchedCategoryIdsByVendor: Map<string, Set<string>> | undefined;
         if (term) {
           if (isAmbulanceEmergencySearch(term)) {
             if (isCurrent()) {
@@ -590,12 +605,19 @@ const RadarSearch = () => {
           }
           const { data: vcRows, error: vcError } = await supabase
             .from("vendor_categories")
-            .select("vendor_id")
+            .select("vendor_id, category_id")
             .in("category_id", categoryIds)
             .eq("status", "approved")
             .eq("service_mode", selectedMode);
           if (vcError) throw vcError;
-          vendorIdFilter = [...new Set((vcRows ?? []).map((row) => row.vendor_id))];
+          matchedCategoryIdsByVendor = new Map<string, Set<string>>();
+          for (const row of vcRows ?? []) {
+            if (!matchedCategoryIdsByVendor.has(row.vendor_id)) {
+              matchedCategoryIdsByVendor.set(row.vendor_id, new Set());
+            }
+            matchedCategoryIdsByVendor.get(row.vendor_id)!.add(row.category_id);
+          }
+          vendorIdFilter = [...matchedCategoryIdsByVendor.keys()];
           if (vendorIdFilter.length === 0) {
             if (isCurrent()) setResults([]);
             return;
@@ -865,7 +887,7 @@ const RadarSearch = () => {
                 .eq("is_latest", true),
               supabase
                 .from("vendor_categories")
-                .select("vendor_id, is_primary, categories(label, emoji)")
+                .select("vendor_id, category_id, is_primary, categories(label, emoji)")
                 .in("vendor_id", vendorIds)
                 .eq("status", "approved"),
               supabase
@@ -886,6 +908,7 @@ const RadarSearch = () => {
           verificationRows = (verResult.data ?? []) as VendorVerificationRow[];
           categoriesByVendor = buildVendorCategoriesMap(
             (vcResult.data ?? []) as Parameters<typeof buildVendorCategoriesMap>[0],
+            categoryModeSearch ? matchedCategoryIdsByVendor : undefined,
           );
 
           for (const row of menuResult.data ?? []) {
