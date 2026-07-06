@@ -1293,7 +1293,7 @@ export function IncomingOrdersSection({
       }
 
       const title = s.bill_notifTitle;
-      const body = `${shopName}: ₹${amount} — khata`;
+      const body = `${shopName}: ₹${amount} — ${s.khata_wordLabel}`;
       void invokeNotifyUser({
         user_phone: ledgerUserPhone,
         title,
