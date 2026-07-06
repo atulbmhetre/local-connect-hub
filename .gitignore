@@ -37,3 +37,17 @@ dist-ssr
 /playwright/.cache/
 /playwright/.auth/
 .playwright-browsers/
+playwright.config.ts.backup
+playwright_*.txt
+
+# Session / diagnostic artifacts
+.commit-tmp/
+.commit-patches/
+prod_*.txt
+prod_*.json
+*_result.txt
+*_results.json
+*_log.txt
+canary_*.txt
+test_rls_policies.*
+vitest_results.txt
