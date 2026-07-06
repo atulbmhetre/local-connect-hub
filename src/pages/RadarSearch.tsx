@@ -3,6 +3,7 @@ import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
+import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { NotificationBell } from "@/components/NotificationBell";
 import {
   ArrowLeft,
@@ -40,6 +41,7 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { useLanguage } from "@/lib/language";
+import { isNetworkFailure } from "@/lib/withNetworkRetry";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import {
   compareRadarResults,
@@ -324,6 +326,7 @@ const RadarSearch = () => {
   const [searchRadiusKm, setSearchRadiusKm] = useState(DEFAULT_SERVICE_RADIUS_KM);
   const [results, setResults] = useState<Ranked[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [networkSearchFailed, setNetworkSearchFailed] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   /**
    * Search must not run before the categories lookup resolves: with an empty
@@ -502,6 +505,7 @@ const RadarSearch = () => {
       if (!opts.silent) {
         setScanning(true);
         setError(null);
+        setNetworkSearchFailed(false);
       }
       try {
         let vendorIdFilter: string[] | null = null;
@@ -962,7 +966,11 @@ const RadarSearch = () => {
         if (isCurrent()) setResults(scoped);
       } catch (e: unknown) {
         if (!opts.silent && isCurrent()) {
-          setError(e instanceof Error ? e.message : s.radar_connection_error);
+          if (isNetworkFailure(e)) {
+            setNetworkSearchFailed(true);
+          } else {
+            setError(e instanceof Error ? e.message : s.radar_connection_error);
+          }
         }
       } finally {
         // A newer fetch owns the scanning flag now; don't end its spinner early.
@@ -1221,6 +1229,13 @@ const RadarSearch = () => {
       )}
 
       {/* Error */}
+      {!locationBlocked && networkSearchFailed && (
+        <NetworkErrorBanner
+          status="failed"
+          onRetry={() => void fetchVendors({ silent: false })}
+        />
+      )}
+
       {!locationBlocked && error && (
         <div className="rounded-2xl bg-destructive/10 border border-destructive/30 p-4 flex gap-3 mt-2">
           <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />

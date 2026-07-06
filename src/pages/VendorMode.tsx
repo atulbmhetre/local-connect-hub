@@ -33,6 +33,7 @@ import {
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import {
+  isNetworkFailure,
   NetworkExhaustedError,
   throwOnSupabaseNetworkError,
   withNetworkRetry,
@@ -800,20 +801,46 @@ const VendorMode = () => {
     setCategorySuggesting(true);
     setCategorySuggestion(null);
     setPendingNewCategoryCreate(null);
-    const result = await invokeSuggestCategory({ description: desc });
-    setCategorySuggesting(false);
-    if (!result.success) {
-      const regCategoriesAlreadyVisible =
-        showManualCategories && !regCategoriesLoading && allRegCategories.length > 0;
-      setShowManualCategories(true);
-      if (!regCategoriesAlreadyVisible) {
-        toast.error(result.error ?? s.vendor_understanding);
+    try {
+      const result = await withNetworkRetry(
+        async () => {
+          const r = await invokeSuggestCategory({ description: desc });
+          if (!r.success && r.error && isNetworkFailure({ message: r.error })) {
+            throw new Error(r.error);
+          }
+          return r;
+        },
+        {
+          onRetrying: () => showNetworkRetryingToast({ retrying: s.network_retrying }),
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      setCategorySuggesting(false);
+      if (!result.success) {
+        const regCategoriesAlreadyVisible =
+          showManualCategories && !regCategoriesLoading && allRegCategories.length > 0;
+        setShowManualCategories(true);
+        if (!regCategoriesAlreadyVisible) {
+          toast.error(result.error ?? s.vendor_understanding);
+        }
+        return;
       }
-      return;
-    }
-    setCategorySuggestion(result);
-    if (result.outcome === "low_confidence") {
-      setShowManualCategories(true);
+      setCategorySuggestion(result);
+      if (result.outcome === "low_confidence") {
+        setShowManualCategories(true);
+      }
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      setCategorySuggesting(false);
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleFindCategory(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
     }
   };
 
