@@ -51,3 +51,7 @@ prod_*.json
 canary_*.txt
 test_rls_policies.*
 vitest_results.txt
+bill-edit-rpc-test-results.json
+test_vendor_bloat.txt
+followup_diagnostics_status.txt
+rls_investigation_summary.txt
