@@ -32,6 +32,7 @@ import {
   type CategorySuggestionResult,
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
+import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import {
   isNetworkFailure,
   NetworkExhaustedError,
@@ -1210,7 +1211,15 @@ const VendorMode = () => {
             existingVendor.deletion_requested_at != null ||
             existingVendor.phone.startsWith("deleted_"))
         ) {
-          toast.error(s.vendor_lookup_unavailable);
+          if (existingVendor.deletion_requested_at != null) {
+            toast.error(
+              s.vendor_recently_deleted_retry(
+                formatVendorDeletionDate(existingVendor.deletion_requested_at),
+              ),
+            );
+          } else {
+            toast.error(s.vendor_phone_register_blocked);
+          }
           setError(null);
           return;
         }
@@ -1373,7 +1382,7 @@ const VendorMode = () => {
       }
       if (found) {
         if (found.phone.startsWith("deleted_")) {
-          toast.error(s.vendor_lookup_unavailable);
+          toast.error(s.vendor_phone_register_blocked);
           return;
         }
         localStorage.setItem(STORAGE_KEY, found.id);

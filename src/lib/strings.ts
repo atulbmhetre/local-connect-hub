@@ -322,6 +322,10 @@ export const strings = {
     vendor_not_found: 'No vendor found with this number. Please register first.',
     vendor_lookup_unavailable:
       'This account is no longer available. Please contact support.',
+    vendor_phone_register_blocked:
+      "This phone number can't be used to register right now. Please use a different number.",
+    vendor_recently_deleted_retry: (date: string) =>
+      `This phone number was used for a shop that was deleted and is still in its 30-day grace period. You can register again with this number after ${date}, or use a different number now.`,
     vendor_location_required: 'Location required to go live',
     vendor_location_required_body: 'Mobile services need a fresh GPS fix when going online.',
     vendor_status_failed: "Couldn't update status",
@@ -834,7 +838,7 @@ export const strings = {
     delete_account_title: 'Delete Account',
     delete_account_confirm_title: 'Delete your account?',
     delete_account_confirm_body:
-      'This will permanently delete all your data. This cannot be undone.',
+      'This will delete your shop. Your data cannot be recovered, and you will not be able to register a new shop with this same phone number for 30 days.',
     delete_account_scheduled:
       'Account deletion scheduled. Your account and data will be deleted on {date}.',
     delete_account_cancel: 'Cancel Deletion',
@@ -844,7 +848,7 @@ export const strings = {
       'Your account will be deleted. Your vendor shop will remain active for 30 days as per policy.',
     delete_account_cancelled: 'Deletion cancelled',
     deletion_dualRoleNotice:
-      'Your customer account will be deleted immediately. Your vendor shop will remain bookable for 30 days, after which it will also be deleted, per our policy.',
+      'Your customer account will be deleted immediately. Your vendor shop will be deleted after 30 days, and you will not be able to register a new shop with this same phone number for 30 days.',
     settings_verifyVendor: 'Verify Vendor',
     settings_check1: 'Called vendor on registered phone — person picked up',
     settings_check2: 'Name matches what they said on call',
@@ -1606,6 +1610,10 @@ export const strings = {
     vendor_not_found: 'इस नंबर से कोई दुकानदार नहीं मिला। पहले रजिस्टर करें।',
     vendor_lookup_unavailable:
       'यह खाता अब उपलब्ध नहीं है। कृपया सहायता से संपर्क करें।',
+    vendor_phone_register_blocked:
+      'यह नंबर अभी नई दुकान पंजीकरण के लिए उपयोग नहीं किया जा सकता। कृपया कोई दूसरा नंबर उपयोग करें।',
+    vendor_recently_deleted_retry: (date: string) =>
+      `यह नंबर एक हटाई गई दुकान के लिए उपयोग में है और अभी 30-दिन की अवधि में है। आप ${date} के बाद इसी नंबर से फिर पंजीकरण कर सकते हैं, या अभी कोई दूसरा नंबर उपयोग करें।`,
     vendor_location_required: 'लाइव होने के लिए लोकेशन जरूरी है',
     vendor_location_required_body: 'ऑनलाइन होने पर नया GPS लोकेशन चाहिए।',
     vendor_status_failed: 'स्टेटस अपडेट नहीं हुआ',
@@ -2115,7 +2123,7 @@ export const strings = {
     delete_account_title: 'Delete Account',
     delete_account_confirm_title: 'Delete your account?',
     delete_account_confirm_body:
-      'This will permanently delete all your data. This cannot be undone.',
+      'इससे आपकी दुकान हट जाएगी। आपका डेटा वापस नहीं मिलेगा, और 30 दिनों तक इसी नंबर से नई दुकान पंजीकृत नहीं कर सकेंगे।',
     delete_account_scheduled:
       'Account deletion scheduled. Your account and data will be deleted on {date}.',
     delete_account_cancel: 'Cancel Deletion',
@@ -2125,7 +2133,7 @@ export const strings = {
       'Your account will be deleted. Your vendor shop will remain active for 30 days as per policy.',
     delete_account_cancelled: 'Deletion cancelled',
     deletion_dualRoleNotice:
-      'Your customer account will be deleted immediately. Your vendor shop will remain bookable for 30 days, after which it will also be deleted, per our policy.',
+      'आपका ग्राहक खाता तुरंत हट जाएगा। आपकी दुकान 30 दिनों बाद हटेगी, और 30 दिनों तक इसी नंबर से नई दुकान पंजीकृत नहीं कर सकेंगे।',
     settings_verifyVendor: 'दुकानदार सत्यापित करें',
     settings_check1: 'पंजीकृत फोन पर कॉल किया — व्यक्ति ने उठाया',
     settings_check2: 'नाम कॉल में बताए नाम से मेल खाता है',
@@ -2887,6 +2895,10 @@ export const strings = {
     vendor_not_found: 'या नंबरने कोणताही विक्रेता सापडला नाही. आधी नोंदणी करा.',
     vendor_lookup_unavailable:
       'हे खाते आता उपलब्ध नाही. कृपया समर्थनाशी संपर्क करा.',
+    vendor_phone_register_blocked:
+      'हा नंबर आत्ता नवीन दुकान नोंदणीसाठी वापरता येत नाही. कृपया वेगळा नंबर वापरा.',
+    vendor_recently_deleted_retry: (date: string) =>
+      `हा नंबर एका हटवलेल्या दुकानासाठी वापरात होता आणि अजून 30-दिवसांच्या कालावधीत आहे. ${date} नंतर त्याच नंबरने पुन्हा नोंदणी करू शकता, किंवा आत्ता वेगळा नंबर वापरा.`,
     vendor_location_required: 'लाइव्ह होण्यासाठी लोकेशन आवश्यक आहे',
     vendor_location_required_body: 'ऑनलाइन होताना नवीन GPS लोकेशन हवे.',
     vendor_status_failed: 'स्टेटस अपडेट झाला नाही',
@@ -3395,7 +3407,7 @@ export const strings = {
     delete_account_title: 'Delete Account',
     delete_account_confirm_title: 'Delete your account?',
     delete_account_confirm_body:
-      'This will permanently delete all your data. This cannot be undone.',
+      'यामुळे तुमचे दुकान हटवले जाईल. तुमचा डेटा परत मिळणार नाही, आणि या त्याच नंबरने 30 दिवसांसाठी नवीन दुकान नोंदणी करू शकणार नाही.',
     delete_account_scheduled:
       'Account deletion scheduled. Your account and data will be deleted on {date}.',
     delete_account_cancel: 'Cancel Deletion',
@@ -3405,7 +3417,7 @@ export const strings = {
       'Your account will be deleted. Your vendor shop will remain active for 30 days as per policy.',
     delete_account_cancelled: 'Deletion cancelled',
     deletion_dualRoleNotice:
-      'Your customer account will be deleted immediately. Your vendor shop will remain bookable for 30 days, after which it will also be deleted, per our policy.',
+      'तुमचे ग्राहक खाते लगेच हटवले जाईल. तुमचे दुकान 30 दिवसांनंतर हटवले जाईल, आणि या त्याच नंबरने 30 दिवसांसाठी नवीन दुकान नोंदणी करू शकणार नाही.',
     settings_verifyVendor: 'विक्रेता सत्यापित करा',
     settings_check1: 'नोंदणीकृत फोनवर कॉल केला — व्यक्तीने उचलला',
     settings_check2: 'नाव कॉलमध्ये सांगितलेल्या नावाशी जुळते',

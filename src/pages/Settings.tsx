@@ -49,6 +49,7 @@ import {
 } from "@/lib/withNetworkRetry";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
+import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { logAdminAction } from "@/lib/adminAudit";
 import { warnFlaggedUser as runWarnFlaggedUser } from "@/lib/warnFlaggedUser";
 import { getDeviceId } from "@/lib/deviceId";
@@ -339,16 +340,6 @@ const VERIFY_CHECK_COUNT = VERIFY_ITEM_IDS.length;
 
 function emptyVerifyChecks(): Record<string, boolean> {
   return Object.fromEntries(VERIFY_ITEM_IDS.map((id) => [id, false]));
-}
-
-function formatVendorDeletionDate(deletionRequestedAt: string): string {
-  const d = new Date(deletionRequestedAt);
-  d.setDate(d.getDate() + 30);
-  return d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 function verifyProgressKey(vendorId: string) {
