@@ -1071,6 +1071,7 @@ const RadarSearch = () => {
 
   return (
     <AppShell theme="dark">
+      <div data-scanning={String(scanning)}>
       {locating ? (
         <div className="min-h-[80vh] bg-page-bg flex flex-col items-center justify-center p-6 text-white relative animate-fade-in">
           {/* Back */}
@@ -1423,6 +1424,7 @@ const RadarSearch = () => {
             )}
           </div>
         ))}
+      </div>
     </AppShell>
   );
 };

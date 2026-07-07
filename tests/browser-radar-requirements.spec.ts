@@ -99,8 +99,15 @@ async function createVendor(
 
 async function gotoRadarDelivery(page: Page) {
   await page.context().grantPermissions(['geolocation']);
-  await page.goto(`${APP_URL}/radar?mode=delivery`);
-  await page.waitForLoadState('networkidle');
+  await page.goto(`${APP_URL}/radar?mode=delivery`, { waitUntil: 'domcontentloaded' });
+  await page.getByTestId('radar-search-input').waitFor({ state: 'visible', timeout: 15000 });
+}
+
+async function waitForScanComplete(page: Page) {
+  await page.waitForFunction(
+    () => document.querySelector('[data-scanning]')?.getAttribute('data-scanning') === 'false',
+    { timeout: 20000 },
+  );
 }
 
 async function seedSavedVendor(vendor: VendorRow, nickname?: string) {
@@ -151,8 +158,8 @@ async function gotoRadar(
   if (opts.q) params.set('q', opts.q);
   if (opts.mode) params.set('mode', opts.mode);
   const qs = params.toString();
-  await page.goto(`${APP_URL}/radar${qs ? `?${qs}` : ''}`);
-  await page.waitForLoadState('networkidle');
+  await page.goto(`${APP_URL}/radar${qs ? `?${qs}` : ''}`, { waitUntil: 'domcontentloaded' });
+  await page.getByTestId('radar-search-input').waitFor({ state: 'visible', timeout: 15000 });
 }
 
 function vendorCard(page: Page, shopName: string) {
@@ -375,8 +382,7 @@ test('RAD-RADIUS-01 — Vendor with tight radius (5km) hidden from customer 8km 
   await page.context().grantPermissions(['geolocation']);
   await page.context().setGeolocation({ latitude: 18.585, longitude: 73.8567 });
   await gotoRadarDelivery(page);
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(3000);
+  await waitForScanComplete(page);
   const card = page.getByTestId('radar-vendor-card').filter({ hasText: vendor.shop_name });
   await expect(card).not.toBeVisible({ timeout: 5000 });
 });
@@ -393,10 +399,8 @@ test('RAD-RADIUS-02 — Vendor with wide radius (50km) visible to customer 8km a
   await page.context().grantPermissions(['geolocation']);
   await page.context().setGeolocation({ latitude: 18.585, longitude: 73.8567 });
   await gotoRadarDelivery(page);
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(3000);
-  const card = page.getByTestId('radar-vendor-card').filter({ hasText: vendor.shop_name });
-  await expect(card).toBeVisible({ timeout: 15000 });
+  await waitForScanComplete(page);
+  await waitForVendorCard(page, vendor.shop_name);
 });
 
 test('RAD-RADIUS-03 — AI search respects vendor service radius', async ({ page }) => {
@@ -412,7 +416,7 @@ test('RAD-RADIUS-03 — AI search respects vendor service radius', async ({ page
   await gotoRadarDelivery(page);
   // Type a search term matching vendor category
   await page.getByTestId('radar-search-input').fill('grocery');
-  await page.waitForTimeout(5000); // wait for AI suggestion
+  await waitForScanComplete(page);
   const card = page.getByTestId('radar-vendor-card').filter({ hasText: vendor.shop_name });
   await expect(card).not.toBeVisible({ timeout: 5000 });
 });

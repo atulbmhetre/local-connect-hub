@@ -10,8 +10,9 @@ export const RADAR_DELIVERY_URL = `${APP_URL}/radar?mode=delivery`;
 
 /** Radar with delivery mode selected (default /radar is help-only). */
 export async function gotoRadarDelivery(page: Page) {
-  await page.goto(RADAR_DELIVERY_URL);
-  await page.waitForLoadState('networkidle');
+  await page.context().grantPermissions(['geolocation']);
+  await page.goto(RADAR_DELIVERY_URL, { waitUntil: 'domcontentloaded' });
+  await page.getByTestId('radar-search-input').waitFor({ state: 'visible', timeout: 15000 });
 }
 
 /** Click Order on a delivery/booking radar card (falls back to first orderable card). */
@@ -87,17 +88,14 @@ export async function loginAsAdmin(page: Page, deviceId = `admin_device_${Date.n
 
 /** Wait for Settings app_config fetch so the admin tab can render after navigation. */
 export async function waitForSettingsAdminReady(page: Page) {
-  await page.waitForLoadState('networkidle');
-  await page
-    .waitForFunction(
-      () =>
-        document
-          .querySelector('[data-testid="settings-screen"]')
-          ?.getAttribute('data-admin-config-loaded') === 'true',
-      { timeout: 20000 },
-    )
-    .catch(() => {});
-  await page.waitForTimeout(500);
+  await page.getByTestId('settings-screen').waitFor({ state: 'visible', timeout: 15000 });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="settings-screen"]')
+        ?.getAttribute('data-admin-config-loaded') === 'true',
+    { timeout: 20000 },
+  );
 }
 
 // Fresh user — no localStorage at all
