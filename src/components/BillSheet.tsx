@@ -327,7 +327,9 @@ export function BillSheet({
     const phone = userPhone?.trim();
     if (phone) {
       const title = s.bill_notifTitle;
-      const body = `${shopName}: ₹${Math.round(totalAmount)} — ${paymentMode}`;
+      const body = `${shopName}: ₹${Math.round(totalAmount)} — ${
+        paymentMode === "khata" ? s.khata_wordLabel : paymentMode
+      }`;
       void invokeNotifyUser({
         user_phone: phone,
         title,
