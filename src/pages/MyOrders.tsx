@@ -1581,19 +1581,30 @@ const MyOrders = () => {
                           {" · "}
                           {bill.payment_status === "paid" ? "✅ Paid" : "⏳ Unpaid"}
                         </span>
-                        {bill.payment_status === "unpaid" && (
-                          <button
-                            type="button"
-                            disabled={paymentSheetLoadingId === r.id}
-                            className="text-xs text-amber-500 font-semibold border border-amber-500/50 rounded-lg px-3 py-1 disabled:opacity-50 inline-flex items-center gap-1.5"
-                            onClick={() => void openPaymentSheet(r, bill)}
-                          >
-                            {paymentSheetLoadingId === r.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : null}
-                            {s.payment_pay_now}
-                          </button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {r.vendors?.phone?.trim() && (
+                            <button
+                              type="button"
+                              onClick={() => void openHelpVendorCall(r)}
+                              className="text-xs text-brand font-semibold border border-brand/40 rounded-lg px-3 py-1"
+                            >
+                              {s.ai_bridge_call_now}
+                            </button>
+                          )}
+                          {bill.payment_status === "unpaid" && (
+                            <button
+                              type="button"
+                              disabled={paymentSheetLoadingId === r.id}
+                              className="text-xs text-amber-500 font-semibold border border-amber-500/50 rounded-lg px-3 py-1 disabled:opacity-50 inline-flex items-center gap-1.5"
+                              onClick={() => void openPaymentSheet(r, bill)}
+                            >
+                              {paymentSheetLoadingId === r.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : null}
+                              {s.payment_pay_now}
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {bill.notes && (
                         <p className="text-xs text-muted-foreground italic">{bill.notes}</p>
