@@ -87,9 +87,15 @@ function referralNotifyCopy(): { title: string; body: (amount: number) => string
   try {
     const stored = localStorage.getItem("aaspaas:language");
     const lang: Language = stored === "hi" || stored === "mr" ? stored : "en";
-    return strings[lang];
+    return {
+      title: strings[lang].feed_referralCredit_title,
+      body: strings[lang].feed_referralCredit_body,
+    };
   } catch {
-    return strings.en;
+    return {
+      title: strings.en.feed_referralCredit_title,
+      body: strings.en.feed_referralCredit_body,
+    };
   }
 }
 
@@ -148,8 +154,8 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
     void invokeNotifyVendor({
       vendor_id: vendor.id,
       type: "referral_credit",
-      notification_title: notifyStrings.feed_referralCredit_title,
-      message: notifyStrings.feed_referralCredit_body(creditAmount),
+      notification_title: notifyStrings.title,
+      message: notifyStrings.body(creditAmount),
       route: "vendor",
       route_params: { vendor_id: vendor.id },
     });

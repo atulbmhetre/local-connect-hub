@@ -103,7 +103,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
 
   return (
     <LanguageContext.Provider
-      value={{ lang: effectiveLang, setLang, s: strings[effectiveLang] }}
+      value={{ lang: effectiveLang, setLang, s: strings[effectiveLang] as typeof strings.en }}
     >
       {children}
     </LanguageContext.Provider>

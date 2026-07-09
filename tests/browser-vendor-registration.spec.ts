@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { APP_URL } from './helpers/browser-setup';
 import {
   supabase,
@@ -13,6 +13,81 @@ import {
   TEST_ADMIN_PHONE,
   TEST_SESSION,
 } from './helpers/setup';
+
+async function mockVendorGeolocation(page: Page) {
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
+}
+
+async function completeWizardPage1Shop(
+  page: Page,
+  opts: {
+    ownerName: string;
+    shopName: string;
+    categoryLabel: string;
+    categoryFilter?: RegExp;
+  },
+) {
+  await page.getByPlaceholder('Ramesh Kumar').fill(opts.ownerName);
+  await page.getByRole('button', { name: 'Browse all categories' }).click();
+  const chip = opts.categoryFilter
+    ? page
+        .getByRole('button')
+        .filter({ hasText: opts.categoryLabel })
+        .filter({ hasText: opts.categoryFilter })
+    : page.getByRole('button').filter({ hasText: opts.categoryLabel });
+  await expect(chip.first()).toBeVisible({ timeout: 15000 });
+  await chip.first().click();
+  await page
+    .locator('button')
+    .filter({ hasText: '🏪' })
+    .filter({ hasText: /Shop|दुकान/ })
+    .first()
+    .click();
+  await page.getByPlaceholder('Ramesh Tyre Works').fill(opts.shopName);
+  await page.getByRole('button', { name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन/ }).click();
+  await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Next' }).click();
+}
+
+async function completeWizardPage2(
+  page: Page,
+  opts: {
+    reach?: 'customer' | 'vendor' | 'both';
+    modes: Array<'help' | 'delivery' | 'appointment'>;
+    pickRadius?: boolean;
+  },
+) {
+  const reach = opts.reach ?? 'vendor';
+  if (reach === 'customer') {
+    await page.getByRole('button', { name: /At their place|उनके पास/ }).click();
+  } else if (reach === 'both') {
+    await page.getByRole('button', { name: /^Both$|दोनों/ }).click();
+  } else {
+    await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
+  }
+  if (opts.pickRadius) {
+    await page.getByRole('button', { name: '15 km' }).click();
+  }
+  for (const mode of opts.modes) {
+    const label =
+      mode === 'help' ? /Urgent help|तुरंत/ : mode === 'delivery' ? /Delivery|डिलीवरी/ : /Appointments|अपॉइंटमेंट/;
+    await page.getByRole('button', { name: label }).click();
+  }
+  await page.getByRole('button', { name: 'Next' }).click();
+}
+
+async function completeWizardPage3(
+  page: Page,
+  opts: { phone: string; upi: string; referralCode?: string },
+) {
+  await page.getByPlaceholder('+91 98xxxxxxxx').fill(opts.phone);
+  await page.getByPlaceholder('name@okbank').fill(opts.upi);
+  if (opts.referralCode) {
+    await page.getByPlaceholder('e.g. MAT-9973').fill(opts.referralCode);
+  }
+  await page.getByRole('button', { name: 'Register me' }).click();
+}
 
 async function cleanupVendorReferralArtifacts(
   refereeVendorId: string,
@@ -48,37 +123,38 @@ test.afterAll(async () => {
   await cleanupTestData();
 });
 
-test('VR-E2E-01: shop vendor registers without GPS as draft via browser form', async ({ page }) => {
+test('VR-E2E-01: shop vendor registers with GPS via 3-page wizard', async ({ page }) => {
   const phone = `99000${Date.now().toString().slice(-5)}`;
   const category = await getFirstActiveCategory();
   const ownerName = 'Browser Reg Owner';
   const shopName = `Browser Reg Shop ${phone.slice(-4)}`;
 
+  await mockVendorGeolocation(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
   await page.waitForLoadState('networkidle');
 
-  await page.locator('button').filter({ hasText: '🏪 Shop' }).click();
-  await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
-  await page.getByRole('button', { name: 'Browse all categories' }).click();
-  await page.getByRole('button').filter({ hasText: category.label }).first().click();
-  await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
-  await page.getByPlaceholder('name@okbank').fill('browserreg@upi');
-
+  await completeWizardPage1Shop(page, {
+    ownerName,
+    shopName,
+    categoryLabel: category.label,
+  });
+  await completeWizardPage2(page, { modes: ['help'] });
   const since = new Date().toISOString();
-  await page.getByRole('button', { name: 'Register me' }).click();
+  await completeWizardPage3(page, { phone, upi: 'browserreg@upi' });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
     .from('vendors')
-    .select('id, phone, profile_status')
+    .select('id, phone, profile_status, base_type, latitude, longitude')
     .eq('phone', phone)
     .single();
   expect(vendorError).toBeNull();
   expect(vendor?.phone).toBe(phone);
-  expect(vendor?.profile_status).toBe('draft');
+  expect(vendor?.profile_status).toBe('complete');
+  expect(vendor?.base_type).toBe('shop');
+  expect(vendor?.latitude).not.toBeNull();
 
   const vendorId = vendor!.id;
 
@@ -143,15 +219,13 @@ test('VR-MULTI-01: registration UI selects 2 categories and persists both in ven
   const ownerName = 'Multi Cat Owner';
   const shopName = `Multi Cat Shop ${phone.slice(-4)}`;
 
+  await mockVendorGeolocation(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
   await page.waitForLoadState('networkidle');
 
-  await page.locator('button').filter({ hasText: '🏪 Shop' }).first().click();
-  await expect(page.getByPlaceholder('Ramesh Tyre Works')).toBeVisible({ timeout: 5000 });
   await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
   await page.getByRole('button', { name: 'Browse all categories' }).click();
   const categoryChip = (label: string) =>
     page.getByRole('button').filter({ hasText: label }).filter({ hasText: /Help|Delivery|Appointment/ });
@@ -160,10 +234,17 @@ test('VR-MULTI-01: registration UI selects 2 categories and persists both in ven
   await expect(page.getByText('1/5 selected')).toBeVisible({ timeout: 5000 });
   await categoryChip(plumber.label).first().click();
   await expect(page.getByText('2/5 selected')).toBeVisible({ timeout: 5000 });
-  await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
-  await page.getByPlaceholder('name@okbank').fill('multicat@upi');
-
-  await page.getByRole('button', { name: 'Register me' }).click();
+  await page
+    .locator('button')
+    .filter({ hasText: '🏪' })
+    .filter({ hasText: /Shop|दुकान/ })
+    .first()
+    .click();
+  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
+  await page.getByRole('button', { name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन/ }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await completeWizardPage2(page, { modes: ['help'] });
+  await completeWizardPage3(page, { phone, upi: 'multicat@upi' });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
@@ -202,25 +283,20 @@ test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode categ
   const ownerName = 'Delivery Shop Owner';
   const shopName = `Delivery Shop ${phone.slice(-4)}`;
 
+  await mockVendorGeolocation(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
   await page.waitForLoadState('networkidle');
 
-  await page.locator('button').filter({ hasText: '🏪 Shop' }).first().click();
-  await expect(page.getByPlaceholder('Ramesh Tyre Works')).toBeVisible({ timeout: 5000 });
-  await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
-  await page.getByRole('button', { name: 'Browse all categories' }).click();
-  const categoryChip = (label: string) =>
-    page.getByRole('button').filter({ hasText: label }).filter({ hasText: /🚚 Delivery/ });
-  await expect(categoryChip(deliveryCat.label).first()).toBeVisible({ timeout: 15000 });
-  await categoryChip(deliveryCat.label).first().click();
-  await expect(page.getByText('1/5 selected')).toBeVisible({ timeout: 5000 });
-  await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
-  await page.getByPlaceholder('name@okbank').fill('deliveryshop@upi');
-
-  await page.getByRole('button', { name: 'Register me' }).click();
+  await completeWizardPage1Shop(page, {
+    ownerName,
+    shopName,
+    categoryLabel: deliveryCat.label,
+    categoryFilter: /🚚 Delivery/,
+  });
+  await completeWizardPage2(page, { modes: ['delivery'] });
+  await completeWizardPage3(page, { phone, upi: 'deliveryshop@upi' });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
   await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 10000 });
@@ -267,25 +343,20 @@ test('VR-SHOP-APPT-01: shop vendor registers via UI with appointment-mode catego
   const ownerName = 'Appt Shop Owner';
   const shopName = `Appt Shop ${phone.slice(-4)}`;
 
+  await mockVendorGeolocation(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
   await page.waitForLoadState('networkidle');
 
-  await page.locator('button').filter({ hasText: '🏪 Shop' }).first().click();
-  await expect(page.getByPlaceholder('Ramesh Tyre Works')).toBeVisible({ timeout: 5000 });
-  await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
-  await page.getByRole('button', { name: 'Browse all categories' }).click();
-  const categoryChip = (label: string) =>
-    page.getByRole('button').filter({ hasText: label }).filter({ hasText: /🗓️ Appointment/ });
-  await expect(categoryChip(appointmentCat.label).first()).toBeVisible({ timeout: 15000 });
-  await categoryChip(appointmentCat.label).first().click();
-  await expect(page.getByText('1/5 selected')).toBeVisible({ timeout: 5000 });
-  await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
-  await page.getByPlaceholder('name@okbank').fill('apptshop@upi');
-
-  await page.getByRole('button', { name: 'Register me' }).click();
+  await completeWizardPage1Shop(page, {
+    ownerName,
+    shopName,
+    categoryLabel: appointmentCat.label,
+    categoryFilter: /🗓️ Appointment/,
+  });
+  await completeWizardPage2(page, { modes: ['appointment'] });
+  await completeWizardPage3(page, { phone, upi: 'apptshop@upi' });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
   await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 10000 });
@@ -351,20 +422,18 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
   const ownerName = 'Referred Reg Owner';
   const shopName = `Referred Shop ${phone.slice(-4)}`;
 
+  await mockVendorGeolocation(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
   await page.waitForLoadState('networkidle');
-  await expect(page.getByPlaceholder('e.g. MAT-9973')).toBeVisible({ timeout: 15000 });
 
-  await page.locator('button').filter({ hasText: '🏪 Shop' }).click();
-  await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
-  await page.getByRole('button', { name: 'Browse all categories' }).click();
-  await page.getByRole('button').filter({ hasText: category.label }).first().click();
-  await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
-  await page.getByPlaceholder('name@okbank').fill('referredreg@upi');
-  await page.getByPlaceholder('e.g. MAT-9973').fill(referrerCode);
+  await completeWizardPage1Shop(page, {
+    ownerName,
+    shopName,
+    categoryLabel: category.label,
+  });
+  await completeWizardPage2(page, { modes: ['help'] });
 
   const referralEdgeResponse = page.waitForResponse(
     (resp) =>
@@ -373,7 +442,11 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
     { timeout: 30000 },
   );
 
-  await page.getByRole('button', { name: 'Register me' }).click();
+  await completeWizardPage3(page, {
+    phone,
+    upi: 'referredreg@upi',
+    referralCode: referrerCode,
+  });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
   const edgeResp = await referralEdgeResponse;

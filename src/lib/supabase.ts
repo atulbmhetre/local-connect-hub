@@ -1,11 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 import { getDeviceId } from "@/lib/deviceId";
 
-const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL || "https://rpxsyeqskvhjmbkxnpmd.supabase.co";
-const SUPABASE_ANON_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJweHN5ZXFza3Zoam1ia3hucG1kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0ODQ3MDEsImV4cCI6MjA5MjA2MDcwMX0.HXZF2uGxkUbBrYMWfvOQyx8_7Syrx4BY3pdt0z1dNF0";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!SUPABASE_URL) {
+  throw new Error("Missing VITE_SUPABASE_URL — check your .env.development file");
+}
+if (!SUPABASE_ANON_KEY) {
+  throw new Error("Missing VITE_SUPABASE_ANON_KEY — check your .env.development file");
+}
 
 export { SUPABASE_URL, SUPABASE_ANON_KEY };
 
@@ -292,6 +296,8 @@ export type Vendor = {
   upi_id: string;
   phone: string;
   is_active: boolean;
+  /** When false, hidden from Radar/category browse/saved neighbours; feed posts unaffected. */
+  discoverable?: boolean;
   latitude: number | null;
   longitude: number | null;
   verification_status: VerificationStatus;
@@ -308,6 +314,9 @@ export type Vendor = {
   waiveoff_percent?: number;
   waiveoff_months_remaining?: number;
   subscription_id?: string;
+  /** True when vendor has an active paid subscription (not trial/grace). */
+  subscription_active?: boolean;
+  referral_code?: string | null;
   last_updated?: string | null;
   /** Hyperlocal service vs delivery; drives reputation copy on cards. */
   service_mode?: "help" | "delivery" | "appointment" | "booking";
@@ -330,6 +339,9 @@ export type Vendor = {
   is_banned?: boolean;
   ban_reason?: string | null;
   vendor_type?: "shop" | "home" | "visiting" | null;
+  base_type?: "shop" | "home" | "none" | null;
+  serves_at_vendor_place?: boolean | null;
+  serves_at_customer_place?: boolean | null;
   photo_selfie?: string | null;
   profile_status?: "draft" | "complete";
   /** Max km vendor serves; 9999 = pan-India. */
@@ -486,6 +498,7 @@ export async function classifyCategory(rawInput: string): Promise<CategoryClassi
         emoji?: string;
         hindi?: string;
         mode?: string;
+        is_government?: boolean;
       };
     };
     const result = data?.result;
@@ -669,6 +682,11 @@ export type RegisterVendorParams = {
   category_service_modes: string[];
   upi_qr_url?: string | null;
   upi_qr_payee_id?: string | null;
+  base_type: "shop" | "home" | "none";
+  serves_at_vendor_place: boolean;
+  serves_at_customer_place: boolean;
+  service_radius_km: number;
+  availability_modes: Array<"help" | "delivery" | "appointment">;
 };
 
 export type RegisterVendorResult =
@@ -697,6 +715,11 @@ export async function invokeRegisterVendor(
       p_category_service_modes: params.category_service_modes,
       p_upi_qr_url: params.upi_qr_url ?? null,
       p_upi_qr_payee_id: params.upi_qr_payee_id ?? null,
+      p_base_type: params.base_type,
+      p_serves_at_vendor_place: params.serves_at_vendor_place,
+      p_serves_at_customer_place: params.serves_at_customer_place,
+      p_service_radius_km: params.service_radius_km,
+      p_availability_modes: params.availability_modes,
     });
     if (error) {
       return { ok: false, error: error.message, code: error.code };
@@ -769,12 +792,12 @@ export function isGreenLive(v: Vendor) {
 
 export async function fetchActiveVendorCategoryLabels(): Promise<Set<string>> {
   const [legacyRes, vcRes, activeVendorRes] = await Promise.all([
-    supabase.from("vendors").select("category").eq("is_active", true),
+    supabase.from("vendors").select("category").eq("is_active", true).eq("discoverable", true),
     supabase
       .from("vendor_categories")
       .select("vendor_id, categories(label)")
       .eq("status", "approved"),
-    supabase.from("vendors").select("id").eq("is_active", true),
+    supabase.from("vendors").select("id").eq("is_active", true).eq("discoverable", true),
   ]);
 
   const activeVendorIds = new Set((activeVendorRes.data ?? []).map((v) => v.id));
@@ -788,7 +811,8 @@ export async function fetchActiveVendorCategoryLabels(): Promise<Set<string>> {
 
   for (const row of vcRes.data ?? []) {
     if (!activeVendorIds.has(row.vendor_id)) continue;
-    const category = row.categories as { label: string } | null;
+    const cats = row.categories as { label: string } | { label: string }[] | null;
+    const category = Array.isArray(cats) ? cats[0] : cats;
     if (category?.label) labels.add(category.label);
   }
 
@@ -868,8 +892,10 @@ export function useCategoryLabel() {
       .then(({ data }) => {
         if (!data) return;
         const m: TranslationMap = {};
-        data.forEach((row: { label: string; categories?: { label?: string } | null }) => {
-          const original = row.categories?.label;
+        data.forEach((row) => {
+          const cats = row.categories as { label?: string } | { label?: string }[] | null;
+          const category = Array.isArray(cats) ? cats[0] : cats;
+          const original = category?.label;
           if (original) m[original] = row.label;
         });
         setMap(m);

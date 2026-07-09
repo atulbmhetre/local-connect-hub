@@ -25,6 +25,10 @@ export const TEST_VENDOR_PHONE = '9900099001';
 export const TEST_CUSTOMER_PHONE = '8800088001';
 export const TEST_ADMIN_PHONE = '8888169446';
 
+function generateUniqueVendorPhone(): string {
+  return `99006${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 10)}`;
+}
+
 export type RegisterVendorRpcOptions = {
   name?: string;
   shop_name?: string;
@@ -40,6 +44,11 @@ export type RegisterVendorRpcOptions = {
   profile_status?: 'draft' | 'complete';
   category_ids?: string[];
   category_service_modes?: string[];
+  base_type?: 'shop' | 'home' | 'none';
+  serves_at_vendor_place?: boolean;
+  serves_at_customer_place?: boolean;
+  service_radius_km?: number;
+  availability_modes?: string[];
   /** Preserved from legacy factory; register_vendor always inserts is_active=false. */
   is_active?: boolean;
 };
@@ -50,7 +59,10 @@ export async function invokeRegisterVendorRpc(
   const categoryRow = await getFirstActiveCategory();
   const categoryIds = opts.category_ids ?? [categoryRow.id];
   const serviceModes = opts.category_service_modes ?? [categoryRow.service_mode];
-  const phone = opts.phone ?? TEST_VENDOR_PHONE;
+  const phone = opts.phone ?? generateUniqueVendorPhone();
+  const availabilityModes = opts.availability_modes ?? [opts.service_mode ?? categoryRow.service_mode];
+  const baseType = opts.base_type ?? 'shop';
+  const vendorType = opts.vendor_type ?? (baseType === 'none' ? 'visiting' : baseType);
 
   const { data, error } = await supabase.rpc('register_vendor', {
     p_name: opts.name ?? `Test Vendor ${TEST_SESSION}`,
@@ -58,8 +70,8 @@ export async function invokeRegisterVendorRpc(
     p_category: opts.category ?? categoryRow.label,
     p_phone: phone,
     p_upi_id: opts.upi_id ?? 'testvendor@upi',
-    p_service_mode: opts.service_mode ?? categoryRow.service_mode,
-    p_vendor_type: opts.vendor_type ?? 'shop',
+    p_service_mode: opts.service_mode ?? availabilityModes[0],
+    p_vendor_type: vendorType,
     p_vendor_note: opts.vendor_note ?? `test_session:${TEST_SESSION}`,
     p_latitude: opts.latitude ?? 18.5204,
     p_longitude: opts.longitude ?? 73.8567,
@@ -69,6 +81,11 @@ export async function invokeRegisterVendorRpc(
     p_profile_status: opts.profile_status ?? 'complete',
     p_category_ids: categoryIds,
     p_category_service_modes: serviceModes,
+    p_base_type: baseType,
+    p_serves_at_vendor_place: opts.serves_at_vendor_place ?? true,
+    p_serves_at_customer_place: opts.serves_at_customer_place ?? false,
+    p_service_radius_km: opts.service_radius_km ?? 15,
+    p_availability_modes: availabilityModes,
   });
 
   if (error) {
@@ -285,15 +302,18 @@ export async function createTestCustomer(phone = TEST_CUSTOMER_PHONE) {
   return data;
 }
 
-/** Delete test vendors (phone 99000* or name Test*) and dependent rows in FK-safe order. */
+/** Delete test vendors (phone 99000%, 99006%, or name Test%) and dependent rows in FK-safe order. */
 export async function cleanupTestVendors() {
-  const [{ data: byPhone }, { data: byName }] = await Promise.all([
+  const [{ data: byPhone }, { data: byName }, { data: byGeneratedPhone }] = await Promise.all([
     supabase.from('vendors').select('id').like('phone', '99000%'),
     supabase.from('vendors').select('id').like('name', 'Test%'),
+    supabase.from('vendors').select('id').like('phone', '99006%'),
   ]);
 
   const vendorIds = [
-    ...new Set([...(byPhone ?? []), ...(byName ?? [])].map((row) => row.id)),
+    ...new Set(
+      [...(byPhone ?? []), ...(byName ?? []), ...(byGeneratedPhone ?? [])].map((row) => row.id),
+    ),
   ];
 
   if (vendorIds.length > 0) {
@@ -313,6 +333,7 @@ export async function cleanupTestVendors() {
     await supabaseAdmin.from('vendor_credits').delete().in('vendor_id', vendorIds);
     await supabaseAdmin.from('referrals').delete().in('referrer_vendor_id', vendorIds);
     await supabaseAdmin.from('referrals').delete().like('referee_id', '99000%');
+    await supabaseAdmin.from('referrals').delete().like('referee_id', '99006%');
 
     const { data: requestRows } = await supabase
       .from('requests')
@@ -348,6 +369,7 @@ export async function cleanupTestVendors() {
     await supabaseAdmin.from('vendors').delete().in('id', vendorIds);
   } else {
     await supabaseAdmin.from('referrals').delete().like('referee_id', '99000%');
+    await supabaseAdmin.from('referrals').delete().like('referee_id', '99006%');
   }
 }
 

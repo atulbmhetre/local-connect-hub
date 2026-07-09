@@ -16,7 +16,7 @@ type ListResult<T> = { data: T[] | null; error: { message: string } | null };
 /** Fetch all rows up to ADMIN_QUERY_MAX_ROWS using .range() pagination. */
 export async function fetchAllPages<T>(
   label: string,
-  fetchPage: (from: number, to: number) => Promise<ListResult<T>>,
+  fetchPage: (from: number, to: number) => PromiseLike<ListResult<T>>,
   options?: { pageSize?: number; maxRows?: number },
 ): Promise<T[]> {
   const pageSize = options?.pageSize ?? ADMIN_QUERY_PAGE_SIZE;
@@ -42,7 +42,7 @@ export async function fetchAllPages<T>(
 export async function fetchByIdChunks<T>(
   label: string,
   ids: string[],
-  fetchChunk: (chunkIds: string[]) => Promise<ListResult<T>>,
+  fetchChunk: (chunkIds: string[]) => PromiseLike<ListResult<T>>,
   chunkSize = 100,
 ): Promise<T[]> {
   if (ids.length === 0) return [];

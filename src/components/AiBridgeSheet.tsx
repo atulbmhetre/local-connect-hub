@@ -77,6 +77,7 @@ function asVendor(v: AiBridgeVendor): Vendor {
     cancel_reason_4: null,
     total_helped: v.total_helped,
     on_time_rate: v.on_time_rate,
+    service_radius_km: 15,
   };
 }
 

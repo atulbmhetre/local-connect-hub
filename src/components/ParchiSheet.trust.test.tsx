@@ -66,7 +66,7 @@ const vendor = {
   is_active: true,
   latitude: 18.5,
   longitude: 73.8,
-  verification_status: "pending",
+  verification_status: "unverified",
   shop_photo_url: null,
   upi_verified: false,
   is_manual_verified: false,

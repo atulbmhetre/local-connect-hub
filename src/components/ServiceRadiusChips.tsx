@@ -30,7 +30,7 @@ function labelForKm(km: ServiceRadiusKm, s: Strings): string {
 }
 
 type Props = {
-  value: number;
+  value: number | null;
   onChange: (km: ServiceRadiusKm) => void;
   disabled?: boolean;
 };

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import jsQR from "jsqr";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
@@ -138,44 +137,23 @@ function isRateLimitedError(error: { code?: string; message?: string }): boolean
   return (error.message ?? "").toLowerCase().includes("rate_limited");
 }
 
-const UPI_VPA_REGEX = /^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/;
+import { VendorRegistrationWizard } from "@/components/vendor/VendorRegistrationWizard";
+import {
+  type AvailabilityMode,
+  type BaseTypeValue,
+  type ReachChoiceValue,
+  baseTypeToVendorType,
+  looksLikeGibberish,
+  reachChoiceFromFlags,
+  reachFlagsFromChoice,
+  vendorTypeToBaseType,
+  MAX_REG_CATEGORIES,
+  resolveRegistrationShopName,
+} from "@/lib/vendorRegistration";
+import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
+import { parseUpiPayeeIdFromQrPayload, decodeUpiPayeeIdFromImageFile } from "@/lib/upiQrDecode";
 
-export function parseUpiPayeeIdFromQrPayload(data: string): string | null {
-  const trimmed = data.trim();
-  if (!trimmed) return null;
-  if (!trimmed.startsWith("upi://pay")) return null;
-  try {
-    const queryStart = trimmed.indexOf("?");
-    const search = queryStart >= 0 ? trimmed.slice(queryStart + 1) : trimmed;
-    const pa = new URLSearchParams(search).get("pa")?.trim();
-    if (!pa || !UPI_VPA_REGEX.test(pa)) return null;
-    return pa;
-  } catch {
-    return null;
-  }
-}
-
-async function decodeUpiPayeeIdFromImageFile(file: File): Promise<string | null> {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      bitmap.close();
-      return null;
-    }
-    ctx.drawImage(bitmap, 0, 0);
-    bitmap.close();
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const result = jsQR(imageData.data, imageData.width, imageData.height);
-    if (!result?.data) return null;
-    return parseUpiPayeeIdFromQrPayload(result.data);
-  } catch {
-    return null;
-  }
-}
+export { parseUpiPayeeIdFromQrPayload } from "@/lib/upiQrDecode";
 
 type ServiceModeValue = "" | "help" | "delivery" | "appointment" | "booking";
 type VendorTypeValue = "" | "shop" | "home" | "visiting";
@@ -206,8 +184,6 @@ function categoryServiceModeChipLabel(
       return mode;
   }
 }
-
-const MAX_REG_CATEGORIES = 5;
 
 function isAppointmentToday(iso: string): boolean {
   const d = new Date(iso);
@@ -275,17 +251,7 @@ async function fetchBlockingActiveOrders(
   );
 }
 
-// Heuristic gibberish detector: rejects keyboard mashing like "asdfasdf"
-// or strings without any vowels. Tuned to be permissive for real names.
-function looksLikeGibberish(s: string) {
-  const t = s.trim().toLowerCase();
-  if (t.length < 2) return true;
-  if (!/[aeiouy]/.test(t)) return true;                  // no vowels
-  if (/(.)\1{3,}/.test(t)) return true;                  // 4+ repeats: "aaaa"
-  if (/^[asdfghjkl;]+$/.test(t) && t.length > 4) return true; // home-row mash
-  if (/^[qwertyuiop]+$/.test(t) && t.length > 4) return true;
-  return false;
-}
+// Heuristic gibberish — see vendorRegistration.ts
 
 const VendorPostRegistrationGuidance = ({ vendor }: { vendor: Vendor }) => {
   const { s } = useLanguage();
@@ -319,18 +285,6 @@ const VendorPostRegistrationGuidance = ({ vendor }: { vendor: Vendor }) => {
 
   return null;
 };
-
-function resolveRegistrationShopName(
-  vendorType: VendorTypeValue,
-  ownerName: string,
-  shopNameValue: string,
-): string {
-  const owner = ownerName.trim();
-  const shop = shopNameValue.trim();
-  if (vendorType === "visiting") return owner;
-  if (vendorType === "home") return shop || owner;
-  return shop;
-}
 
 function vendorPhotoCopy(
   vendorType: VendorTypeValue | Vendor["vendor_type"] | null | undefined,
@@ -452,6 +406,10 @@ const VendorMode = () => {
   const [editCategoriesLoading, setEditCategoriesLoading] = useState(false);
   const [editPhone, setEditPhone] = useState("");
   const [editUpiId, setEditUpiId] = useState("");
+  const [editBaseType, setEditBaseType] = useState<BaseTypeValue>("");
+  const [editReachChoice, setEditReachChoice] = useState<ReachChoiceValue>("");
+  const [editAvailabilityModes, setEditAvailabilityModes] = useState<AvailabilityMode[]>([]);
+  const [editServiceRadiusKm, setEditServiceRadiusKm] = useState<number | null>(null);
   const [savingShopDetails, setSavingShopDetails] = useState(false);
   const editCategoriesLoadSeqRef = useRef(0);
   const editSelectedCategoryIdsRef = useRef<string[]>([]);
@@ -660,7 +618,7 @@ const VendorMode = () => {
         (err) => {
           setLocating(false);
           const code = (err as GeolocationPositionError | undefined)?.code;
-          let msg = s.vendor_location_failed;
+          let msg: string = s.vendor_location_failed;
           if (code === 1) msg = s.vendor_location_error_permission_denied;
           if (code === 2) msg = s.vendor_location_error_unavailable;
           if (code === 3) msg = s.vendor_location_error_timeout;
@@ -928,6 +886,16 @@ const VendorMode = () => {
     setEditShopName(vendor.shop_name ?? "");
     setEditPhone(vendor.phone ?? "");
     setEditUpiId(vendor.upi_id ?? "");
+    setEditBaseType(
+      vendor.base_type
+        ? (vendor.base_type as BaseTypeValue)
+        : vendorTypeToBaseType(vendor.vendor_type),
+    );
+    setEditReachChoice(
+      reachChoiceFromFlags(vendor.serves_at_vendor_place, vendor.serves_at_customer_place),
+    );
+    setEditServiceRadiusKm(vendor.service_radius_km ?? null);
+    setEditAvailabilityModes([]);
     const vt = vendor.vendor_type;
     setEditVendorType(
       vt === "shop" || vt === "home" || vt === "visiting" ? vt : "shop",
@@ -940,7 +908,7 @@ const VendorMode = () => {
     setEditShopOpen(true);
 
     void (async () => {
-      const [availResult, vcResult] = await Promise.all([
+      const [availResult, vcResult, modesResult] = await Promise.all([
         supabase
           .from("categories")
           .select("id, label, emoji, service_mode")
@@ -952,6 +920,10 @@ const VendorMode = () => {
           .eq("vendor_id", vendor.id)
           .eq("status", "approved")
           .order("is_primary", { ascending: false }),
+        supabase
+          .from("vendor_availability_modes")
+          .select("mode")
+          .eq("vendor_id", vendor.id),
       ]);
 
       if (availResult.error) {
@@ -986,6 +958,12 @@ const VendorMode = () => {
       editSelectedCategoryIdsRef.current = selectedIds;
       setEditSelectedCategories(selected);
       setEditSelectedCategoryIds(selectedIds);
+      const modes = (modesResult.data ?? [])
+        .map((row) => row.mode as AvailabilityMode)
+        .filter((m) => m === "help" || m === "delivery" || m === "appointment");
+      setEditAvailabilityModes(
+        modes.length > 0 ? modes : [(vendor.service_mode ?? "help") as AvailabilityMode],
+      );
       setEditCategoriesLoading(false);
     })();
   };
@@ -998,32 +976,47 @@ const VendorMode = () => {
       editSelectedCategories.find((c) => c.id === categoryIdsToSave[0]) ??
       null;
     const primaryLabel = primaryCategory?.label ?? "";
-    const primaryServiceMode = (primaryCategory?.service_mode ??
+    const primaryServiceMode = (editAvailabilityModes[0] ??
+      primaryCategory?.service_mode ??
       vendor.service_mode ??
       "") as ServiceModeValue;
     const resolvedShopName = resolveRegistrationShopName(
-      editVendorType,
+      editBaseType,
       vendor.name,
       editShopName,
     );
+    const reachFlags = editReachChoice ? reachFlagsFromChoice(editReachChoice) : null;
+    const mappedVendorType = baseTypeToVendorType(editBaseType);
 
     if (
-      editVendorType === "" ||
+      editBaseType === "" ||
+      !mappedVendorType ||
       !resolvedShopName.trim() ||
       categoryIdsToSave.length === 0 ||
       !primaryLabel ||
       !primaryServiceMode ||
-      !editPhone.trim()
+      !editPhone.trim() ||
+      !reachFlags ||
+      editAvailabilityModes.length === 0
     ) {
       return;
     }
     setSavingShopDetails(true);
 
+    const radiusKm =
+      reachFlags.serves_at_customer_place && editServiceRadiusKm != null
+        ? editServiceRadiusKm
+        : vendor.service_radius_km;
+
     const { error } = await patchVendorOwn(vendor.id, editPhone.trim(), {
       shop_name: resolvedShopName.trim(),
       category: primaryLabel,
       service_mode: primaryServiceMode,
-      vendor_type: editVendorType,
+      vendor_type: mappedVendorType,
+      base_type: editBaseType,
+      serves_at_vendor_place: reachFlags.serves_at_vendor_place,
+      serves_at_customer_place: reachFlags.serves_at_customer_place,
+      service_radius_km: radiusKm,
       phone: editPhone.trim(),
       upi_id: editUpiId.trim() || null,
       is_manual_verified: false,
@@ -1051,10 +1044,34 @@ const VendorMode = () => {
       p_category_ids: categoryIdsToSave,
       p_category_service_modes: categoryServiceModes,
     });
-    setSavingShopDetails(false);
     if (vcError) {
+      setSavingShopDetails(false);
       console.error("vendor_update_categories", vcError);
       toast.error(s.vendor_categories_partial_save);
+      return;
+    }
+
+    const { error: modesError } = await supabase.rpc("vendor_update_availability_modes", {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: editPhone.trim(),
+      p_modes: editAvailabilityModes,
+    });
+    setSavingShopDetails(false);
+    if (modesError) {
+      console.error("vendor_update_availability_modes", modesError);
+      toast.error(s.vendor_update_failed);
+      return;
+    }
+
+    const { error: syncError } = await supabase.rpc("vendor_sync_category_modes", {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: editPhone.trim(),
+      p_modes: editAvailabilityModes,
+    });
+    setSavingShopDetails(false);
+    if (syncError) {
+      console.error("vendor_sync_category_modes", syncError);
+      toast.error(s.vendor_update_failed);
       return;
     }
 
@@ -1065,7 +1082,11 @@ const VendorMode = () => {
             shop_name: resolvedShopName.trim(),
             category: primaryLabel,
             service_mode: primaryServiceMode,
-            vendor_type: editVendorType,
+            vendor_type: mappedVendorType,
+            base_type: editBaseType,
+            serves_at_vendor_place: reachFlags.serves_at_vendor_place,
+            serves_at_customer_place: reachFlags.serves_at_customer_place,
+            service_radius_km: radiusKm,
             phone: editPhone.trim(),
             upi_id: editUpiId.trim() || null,
             is_manual_verified: false,
@@ -1092,260 +1113,48 @@ const VendorMode = () => {
     editShopName.trim().length > 0 &&
     (editShopName.trim().length <= 1 || looksLikeGibberish(editShopName));
   const editShopFieldOk =
-    editVendorType === "shop"
+    editBaseType === "shop"
       ? editShopName.trim().length > 1 && !looksLikeGibberish(editShopName)
-      : editVendorType === "home"
+      : editBaseType === "home"
         ? !editShopNameInvalid
-        : editVendorType === "visiting";
+        : editBaseType === "none";
+  const editNeedsRadius =
+    editReachChoice === "customer" || editReachChoice === "both";
+  const editRadiusOk = !editNeedsRadius || editServiceRadiusKm != null;
 
   const editShopSaveReady =
-    editVendorType !== "" &&
+    editBaseType !== "" &&
     editShopFieldOk &&
     editSelectedCategoryIds.length > 0 &&
-    editPhone.trim().length > 0;
+    editPhone.trim().length > 0 &&
+    editReachChoice !== "" &&
+    editRadiusOk &&
+    editAvailabilityModes.length > 0;
 
-  const register = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!vendorTypeOk) {
-      toast.error(s.vendor_type_required);
-      return;
-    }
-    if (!nameOk) {
-      toast.error(s.vendor_name_invalid, {
-        description: s.vendor_name_invalid_body,
-      });
-      return;
-    }
-    if (vendorType === "shop" && !shopOk) {
-      toast.error(s.vendor_shopname_invalid, {
-        description: s.vendor_shopname_invalid_body,
-      });
-      return;
-    }
-    if (vendorType === "home" && homeShopInvalid) {
-      toast.error(s.vendor_shopname_invalid, {
-        description: s.vendor_shopname_invalid_body,
-      });
-      return;
-    }
-    if (!categoryOk) {
-      toast.error(s.vendor_categories_required, {
-        description: s.vendor_categories_pick,
-      });
-      return;
-    }
-    if (serviceMode === "") {
-      toast.error(s.vendor_choose_service, {
-        description: s.vendor_choose_service_body,
-      });
-      return;
-    }
-    if (!phoneOk) {
-      toast.error(s.vendor_phone_invalid, {
-        description: s.vendor_phone_invalid_body,
-      });
-      return;
-    }
-    if (!upiFmtOk) {
-      toast.error(s.vendor_upi_invalid, {
-        description: s.vendor_upi_id_format_invalid,
-      });
-      return;
-    }
-    setLoading(true);
-    setError(null);
-
-    const primaryServiceMode =
-      (pendingNewCategoryCreate?.service_mode as ServiceModeValue) ||
-      (primaryCategory?.service_mode as ServiceModeValue) ||
-      serviceMode;
-
-    const profileStatus: "draft" | "complete" =
-      vendorType === "visiting"
-        ? "complete"
-        : coords?.lat != null && coords?.lng != null
-          ? "complete"
-          : "draft";
-
-    if ((vendorType === "shop" || vendorType === "home") && !coords) {
-      toast(s.vendor_gps_missing_draft);
-    }
-
-    const categoryIdsForRpc = [...selectedCategoryIds];
-    const categoryServiceModes = categoryIdsForRpc.map((categoryId) => {
-      const cat = allRegCategories.find((c) => c.id === categoryId);
-      return cat?.service_mode ?? primaryServiceMode;
-    });
-
-    const registerResult = await invokeRegisterVendor({
-      name: name.trim(),
-      shop_name: resolveRegistrationShopName(vendorType, name, shopName),
-      category: effectiveCategory,
-      phone: phone.trim(),
-      upi_id: upi.trim(),
-      upi_qr_url: upiQrUrl || null,
-      upi_qr_payee_id: upiQrPayeeId,
-      service_mode: primaryServiceMode,
-      vendor_type: vendorType,
-      vendor_note: vendorNote.trim() || null,
-      latitude: coords?.lat ?? null,
-      longitude: coords?.lng ?? null,
-      referral_code: referralCodeFromPhone(phone.trim()),
-      profile_status: profileStatus,
-      category_ids: categoryIdsForRpc,
-      category_service_modes: categoryServiceModes,
-    });
-
-    if (!registerResult.ok) {
-      setLoading(false);
-      if (isDuplicateVendorPhoneError(registerResult)) {
-        const phoneValue = phone.trim();
-        const { data: existingVendor } = await supabase
-          .from("vendors")
-          .select("is_banned, deletion_requested_at, phone")
-          .eq("phone", phoneValue)
-          .single();
-        if (
-          existingVendor &&
-          (existingVendor.is_banned ||
-            existingVendor.deletion_requested_at != null ||
-            existingVendor.phone.startsWith("deleted_"))
-        ) {
-          if (existingVendor.deletion_requested_at != null) {
-            toast.error(
-              s.vendor_recently_deleted_retry(
-                formatVendorDeletionDate(existingVendor.deletion_requested_at),
-              ),
-            );
-          } else {
-            toast.error(s.vendor_phone_register_blocked);
-          }
-          setError(null);
-          return;
-        }
-        toast.error(s.vendor_duplicate_phone);
-        setError(null);
-        setHighlightAlreadyRegistered(true);
-        window.setTimeout(() => {
-          alreadyRegisteredRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 100);
-        window.setTimeout(() => setHighlightAlreadyRegistered(false), 2500);
-        return;
-      }
-      if (isRateLimitedError(registerResult)) {
-        setLoading(false);
-        toast.error(s.vendor_registration_rate_limited);
-        setError(null);
-        return;
-      }
-      setError(registerResult.error);
-      return;
-    }
-
-    const newVendorId = registerResult.vendorId;
-    let resolvedPrimaryServiceMode = primaryServiceMode;
-    let resolvedCategoryLabel = effectiveCategory;
-
-    if (pendingNewCategoryCreate) {
-      const created = await invokeSuggestCategory({
-        description: pendingNewCategoryCreate.description,
-        vendor_id: newVendorId,
-        create_pending: true,
-      });
-      if (created.success && created.category_id) {
-        resolvedPrimaryServiceMode = (created.service_mode ??
-          pendingNewCategoryCreate.service_mode) as ServiceModeValue;
-        resolvedCategoryLabel =
-          created.category_name ?? pendingNewCategoryCreate.category_name;
-
-        const attachResult = await invokeAttachPendingCategory({
-          vendorId: newVendorId,
-          categoryId: created.category_id,
-          serviceMode: resolvedPrimaryServiceMode,
-        });
-        if (!attachResult.ok) {
-          console.error("attach_pending_category failed", attachResult.error);
-        } else {
-          const { error: vendorUpdateError } = await patchVendorOwn(newVendorId, phoneValue, {
-            category: resolvedCategoryLabel,
-            service_mode: resolvedPrimaryServiceMode,
-          });
-          if (vendorUpdateError) {
-            console.error("vendor update after pending create", vendorUpdateError);
-          }
-        }
-
-        if (created.outcome === "new_auto_approved") {
-          toast.success(
-            s.category_approved_body.replace(
-              "{label}",
-              created.category_name ?? pendingNewCategoryCreate.category_name,
-            ),
-          );
-        }
-      } else {
-        console.error(
-          "pending category create failed",
-          created.error ?? s.vendor_category_create_failed,
-        );
-      }
-    }
-
+  const handleWizardRegistered = async (newVendorId: string) => {
     const { data: vendorRow, error: vendorFetchError } = await supabase
       .from("vendors")
       .select("*")
       .eq("id", newVendorId)
       .single();
     if (vendorFetchError || !vendorRow) {
-      setLoading(false);
       setError(vendorFetchError?.message ?? "Could not load registered vendor");
       return;
     }
-
-    setLoading(false);
     localStorage.setItem(STORAGE_KEY, newVendorId);
     notifyVendorIdChanged();
     setVendorId(newVendorId);
     setVendor(vendorRow as Vendor);
-    const adminTitle = s.vendor_admin_notify_title;
-    const adminBody = `${name.trim()} — ${resolvedCategoryLabel} (${resolvedPrimaryServiceMode})`;
-    void invokeNotifyAdmin(adminTitle, adminBody, {
-      type: "new_vendor",
-      route: "vendor",
-      route_params: { vendor_id: newVendorId },
-    });
-    if (referralCodeInput.trim()) {
-      try {
-        const referralResp = await fetch(`${SUPABASE_URL}/functions/v1/process-vendor-referral`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({
-            new_vendor_id: newVendorId,
-            referral_code: referralCodeInput.trim(),
-          }),
-        });
-        const referralBody = (await referralResp.json()) as {
-          success?: boolean;
-          ok?: boolean;
-          reason?: string;
-        };
-        if (referralBody.reason === "already_referred") {
-          toast.error(s.referral_already_used);
-        } else if (referralResp.ok && referralBody.success) {
-          toast.success(s.referral_code_applied);
-        } else {
-          toast.error(s.referral_code_invalid);
-        }
-      } catch {
-        toast.error(s.referral_code_invalid);
-      }
-    }
-    toast.success(s.vendor_welcome_title, {
-      description: s.vendor_welcome_body,
-    });
+  };
+
+  const handleDuplicateRegistrationPhone = () => {
+    toast.error(s.vendor_duplicate_phone);
+    setError(null);
+    setHighlightAlreadyRegistered(true);
+    window.setTimeout(() => {
+      alreadyRegisteredRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+    window.setTimeout(() => setHighlightAlreadyRegistered(false), 2500);
   };
 
   const lookupVendorByPhone = async (e: FormEvent) => {
@@ -1430,7 +1239,7 @@ const VendorMode = () => {
         liveCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       } catch (err) {
         const code = (err as GeolocationPositionError | undefined)?.code;
-        let msg = s.vendor_location_required_body;
+        let msg: string = s.vendor_location_required_body;
         if (code === 1) msg = s.vendor_location_error_permission_denied;
         if (code === 2) msg = s.vendor_location_error_unavailable;
         if (code === 3) msg = s.vendor_location_error_timeout;
@@ -1933,449 +1742,11 @@ const VendorMode = () => {
 
       {!vendorId && !alreadyRegistered && (
         <>
-          <form onSubmit={register} className="space-y-3 animate-fade-up">
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {s.vendor_type_label}
-            </label>
-            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {(
-                [
-                  {
-                    value: "shop" as const,
-                    emoji: "🏪",
-                    title: s.vendor_type_shop,
-                    desc: s.vendor_type_shop_desc,
-                  },
-                  {
-                    value: "home" as const,
-                    emoji: "🏠",
-                    title: s.vendor_type_home,
-                    desc: s.vendor_type_home_desc,
-                  },
-                  {
-                    value: "visiting" as const,
-                    emoji: "🚗",
-                    title: s.vendor_type_visiting,
-                    desc: s.vendor_type_visiting_desc,
-                  },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setVendorType(opt.value)}
-                  className={cn(
-                    "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
-                    "bg-surface border-surface-border",
-                    vendorType === opt.value &&
-                      "border-primary bg-primary/15 ring-1 ring-primary/30",
-                  )}
-                >
-                  <p className="text-base font-display font-bold text-foreground leading-tight">
-                    {opt.emoji} {opt.title}
-                  </p>
-                  <p className="mt-1 text-[10px] text-muted-foreground leading-snug">{opt.desc}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <Field label={s.vendor_your_name} value={name} onChange={setName} placeholder={s.vendor_name_placeholder} required />
-          {vendorType === "shop" && (
-            <Field
-              label={s.vendor_shop_name}
-              value={shopName}
-              onChange={setShopName}
-              placeholder={s.vendor_shop_placeholder}
-              required
-              error={shopName.length > 0 && !shopOk ? s.vendor_specify_hint : undefined}
-            />
-          )}
-          {vendorType === "home" && (
-            <Field
-              label={s.vendor_brand_name_optional}
-              value={shopName}
-              onChange={setShopName}
-              placeholder={s.vendor_brand_placeholder}
-              error={homeShopInvalid ? s.vendor_specify_hint : undefined}
-            />
-          )}
-
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {s.vendor_categories_label}
-              </label>
-              <span className="text-xs text-muted-foreground">
-                {s.vendor_categories_selected(selectedCategoryIds.length)}
-              </span>
-            </div>
-
-            <Textarea
-              value={businessDescription}
-              onChange={(e) => setBusinessDescription(e.target.value)}
-              placeholder={s.category_describe_placeholder}
-              className="mt-2 min-h-[72px] resize-none"
-            />
-            <button
-              type="button"
-              onClick={() => void handleFindCategory()}
-              disabled={categorySuggesting || businessDescription.trim().length < 3}
-              className="mt-2 w-full rounded-xl bg-brand px-3 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50 inline-flex items-center justify-center gap-2"
-            >
-              {categorySuggesting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {s.category_finding}
-                </>
-              ) : (
-                s.category_findButton
-              )}
-            </button>
-
-            {categorySuggestion?.outcome === "high_existing" &&
-              categorySuggestion.category_id && (
-                <div className="mt-3 rounded-2xl border border-brand/40 bg-brand/10 p-3 space-y-2">
-                  <p className="text-sm font-semibold text-foreground">
-                    {s.category_suggestion(categorySuggestion.category_name ?? "")}
-                  </p>
-                  {categorySuggestion.reasoning && (
-                    <p className="text-xs text-muted-foreground">{categorySuggestion.reasoning}</p>
-                  )}
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        selectCategoryFromSuggestion(
-                          categorySuggestion.category_id!,
-                          categorySuggestion.category_name ?? "",
-                          categorySuggestion.emoji,
-                          categorySuggestion.service_mode ?? "help",
-                        )
-                      }
-                      className="flex-1 rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
-                    >
-                      {s.category_confirm}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCategorySuggestion(null);
-                        setShowManualCategories(true);
-                      }}
-                      className="flex-1 rounded-xl border border-border px-3 py-2 text-xs font-semibold"
-                    >
-                      {s.category_chooseDifferently}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-            {categorySuggestion?.outcome === "medium_existing" &&
-              categorySuggestion.category_id && (
-                <div className="mt-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 space-y-2">
-                  <p className="text-sm font-semibold text-foreground">
-                    {s.category_didYouMean(categorySuggestion.category_name ?? "")}
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        selectCategoryFromSuggestion(
-                          categorySuggestion.category_id!,
-                          categorySuggestion.category_name ?? "",
-                          categorySuggestion.emoji,
-                          categorySuggestion.service_mode ?? "help",
-                        )
-                      }
-                      className="flex-1 rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
-                    >
-                      {s.category_yes}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCategorySuggestion(null);
-                        setShowManualCategories(true);
-                      }}
-                      className="flex-1 rounded-xl border border-border px-3 py-2 text-xs font-semibold"
-                    >
-                      {s.category_no}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-            {(categorySuggestion?.outcome === "new_suggested" ||
-              categorySuggestion?.outcome === "medium_new") && (
-              <div className="mt-3 rounded-2xl border border-border bg-muted/40 p-3 space-y-2">
-                <p className="text-sm font-semibold text-foreground">
-                  {s.category_suggest_new(categorySuggestion.category_name ?? "")}
-                </p>
-                {categorySuggestion.reasoning && (
-                  <p className="text-xs text-muted-foreground">{categorySuggestion.reasoning}</p>
-                )}
-                <button
-                  type="button"
-                  onClick={confirmNewCategorySuggestion}
-                  className="w-full rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
-                >
-                  {s.category_confirm}
-                </button>
-              </div>
-            )}
-
-            {categorySuggestion?.outcome === "low_confidence" && (
-              <div className="mt-3 space-y-2">
-                <p className="text-xs text-muted-foreground">{s.category_notSure}</p>
-                <div className="flex flex-wrap gap-2">
-                  {(categorySuggestion.top_picks ?? []).map((pick) => (
-                    <button
-                      key={pick.id}
-                      type="button"
-                      onClick={() =>
-                        selectCategoryFromSuggestion(
-                          pick.id,
-                          pick.label,
-                          pick.emoji,
-                          pick.service_mode,
-                        )
-                      }
-                      className="rounded-full border border-border bg-card px-3 py-1.5 text-sm font-medium"
-                    >
-                      {pick.emoji} {getLabel(pick.label)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {pendingNewCategoryCreate && (
-              <p className="mt-2 text-xs font-medium text-brand">
-                {s.category_suggest_new(pendingNewCategoryCreate.category_name)}
-              </p>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setShowManualCategories((v) => !v)}
-              className="mt-3 text-xs font-medium text-muted-foreground hover:text-foreground underline"
-            >
-              {s.category_browseManual}
-            </button>
-
-            {showManualCategories && (
-              <>
-                {regCategoriesLoading ? (
-                  <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    {s.vendor_understanding}
-                  </p>
-                ) : allRegCategories.length === 0 ? (
-                  <p className="mt-2 text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
-                ) : (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {allRegCategories.map((cat) => {
-                      const selected = selectedCategoryIds.includes(cat.id);
-                      const atMax = selectedCategoryIds.length >= MAX_REG_CATEGORIES;
-                      const disabled = !selected && atMax;
-                      return (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => toggleRegCategory(cat.id)}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                            selected
-                              ? "border-primary bg-primary/20 text-foreground ring-1 ring-primary/30"
-                              : "border-border bg-card text-foreground",
-                            disabled && "opacity-40 cursor-not-allowed",
-                          )}
-                        >
-                          <span>
-                            {cat.emoji} {getLabel(cat.label)}
-                          </span>
-                          <span className="text-[10px] font-normal text-muted-foreground">
-                            {categoryServiceModeChipLabel(cat.service_mode, s)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
-            )}
-
-            {selectedCategoryIds.length === 0 && !pendingNewCategoryCreate && (
-              <p className="mt-2 text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
-            )}
-          </div>
-
-          <Field
-            label={s.vendor_phone_label}
-            value={phone}
-            onChange={setPhone}
-            placeholder={s.vendor_phone_placeholder}
-            required
-            error={phone.length > 0 && !phoneOk ? s.vendor_phone_hint : undefined}
+          <VendorRegistrationWizard
+            onRegistered={(id) => void handleWizardRegistered(id)}
+            onDuplicatePhone={handleDuplicateRegistrationPhone}
+            setParentError={setError}
           />
-          <Field
-            label={s.vendor_upi_label}
-            value={upi}
-            onChange={setUpi}
-            onBlur={() => setUpiBlurred(true)}
-            placeholder={s.vendor_upi_placeholder}
-            required
-            error={upiFormatError}
-          />
-
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {s.vendor_upi_qr_label}
-            </label>
-            <input
-              ref={upiQrInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) void handleUpiQrFile(file);
-              }}
-            />
-            <div className="mt-1">
-              {upiQrUploading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Uploading...
-                </div>
-              ) : upiQrUrl ? (
-                <div className="flex items-center gap-3">
-                  <img
-                    src={upiQrUrl}
-                    alt=""
-                    className="h-20 w-20 rounded-lg border border-border object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUpiQrUrl("");
-                      setUpiQrPayeeId(null);
-                    }}
-                    className="text-sm font-medium text-destructive hover:underline"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => upiQrInputRef.current?.click()}
-                  className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50"
-                >
-                  Upload UPI QR Code
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {s.vendor_note_label}
-            </label>
-            <textarea
-              value={vendorNote}
-              onChange={(e) => setVendorNote(e.target.value.slice(0, 100))}
-              rows={2}
-              placeholder={s.vendor_note_placeholder}
-              className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-            />
-            <p className="text-[10px] text-muted-foreground text-right mt-0.5">
-              {vendorNote.length}/100
-            </p>
-          </div>
-
-          {referralEnabled && (
-            <div className="space-y-1">
-              <label className="text-xs text-gray-400">{s.vendor_referralCodeLabel}</label>
-              <input
-                type="text"
-                value={referralCodeInput}
-                onChange={(e) => setReferralCodeInput(e.target.value.toUpperCase().trim())}
-                placeholder={s.vendor_referralCodePlaceholder}
-                maxLength={10}
-                className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
-              />
-            </div>
-          )}
-
-          {vendorType !== "" && vendorType !== "visiting" && (
-            <>
-              <p className="text-[11px] text-amber-400/90 text-center px-2">
-                ⚠️ {s.vendor_gps_warning}
-              </p>
-              <button
-                type="button"
-                onClick={() => void detectLocation()}
-                className={`w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold transition-colors ${
-                  coords ? "border-secondary text-secondary bg-secondary/5" : "border-border text-foreground"
-                }`}
-              >
-                {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
-                {coords
-                  ? `${s.vendor_location_set} (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`
-                  : s.vendor_capture_location}
-              </button>
-              {locationInlineError && (
-                <p className="mt-2 text-xs text-destructive text-center px-2">{locationInlineError}</p>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowLocationHelp((v) => !v)}
-                className="mt-1 text-xs text-muted-foreground underline underline-offset-2 w-full"
-              >
-                {s.vendor_location_help_title}
-              </button>
-              {showLocationHelp && (
-                <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
-                  <p>1. {s.vendor_location_help_step1}</p>
-                  <p>2. {s.vendor_location_help_step2}</p>
-                  <p>3. {s.vendor_location_help_step3}</p>
-                </div>
-              )}
-            </>
-          )}
-          {vendorType === "visiting" && (
-            <p className="text-[11px] text-muted-foreground text-center px-2 inline-flex items-center justify-center gap-1.5 w-full">
-              {locating ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                  {s.vendor_visiting_location_hint}
-                </>
-              ) : coords ? (
-                s.vendor_visiting_location_ready
-              ) : (
-                s.vendor_visiting_location_hint
-              )}
-            </p>
-          )}
-
-          <button
-            disabled={!canRegister}
-            className="w-full mt-2 rounded-2xl bg-primary text-primary-foreground py-4 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-            {s.vendor_register_btn}
-          </button>
-          {!phoneOk && (
-            <p className="text-xs text-muted-foreground text-center">
-              {s.vendor_register_hint}
-            </p>
-          )}
-          </form>
 
           <div
             ref={alreadyRegisteredRef}
@@ -2866,39 +2237,28 @@ const VendorMode = () => {
               <div className="space-y-4">
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {s.vendor_type_label}
+                    {s.reg_where_work_from}
                   </label>
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="mt-2 grid grid-cols-1 gap-2">
                     {(
                       [
-                        {
-                          value: "shop" as const,
-                          emoji: "🏪",
-                          title: s.vendor_type_shop,
-                          desc: s.vendor_type_shop_desc,
-                        },
-                        {
-                          value: "home" as const,
-                          emoji: "🏠",
-                          title: s.vendor_type_home,
-                          desc: s.vendor_type_home_desc,
-                        },
-                        {
-                          value: "visiting" as const,
-                          emoji: "🚗",
-                          title: s.vendor_type_visiting,
-                          desc: s.vendor_type_visiting_desc,
-                        },
+                        { value: "shop" as const, emoji: "🏪", title: s.reg_base_shop, desc: s.reg_base_shop_desc },
+                        { value: "home" as const, emoji: "🏠", title: s.reg_base_home, desc: s.reg_base_home_desc },
+                        { value: "none" as const, emoji: "🚫", title: s.reg_base_none, desc: s.reg_base_none_desc },
                       ] as const
                     ).map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
-                        onClick={() => setEditVendorType(opt.value)}
+                        onClick={() => {
+                          setEditBaseType(opt.value);
+                          const vt = baseTypeToVendorType(opt.value);
+                          if (vt) setEditVendorType(vt);
+                        }}
                         className={cn(
                           "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
                           "bg-surface border-surface-border",
-                          editVendorType === opt.value &&
+                          editBaseType === opt.value &&
                             "border-primary bg-primary/15 ring-1 ring-primary/30",
                         )}
                       >
@@ -2913,7 +2273,7 @@ const VendorMode = () => {
                   </div>
                 </div>
 
-                {editVendorType === "shop" && (
+                {editBaseType === "shop" && (
                   <Field
                     label={s.vendor_shop_name}
                     value={editShopName}
@@ -2927,7 +2287,7 @@ const VendorMode = () => {
                     }
                   />
                 )}
-                {editVendorType === "home" && (
+                {editBaseType === "home" && (
                   <Field
                     label={s.vendor_brand_name_optional}
                     value={editShopName}
@@ -2988,6 +2348,84 @@ const VendorMode = () => {
                   {editSelectedCategoryIds.length === 0 && !editCategoriesLoading && (
                     <p className="mt-2 text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
                   )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {s.reg_edit_reach_label}
+                  </label>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(
+                      [
+                        { value: "customer" as const, label: s.reg_reach_customer },
+                        { value: "vendor" as const, label: s.reg_reach_vendor },
+                        { value: "both" as const, label: s.reg_reach_both },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setEditReachChoice(opt.value)}
+                        className={cn(
+                          "rounded-full border px-3 py-1.5 text-sm font-medium",
+                          editReachChoice === opt.value
+                            ? "border-primary bg-primary/20"
+                            : "border-border",
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {editNeedsRadius && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {s.vendor_radius_label}
+                    </p>
+                    <div className="mt-3">
+                      <ServiceRadiusChips
+                        value={editServiceRadiusKm}
+                        onChange={setEditServiceRadiusKm}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {s.reg_edit_availability_label}
+                  </label>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(
+                      [
+                        { mode: "help" as const, label: s.reg_avail_help },
+                        { mode: "delivery" as const, label: s.reg_avail_delivery },
+                        { mode: "appointment" as const, label: s.reg_avail_appointment },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.mode}
+                        type="button"
+                        onClick={() =>
+                          setEditAvailabilityModes((prev) =>
+                            prev.includes(opt.mode)
+                              ? prev.filter((m) => m !== opt.mode)
+                              : [...prev, opt.mode],
+                          )
+                        }
+                        className={cn(
+                          "rounded-full border px-3 py-1.5 text-sm font-medium",
+                          editAvailabilityModes.includes(opt.mode)
+                            ? "border-primary bg-primary/20"
+                            : "border-border",
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <Field

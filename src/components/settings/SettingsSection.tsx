@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -46,13 +46,21 @@ export function SettingsSectionLabel({
   );
 }
 
-export function SettingsCard({ children, className }: { children: ReactNode; className?: string }) {
+export function SettingsCard({
+  children,
+  className,
+  ...rest
+}: {
+  children: ReactNode;
+  className?: string;
+} & HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
         "mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden mb-3",
         className,
       )}
+      {...rest}
     >
       {children}
     </div>
@@ -67,7 +75,7 @@ export function SettingsRow({
 }: {
   label: ReactNode;
   sublabel?: ReactNode;
-  children: ReactNode;
+  children?: ReactNode;
   className?: string;
 }) {
   return (
@@ -83,7 +91,7 @@ export function SettingsRow({
           <p className="text-xs text-muted-foreground mt-0.5">{sublabel}</p>
         )}
       </div>
-      <div className="shrink-0">{children}</div>
+      {children != null ? <div className="shrink-0">{children}</div> : null}
     </div>
   );
 }

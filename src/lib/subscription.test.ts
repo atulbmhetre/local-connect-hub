@@ -128,32 +128,32 @@ describe('calcWaiveoffAfterCharge', () => {
 // --- Status display logic ---
 describe('subscription status display flags', () => {
   it('isInTrial true when status is trial', () => {
-    const status = 'trial';
+    const status: string = 'trial';
     expect(status === 'trial').toBe(true);
   });
 
   it('isInTrial false when status is active', () => {
-    const status = 'active';
+    const status: string = 'active';
     expect(status === 'trial').toBe(false);
   });
 
   it('shows grace banner when status is grace', () => {
-    const status = 'grace';
+    const status: string = 'grace';
     expect(status === 'grace' || status === 'expired').toBe(true);
   });
 
   it('shows expired banner when status is expired', () => {
-    const status = 'expired';
+    const status: string = 'expired';
     expect(status === 'grace' || status === 'expired').toBe(true);
   });
 
   it('does not show grace/expired banner when status is active', () => {
-    const status = 'active';
+    const status: string = 'active';
     expect(status === 'grace' || status === 'expired').toBe(false);
   });
 
   it('does not show grace/expired banner when status is trial', () => {
-    const status = 'trial';
+    const status: string = 'trial';
     expect(status === 'grace' || status === 'expired').toBe(false);
   });
 });

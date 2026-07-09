@@ -107,7 +107,7 @@ function getKhataCreditBadge(
 
 type Props = {
   vendorId: string;
-  serviceMode?: "help" | "delivery" | "appointment" | null;
+  serviceMode?: "help" | "delivery" | "appointment" | "booking" | null;
   onUnreadCount?: (n: number) => void;
   /** From the parent's vendor row; replaces a redundant per-mount vendors fetch. */
   shopName: string;
@@ -139,7 +139,7 @@ function maskPhoneLast4(phone: string): string {
 
 function countUnreadIncomingOrders(
   orderList: Pick<OrderRequestRow, "status">[],
-  serviceMode: "help" | "delivery" | "appointment" | null | undefined,
+  serviceMode: "help" | "delivery" | "appointment" | "booking" | null | undefined,
 ): number {
   if (serviceMode === "delivery" || serviceMode === "appointment") {
     return orderList.filter((r) => r.status === "sent" || r.status === "seen").length;
@@ -207,7 +207,9 @@ export function IncomingOrdersSection({
   const [calledUser, setCalledUser] = useState<Record<string, boolean>>({});
   const [callSheetOpen, setCallSheetOpen] = useState(false);
   const [callTargetPhone, setCallTargetPhone] = useState<string | null>(null);
-  const [callServiceMode, setCallServiceMode] = useState<string>("help");
+  const [callServiceMode, setCallServiceMode] = useState<
+    "help" | "delivery" | "appointment" | "booking"
+  >("help");
   const presetReasons = useMemo(
     () => cancelReasons.filter((r): r is string => r != null && String(r).trim() !== ""),
     [cancelReasons],
@@ -1121,7 +1123,9 @@ export function IncomingOrdersSection({
 
   const handleCallCustomer = (phone: string, mode: string) => {
     setCallTargetPhone(phone);
-    setCallServiceMode(mode);
+    setCallServiceMode(
+      mode as "help" | "delivery" | "appointment" | "booking",
+    );
     setCallSheetOpen(true);
   };
 
@@ -1520,7 +1524,11 @@ export function IncomingOrdersSection({
   };
 
   return (
-    <div className="mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden">
+    <div
+      className="mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden"
+      data-testid="incoming-orders-section"
+      data-loading={String(loading)}
+    >
       <div className="px-4 py-3 flex items-center justify-between border-b border-surface-border">
         <span className="text-sm font-bold uppercase tracking-wide text-foreground">
           {s.incoming_heading}

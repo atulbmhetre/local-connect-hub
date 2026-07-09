@@ -124,7 +124,7 @@ function rowsToConfig(rows: AppConfigRow[]): AppConfig {
     const field = DB_KEY_TO_CONFIG[row.key];
     if (!field) continue;
     const parsed = parseConfigValue(field, row.value);
-    config[field] = parsed as AppConfig[typeof field];
+    (config as Record<string, string | number | boolean>)[field] = parsed;
   }
   return config;
 }
