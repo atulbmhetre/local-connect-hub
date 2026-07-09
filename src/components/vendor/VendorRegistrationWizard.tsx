@@ -837,9 +837,11 @@ export function VendorRegistrationWizard({
 
           <button
             type="button"
-            disabled={!page1Ready}
             onClick={tryPage1Next}
-            className="w-full rounded-2xl bg-primary text-primary-foreground py-4 font-semibold disabled:opacity-50"
+            className={cn(
+              "w-full rounded-2xl bg-primary text-primary-foreground py-4 font-semibold",
+              !page1Ready && "opacity-50",
+            )}
           >
             {s.reg_wizard_next}
           </button>
@@ -935,9 +937,11 @@ export function VendorRegistrationWizard({
             </button>
             <button
               type="button"
-              disabled={!page2Ready}
               onClick={tryPage2Next}
-              className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold disabled:opacity-50"
+              className={cn(
+                "flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold",
+                !page2Ready && "opacity-50",
+              )}
             >
               {s.reg_wizard_next}
             </button>
