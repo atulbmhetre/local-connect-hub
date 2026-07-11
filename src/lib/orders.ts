@@ -19,6 +19,8 @@ export type OrderRequestRow = {
   updated_at?: string | null;
   previous_message?: string | null;
   is_edited?: boolean;
+  category_id?: string | null;
+  categories?: { label: string; emoji: string | null } | { label: string; emoji: string | null }[] | null;
 };
 
 export const ACTIVE_ORDER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;

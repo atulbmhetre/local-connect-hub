@@ -1,3 +1,14 @@
+/**
+ * RETIRED (superseded by Capgo @capgo/background-geolocation — Help Go-Live FGS).
+ *
+ * TEST: cron `ping-active-vendors-location` unscheduled via
+ *   20260711180001_retire_location_ping_cron_test.sql
+ * PROD: leave this function deployable until Capgo is device-proven, then
+ *   unschedule the PROD cron and delete this folder.
+ *
+ * Kept intentionally (not hard-deleted) so PROD's still-scheduled cron does
+ * not 404 until that cutover.
+ */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";

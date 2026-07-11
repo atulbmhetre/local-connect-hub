@@ -87,6 +87,9 @@ async function createVendor(
       profile_status: 'complete',
       service_radius_km: 9999,
       vendor_type: 'shop',
+      base_type: 'shop',
+      serves_at_vendor_place: true,
+      serves_at_customer_place: true,
       ...overrides,
     })
     .select('id, phone, shop_name, service_mode')
@@ -128,9 +131,8 @@ async function seedRequest(
 }
 
 async function gotoVendor(page: Page) {
-  await page.goto(`${APP_URL}/vendor`);
+  await page.goto(`${APP_URL}/vendor`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 20000 });
-  await page.waitForLoadState('networkidle');
 }
 
 async function loginVendorAndGoto(page: Page, vendor: VendorRow) {
@@ -175,8 +177,23 @@ async function countCustomerNotifications(
   return count ?? 0;
 }
 
-function editShopSheet(page: Page) {
-  return page.locator('[role="dialog"]').filter({ hasText: 'Edit Shop Details' });
+function myBusinessPanel(page: Page) {
+  return page.getByTestId('vendor-my-business');
+}
+
+async function openMyBusinessCategories(page: Page, vendor: { id: string; phone: string }) {
+  await loginVendorAndGoto(page, vendor);
+  await gotoVendorSettings(page);
+  await page.getByTestId('settings-vendor-tab-business').click();
+  await expect(myBusinessPanel(page)).toBeVisible({ timeout: 10000 });
+  await expect(myBusinessPanel(page).getByTestId('my-business-categories')).toBeVisible({
+    timeout: 10000,
+  });
+}
+
+/** Category chips in My Business — service mode label per category. */
+function vendorShopCategorySection(page: Page) {
+  return myBusinessPanel(page).getByTestId('my-business-categories');
 }
 
 /** Go-live card on /vendor — vendor-status-badge + vendor-golive-btn live here. */
@@ -186,23 +203,9 @@ function vendorGoLiveSection(page: Page) {
   });
 }
 
-/** Category chips in Edit Shop Details — service mode label (🤝 Help / 🚚 Delivery) per category. */
-function vendorShopCategorySection(page: Page) {
-  return editShopSheet(page).locator('div.flex.flex-wrap.gap-2');
-}
-
-async function openServiceModeInEditShop(page: Page) {
-  await page.getByRole('button', { name: /Complete your verification/i }).click();
-  await page.getByRole('button', { name: /Edit Shop Details/i }).click();
-  await expect(page.getByRole('heading', { name: 'Edit Shop Details' })).toBeVisible({
-    timeout: 10000,
-  });
-}
-
 async function gotoVendorSettings(page: Page) {
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 20000 });
-  await page.waitForLoadState('networkidle');
 }
 
 /** // MISSING TESTID: needs data-testid="notification-bell-btn" on NotificationBell.tsx */
@@ -234,9 +237,8 @@ test.afterAll(async () => {
 // ─── ONLINE/OFFLINE TOGGLE ─────────────────────────────────────────────────
 
 test('VM-01 — Vendor goes online', async ({ page, context }) => {
-  // Help vendors use mobile categories; applyActiveState(true) calls getCurrentPosition when
-  // isMobileCategory(vendor.category) — without GPS the update is reverted and is_active stays false.
-  // Go-live requires GPS on native — web test mocks geolocation for mobile-category go-live.
+  // Help vendors require GPS on go-live (vendorOffersHelp) — without GPS the update is
+  // reverted and is_active stays false. Web test mocks geolocation for Help go-live.
   const vendor = await createVendor('help', 'VM01', {
     is_active: false,
     is_banned: false,
@@ -353,6 +355,29 @@ test('VM-06 — Vendor goes offline with today\'s sent booking — customer noti
   expect(count).toBeGreaterThan(0);
 });
 
+test('VM-06H — Vendor goes offline with pending Help request — customer notified', async ({
+  page,
+}) => {
+  const vendor = await createVendor('help', 'VM06H', { is_active: true });
+  const customerPhone = nextCustomerPhone();
+  await seedCustomer(customerPhone);
+  const since = new Date().toISOString();
+  await seedRequest(vendor.id, customerPhone, `VM-06H ${T}`, {
+    status: 'sent',
+  });
+  await loginVendorAndGoto(page, vendor);
+  await tapGoLiveToggle(page);
+  await expect(page.getByText(L.offlineActiveTitle)).toBeVisible({ timeout: 8000 });
+  await page.getByRole('button', { name: L.goOfflineAnyway }).click();
+  await page.waitForTimeout(2000);
+  expect(await getVendorActive(vendor.id)).toBe(false);
+  const count = await countCustomerNotifications(customerPhone, {
+    since,
+    title: L.goOfflinePendingTitle,
+  });
+  expect(count).toBeGreaterThan(0);
+});
+
 test('VM-07 — Banned vendor cannot go online', async ({ page }) => {
   const vendor = await createVendor('help', 'VM07', { is_active: false, is_banned: true });
   await loginVendorAndGoto(page, vendor);
@@ -372,6 +397,7 @@ test('VM-08 — Draft vendor (no GPS) sees amber banner', async ({ page }) => {
   });
   await loginAsVendor(page, vendor.phone, vendor.id, VENDOR_DEVICE_ID);
   await gotoVendorSettings(page);
+  await page.getByTestId('settings-vendor-tab-preferences').click();
   await expect(page.getByText(L.draftTitle)).toBeVisible();
   await expect(page.getByText(L.draftBody)).toBeVisible();
   await expect(page.getByRole('button', { name: L.addLocation })).toBeVisible();
@@ -381,18 +407,47 @@ test('VM-08 — Draft vendor (no GPS) sees amber banner', async ({ page }) => {
 
 test('VM-09 — Vendor screen shows correct service mode label', async ({ page }) => {
   const helpVendor = await createVendor('help', 'VM09H', { is_active: false });
-  await loginVendorAndGoto(page, helpVendor);
-  await openServiceModeInEditShop(page);
-  // MISSING TESTID: needs data-testid="vendor-mode-label" on VendorMode.tsx
+  await openMyBusinessCategories(page, helpVendor);
   await expect(vendorShopCategorySection(page).getByText(L.modeHelp).first()).toBeVisible();
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
 
   const deliveryVendor = await createVendor('delivery', 'VM09D', { is_active: false });
-  await loginVendorAndGoto(page, deliveryVendor);
-  await openServiceModeInEditShop(page);
-  // MISSING TESTID: needs data-testid="vendor-mode-label" on VendorMode.tsx
+  await openMyBusinessCategories(page, deliveryVendor);
   await expect(vendorShopCategorySection(page).getByText(L.modeDelivery).first()).toBeVisible();
+});
+
+test('VM-14 — Go live while unverified shows nudge but still goes online', async ({ page, context }) => {
+  const vendor = await createVendor('help', 'VM14', {
+    is_active: false,
+    is_manual_verified: false,
+    profile_status: 'complete',
+  });
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
+  await loginVendorAndGoto(page, vendor);
+  await tapGoLiveToggle(page);
+  await page.waitForTimeout(1500);
+  expect(await getVendorActive(vendor.id)).toBe(true);
+  await expect(page.getByText(/Complete verification in My Business/i)).toBeVisible({ timeout: 8000 });
+});
+
+test('VM-15 — Verified vendor can open My Business and edit base type', async ({ page }) => {
+  const vendor = await createVendor('help', 'VM15', {
+    is_active: false,
+    is_manual_verified: true,
+    profile_status: 'complete',
+  });
+  await loginVendorAndGoto(page, vendor);
+  await gotoVendorSettings(page);
+  await page.getByTestId('settings-vendor-tab-business').click();
+  await expect(myBusinessPanel(page)).toBeVisible({ timeout: 10000 });
+  await page.getByTestId('my-business-base-home').click();
+  await myBusinessPanel(page).locator('input').nth(1).fill('Home Brand');
+  await expect(page.getByTestId('my-business-save')).toBeEnabled({ timeout: 10000 });
+  await page.getByTestId('my-business-save').click();
+  await page.waitForTimeout(2000);
+  const { data } = await supabaseAdmin.from('vendors').select('vendor_type, base_type').eq('id', vendor.id).single();
+  expect(data?.vendor_type).toBe('home');
+  expect(data?.base_type).toBe('home');
 });
 
 test('VM-10 — Vendor with no incoming orders sees empty state', async ({ page }) => {
@@ -426,7 +481,6 @@ test('VM-12 — New order notification badge increments', async ({ page }) => {
   expect(await getIncomingOrdersBadgeCount(page)).toBe(0);
   await seedRequest(vendor.id, customerPhone, `VM-12 ${T}`, { status: 'sent' });
   await page.reload();
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
   expect(await getIncomingOrdersBadgeCount(page)).toBeGreaterThan(0);
 });

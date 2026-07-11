@@ -4,6 +4,8 @@ import {
   loginAsVendor,
   loginAsAdmin,
   waitForSettingsAdminReady,
+  openVendorPreferencesTab,
+  openVendorMyBusinessTab,
   APP_URL,
 } from './helpers/browser-setup';
 import {
@@ -27,6 +29,7 @@ const L = {
   accountStanding: 'Account Standing',
   myDeliveryAddresses: '📍 My Delivery Addresses',
   preferences: 'Preferences',
+  myBusiness: 'My Business',
   connectionPrivacy: 'CONNECTION & PRIVACY',
   deleteAccount: 'Delete Account',
   myShop: 'My Shop',
@@ -116,6 +119,10 @@ async function createVendor(
       is_active: true,
       profile_status: 'complete',
       service_radius_km: 9999,
+      base_type: 'shop',
+      vendor_type: 'shop',
+      serves_at_customer_place: true,
+      serves_at_vendor_place: true,
       ...overrides,
     })
     .select('id, shop_name, phone, category, service_mode')
@@ -154,22 +161,9 @@ async function expandPreferences(page: Page) {
   await page.getByRole('button', { name: L.preferences }).click();
 }
 
-/** Wait until VendorSettings has loaded (vendor + vendorExtras batch fetch). */
-async function waitForMyShopReady(page: Page) {
-  // MISSING TESTID: needs data-testid="my-shop-section" on VendorSettings collapsible
-  await page
-    .waitForSelector('[data-testid="my-shop-section"]', { state: 'visible', timeout: 10000 })
-    .catch(() => undefined);
-  await expect(page.getByRole('button', { name: L.shopInfo })).toBeVisible({ timeout: 20000 });
-}
-
-async function expandMyShop(page: Page) {
-  const shopHeader = page.getByRole('button', { name: new RegExp(`^${L.myShop}$`, 'i') });
-  await expect(shopHeader).toBeVisible({ timeout: 20000 });
-  if ((await shopHeader.getAttribute('aria-expanded')) !== 'true') {
-    await shopHeader.click();
-  }
-  await waitForMyShopReady(page);
+async function expandVendorPreferences(page: Page) {
+  await openVendorPreferencesTab(page);
+  await expect(page.getByRole('button', { name: L.menu })).toBeVisible({ timeout: 20000 });
 }
 
 async function setReferralEnabled(value: 'true' | 'false') {
@@ -310,13 +304,13 @@ test('SET-REQ-07 — Theme toggle switches between dark and light', async ({ pag
 
 // ─── VENDOR VIEW ─────────────────────────────────────────────────────────────
 
-test('SET-REQ-08 — Vendor Settings shows MY SHOP section', async ({ page }) => {
+test('SET-REQ-08 — Vendor Preferences shows menu and shop sections', async ({ page }) => {
   const vendor = await createVendor('VEN-08');
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await gotoSettings(page);
-  await expandMyShop(page);
+  await expandVendorPreferences(page);
 
-  await expect(page.getByRole('button', { name: L.shopInfo })).toBeVisible();
+  await expect(page.getByRole('button', { name: L.menu })).toBeVisible();
   await expect(page.getByRole('button', { name: L.menu })).toBeVisible();
   await expect(page.getByRole('button', { name: L.offers })).toBeVisible();
   await expect(page.getByRole('button', { name: L.referEarn })).toBeVisible();
@@ -324,16 +318,15 @@ test('SET-REQ-08 — Vendor Settings shows MY SHOP section', async ({ page }) =>
   await expect(page.getByRole('button', { name: L.ledgerCycle })).toBeVisible();
 });
 
-test('SET-REQ-09 — MY SHOP label uses localized string not hardcoded', async ({ page }) => {
+test('SET-REQ-09 — My Business tab uses localized string not hardcoded', async ({ page }) => {
   const vendor = await createVendor('VEN-09');
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await gotoSettings(page);
 
-  const shopHeader = page.getByRole('button', { name: new RegExp(`^${L.myShop}$`, 'i') });
-  await expect(shopHeader).toBeVisible();
-  const labelText = await shopHeader.locator('span').first().textContent();
-  expect(labelText?.trim()).toBe(L.myShop);
-  expect(labelText?.trim()).not.toBe('MY SHOP');
+  const businessTab = page.getByTestId('settings-vendor-tab-business');
+  await expect(businessTab).toBeVisible();
+  await expect(businessTab).toHaveText(L.myBusiness);
+  expect(L.myBusiness).not.toBe('MY BUSINESS');
 });
 
 test('SET-REQ-10 — Refer & Earn hidden when referral_enabled=false', async ({ page }) => {
@@ -341,7 +334,7 @@ test('SET-REQ-10 — Refer & Earn hidden when referral_enabled=false', async ({ 
   const vendor = await createVendor('VEN-10');
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await gotoSettings(page);
-  await expandMyShop(page);
+  await expandVendorPreferences(page);
 
   await expect(page.getByRole('button', { name: L.referEarn })).not.toBeVisible();
 });
@@ -352,7 +345,7 @@ test('SET-REQ-11 — Refer & Earn visible when referral_enabled=true', async ({ 
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await gotoSettings(page);
 
-  await expandMyShop(page);
+  await expandVendorPreferences(page);
   await expect(page.getByRole('button', { name: L.referEarn })).toBeVisible();
 });
 
@@ -360,6 +353,7 @@ test('SET-REQ-12 — Draft vendor sees amber banner in settings', async ({ page 
   const vendor = await createDraftVendor('DRAFT-12');
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await gotoSettings(page);
+  await openVendorPreferencesTab(page);
 
   await expect(page.getByText(L.draftBannerTitle)).toBeVisible();
   await expect(page.getByRole('button', { name: L.draftBannerCta })).toBeVisible();
@@ -373,7 +367,7 @@ test('SET-REQ-13 — Vendor khata settings section visible', async ({ page }) =>
   });
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await gotoSettings(page);
-  await expandMyShop(page);
+  await expandVendorPreferences(page);
 
   await page.getByRole('button', { name: L.khataSettings }).click();
   await expect(page.getByText(L.khataEnable)).toBeVisible();
@@ -417,7 +411,7 @@ test('SET-REQ-14 — Vendor My Reviews section shows submitted reviews', async (
 
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await gotoSettings(page);
-  await expandMyShop(page);
+  await expandVendorPreferences(page);
   await page.getByRole('button', { name: new RegExp(L.reviewMyReviews, 'i') }).click();
 
   const card = page.locator('div.rounded-xl').filter({ hasText: reviewText });
@@ -588,10 +582,11 @@ test('SET-RAD-01 — Vendor can update service radius and it saves to DB', async
   await page.goto(`${APP_URL}/vendor`);
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 15000 });
-  await page.getByRole('button', { name: L.shopInfo }).click();
-  await expect(page.getByText('5 km').first()).toBeVisible({ timeout: 10000 });
+  await openVendorMyBusinessTab(page);
+  await expect(page.getByTestId('my-business-radius')).toBeVisible({ timeout: 10000 });
   await page.getByText('5 km').first().click();
-  await expect(page.locator('[data-sonner-toast]').getByText('Service area updated')).toBeVisible({
+  await page.getByTestId('my-business-save').click();
+  await expect(page.locator('[data-sonner-toast]').getByText('Business details saved.')).toBeVisible({
     timeout: 8000,
   });
   // Verify DB updated

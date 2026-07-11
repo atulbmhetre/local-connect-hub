@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import dotenv from 'dotenv';
-import { loginAsVendor, loginAsCustomer, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, loginAsCustomer, openVendorMyBusinessTab, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -28,7 +28,7 @@ const L = {
   failed: "Couldn't connect. Check your internet and try again.",
   tryAgain: 'Try again',
   shopInfo: 'Shop Info',
-  serviceAreaUpdated: 'Service area updated',
+  serviceAreaUpdated: 'Business details saved.',
   offline: 'Offline',
 } as const;
 
@@ -58,6 +58,9 @@ async function createVendor(tag: string): Promise<{ id: string; phone: string; s
       profile_status: 'complete',
       service_radius_km: 15,
       vendor_type: 'shop',
+      base_type: 'shop',
+      serves_at_customer_place: true,
+      serves_at_vendor_place: true,
     })
     .select('id, phone, shop_name')
     .single();
@@ -166,10 +169,11 @@ async function warmMyOrders(page: Page, vendorId: string, orderMessage: string) 
   });
 }
 
-async function openVendorShopInfo(page: Page) {
+async function openVendorMyBusinessRadius(page: Page) {
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 15000 });
-  await page.getByRole('button', { name: L.shopInfo }).click();
+  await openVendorMyBusinessTab(page);
+  await expect(page.getByTestId('my-business-radius')).toBeVisible({ timeout: 15000 });
   await expect(page.getByText('15 km').first()).toBeVisible({ timeout: 15000 });
 }
 
@@ -314,13 +318,13 @@ test.describe('TEST 2 — MyOrders load retries', () => {
   });
 });
 
-test.describe('TEST 3 — VendorSettings service radius retries', () => {
+test.describe('TEST 3 — My Business service radius retries', () => {
   test('retries and recovers after aborted vendor_update_own RPC', async ({ page }) => {
     const vendor = await createVendor('rad-recover');
     await loginAsVendor(page, vendor.phone, vendor.id, VENDOR_DEVICE_ID);
     await page.goto(`${APP_URL}/vendor`);
     await expect(page.getByTestId('vendor-golive-btn')).toBeVisible({ timeout: 20000 });
-    await openVendorShopInfo(page);
+    await openVendorMyBusinessRadius(page);
 
     const route = await installAbortRoute(
       page,
@@ -330,6 +334,7 @@ test.describe('TEST 3 — VendorSettings service radius retries', () => {
     );
 
     await page.getByText('5 km').first().click();
+    await page.getByTestId('my-business-save').click();
 
     await expect(page.locator('[data-sonner-toast]').getByText(L.retrying)).toBeVisible({
       timeout: 15000,
@@ -356,7 +361,7 @@ test.describe('TEST 3 — VendorSettings service radius retries', () => {
     await loginAsVendor(page, vendor.phone, vendor.id, VENDOR_DEVICE_ID);
     await page.goto(`${APP_URL}/vendor`);
     await expect(page.getByTestId('vendor-golive-btn')).toBeVisible({ timeout: 20000 });
-    await openVendorShopInfo(page);
+    await openVendorMyBusinessRadius(page);
 
     const route = await installAbortRoute(
       page,
@@ -366,6 +371,7 @@ test.describe('TEST 3 — VendorSettings service radius retries', () => {
     );
 
     await page.getByText('5 km').first().click();
+    await page.getByTestId('my-business-save').click();
 
     await expect(page.locator('[data-sonner-toast]').getByText(L.failed)).toBeVisible({
       timeout: 30000,

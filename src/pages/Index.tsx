@@ -6,7 +6,7 @@ import { CategoryPicker } from "@/components/CategoryPicker";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { NeighbourSheet, type SavedVendorInfo } from "@/components/NeighbourSheet";
-import { Loader2, Mic, Search } from "lucide-react";
+import { Loader2, Mic, Search, X } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
@@ -43,6 +43,13 @@ type HelpOrderBanner = {
   orderId: string;
   shopName: string;
   vendorLastUpdated: string | null;
+};
+
+type SavedVendorRemovalNotice = {
+  id: string;
+  shop_name: string;
+  category_label: string | null;
+  reason: "category_removed" | "account_deleted";
 };
 
 const HELP_ORDER_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -86,6 +93,7 @@ const Index = () => {
   const [userPhone, setUserPhone] = useState(() => getUserPhone());
   const [helpOrderBanner, setHelpOrderBanner] = useState<HelpOrderBanner | null>(null);
   const [helpBannerTick, setHelpBannerTick] = useState(0);
+  const [removalNotices, setRemovalNotices] = useState<SavedVendorRemovalNotice[]>([]);
   const [welcomed, setWelcomed] = useState(() => hasBeenWelcomed());
 
   const loadSavedNeighbours = useCallback(async () => {
@@ -113,7 +121,8 @@ const Index = () => {
         "id, name, shop_name, shop_photo_url, is_active, category, service_mode, phone, verification_status, is_manual_verified, upi_verified, vendor_note, total_helped, on_time_rate",
       )
       .in("id", vendorIds)
-      .eq("is_banned", false);
+      .eq("is_banned", false)
+      .eq("discoverable", true);
     if (vErr || !vendors?.length) {
       setSavedNeighbours([]);
       return;
@@ -151,6 +160,43 @@ const Index = () => {
     }
     void loadSavedNeighbours();
   }, [location.pathname, location.key, loadSavedNeighbours]);
+
+  const loadRemovalNotices = useCallback(async () => {
+    const phone = getUserPhone();
+    if (!phone) {
+      setRemovalNotices([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from("saved_vendor_removal_notices")
+      .select("id, shop_name, category_label, reason")
+      .eq("user_phone", phone)
+      .is("shown_at", null)
+      .order("created_at", { ascending: true });
+    if (error) {
+      console.error("loadRemovalNotices", error);
+      setRemovalNotices([]);
+      return;
+    }
+    setRemovalNotices((data ?? []) as SavedVendorRemovalNotice[]);
+  }, []);
+
+  useEffect(() => {
+    if (location.pathname !== "/") return;
+    void loadRemovalNotices();
+  }, [location.pathname, location.key, userPhone, loadRemovalNotices]);
+
+  const dismissRemovalNotices = useCallback(async () => {
+    const phone = getUserPhone();
+    const ids = removalNotices.map((n) => n.id);
+    setRemovalNotices([]);
+    if (!phone || ids.length === 0) return;
+    const { error } = await supabase.rpc("mark_saved_vendor_removal_notices_shown", {
+      p_user_phone: phone,
+      p_notice_ids: ids,
+    });
+    if (error) console.error("mark_saved_vendor_removal_notices_shown", error);
+  }, [removalNotices]);
 
   useEffect(() => {
     const run = async () => {
@@ -442,6 +488,47 @@ const Index = () => {
         </div>
         <NotificationBell className="mt-6 mr-4" />
       </div>
+
+      {removalNotices.length > 0 && (
+        <div
+          data-testid="home-saved-vendor-removal-banner"
+          className="mx-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm relative"
+          role="status"
+        >
+          <button
+            type="button"
+            data-testid="home-saved-vendor-removal-dismiss"
+            onClick={() => void dismissRemovalNotices()}
+            className="absolute top-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40"
+            aria-label={s.home_saved_vendor_removed_dismiss}
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <p className="font-semibold text-amber-800 dark:text-amber-300 pr-10">
+            {s.home_saved_vendor_removed_title}
+          </p>
+          <ul className="mt-2 space-y-1.5 pr-8 text-muted-foreground leading-snug list-none">
+            {removalNotices.map((n) => (
+              <li key={n.id} data-testid="home-saved-vendor-removal-item">
+                {n.reason === "account_deleted"
+                  ? s.home_saved_vendor_account_closed(n.shop_name)
+                  : s.home_saved_vendor_category_removed(
+                      n.shop_name,
+                      n.category_label ? getCategoryLabel(n.category_label) : "",
+                    )}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            data-testid="home-saved-vendor-removal-got-it"
+            onClick={() => void dismissRemovalNotices()}
+            className="mt-3 text-xs font-semibold text-amber-800 dark:text-amber-300 underline-offset-2 hover:underline"
+          >
+            {s.home_saved_vendor_removed_dismiss}
+          </button>
+        </div>
+      )}
 
       {helpOrderBanner &&
         (() => {

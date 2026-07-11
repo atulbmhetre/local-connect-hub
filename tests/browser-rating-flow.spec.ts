@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { loginAsCustomer, loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_SESSION } from './helpers/setup';
 
 const T = Date.now();
 const LOCAL_CUSTOMER_PHONE = `8800${String(T).slice(-6)}`;
@@ -34,7 +34,6 @@ test('RV-UI-01: rating sheet opens on fulfilled order in MyOrders', async ({ pag
   await seedFulfilledOrder('RV-UI-01 order');
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('order-card').first()).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('order-rate-btn').first()).toBeVisible({ timeout: 5000 });
   await page.getByTestId('order-rate-btn').first().click();
@@ -45,7 +44,6 @@ test('RV-UI-02: all 5 stars are visible on rating sheet', async ({ page }) => {
   await seedFulfilledOrder('RV-UI-02 order');
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
   await expect(page.getByTestId('rating-sheet')).toBeVisible({ timeout: 5000 });
   for (let i = 1; i <= 5; i++) {
@@ -57,7 +55,6 @@ test('RV-UI-03: submit button disabled until star selected', async ({ page }) =>
   await seedFulfilledOrder('RV-UI-03 order');
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
   await expect(page.getByTestId('rating-sheet')).toBeVisible({ timeout: 5000 });
   // Submit should be disabled before any star is selected
@@ -72,7 +69,6 @@ test('RV-UI-04: skip button dismisses rating sheet without DB write', async ({ p
   const order = await seedFulfilledOrder('RV-UI-04 skip test');
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
   await expect(page.getByTestId('rating-sheet')).toBeVisible({ timeout: 5000 });
   await page.getByTestId('rating-skip-btn').click();
@@ -89,7 +85,6 @@ test('RV-DB-01: 5-star rating submitted — vendor_reviews row created', async (
   const order = await seedFulfilledOrder('RV-DB-01 5 star');
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
   await expect(page.getByTestId('rating-sheet')).toBeVisible({ timeout: 5000 });
   await page.getByTestId('rating-star-5').click();
@@ -104,7 +99,6 @@ test('RV-DB-02: 1-star rating submitted — vendor_reviews row created with corr
   const order = await seedFulfilledOrder('RV-DB-02 1 star');
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   await page.getByTestId('order-rate-btn').first().click();
   await expect(page.getByTestId('rating-sheet')).toBeVisible({ timeout: 5000 });
   await page.getByTestId('rating-star-1').click();
@@ -131,10 +125,10 @@ test('RV-REPLY-01: vendor can see and respond to a review — UI flow', async ({
     service_mode: 'delivery',
   });
 
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
+  await openVendorPreferencesTab(page);
 
   const reviewsHeader = page.getByRole('button', { name: /My Reviews/i });
   await reviewsHeader.scrollIntoViewIfNeeded();
@@ -198,7 +192,6 @@ test('RV-NEG-02: rate button not shown on sent order card', async ({ page }) => 
 
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
 
   // Find the specific card for this order by its message text
   const thisCard = page.getByTestId('order-card')
@@ -220,7 +213,6 @@ test('RV-NEG-03: rating sheet not shown on cancelled order', async ({ page }) =>
   });
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   // Cancelled orders show in MyOrders but no rate button
   const rateBtn = page.getByTestId('order-rate-btn');
   const count = await rateBtn.count();

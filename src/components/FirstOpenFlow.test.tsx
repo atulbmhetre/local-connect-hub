@@ -145,7 +145,9 @@ describe("first open welcome gate", () => {
   it("shows restore prompt on first open when not welcomed", () => {
     render(<WelcomeGate />);
     expect(screen.getByTestId("first-open-flow")).toBeInTheDocument();
-    expect(screen.getByText(strings.en.firstopen_restore_title)).toBeInTheDocument();
+    expect(screen.getByTestId("firstopen-vendor-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("firstopen-restore-skip")).toBeInTheDocument();
+    expect(screen.getByTestId("firstopen-restore-entry")).toBeInTheDocument();
   });
 
   it("does not show restore prompt after markWelcomed()", () => {
@@ -174,6 +176,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={onComplete} />);
 
+    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });
@@ -191,6 +194,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={onComplete} />);
 
+    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9123456789" },
     });
@@ -211,6 +215,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={onComplete} />);
 
+    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });

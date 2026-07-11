@@ -48,7 +48,6 @@ test('ADDR-02: address row visible in settings', async ({ page }) => {
   });
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   // Find and open delivery addresses section — try flexible match
   const addrSection = page.getByText(/delivery address/i).first();
   await expect(addrSection).toBeVisible({ timeout: 5000 });

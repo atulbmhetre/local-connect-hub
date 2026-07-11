@@ -4,6 +4,7 @@ import {
   postDeleteAccount,
   invokeAnonymiseDeletedAccounts,
   uniqueTestPhone,
+  uniqueBrowserPhone,
   cleanupSession38Data,
 } from './helpers/session38';
 import { TEST_SESSION, cleanupTestVendors } from './helpers/setup';
@@ -300,39 +301,49 @@ test('DEL-09: vendor with deletion_requested_at = now() is not anonymised immedi
 });
 
 test('DEL-10: vendor with deletion_requested_at 31 days ago is anonymised', async () => {
+  const phone = uniqueBrowserPhone('9900');
   const thirtyOneDaysAgo = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
-  await supabaseAdmin.from('users').insert({
-    phone: VENDOR_PHONE,
+  await supabaseAdmin.from('users').delete().eq('phone', phone);
+  await supabaseAdmin.from('vendors').delete().eq('phone', phone);
+
+  const { error: userErr } = await supabaseAdmin.from('users').insert({
+    phone,
     deletion_requested_at: thirtyOneDaysAgo,
   });
-  await supabaseAdmin.from('vendors').insert({
-    name: 'Old Delete Vendor',
-    shop_name: 'Old Shop',
-    phone: VENDOR_PHONE,
-    category: 'Grocery',
-    service_mode: 'delivery',
-    is_active: true,
-    vendor_note: `test_session:${TEST_SESSION}`,
-    deletion_requested_at: thirtyOneDaysAgo,
-  });
+  if (userErr) throw userErr;
+
+  const { data: seeded, error: vendorErr } = await supabaseAdmin
+    .from('vendors')
+    .insert({
+      name: 'Old Delete Vendor',
+      shop_name: 'Old Shop',
+      phone,
+      category: 'Grocery',
+      service_mode: 'delivery',
+      is_active: true,
+      vendor_note: `test_session:${TEST_SESSION}`,
+      deletion_requested_at: thirtyOneDaysAgo,
+    })
+    .select('id')
+    .single();
+  if (vendorErr) throw vendorErr;
 
   await invokeAnonymiseDeletedAccounts();
 
   const { data: vendor } = await supabaseAdmin
     .from('vendors')
     .select('phone, shop_name, is_banned')
-    .eq('phone', VENDOR_PHONE)
+    .eq('phone', phone)
     .maybeSingle();
   expect(vendor).toBeNull();
 
   const { data: anonymised } = await supabaseAdmin
     .from('vendors')
     .select('phone, shop_name, is_banned')
-    .like('phone', 'deleted_%')
-    .eq('shop_name', 'Deleted Shop')
-    .limit(1)
-    .maybeSingle();
+    .eq('id', seeded.id)
+    .single();
 
   expect(anonymised?.phone).toMatch(/^deleted_/);
+  expect(anonymised?.shop_name).toBe('Deleted Shop');
   expect(anonymised?.is_banned).toBe(true);
 });

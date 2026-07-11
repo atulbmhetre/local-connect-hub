@@ -3,6 +3,7 @@ import { loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
+  getActiveCategoryByLabel,
   seedOrderBill,
   seedVendorCategory,
 } from './helpers/setup';
@@ -124,7 +125,6 @@ async function gotoVendor(page: Page) {
 
 async function gotoVendorAndWaitOrders(page: Page) {
   await gotoVendor(page);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
 }
 
@@ -623,4 +623,36 @@ test('IO-CROSS-04 — Flag button only visible on fulfilled orders, not on sent'
   const fulfilledCard = incomingCard(page, fulfilledMsg);
   await expect(fulfilledCard).toBeVisible();
   await expect(flagBtn(fulfilledCard)).toBeVisible();
+});
+
+test('IO-CAT-01 — Incoming order card shows category chip from requests.category_id', async ({
+  page,
+}) => {
+  const primaryHelp = await getActiveCategoryByServiceMode('help');
+  // Prefer a secondary help-line category that differs from the vendor primary.
+  let orderCategory = await getActiveCategoryByLabel('Electrician');
+  if (orderCategory.id === primaryHelp.id) {
+    orderCategory = await getActiveCategoryByLabel('Plumber');
+  }
+  if (orderCategory.id === primaryHelp.id) {
+    orderCategory = await getActiveCategoryByLabel('Carpenter');
+  }
+  expect(orderCategory.id).not.toBe(primaryHelp.id);
+
+  const vendor = await createVendor('help', 'CAT01');
+  await seedVendorCategory(vendor.id, orderCategory, { is_primary: false });
+  const customerPhone = nextCustomerPhone();
+  const msg = `IO-CAT-01 ${T}`;
+  await seedCustomer(customerPhone);
+  await seedRequest(vendor.id, customerPhone, msg, {
+    status: 'sent',
+    category_id: orderCategory.id,
+  });
+  await loginVendorAndWaitOrders(page, vendor);
+
+  const card = incomingCard(page, msg);
+  await expect(card).toBeVisible();
+  const chip = card.getByTestId('incoming-order-category');
+  await expect(chip).toBeVisible();
+  await expect(chip).toContainText(orderCategory.label);
 });

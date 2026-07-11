@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "playwright:install": "dotenv -e .env.local -o -- playwright install chromium",
-    "test:e2e": "dotenv -e .env.local -o -- playwright test"
+    "test:e2e": "dotenv -e .env.local -o -- playwright test",
+    "prepare": "husky"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",
@@ -26,6 +27,7 @@
     "@capacitor/geolocation": "^8.2.0",
     "@capacitor/local-notifications": "^8.2.0",
     "@capacitor/push-notifications": "^8.1.1",
+    "@capgo/background-geolocation": "^8.3.1",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
@@ -101,6 +103,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
+    "husky": "^9.1.7",
     "jsdom": "^20.0.3",
     "lovable-tagger": "^1.1.13",
     "postcss": "^8.5.6",

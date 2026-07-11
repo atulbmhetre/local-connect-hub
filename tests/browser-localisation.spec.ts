@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabase, supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabase, supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_i18n_${TEST_SESSION}`;
 let testVendor: any;
@@ -21,13 +21,11 @@ async function waitForHomeScreen(page: Page) {
 async function setLanguage(page: Page, lang: 'en' | 'hi' | 'mr') {
   await page.evaluate((l: string) => localStorage.setItem('aaspaas:language', l), lang);
   await page.reload();
-  await page.waitForLoadState('networkidle');
   await waitForHomeScreen(page);
 }
 
 async function openPreferences(page: Page) {
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
   const prefsToggle = page.getByText(/preferences/i).first();
   await expect(prefsToggle).toBeVisible({ timeout: 5000 });
@@ -53,7 +51,6 @@ test('I18N-02: default language is English on fresh install', async ({ page }) =
     localStorage.setItem('aaspaas:welcomed', 'true');
   });
   await page.reload();
-  await page.waitForLoadState('networkidle');
   const lang = await page.evaluate(() => localStorage.getItem('aaspaas:language'));
   if (lang !== null) expect(lang).toBe('en');
 });
@@ -102,7 +99,6 @@ test('I18N-07: Hindi — settings screen loads with non-empty content', async ({
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await setLanguage(page, 'hi');
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
   const content = await page.getByTestId('settings-screen').textContent();
   expect(content?.trim().length).toBeGreaterThan(10);
@@ -112,15 +108,13 @@ test('I18N-08: Hindi — MyOrders screen loads without crash', async ({ page }) 
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await setLanguage(page, 'hi');
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('my-orders-screen')).toBeVisible({ timeout: 8000 });
 });
 
 test('I18N-09: Hindi — vendor screen loads without crash', async ({ page }) => {
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await setLanguage(page, 'hi');
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 8000 });
 });
 
@@ -139,17 +133,15 @@ test('I18N-11: Marathi — settings screen loads with non-empty content', async 
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await setLanguage(page, 'mr');
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
   const content = await page.getByTestId('settings-screen').textContent();
   expect(content?.trim().length).toBeGreaterThan(10);
 });
 
 test('I18N-12: Marathi — vendor screen loads without crash', async ({ page }) => {
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await setLanguage(page, 'mr');
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 8000 });
 });
 
@@ -181,11 +173,9 @@ test('I18N-15: language persists across navigation', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await setLanguage(page, 'hi');
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   const lang = await page.evaluate(() => localStorage.getItem('aaspaas:language'));
   expect(lang).toBe('hi');
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   const langAfter = await page.evaluate(() => localStorage.getItem('aaspaas:language'));
   expect(langAfter).toBe('hi');
 });
@@ -194,7 +184,6 @@ test('I18N-16: language persists after page reload', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await setLanguage(page, 'mr');
   await page.reload();
-  await page.waitForLoadState('networkidle');
   await waitForHomeScreen(page);
   const lang = await page.evaluate(() => localStorage.getItem('aaspaas:language'));
   expect(lang).toBe('mr');

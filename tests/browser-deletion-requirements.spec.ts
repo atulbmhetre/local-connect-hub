@@ -18,7 +18,8 @@ const L = {
   myAccount: 'My Account',
   deleteAccount: 'Delete Account',
   confirmTitle: 'Delete your account?',
-  confirmBody: 'This will permanently delete all your data. This cannot be undone.',
+  confirmBody:
+    'This will delete your shop. Your data cannot be recovered, and you will not be able to register a new shop with this same phone number for 30 days.',
   yesDelete: 'Yes, Delete',
   cancel: 'Cancel',
   scheduledPrefix: 'Account deletion scheduled',
@@ -26,7 +27,7 @@ const L = {
   vendorActiveBlock:
     'You have an active vendor account. Please delete your vendor account first',
   dualRoleNotice:
-    'Your customer account will be deleted immediately. Your vendor shop will remain bookable for 30 days, after which it will also be deleted, per our policy.',
+    'Your customer account will be deleted immediately. Your vendor shop will be deleted after 30 days, and you will not be able to register a new shop with this same phone number for 30 days.',
   dualRoleSuccess:
     'Your account will be deleted. Your vendor shop will remain active for 30 days as per policy.',
   deletionSuccessCustomer: 'Account deleted',
@@ -104,7 +105,6 @@ async function createVendor(
 async function gotoSettings(page: Page) {
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 20000 });
-  await page.waitForLoadState('networkidle');
 }
 
 async function openDeleteDialog(page: Page) {
@@ -197,7 +197,6 @@ test('DEL-REQ-03 — Customer deletion clears localStorage and shows fresh state
   });
 
   await page.goto(APP_URL);
-  await page.waitForLoadState('networkidle');
 
   expect(await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'))).toBeNull();
   expect(await page.evaluate(() => localStorage.getItem('aaspaas:welcomed'))).toBeNull();

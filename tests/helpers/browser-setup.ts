@@ -44,22 +44,168 @@ export async function clickRadarOrderCard(
   await card.getByTestId('radar-vendor-card-order-btn').click();
 }
 
-const ADMIN_PHONE_FALLBACK = '8888169446';
+export { loginAsCustomer };
 
-async function resolveAdminPhone(): Promise<string> {
-  const supabase = createClient(
-    process.env.VITE_SUPABASE_URL!,
-    process.env.VITE_SUPABASE_ANON_KEY!,
-  );
-  const { data } = await supabase
-    .from('app_config')
-    .select('value')
-    .eq('key', 'admin_phone')
-    .maybeSingle();
-  return data?.value?.trim() || ADMIN_PHONE_FALLBACK;
+/** Ephemeral TEST admin credentials when env is unset (never committed). */
+const EPHEMERAL_ADMIN_EMAIL = 'playwright-admin-session@aaspaas.test';
+const EPHEMERAL_ADMIN_PASSWORD = 'PlaywrightAdminSession!20260708';
+
+function requireAdminCredentials(): { email: string; password: string } {
+  const email = (process.env.TEST_ADMIN_EMAIL ?? '').trim() || EPHEMERAL_ADMIN_EMAIL;
+  const password = (process.env.TEST_ADMIN_PASSWORD ?? '').trim() || EPHEMERAL_ADMIN_PASSWORD;
+  if (!process.env.TEST_ADMIN_EMAIL || !process.env.TEST_ADMIN_PASSWORD) {
+    process.env.TEST_ADMIN_EMAIL = email;
+    process.env.TEST_ADMIN_PASSWORD = password;
+  }
+  return { email, password };
 }
 
-export { loginAsCustomer };
+let ensureAdminUserPromise: Promise<void> | null = null;
+
+/** Create/link TEST admin auth user + admin_users row via service role (idempotent). */
+export async function ensureTestAdminUser(): Promise<{ email: string; password: string }> {
+  const creds = requireAdminCredentials();
+  if (!ensureAdminUserPromise) {
+    ensureAdminUserPromise = (async () => {
+      const url = process.env.VITE_SUPABASE_URL;
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!url || !serviceKey) {
+        throw new Error(
+          'ensureTestAdminUser requires VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY',
+        );
+      }
+      const admin = createClient(url, serviceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+
+      let userId: string | null = null;
+      const { data: created, error: createErr } = await admin.auth.admin.createUser({
+        email: creds.email,
+        password: creds.password,
+        email_confirm: true,
+      });
+      if (createErr) {
+        const msg = createErr.message.toLowerCase();
+        if (!msg.includes('already') && !msg.includes('registered') && !msg.includes('exists')) {
+          throw new Error(`createUser failed: ${createErr.message}`);
+        }
+        let page = 1;
+        while (page <= 50 && !userId) {
+          const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+          if (error) throw new Error(`listUsers failed: ${error.message}`);
+          const match = data.users.find(
+            (u) => u.email?.trim().toLowerCase() === creds.email.toLowerCase(),
+          );
+          if (match) {
+            userId = match.id;
+            const { error: updErr } = await admin.auth.admin.updateUserById(userId, {
+              password: creds.password,
+              email_confirm: true,
+            });
+            if (updErr) throw new Error(`updateUserById failed: ${updErr.message}`);
+            break;
+          }
+          if (data.users.length < 200) break;
+          page += 1;
+        }
+        if (!userId) {
+          throw new Error(`Admin user ${creds.email} already exists but could not be listed`);
+        }
+      } else {
+        userId = created.user?.id ?? null;
+      }
+      if (!userId) throw new Error('Admin user id missing after create/lookup');
+
+      const { error: upsertErr } = await admin.from('admin_users').upsert(
+        { user_id: userId },
+        { onConflict: 'user_id' },
+      );
+      if (upsertErr) throw new Error(`admin_users upsert failed: ${upsertErr.message}`);
+    })();
+  }
+  await ensureAdminUserPromise;
+  return creds;
+}
+
+/** Supabase client signed in as the session admin (for admin_* RPC fallbacks). */
+export async function getAdminSessionClient() {
+  const { email, password } = await ensureTestAdminUser();
+  const client = createClient(
+    process.env.VITE_SUPABASE_URL!,
+    process.env.VITE_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(`admin session signIn failed: ${error.message}`);
+  return client;
+}
+
+/** Wait for Settings admin session check (data-admin-auth-checked). */
+export async function waitForSettingsAdminReady(page: Page) {
+  await page.getByTestId('settings-screen').waitFor({ state: 'visible', timeout: 15000 });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="settings-screen"]')
+        ?.getAttribute('data-admin-auth-checked') === 'true',
+    { timeout: 20000 },
+  );
+}
+
+/** 7-tap Settings title → reveal Admin tab; dismisses Developer PIN dialog. */
+export async function revealAdminTab(page: Page) {
+  await waitForSettingsAdminReady(page);
+  await expect(page.getByTestId('settings-tab-admin')).toHaveCount(0);
+
+  const title = page.locator('[data-testid="settings-screen"] h1').first();
+  await expect(title).toBeVisible({ timeout: 8000 });
+  for (let i = 0; i < 7; i += 1) {
+    await title.click();
+  }
+
+  // Gesture also opens the Developer PIN dialog — cancel so it does not block the Admin tab.
+  const pinDialog = page.getByRole('alertdialog').filter({ hasText: /Developer PIN/i });
+  if (await pinDialog.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await pinDialog.getByRole('button', { name: /Cancel|रद्द|रद्द करा/i }).click();
+    await expect(pinDialog).toHaveCount(0, { timeout: 5000 });
+  }
+
+  await expect(page.getByTestId('settings-tab-admin')).toBeVisible({ timeout: 5000 });
+}
+
+/**
+ * Reveal Admin tab via 7-tap gesture, sign in with TEST_ADMIN_EMAIL / TEST_ADMIN_PASSWORD,
+ * wait for admin-panel. Ensures auth user exists on TEST via service role when needed.
+ */
+export async function loginAsAdminViaSession(page: Page, deviceId = `admin_device_${Date.now()}`) {
+  const { email, password } = await ensureTestAdminUser();
+
+  // Optional device/phone context for audit labels; auth is session-based.
+  await page.goto(APP_URL);
+  await page.evaluate((id) => {
+    localStorage.setItem('aaspaas:device_id', id);
+    localStorage.setItem('aaspaas:welcomed', 'true');
+  }, deviceId);
+  await page.goto(`${APP_URL}/settings`);
+  await revealAdminTab(page);
+
+  await page.getByTestId('settings-tab-admin').click();
+  await expect(page.getByTestId('admin-login-gate')).toBeVisible({ timeout: 8000 });
+
+  await page.locator('#admin-login-email').fill(email);
+  await page.locator('#admin-login-password').fill(password);
+  await page.getByTestId('admin-login-gate').getByRole('button', { name: /Sign in/i }).click();
+
+  await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 15000 });
+}
+
+/**
+ * @deprecated Prefer loginAsAdminViaSession — phone-based admin gating is gone.
+ * Kept as alias so older callers keep compiling until fully migrated.
+ */
+export async function loginAsAdmin(page: Page, deviceId = `admin_device_${Date.now()}`) {
+  await loginAsAdminViaSession(page, deviceId);
+}
 
 // Simulate a logged-in vendor
 export async function loginAsVendor(page: Page, phone: string, vendorId: string, deviceId: string) {
@@ -76,26 +222,10 @@ export async function loginAsVendor(page: Page, phone: string, vendorId: string,
   // Phase D: mint a real Supabase session so Phase C RLS policies work
   await mintBrowserSupabaseSession(page, phone, 'loginAsVendor');
 
-  await page.reload();
-  await page.waitForLoadState('networkidle');
-}
-
-// Admin user — phone must match app_config admin_phone (default 8888169446)
-export async function loginAsAdmin(page: Page, deviceId = `admin_device_${Date.now()}`) {
-  const phone = await resolveAdminPhone();
-  await loginAsCustomer(page, phone, deviceId);
-}
-
-/** Wait for Settings app_config fetch so the admin tab can render after navigation. */
-export async function waitForSettingsAdminReady(page: Page) {
-  await page.getByTestId('settings-screen').waitFor({ state: 'visible', timeout: 15000 });
-  await page.waitForFunction(
-    () =>
-      document
-        .querySelector('[data-testid="settings-screen"]')
-        ?.getAttribute('data-admin-config-loaded') === 'true',
-    { timeout: 20000 },
-  );
+  await page.waitForTimeout(200);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  // Avoid networkidle — Realtime WebSocket + Vite HMR never go fully idle.
+  await page.waitForSelector('[data-testid="home-screen"]', { timeout: 15000 });
 }
 
 // Fresh user — no localStorage at all
@@ -112,4 +242,15 @@ export async function loginAsFreshUser(page: Page) {
 export async function logout(page: Page) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
+}
+
+/** Vendor Settings → Preferences tab (menu, offers, khata, reviews, etc.). */
+export async function openVendorPreferencesTab(page: Page) {
+  await page.getByTestId('settings-vendor-tab-preferences').click();
+}
+
+/** Vendor Settings → My Business tab (identity, reach, radius, verification). */
+export async function openVendorMyBusinessTab(page: Page) {
+  await page.getByTestId('settings-vendor-tab-business').click();
+  await expect(page.getByTestId('vendor-my-business')).toBeVisible({ timeout: 20000 });
 }

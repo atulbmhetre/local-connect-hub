@@ -6,7 +6,6 @@ import {
   createTestVendor,
   cleanupTestData, cleanupTestVendors,
   TEST_CUSTOMER_PHONE,
-  TEST_VENDOR_PHONE,
   TEST_SESSION,
 } from './helpers/setup';
 
@@ -54,9 +53,8 @@ test('NEG-BAN-02: banned vendor cannot go live — is_active stays false', async
 
 test('NEG-BAN-03: banned vendor sees suspension screen in vendor mode', async ({ page }) => {
   await supabaseAdmin.from('vendors').update({ is_banned: true }).eq('id', testVendor.id);
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByText('Account Suspended')).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('vendor-golive-btn')).not.toBeVisible({ timeout: 3000 });
   await supabaseAdmin.from('vendors').update({ is_banned: false }).eq('id', testVendor.id);

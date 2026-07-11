@@ -16,14 +16,12 @@ export type WarnFlaggedUserResult =
 export async function warnFlaggedUser(
   phone: string,
   config: WarnFlaggedUserConfig,
+  adminLabel?: string | null,
 ): Promise<WarnFlaggedUserResult> {
-  const adminPhone = getUserPhone()?.trim();
-  if (!adminPhone) {
-    return { ok: false, error: "warn_count_not_saved" };
-  }
+  const p_admin_phone = adminLabel ?? (getUserPhone()?.trim() || null);
 
   const { data: langValue, error: langError } = await supabase.rpc("admin_get_user_lang", {
-    p_admin_phone: adminPhone,
+    p_admin_phone,
     p_user_phone: phone,
   });
 
@@ -48,7 +46,7 @@ export async function warnFlaggedUser(
   });
 
   const { data: savedWarnCount, error: warnError } = await supabase.rpc("admin_warn_user", {
-    p_admin_phone: adminPhone,
+    p_admin_phone,
     p_user_phone: phone,
   });
 
@@ -56,6 +54,6 @@ export async function warnFlaggedUser(
     return { ok: false, error: "warn_count_not_saved" };
   }
 
-  logAdminAction("warn_user", "user", phone);
+  logAdminAction("warn_user", "user", phone, null, adminLabel);
   return { ok: true };
 }

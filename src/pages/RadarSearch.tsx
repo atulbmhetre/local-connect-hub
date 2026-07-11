@@ -80,7 +80,7 @@ export type RadarMenuItem = {
 };
 
 export type RadarVendorResult = Vendor & {
-  categories: { label: string; emoji: string }[];
+  categories: { label: string; emoji: string; category_id?: string }[];
   trustLevel: TrustLevel;
   /** First 5 available menu items, batch-fetched so cards render complete. */
   menuPreview: RadarMenuItem[];
@@ -211,14 +211,14 @@ function RadarModeSelector({
             <span className="text-lg leading-none" aria-hidden>
               {mode.emoji}
             </span>
-            <span className="text-xs font-semibold leading-tight">{s[mode.label]}</span>
+            <span className="text-xs font-semibold leading-tight">{s[mode.label] as string}</span>
             <span
               className={cn(
                 "text-[10px] leading-tight text-center",
                 selected ? "text-white/80" : "text-muted-foreground",
               )}
             >
-              {s[mode.sub]}
+              {s[mode.sub] as string}
             </span>
           </button>
         );
@@ -235,7 +235,7 @@ function buildVendorCategoriesMap(
     categories: { label: string; emoji: string } | { label: string; emoji: string }[] | null;
   }[],
   matchedCategoryIdsByVendor?: Map<string, Set<string>>,
-): Map<string, { label: string; emoji: string }[]> {
+): Map<string, { label: string; emoji: string; category_id: string }[]> {
   const map = new Map<
     string,
     { label: string; emoji: string; is_primary: boolean; category_id: string }[]
@@ -256,20 +256,18 @@ function buildVendorCategoriesMap(
     map.set(row.vendor_id, list);
   }
 
-  const out = new Map<string, { label: string; emoji: string }[]>();
+  const out = new Map<string, { label: string; emoji: string; category_id: string }[]>();
   for (const [vendorId, list] of map) {
     const matched = matchedCategoryIdsByVendor?.get(vendorId);
-    list.sort((a, b) => {
-      if (matched) {
-        const aMatch = matched.has(a.category_id) ? 1 : 0;
-        const bMatch = matched.has(b.category_id) ? 1 : 0;
-        if (aMatch !== bMatch) return bMatch - aMatch;
-      }
-      return Number(b.is_primary) - Number(a.is_primary);
-    });
+    // Category search: show only matched categories. Empty browse: show all (primary first).
+    const filtered =
+      matchedCategoryIdsByVendor != null && matched
+        ? list.filter((c) => matched.has(c.category_id))
+        : list;
+    filtered.sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
     out.set(
       vendorId,
-      list.map(({ label, emoji }) => ({ label, emoji })),
+      filtered.map(({ label, emoji, category_id }) => ({ label, emoji, category_id })),
     );
   }
   return out;
@@ -776,6 +774,13 @@ const RadarSearch = () => {
           qTrackBMultiMode = qTrackBMultiMode.in("id", vendorIdFilter);
         }
 
+        if (qTrackA) qTrackA = qTrackA.eq("discoverable", true);
+        if (qTrackAWide) qTrackAWide = qTrackAWide.eq("discoverable", true);
+        if (qTrackAMultiMode) qTrackAMultiMode = qTrackAMultiMode.eq("discoverable", true);
+        if (qTrackAWideMultiMode) qTrackAWideMultiMode = qTrackAWideMultiMode.eq("discoverable", true);
+        qTrackB = qTrackB.eq("discoverable", true);
+        if (qTrackBMultiMode) qTrackBMultiMode = qTrackBMultiMode.eq("discoverable", true);
+
         const [trackAResult, trackAWideResult, trackAMultiModeResult, trackAWideMultiModeResult, trackBResult, trackBMultiModeResult] =
           await Promise.all([
           qTrackA ? qTrackA.limit(TRACK_A_LIMIT) : Promise.resolve({ data: [], error: null }),
@@ -828,8 +833,8 @@ const RadarSearch = () => {
           trackBVendors = [...trackBById.values()];
         }
 
-        trackAVendors = excludeOfflineHelpVendors(trackAVendors);
-        trackBVendors = excludeOfflineHelpVendors(trackBVendors);
+        trackAVendors = excludeOfflineHelpVendors(trackAVendors, selectedMode);
+        trackBVendors = excludeOfflineHelpVendors(trackBVendors, selectedMode);
 
         const vendorIds = [
           ...new Set([
@@ -839,7 +844,10 @@ const RadarSearch = () => {
         ];
 
         let verificationRows: VendorVerificationRow[] = [];
-        let categoriesByVendor = new Map<string, { label: string; emoji: string }[]>();
+        let categoriesByVendor = new Map<
+          string,
+          { label: string; emoji: string; category_id: string }[]
+        >();
         const menuByVendor = new Map<string, RadarMenuItem[]>();
         let activeOrderVendorIds = new Set<string>();
         let fulfilledVendorIds = new Set<string>();
@@ -892,7 +900,7 @@ const RadarSearch = () => {
                 .eq("status", "approved"),
               supabase
                 .from("vendor_menu_items")
-                .select("vendor_id, name, price, unit, is_available")
+                .select("vendor_id, name, price, unit, is_available, category_id")
                 .in("vendor_id", vendorIds)
                 .eq("is_available", true)
                 .order("sort_order", { ascending: true }),
@@ -912,6 +920,12 @@ const RadarSearch = () => {
           );
 
           for (const row of menuResult.data ?? []) {
+            if (categoryModeSearch) {
+              const matched = matchedCategoryIdsByVendor.get(row.vendor_id);
+              if (matched && matched.size > 0) {
+                if (!row.category_id || !matched.has(row.category_id)) continue;
+              }
+            }
             const list = menuByVendor.get(row.vendor_id) ?? [];
             // Rows arrive sorted by sort_order; keep the first 5 per vendor
             // to match the old per-card .limit(5) preview behaviour.
@@ -1338,6 +1352,7 @@ const RadarSearch = () => {
               >
                 <RadarVendorCard
                   vendor={vendor}
+                  radarServiceMode={selectedMode}
                   dist={dist}
                   index={i}
                   userNeed={term}
@@ -1368,6 +1383,7 @@ const RadarSearch = () => {
               >
                 <RadarVendorCard
                   vendor={vendor}
+                  radarServiceMode={selectedMode}
                   dist={dist}
                   index={localResults.length + i}
                   userNeed={term}

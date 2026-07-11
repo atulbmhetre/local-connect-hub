@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, gotoRadarDelivery, clickRadarOrderCard, APP_URL } from './helpers/browser-setup';
-import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategoryByLabel, seedBronzeVendorVerification, seedVendorCategory, TEST_CUSTOMER_PHONE, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategoryByLabel, seedBronzeVendorVerification, seedVendorCategory, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 const MOBILE_VIEWPORT = { width: 390, height: 844 }; // iPhone 14
@@ -42,7 +42,6 @@ test('UX-TAP-02: bottom nav tabs are tap-friendly (≥44px height)', async ({ pa
   await page.setViewportSize(MOBILE_VIEWPORT);
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
-  await page.waitForLoadState('networkidle');
 
   const navTabs = ['nav-home', 'nav-feed', 'nav-orders', 'nav-settings'];
   for (const testid of navTabs) {
@@ -54,9 +53,8 @@ test('UX-TAP-02: bottom nav tabs are tap-friendly (≥44px height)', async ({ pa
 
 test('UX-TAP-03: vendor go-live button is tap-friendly (≥44px)', async ({ page }) => {
   await page.setViewportSize(MOBILE_VIEWPORT);
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   const box = await page.getByTestId('vendor-golive-btn').boundingBox();
   expect(box).not.toBeNull();
@@ -74,9 +72,8 @@ test('UX-TAP-04: accept order button tap size — document current size', async 
   });
 
   await page.setViewportSize(MOBILE_VIEWPORT);
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   const acceptBtn = page.getByTestId('incoming-accept-btn').first();
   const visible = await acceptBtn.isVisible({ timeout: 8000 }).catch(() => false);
@@ -95,7 +92,6 @@ test('UX-TAP-05: feed post button is tap-friendly (≥44px)', async ({ page }) =
   await page.setViewportSize(MOBILE_VIEWPORT);
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/feed`);
-  await page.waitForLoadState('networkidle');
 
   const box = await page.getByTestId('feed-post-btn').boundingBox();
   expect(box).not.toBeNull();
@@ -108,7 +104,6 @@ test('UX-TAP-05: feed post button is tap-friendly (≥44px)', async ({ page }) =
 test('UX-THEME-01: theme class applied to html element', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
-  await page.waitForLoadState('networkidle');
 
   const htmlClass = await page.evaluate(() => document.documentElement.className);
   // App applies dark or light class
@@ -121,7 +116,6 @@ test('UX-THEME-02: dark theme — no pure white backgrounds on home screen', asy
   await page.goto(`${APP_URL}`);
   await page.evaluate(() => localStorage.setItem('aaspaas:theme', 'dark'));
   await page.reload();
-  await page.waitForLoadState('networkidle');
 
   const htmlClass = await page.evaluate(() => document.documentElement.className);
   // If dark class set, theme is applied
@@ -140,7 +134,6 @@ test('UX-THEME-03: light theme — html class contains light or no dark class', 
   await page.goto(`${APP_URL}`);
   await page.evaluate(() => localStorage.setItem('aaspaas:theme', 'light'));
   await page.reload();
-  await page.waitForLoadState('networkidle');
 
   const htmlClass = await page.evaluate(() => document.documentElement.className);
   // Light mode = either 'light' class present or 'dark' class absent
@@ -153,7 +146,6 @@ test('UX-THEME-04: theme persists after page reload', async ({ page }) => {
   await page.goto(`${APP_URL}`);
   await page.evaluate(() => localStorage.setItem('aaspaas:theme', 'dark'));
   await page.reload();
-  await page.waitForLoadState('networkidle');
 
   const stored = await page.evaluate(() => localStorage.getItem('aaspaas:theme'));
   expect(stored).toBe('dark');
@@ -165,7 +157,6 @@ test('UX-RESP-01: home screen renders correctly at iPhone 14 viewport', async ({
   await page.setViewportSize(MOBILE_VIEWPORT);
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 8000 });
 
@@ -178,7 +169,6 @@ test('UX-RESP-02: home screen renders correctly at small Android viewport', asyn
   await page.setViewportSize(SMALL_ANDROID);
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 8000 });
 
@@ -188,9 +178,8 @@ test('UX-RESP-02: home screen renders correctly at small Android viewport', asyn
 
 test('UX-RESP-03: vendor screen renders correctly at mobile viewport', async ({ page }) => {
   await page.setViewportSize(MOBILE_VIEWPORT);
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 8000 });
 
@@ -202,7 +191,6 @@ test('UX-RESP-04: settings screen renders correctly at mobile viewport', async (
   await page.setViewportSize(MOBILE_VIEWPORT);
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
 
   const scrollWidth = await page.evaluate(() => document.body.scrollWidth);
   expect(scrollWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width + 5);
@@ -212,7 +200,6 @@ test('UX-RESP-05: feed screen renders correctly at mobile viewport', async ({ pa
   await page.setViewportSize(MOBILE_VIEWPORT);
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/feed`);
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('feed-screen')).toBeVisible({ timeout: 8000 });
 
@@ -226,7 +213,6 @@ test('UX-NAV-01: all bottom nav tabs navigate to correct routes', async ({ page 
   await page.setViewportSize(MOBILE_VIEWPORT);
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
-  await page.waitForLoadState('networkidle');
 
   const routes = [
     { testid: 'nav-orders', pattern: /my-orders/ },
@@ -237,16 +223,14 @@ test('UX-NAV-01: all bottom nav tabs navigate to correct routes', async ({ page 
 
   for (const { testid, pattern } of routes) {
     await page.getByTestId(testid).click();
-    await page.waitForLoadState('networkidle');
     expect(page.url()).toMatch(pattern);
   }
 });
 
 test('UX-NAV-02: vendor tab shows ME label when vendor session active', async ({ page }) => {
   await page.setViewportSize(MOBILE_VIEWPORT);
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
-  await page.waitForLoadState('networkidle');
 
   const vendorTab = page.getByTestId('nav-vendor');
   await expect(vendorTab).toBeVisible();
@@ -260,7 +244,6 @@ test('UX-NAV-03: direct URL navigation works for all main routes', async ({ page
   const routes = ['/', '/feed', '/my-orders', '/settings'];
   for (const route of routes) {
     await page.goto(`${APP_URL}${route}`);
-    await page.waitForLoadState('networkidle');
     await expect(page.getByTestId('not-found-page')).not.toBeVisible();
   }
 });
@@ -268,7 +251,6 @@ test('UX-NAV-03: direct URL navigation works for all main routes', async ({ page
 test('UX-NAV-04: unknown route redirects gracefully — no crash', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/this-route-does-not-exist`);
-  await page.waitForLoadState('networkidle');
 
   // App should redirect or show graceful fallback — no JS crash
   const bodyText = await page.locator('body').textContent();
@@ -284,7 +266,6 @@ test('UX-LOAD-01: home screen loads without JS errors', async ({ page }) => {
 
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
-  await page.waitForLoadState('networkidle');
 
   expect(errors.filter(e => !e.includes('ResizeObserver'))).toHaveLength(0);
 });
@@ -293,9 +274,8 @@ test('UX-LOAD-02: vendor screen loads without JS errors', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', err => errors.push(err.message));
 
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   expect(errors.filter(e => !e.includes('ResizeObserver'))).toHaveLength(0);
 });
@@ -306,7 +286,6 @@ test('UX-LOAD-03: settings screen loads without JS errors', async ({ page }) => 
 
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
 
   expect(errors.filter(e => !e.includes('ResizeObserver'))).toHaveLength(0);
 });
@@ -317,7 +296,6 @@ test('UX-LOAD-04: feed screen loads without JS errors', async ({ page }) => {
 
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/feed`);
-  await page.waitForLoadState('networkidle');
 
   expect(errors.filter(e => !e.includes('ResizeObserver'))).toHaveLength(0);
 });
@@ -330,7 +308,6 @@ test('UX-ERR-01: GPS denied on radar shows error state not crash', async ({ page
   // Deny geolocation
   await page.context().clearPermissions();
   await page.goto(`${APP_URL}/radar`);
-  await page.waitForLoadState('networkidle');
   await page.waitForTimeout(3000);
 
   // Should show error/blocked state — not a blank screen or crash
@@ -342,7 +319,6 @@ test('UX-ERR-01: GPS denied on radar shows error state not crash', async ({ page
 test('UX-ERR-02: my-orders screen loads even with no orders', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
 
   // Should show empty state or orders — not a crash
   const bodyText = await page.locator('body').textContent();
@@ -364,7 +340,6 @@ test('UX-ERR-03: vendor screen loads even with no incoming orders', async ({ pag
 
   await loginAsVendor(page, emptyVendor.phone, emptyVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 8000 });
 
@@ -377,7 +352,6 @@ test('UX-OVERLAP-01: bottom nav does not overlap main content on mobile', async 
   await page.setViewportSize(MOBILE_VIEWPORT);
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
-  await page.waitForLoadState('networkidle');
 
   const navBox = await page.getByTestId('nav-home').boundingBox();
   const homeBox = await page.getByTestId('home-screen').boundingBox();
@@ -459,13 +433,14 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
   await page.goto(
     `${APP_URL}/radar?mode=${categories[0].service_mode}&q=${encodeURIComponent(categories[0].label)}`,
   );
-  await page.waitForLoadState('networkidle');
 
   const card = page.locator(`#radar-vendor-card-${cardVendor!.id}`);
   await expect(card).toBeVisible({ timeout: 20000 });
   await expect(card.getByText(/Home based/i)).toBeVisible();
   await expect(card.getByText(/Bronze|ब्रॉन्ज/i)).toBeVisible();
   await expect(card.getByText(categories[0].label, { exact: false }).first()).toBeVisible();
+  // Category search shows only the matched category, not the vendor's full list
+  await expect(card.getByText(categories[1].label, { exact: true })).not.toBeVisible();
 
   // Shop photo thumbnail is visible and opens lightbox
   const avatar = card.locator('img[alt*="shop"]').first();

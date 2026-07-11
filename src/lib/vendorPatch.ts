@@ -5,10 +5,11 @@ export async function patchVendorOwn(
   vendorPhone: string,
   patch: Record<string, unknown>,
 ) {
+  const { discoverable: _discoverable, ...safePatch } = patch;
   return supabase.rpc("vendor_update_own", {
     p_vendor_id: vendorId,
     p_vendor_phone: vendorPhone,
-    p_patch: patch,
+    p_patch: safePatch,
   });
 }
 

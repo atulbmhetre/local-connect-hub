@@ -126,13 +126,11 @@ async function hardReload(page: Page) {
 
 async function reloadAndGoHome(page: Page) {
   await page.goto(APP_URL);
-  await page.waitForLoadState('networkidle');
   await waitForHomeScreen(page);
 }
 
 async function openPreferences(page: Page) {
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
   const prefsToggle = page.getByText(/preferences|प्राथमिक|प्राधान्य/i).first();
   await expect(prefsToggle).toBeVisible({ timeout: 8000 });
@@ -263,7 +261,6 @@ test('LOC-REQ-04 — MY SHOP label in Hindi renders without forced CSS uppercase
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await setLanguageLocalStorage(page, 'hi');
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
 
   const shopBtn = page.getByRole('button', { name: HI.settings_myShop });
@@ -423,7 +420,6 @@ test('LOC-REQ-11 — No raw string keys visible on Incoming Orders in Marathi', 
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await setLanguageLocalStorage(page, 'mr');
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 20000 });
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
 

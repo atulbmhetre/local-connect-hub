@@ -1,8 +1,9 @@
 import { test, expect, Page, Locator } from '@playwright/test';
-import { loginAsCustomer, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
+  getActiveCategoryByLabel,
   seedVendorCategory,
 } from './helpers/setup';
 
@@ -227,7 +228,6 @@ test('FD-REQ-05 — Post outside radius not shown', async ({ page }) => {
   const content = `FD-REQ-05-DELHI-${T}`;
   await seedPost(content, { lat: DELHI.latitude, lng: DELHI.longitude, locality: 'Delhi' });
   await gotoFeed(page);
-  await page.waitForLoadState('networkidle');
   await expect(postCard(page, content)).not.toBeVisible({ timeout: 10000 });
 });
 
@@ -246,7 +246,6 @@ test('FD-REQ-07 — Expired post not shown in feed', async ({ page }) => {
     expires_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
   });
   await gotoFeed(page);
-  await page.waitForLoadState('networkidle');
   await expect(postCard(page, content)).not.toBeVisible({ timeout: 10000 });
 });
 
@@ -256,7 +255,6 @@ test('FD-REQ-08 — Future scheduled post not shown yet', async ({ page }) => {
     starts_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
   });
   await gotoFeed(page);
-  await page.waitForLoadState('networkidle');
   await expect(postCard(page, content)).not.toBeVisible({ timeout: 10000 });
 });
 
@@ -322,7 +320,6 @@ test('FD-REQ-11 — Post hidden after 5 flags', async ({ page }) => {
   expect(row?.flagged_count).toBeGreaterThanOrEqual(5);
 
   await gotoFeed(page);
-  await page.waitForLoadState('networkidle');
   await expect(postCard(page, content)).not.toBeVisible({ timeout: 10000 });
 });
 
@@ -406,4 +403,100 @@ test('FD-REQ-16 — GPS required to create post — blocked without location', a
   await expect(page.locator('[data-sonner-toast]').getByText(L.gpsRequired)).toBeVisible({
     timeout: 5000,
   });
+});
+
+test('FD-FALLBACK-01 — RPC failure fallback still hides vendor-only category-scoped offers from wrong readers', async ({
+  page,
+}) => {
+  const grocery = await getActiveCategoryByServiceMode('delivery');
+  const plumber = await getActiveCategoryByLabel('Plumber');
+
+  const posterPhone = nextVendorPhone();
+  const readerPhone = nextVendorPhone();
+  const content = `FD-FALLBACK-01 vendors-only grocery ${T}`;
+
+  const { data: poster, error: posterErr } = await supabaseAdmin
+    .from('vendors')
+    .insert({
+      name: 'Fallback Poster',
+      shop_name: `!FD-FB-POST-${T}`,
+      phone: posterPhone,
+      category: grocery.label,
+      service_mode: 'delivery',
+      latitude: PUNE.latitude,
+      longitude: PUNE.longitude,
+      is_active: true,
+      profile_status: 'complete',
+      service_radius_km: 9999,
+    })
+    .select('id')
+    .single();
+  if (posterErr) throw posterErr;
+  createdVendorIds.push(poster.id);
+  await seedVendorCategory(poster.id, grocery);
+
+  const { data: reader, error: readerErr } = await supabaseAdmin
+    .from('vendors')
+    .insert({
+      name: 'Fallback Reader',
+      shop_name: `!FD-FB-READ-${T}`,
+      phone: readerPhone,
+      category: plumber.label,
+      service_mode: plumber.service_mode,
+      latitude: PUNE.latitude,
+      longitude: PUNE.longitude,
+      is_active: true,
+      profile_status: 'complete',
+      service_radius_km: 9999,
+    })
+    .select('id')
+    .single();
+  if (readerErr) throw readerErr;
+  createdVendorIds.push(reader.id);
+  await seedVendorCategory(reader.id, plumber);
+
+  const { data: post, error: postErr } = await supabaseAdmin
+    .from('feed_posts')
+    .insert({
+      type: 'offer',
+      user_phone: posterPhone,
+      vendor_id: poster.id,
+      content,
+      lat: PUNE.latitude,
+      lng: PUNE.longitude,
+      reach_radius_km: 50,
+      is_hidden: false,
+      flagged_count: 0,
+      target_audience: 'vendors',
+      target_category_id: grocery.id,
+      expires_at: new Date(Date.now() + 86400000).toISOString(),
+    })
+    .select('id')
+    .single();
+  if (postErr) throw postErr;
+  createdPostIds.push(post.id);
+
+  await page.route('**/rest/v1/rpc/get_local_feed_posts*', async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'forced rpc failure' }),
+    });
+  });
+
+  await loginAsVendor(page, readerPhone, reader.id, `${DEVICE_ID}_fb`);
+  await page.context().setGeolocation(PUNE);
+  await page.context().grantPermissions(['geolocation']);
+  await page.evaluate(() => localStorage.removeItem('aaspaas:feed_cache'));
+  await page.goto(`${APP_URL}/feed`);
+  await expect(page.getByTestId('feed-screen')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(content)).not.toBeVisible({ timeout: 8000 });
+
+  await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
+  await page.context().setGeolocation(PUNE);
+  await page.context().grantPermissions(['geolocation']);
+  await page.evaluate(() => localStorage.removeItem('aaspaas:feed_cache'));
+  await page.goto(`${APP_URL}/feed`);
+  await expect(page.getByTestId('feed-screen')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(content)).not.toBeVisible({ timeout: 8000 });
 });

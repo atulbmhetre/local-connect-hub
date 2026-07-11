@@ -1,11 +1,19 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, loginAsAdmin, waitForSettingsAdminReady, APP_URL } from './helpers/browser-setup';
 import {
-  supabase,
+  loginAsCustomer,
+  loginAsAdminViaSession,
+  waitForSettingsAdminReady,
+  revealAdminTab,
+  ensureTestAdminUser,
+  getAdminSessionClient,
+  APP_URL,
+} from './helpers/browser-setup';
+import {
   supabaseAdmin,
   createTestVendor,
   createTestCustomer,
-  cleanupTestData, cleanupTestVendors,
+  cleanupTestData,
+  cleanupTestVendors,
   seedBronzeVendorVerification,
   seedDefaultVendorVerification,
   seedVendorCategory,
@@ -20,12 +28,13 @@ const TEST_DEVICE_ID = `device_admin_${TEST_SESSION}`;
 let testVendor: any;
 
 async function ensureAdminHealthVisible(page: import('@playwright/test').Page) {
+  await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 8000 });
   const healthTitle = page.getByText('Admin — App Health');
   const alreadyVisible = await healthTitle.isVisible({ timeout: 2000 }).catch(() => false);
   if (!alreadyVisible) {
     await page.getByTestId('settings-tab-admin').click();
-    await page.waitForTimeout(500);
   }
+  await expect(healthTitle).toBeVisible({ timeout: 8000 });
   return healthTitle;
 }
 
@@ -43,6 +52,7 @@ async function openVendorModeration(page: import('@playwright/test').Page) {
 }
 
 test.beforeAll(async () => {
+  await ensureTestAdminUser();
   testVendor = await createTestVendor();
   await createTestCustomer();
 });
@@ -54,20 +64,47 @@ test.afterAll(async () => {
 
 // ─── ADMIN PANEL ACCESS ────────────────────────────────────────────────────
 
-test('ADMIN-01: admin panel visible for admin phone', async ({ page }) => {
-  await loginAsAdmin(page, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
-  const debugUrl = page.url();
-  const debugPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
-  const debugAdminLoaded = await page.evaluate(() => document.querySelector('[data-testid="settings-screen"]')?.getAttribute('data-admin-config-loaded'));
-  const debugIsAdminVisible = await page.evaluate(() => !!document.querySelector('[data-testid="settings-tab-admin"]'));
-  console.log('DEBUG:', { debugUrl, debugPhone, debugAdminLoaded, debugIsAdminVisible });
+test('ADMIN-01: admin panel visible after session login', async ({ page }) => {
+  await loginAsAdminViaSession(page, TEST_DEVICE_ID);
   await expect(page.getByTestId('settings-tab-admin')).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 5000 });
 });
 
-test('ADMIN-02: admin panel not visible for non-admin phone', async ({ page }) => {
+test('ADMIN-01b: gesture reveal, invalid password, logout hides tab', async ({ page }) => {
+  const { email } = await ensureTestAdminUser();
+  await page.goto(`${APP_URL}/settings`);
+  await waitForSettingsAdminReady(page);
+
+  // (a) Admin tab hidden before gesture
+  await expect(page.getByTestId('settings-tab-admin')).toHaveCount(0);
+  await expect(page.getByTestId('admin-panel')).toHaveCount(0);
+
+  // (b) Visible after 7-tap
+  await revealAdminTab(page);
+  await expect(page.getByTestId('settings-tab-admin')).toBeVisible();
+
+  // (c) Invalid password → generic error, no panel
+  await page.getByTestId('settings-tab-admin').click();
+  await expect(page.getByTestId('admin-login-gate')).toBeVisible({ timeout: 8000 });
+  await page.locator('#admin-login-email').fill(email);
+  await page.locator('#admin-login-password').fill('definitely-wrong-password');
+  await page.getByTestId('admin-login-gate').getByRole('button', { name: /Sign in/i }).click();
+  await expect(page.getByTestId('admin-login-error')).toHaveText(/Invalid email or password/i, {
+    timeout: 8000,
+  });
+  await expect(page.getByTestId('admin-panel')).toHaveCount(0);
+
+  // Valid login then (d) logout immediately hides tab without navigation
+  await page.locator('#admin-login-password').fill(process.env.TEST_ADMIN_PASSWORD!);
+  await page.getByTestId('admin-login-gate').getByRole('button', { name: /Sign in/i }).click();
+  await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 15000 });
+  await page.getByTestId('admin-log-out').click();
+  await expect(page.getByTestId('settings-tab-admin')).toHaveCount(0, { timeout: 5000 });
+  await expect(page.getByTestId('admin-panel')).toHaveCount(0);
+  await expect(page.getByTestId('settings-screen')).toBeVisible();
+});
+
+test('ADMIN-02: admin panel not visible for non-admin without gesture', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await waitForSettingsAdminReady(page);
@@ -76,9 +113,7 @@ test('ADMIN-02: admin panel not visible for non-admin phone', async ({ page }) =
 });
 
 test('ADMIN-03: admin sees platform health section', async ({ page }) => {
-  await loginAsAdmin(page, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
+  await loginAsAdminViaSession(page, TEST_DEVICE_ID);
   await expect(await ensureAdminHealthVisible(page)).toBeVisible({ timeout: 5000 });
 });
 
@@ -86,9 +121,7 @@ test('ADMIN-03: admin sees platform health section', async ({ page }) => {
 
 test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', async ({ page }) => {
   await supabaseAdmin.from('vendors').update({ is_manual_verified: false }).eq('id', testVendor.id);
-  await loginAsAdmin(page, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
+  await loginAsAdminViaSession(page, TEST_DEVICE_ID);
   await ensureAdminHealthVisible(page);
 
   const modBtn = page.getByRole('button', { name: /Vendor Moderation/i }).first();
@@ -103,7 +136,6 @@ test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', as
       const hasVerify = await verifyBtn.isVisible({ timeout: 3000 }).catch(() => false);
       if (hasVerify) {
         await verifyBtn.click();
-        // Verify sheet requires all checklist items — complete via DB if UI blocks
         const confirmBtn = page.getByRole('button', { name: /confirm|verify/i }).first();
         const canConfirm = await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false);
         if (canConfirm) {
@@ -121,10 +153,12 @@ test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', as
     return;
   }
 
-  await supabase.rpc('admin_verify_vendor', {
+  const adminClient = await getAdminSessionClient();
+  const { error: rpcErr } = await adminClient.rpc('admin_verify_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });
+  expect(rpcErr).toBeNull();
   const { data } = await supabaseAdmin.from('vendors')
     .select('is_manual_verified').eq('id', testVendor.id).single();
   expect(data?.is_manual_verified).toBe(true);
@@ -133,13 +167,12 @@ test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', as
 // ─── VENDOR BAN ────────────────────────────────────────────────────────────
 
 test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ page }) => {
-  await supabaseAdmin.rpc('admin_unban_vendor', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });
-  await loginAsAdmin(page, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
+  await loginAsAdminViaSession(page, TEST_DEVICE_ID);
   await ensureAdminHealthVisible(page);
 
   const modBtn = page.getByRole('button', { name: /Vendor Moderation/i }).first();
@@ -171,7 +204,7 @@ test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ p
     }
   }
 
-  await supabaseAdmin.rpc('admin_ban_vendor', {
+  await adminClient.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
     p_reason: 'Test ban',
@@ -193,7 +226,8 @@ test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ p
 });
 
 test('ADMIN-06: banned vendor hidden from radar query — DB assert', async () => {
-  await supabaseAdmin.rpc('admin_ban_vendor', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
     p_reason: 'Test ban',
@@ -203,19 +237,20 @@ test('ADMIN-06: banned vendor hidden from radar query — DB assert', async () =
     .eq('is_banned', false)
     .eq('id', testVendor.id);
   expect(data?.length).toBe(0);
-  await supabaseAdmin.rpc('admin_unban_vendor', {
+  await adminClient.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });
 });
 
 test('ADMIN-07: unban vendor — is_banned = false + notification created', async () => {
-  await supabaseAdmin.rpc('admin_ban_vendor', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
     p_reason: 'Test',
   });
-  await supabaseAdmin.rpc('admin_unban_vendor', {
+  await adminClient.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });
@@ -231,9 +266,7 @@ test('ADMIN-08: warn customer — warn_count increments in DB', async ({ page })
     phone: TEST_CUSTOMER_PHONE,
     warn_count: 0,
   }, { onConflict: 'phone' });
-  await loginAsAdmin(page, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
+  await loginAsAdminViaSession(page, TEST_DEVICE_ID);
   await ensureAdminHealthVisible(page);
 
   const modBtn = page.getByRole('button', { name: /Vendor Moderation/i }).first();
@@ -252,7 +285,8 @@ test('ADMIN-08: warn customer — warn_count increments in DB', async ({ page })
     return;
   }
 
-  await supabase.rpc('admin_warn_user', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_warn_user', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_user_phone: TEST_CUSTOMER_PHONE,
   });
@@ -303,7 +337,8 @@ test('ADMIN-NEG-01: non-admin phone cannot access admin panel UI', async ({ page
 });
 
 test('ADMIN-NEG-02: banned vendor cannot go live — is_active blocked', async () => {
-  await supabaseAdmin.rpc('admin_ban_vendor', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
     p_reason: 'Test ban',
@@ -312,7 +347,7 @@ test('ADMIN-NEG-02: banned vendor cannot go live — is_active blocked', async (
   const { data } = await supabaseAdmin.from('vendors')
     .select('is_banned, is_active').eq('id', testVendor.id).single();
   expect(data?.is_banned).toBe(true);
-  await supabaseAdmin.rpc('admin_unban_vendor', {
+  await adminClient.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });
@@ -346,9 +381,7 @@ test('ADMIN-12: vendor with Bronze checks shows Bronze trust badge in admin list
   await seedVendorCategory(bronzeVendor!.id, primaryCategory);
   await seedBronzeVendorVerification(bronzeVendor!.id);
 
-  await loginAsAdmin(page, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
+  await loginAsAdminViaSession(page, TEST_DEVICE_ID);
   await openVendorModeration(page);
 
   const searchInput = page.getByPlaceholder(/search/i).first();
@@ -399,9 +432,7 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
   await seedVendorCategory(verifyVendor!.id, primaryCategory);
   await seedDefaultVendorVerification(verifyVendor!.id);
 
-  await loginAsAdmin(page, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
+  await loginAsAdminViaSession(page, TEST_DEVICE_ID);
   await openVendorModeration(page);
 
   const searchInput = page.getByPlaceholder(/search/i).first();

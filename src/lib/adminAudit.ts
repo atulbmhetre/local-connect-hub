@@ -24,13 +24,14 @@ export function logAdminAction(
   targetType: AdminTargetType,
   targetId: string,
   reason?: string | null,
+  adminLabel?: string | null,
 ): void {
-  const adminPhone = getUserPhone()?.trim();
-  if (!adminPhone) return;
+  const label = adminLabel ?? getUserPhone()?.trim();
+  if (!label) return;
 
   void supabase
     .rpc("log_admin_action", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: label,
       p_action_type: actionType,
       p_target_type: targetType,
       p_target_id: targetId,

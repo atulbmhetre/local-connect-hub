@@ -14,8 +14,40 @@ import {
 const TEST_DEVICE_ID = `device_edit_${TEST_SESSION}`;
 const RADAR_CUSTOMER_DEVICE = `device_mcv_remove_${TEST_SESSION}`;
 
-function editShopSheet(page: import('@playwright/test').Page) {
-  return page.locator('[role="dialog"]').filter({ hasText: 'Edit Shop Details' });
+function myBusinessPanel(page: import('@playwright/test').Page) {
+  return page.getByTestId('vendor-my-business');
+}
+
+async function openMyBusiness(page: import('@playwright/test').Page, phone: string, vendorId: string) {
+  await loginAsVendor(page, phone, vendorId, TEST_DEVICE_ID);
+  await page.goto(`${APP_URL}/settings`);
+  await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByTestId('settings-vendor-tab-business')).toBeVisible({ timeout: 20000 });
+  await page.getByTestId('settings-vendor-tab-business').click();
+  await expect(myBusinessPanel(page)).toBeVisible({ timeout: 10000 });
+  await expect(myBusinessPanel(page).locator('.animate-spin')).not.toBeVisible({ timeout: 10000 });
+  await expect(myBusinessPanel(page).getByText(/\d\/5 selected/)).toBeVisible({ timeout: 10000 });
+}
+
+async function ensureCategorySelected(page: import('@playwright/test').Page, categoryId: string) {
+  const panel = myBusinessPanel(page);
+  const chip = panel.getByTestId(`vendor-edit-category-${categoryId}`);
+  await expect(chip).toBeVisible({ timeout: 8000 });
+  const className = (await chip.getAttribute('class')) ?? '';
+  if (!className.includes('ring-primary')) {
+    await chip.click();
+  }
+}
+
+async function deselectCategory(page: import('@playwright/test').Page, categoryId: string) {
+  const panel = myBusinessPanel(page);
+  const chip = panel.getByTestId(`vendor-edit-category-${categoryId}`);
+  await expect(chip).toBeVisible({ timeout: 8000 });
+  const className = (await chip.getAttribute('class')) ?? '';
+  if (className.includes('ring-primary')) {
+    await chip.click();
+  }
+  await expect(panel.getByText(/1\/5 selected/)).toBeVisible({ timeout: 5000 });
 }
 
 async function createEditTestVendor(
@@ -35,6 +67,10 @@ async function createEditTestVendor(
       category: primary.label,
       service_mode: primary.service_mode,
       vendor_type: 'shop',
+      base_type: 'shop',
+      serves_at_vendor_place: true,
+      serves_at_customer_place: false,
+      service_radius_km: 5,
       latitude: 18.5204,
       longitude: 73.8567,
       is_active: false,
@@ -55,38 +91,6 @@ async function createEditTestVendor(
   return { vendor: data, phone, categories };
 }
 
-async function openEditShopSheet(page: import('@playwright/test').Page, phone: string, vendorId: string) {
-  await loginAsVendor(page, phone, vendorId, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
-  await page.getByRole('button', { name: /Complete your verification/i }).click();
-  await page.getByRole('button', { name: /Edit Shop Details/i }).click();
-  await expect(page.getByRole('heading', { name: 'Edit Shop Details' })).toBeVisible({ timeout: 8000 });
-  await expect(editShopSheet(page).locator('.animate-spin')).not.toBeVisible({ timeout: 8000 });
-  await expect(editShopSheet(page).getByText(/\d\/5 selected/)).toBeVisible({ timeout: 8000 });
-}
-
-async function ensureCategorySelected(page: import('@playwright/test').Page, categoryId: string) {
-  const sheet = editShopSheet(page);
-  const chip = sheet.getByTestId(`vendor-edit-category-${categoryId}`);
-  await expect(chip).toBeVisible({ timeout: 8000 });
-  const className = (await chip.getAttribute('class')) ?? '';
-  if (!className.includes('ring-primary')) {
-    await chip.click();
-  }
-}
-
-async function deselectCategory(page: import('@playwright/test').Page, categoryId: string) {
-  const sheet = editShopSheet(page);
-  const chip = sheet.getByTestId(`vendor-edit-category-${categoryId}`);
-  await expect(chip).toBeVisible({ timeout: 8000 });
-  const className = (await chip.getAttribute('class')) ?? '';
-  if (className.includes('ring-primary')) {
-    await chip.click();
-  }
-  await expect(sheet.getByText(/1\/5 selected/)).toBeVisible({ timeout: 5000 });
-}
-
 async function expectRadarVendorForCategory(
   page: import('@playwright/test').Page,
   customerPhone: string,
@@ -100,7 +104,6 @@ async function expectRadarVendorForCategory(
   await page.goto(
     `${APP_URL}/radar?mode=help&q=${encodeURIComponent(categoryLabel)}`,
   );
-  await page.waitForLoadState('networkidle');
 
   const card = page.getByTestId('radar-vendor-card').filter({ hasText: shopName }).first();
   if (shouldAppear) {
@@ -110,9 +113,18 @@ async function expectRadarVendorForCategory(
   }
 }
 
-async function saveEditShop(page: import('@playwright/test').Page) {
-  const saveBtn = editShopSheet(page).getByRole('button', { name: 'Save' });
+async function saveMyBusiness(
+  page: import('@playwright/test').Page,
+  dialogAction: 'accept' | 'dismiss' | 'none' = 'accept',
+) {
+  const saveBtn = page.getByTestId('my-business-save');
   await expect(saveBtn).toBeEnabled({ timeout: 10000 });
+  if (dialogAction !== 'none') {
+    page.once('dialog', async (dialog) => {
+      if (dialogAction === 'accept') await dialog.accept();
+      else await dialog.dismiss();
+    });
+  }
   await saveBtn.click();
   await page.waitForTimeout(2000);
 }
@@ -122,12 +134,22 @@ test.afterAll(async () => {
   await cleanupTestData();
 });
 
+test('VE-04: verified vendor can open My Business and change base type', async ({ page }) => {
+  const { vendor, phone } = await createEditTestVendor({ is_manual_verified: true, vendor_type: 'shop' });
+  await openMyBusiness(page, phone, vendor.id);
+  await page.getByTestId('my-business-base-home').click();
+  await saveMyBusiness(page);
+  const { data } = await supabaseAdmin.from('vendors').select('vendor_type, base_type').eq('id', vendor.id).single();
+  expect(data?.vendor_type).toBe('home');
+  expect(data?.base_type).toBe('home');
+});
+
 test('VE-01: vendor can change vendor_type from shop to home and save', async ({ page }) => {
   const { vendor, phone } = await createEditTestVendor({ vendor_type: 'shop' });
-  await openEditShopSheet(page, phone, vendor.id);
+  await openMyBusiness(page, phone, vendor.id);
 
-  await page.getByRole('button', { name: /Home/i }).filter({ hasText: /work from home/i }).first().click();
-  await saveEditShop(page);
+  await page.getByTestId('my-business-base-home').click();
+  await saveMyBusiness(page);
 
   const { data } = await supabaseAdmin.from('vendors').select('vendor_type').eq('id', vendor.id).single();
   expect(data?.vendor_type).toBe('home');
@@ -137,9 +159,9 @@ test('VE-02: vendor can add a second category in edit sheet', async ({ page }) =
   const { vendor, phone, categories } = await createEditTestVendor({ vendor_type: 'shop' }, 1);
   const secondCategory = categories[1];
 
-  await openEditShopSheet(page, phone, vendor.id);
+  await openMyBusiness(page, phone, vendor.id);
   await ensureCategorySelected(page, secondCategory.id);
-  await saveEditShop(page);
+  await saveMyBusiness(page);
 
   const { data: vcRows } = await supabaseAdmin
     .from('vendor_categories')
@@ -153,11 +175,11 @@ test('VE-03: selecting 3+ categories sets needs_review on vendor_categories rows
   expect(categories.length).toBeGreaterThanOrEqual(3);
 
   const { vendor, phone } = await createEditTestVendor({ vendor_type: 'shop' }, 1);
-  await openEditShopSheet(page, phone, vendor.id);
+  await openMyBusiness(page, phone, vendor.id);
 
   await ensureCategorySelected(page, categories[1].id);
   await ensureCategorySelected(page, categories[2].id);
-  await saveEditShop(page);
+  await saveMyBusiness(page);
 
   const { data: vcRows } = await supabaseAdmin
     .from('vendor_categories')
@@ -183,6 +205,9 @@ test('VE-REMOVE-01: vendor removes a category — DB and Radar reflect removal',
       category: electrician.label,
       service_mode: electrician.service_mode,
       vendor_type: 'shop',
+      base_type: 'shop',
+      serves_at_vendor_place: true,
+      serves_at_customer_place: false,
       latitude: 18.5204,
       longitude: 73.8567,
       is_active: true,
@@ -203,9 +228,17 @@ test('VE-REMOVE-01: vendor removes a category — DB and Radar reflect removal',
   await supabaseAdmin.from('app_users').upsert({ phone: customerPhone }, { onConflict: 'phone' });
 
   try {
-    await openEditShopSheet(page, phone, vendor.id);
+    await openMyBusiness(page, phone, vendor.id);
     await deselectCategory(page, plumber.id);
-    await saveEditShop(page);
+
+    let confirmMessage = '';
+    page.once('dialog', async (dialog) => {
+      confirmMessage = dialog.message();
+      await dialog.accept();
+    });
+    await saveMyBusiness(page, 'none');
+    expect(confirmMessage).toMatch(/Plumber/i);
+    expect(confirmMessage).toMatch(/no longer find you/i);
 
     const { data: vcRows } = await supabaseAdmin
       .from('vendor_categories')
@@ -226,5 +259,122 @@ test('VE-REMOVE-01: vendor removes a category — DB and Radar reflect removal',
     await supabaseAdmin.from('requests').delete().eq('user_phone', customerPhone);
     await supabaseAdmin.from('users').delete().eq('phone', customerPhone);
     await supabaseAdmin.from('app_users').delete().eq('phone', customerPhone);
+  }
+});
+
+test('VE-REMOVE-02: cancel category-removal confirm reverts chip selection', async ({ page }) => {
+  const electrician = await getActiveCategoryByLabel('Electrician');
+  const plumber = await getActiveCategoryByLabel('Plumber');
+  const phone = `99007${Date.now().toString().slice(-5)}`;
+  const shopName = `Fresh Tools Shop ${phone.slice(-4)}`;
+
+  const { data: vendor, error } = await supabaseAdmin
+    .from('vendors')
+    .insert({
+      name: 'Cancel Remove Owner',
+      shop_name: shopName,
+      phone,
+      category: electrician.label,
+      service_mode: electrician.service_mode,
+      vendor_type: 'shop',
+      base_type: 'shop',
+      serves_at_vendor_place: true,
+      serves_at_customer_place: false,
+      latitude: 18.5204,
+      longitude: 73.8567,
+      is_active: true,
+      profile_status: 'complete',
+      service_radius_km: 9999,
+      upi_id: 'cancelremove@upi',
+      vendor_note: `test_session:${TEST_SESSION}`,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  await seedVendorCategory(vendor.id, electrician, { is_primary: true });
+  await seedVendorCategory(vendor.id, plumber, { is_primary: false });
+  await seedDefaultVendorVerification(vendor.id);
+
+  try {
+    await openMyBusiness(page, phone, vendor.id);
+    await deselectCategory(page, plumber.id);
+    await expect(myBusinessPanel(page).getByText(/1\/5 selected/)).toBeVisible();
+
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toMatch(/Plumber/i);
+      await dialog.dismiss();
+    });
+    await saveMyBusiness(page, 'none');
+
+    await expect(myBusinessPanel(page).getByText(/2\/5 selected/)).toBeVisible({ timeout: 5000 });
+    const plumberChip = myBusinessPanel(page).getByTestId(`vendor-edit-category-${plumber.id}`);
+    await expect(plumberChip).toHaveClass(/ring-primary/);
+
+    const { data: vcRows } = await supabaseAdmin
+      .from('vendor_categories')
+      .select('id')
+      .eq('vendor_id', vendor.id);
+    expect(vcRows?.length).toBe(2);
+  } finally {
+    await supabaseAdmin.from('vendor_categories').delete().eq('vendor_id', vendor.id);
+    await supabaseAdmin.from('vendor_verification').delete().eq('vendor_id', vendor.id);
+    await supabaseAdmin.from('vendors').delete().eq('id', vendor.id);
+  }
+});
+
+test('VE-RADAR-01: multi-category vendor card shows only matched category on search', async ({ page }) => {
+  const electrician = await getActiveCategoryByLabel('Electrician');
+  const plumber = await getActiveCategoryByLabel('Plumber');
+  const customerPhone = `88007${Date.now().toString().slice(-5)}`;
+  const phone = `99007${Date.now().toString().slice(-5)}`;
+  const shopName = `Fresh Dual Trade ${phone.slice(-4)}`;
+
+  const { data: vendor, error } = await supabaseAdmin
+    .from('vendors')
+    .insert({
+      name: 'Dual Trade Owner',
+      shop_name: shopName,
+      phone,
+      category: electrician.label,
+      service_mode: electrician.service_mode,
+      vendor_type: 'shop',
+      base_type: 'shop',
+      serves_at_vendor_place: true,
+      serves_at_customer_place: false,
+      latitude: 18.5204,
+      longitude: 73.8567,
+      is_active: true,
+      profile_status: 'complete',
+      service_radius_km: 9999,
+      upi_id: 'dualtrade@upi',
+      vendor_note: `test_session:${TEST_SESSION}`,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  await seedVendorCategory(vendor.id, electrician, { is_primary: true });
+  await seedVendorCategory(vendor.id, plumber, { is_primary: false });
+  await seedDefaultVendorVerification(vendor.id);
+  await supabaseAdmin.from('users').upsert({ phone: customerPhone }, { onConflict: 'phone' });
+
+  try {
+    await loginAsCustomer(page, customerPhone, RADAR_CUSTOMER_DEVICE);
+    await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
+    await page.context().grantPermissions(['geolocation']);
+    await page.goto(
+      `${APP_URL}/radar?mode=${plumber.service_mode}&q=${encodeURIComponent(plumber.label)}`,
+    );
+
+    const card = page.locator(`#radar-vendor-card-${vendor.id}`);
+    await expect(card).toBeVisible({ timeout: 20000 });
+    await expect(card.getByText(plumber.label, { exact: false }).first()).toBeVisible();
+    await expect(card.getByText(electrician.label, { exact: true })).not.toBeVisible();
+  } finally {
+    await supabaseAdmin.from('vendor_categories').delete().eq('vendor_id', vendor.id);
+    await supabaseAdmin.from('vendor_verification').delete().eq('vendor_id', vendor.id);
+    await supabaseAdmin.from('vendors').delete().eq('id', vendor.id);
+    await supabaseAdmin.from('users').delete().eq('phone', customerPhone);
   }
 });

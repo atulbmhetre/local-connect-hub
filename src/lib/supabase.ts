@@ -622,21 +622,6 @@ export async function buildVendorBrief(payload: {
   }
 }
 
-// Categories whose vendors physically move to the customer.
-// Their GPS is refreshed every time they go "Ready to Help".
-export const MOBILE_CATEGORIES = new Set<string>([
-  "Mechanic",
-  "Towing",
-  "Tyre Service",
-  "Key Maker",
-  "Ambulance",
-  "Nursing",
-]);
-
-export function isMobileCategory(category: string) {
-  return MOBILE_CATEGORIES.has(category);
-}
-
 export function distanceKm(
   a: { lat: number; lng: number },
   b: { lat: number; lng: number },

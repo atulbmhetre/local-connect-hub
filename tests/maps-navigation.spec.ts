@@ -152,7 +152,6 @@ async function gotoVendor(page: Page) {
 
 async function gotoVendorAndWaitOrders(page: Page) {
   await gotoVendor(page);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
 }
 
@@ -170,7 +169,6 @@ async function loginCustomerAndGoOrders(page: Page, customerPhone: string) {
   await installMapsOpenCapture(page);
   await loginAsCustomer(page, customerPhone, CUSTOMER_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
 }
 
 function orderCard(page: Page, message: string): Locator {
@@ -264,7 +262,6 @@ test('MAPS-E2E-04: delivery order status=completed → Maps button not rendered'
   await installMapsOpenCapture(page);
   await loginAsVendor(page, vendor.phone, vendor.id, VENDOR_DEVICE_ID);
   await gotoVendor(page);
-  await page.waitForLoadState('networkidle');
 
   // Completed orders fall outside the vendor active window — no card, no maps button.
   await expect(incomingCard(page, msg)).not.toBeVisible({ timeout: 5000 });

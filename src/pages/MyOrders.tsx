@@ -506,11 +506,15 @@ const MyOrders = () => {
 
     setMyKhata(
       filterKhataLedgerByOutstanding(
-        (data ?? []).map((k: { vendor_id: string; total_outstanding: number; vendors: { shop_name: string } | null }) => ({
-          vendor_id: k.vendor_id,
-          shop_name: k.vendors?.shop_name ?? "Unknown",
-          total_outstanding: k.total_outstanding,
-        })),
+        (data ?? []).map((k) => {
+          const vendors = k.vendors as { shop_name: string } | { shop_name: string }[] | null;
+          const vendor = Array.isArray(vendors) ? vendors[0] : vendors;
+          return {
+            vendor_id: k.vendor_id,
+            shop_name: vendor?.shop_name ?? "Unknown",
+            total_outstanding: k.total_outstanding,
+          };
+        }),
         false,
       ),
     );
@@ -837,7 +841,11 @@ const MyOrders = () => {
           category: "help",
           vendor_note: null,
           phone,
-          service_mode: order.vendors?.service_mode ?? "help",
+          service_mode: (order.vendors?.service_mode ?? "help") as
+            | "help"
+            | "delivery"
+            | "appointment"
+            | "booking",
           verification_status: "unverified",
           is_manual_verified: false,
           total_helped: 0,

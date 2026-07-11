@@ -226,14 +226,14 @@ test('AIBRIDGE-03: AI bridge call goes via edge function — not direct client c
   expect(data).not.toBeNull();
 });
 
-test('AIBRIDGE-04: vendor GPS ping config correct for help tracking', async () => {
+test('AIBRIDGE-04: FCM location_ping config retired (Capgo owns Help GPS)', async () => {
   const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'location_ping_seconds')
-    .single();
+    .maybeSingle();
 
-  expect(data?.value).toBe('60');
+  expect(data).toBeNull();
 });
 
 test('AIBRIDGE-05: help order vendor has service_mode = help', async () => {

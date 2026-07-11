@@ -496,12 +496,6 @@ const LedgerView = () => {
         : { data: null };
 
     if (newOutstanding === 0) {
-      await supabase.rpc("vendor_mark_customer_khata_bills_paid", {
-        p_vendor_id: vendorId,
-        p_vendor_phone: vendorPhone,
-        p_customer_phone: selectedPhone,
-      });
-
       const paidTitle = s.khata_paidNotifTitle;
       const paidBody = s.khata_paidNotifBody;
       void invokeNotifyUser({
@@ -564,7 +558,7 @@ const LedgerView = () => {
 
   return (
     <AppShell>
-      <div className="space-y-3 pb-24" data-testid="ledger-screen">
+      <div className="space-y-3 pb-24" data-testid="ledger-screen" data-loading={String(loading)}>
       <div className="flex items-start gap-3">
         <button
           type="button"

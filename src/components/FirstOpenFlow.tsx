@@ -17,7 +17,12 @@ import { cn } from "@/lib/utils";
 // Phase D: set to true when Exotel KYC is complete and ExoVerify is live
 const OTP_ENABLED = false;
 
-type FlowStep = "restore" | "otp_pending" | "notification_permission" | "done";
+type FlowStep =
+  | "chooser"
+  | "restore"
+  | "otp_pending"
+  | "notification_permission"
+  | "done";
 
 type Props = {
   onComplete: () => void;
@@ -33,7 +38,7 @@ function normalizePhoneDigits(raw: string): string {
 
 export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const { s } = useLanguage();
-  const [step, setStep] = useState<FlowStep>("restore");
+  const [step, setStep] = useState<FlowStep>("chooser");
   const [phoneValue, setPhoneValue] = useState("");
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [notifLoading, setNotifLoading] = useState(false);
@@ -196,15 +201,37 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       data-testid="first-open-flow"
       className="fixed inset-0 z-50 flex flex-col bg-background overflow-y-auto"
     >
+      {step === "chooser" && (
+        <div className="flex flex-1 flex-col justify-center px-6 py-10 max-w-md mx-auto w-full gap-3">
+          <button
+            type="button"
+            data-testid="firstopen-vendor-btn"
+            onClick={() => onVendorRegister?.()}
+            className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+          >
+            {s.welcome_register_business}
+          </button>
+          <button
+            type="button"
+            data-testid="firstopen-restore-skip"
+            onClick={goToNotificationStep}
+            className="w-full rounded-xl border border-border py-3.5 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
+          >
+            {s.welcome_skip_registration}
+          </button>
+          <button
+            type="button"
+            data-testid="firstopen-restore-entry"
+            onClick={() => setStep("restore")}
+            className="w-full rounded-xl border border-border py-3.5 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
+          >
+            {s.welcome_restore_account}
+          </button>
+        </div>
+      )}
+
       {step === "restore" && (
         <div className="flex flex-1 flex-col px-6 py-10 max-w-md mx-auto w-full">
-          <div className="text-center mb-8">
-            <p className="text-4xl mb-3" aria-hidden>
-              🏘️
-            </p>
-            <p className="font-display text-xl font-bold text-foreground">{s.appName}</p>
-          </div>
-
           <h1 className="font-display text-2xl font-bold text-foreground leading-tight">
             {s.firstopen_restore_title}
           </h1>
@@ -261,25 +288,16 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
           <button
             type="button"
-            data-testid="firstopen-restore-skip"
+            data-testid="firstopen-restore-back"
             disabled={restoreLoading}
-            onClick={goToNotificationStep}
+            onClick={() => {
+              setInlineMessage(null);
+              setStep("chooser");
+            }}
             className="mt-4 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
           >
-            {s.firstopen_restore_skip}
+            {s.firstopen_restore_back}
           </button>
-
-          {onVendorRegister && (
-            <button
-              type="button"
-              data-testid="firstopen-vendor-btn"
-              disabled={restoreLoading}
-              onClick={onVendorRegister}
-              className="mt-6 w-full rounded-xl border border-border py-3 text-sm font-semibold text-foreground active:scale-[0.98] disabled:opacity-50"
-            >
-              {s.welcome_vendor}
-            </button>
-          )}
         </div>
       )}
 

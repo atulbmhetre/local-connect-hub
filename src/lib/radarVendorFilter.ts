@@ -6,15 +6,18 @@ import {
 
 type VendorModeSlice = Pick<Vendor, "is_active" | "service_mode">;
 
-/** Safety net: never surface offline help vendors even if query regresses. */
-export function excludeOfflineHelpVendors<T extends VendorModeSlice>(vendors: T[]): T[] {
-  return vendors.filter(
-    (v) =>
-      !(
-        v.is_active === false &&
-        String(v.service_mode ?? "").trim().toLowerCase() === "help"
-      ),
-  );
+/**
+ * Safety net: on the Help radar tab, never surface offline vendors.
+ * On delivery/appointment tabs, offline multi-mode vendors remain visible
+ * (primary service_mode may be "help" while the tab mode is not).
+ */
+export function excludeOfflineHelpVendors<T extends VendorModeSlice>(
+  vendors: T[],
+  activeRadarMode?: string,
+): T[] {
+  const tabMode = String(activeRadarMode ?? "help").trim().toLowerCase();
+  if (tabMode !== "help") return vendors;
+  return vendors.filter((v) => v.is_active !== false);
 }
 
 /** Track A: vendor must be within min(user bracket, vendor service radius). Pan-India uses Track B. */

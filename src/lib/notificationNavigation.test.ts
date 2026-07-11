@@ -32,10 +32,4 @@ describe("notificationNavigation", () => {
       state: { highlightOrderId: "req-1" },
     });
   });
-
-  it("ignores location ping payloads", () => {
-    const navigate = vi.fn();
-    handlePushNotificationData(navigate, { type: "location_ping", route: "vendor" });
-    expect(navigate).not.toHaveBeenCalled();
-  });
 });

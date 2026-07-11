@@ -382,12 +382,10 @@ test('RF-06: referral_enabled = false hides refer & earn', async ({ page }) => {
     await page.goto(APP_URL);
     await page.evaluate(() => localStorage.clear());
     await page.goto(`${APP_URL}/vendor`);
-    await page.waitForLoadState('networkidle');
     await expect(page.getByText('Referral Code (optional)')).not.toBeVisible();
 
     await loginAsVendor(page, TEST_VENDOR_PHONE, testVendorId, `device_rf06_${TEST_SESSION}`);
     await page.goto(`${APP_URL}/settings`);
-    await page.waitForLoadState('networkidle');
     await expect(page.getByText('🎁 Refer & Earn')).not.toBeVisible();
   } finally {
     await supabaseAdmin
@@ -414,7 +412,6 @@ test('AD-11: app_config whitelisted keys are readable and updatable', async () =
     'referral_enabled',
     'help_accept_timeout_hours',
     'vendor_stopped_minutes',
-    'location_ping_seconds',
     'referral_user_credit',
     'dev_menu_pin',
   ];
@@ -423,7 +420,6 @@ test('AD-11: app_config whitelisted keys are readable and updatable', async () =
     referral_enabled: 'false',
     help_accept_timeout_hours: '2',
     vendor_stopped_minutes: '10',
-    location_ping_seconds: '60',
     referral_user_credit: '2.5',
     dev_menu_pin: '1947',
   };

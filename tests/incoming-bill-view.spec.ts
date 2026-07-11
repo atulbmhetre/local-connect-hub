@@ -114,7 +114,6 @@ async function insertCashBillViaRpc(opts: {
 async function gotoVendorAndWaitOrders(page: Page) {
   await page.goto(`${APP_URL}/vendor`);
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 20000 });
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
 }
 

@@ -14,6 +14,7 @@ import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
+import { isValidPaymentUtr } from "@/lib/validation";
 
 export interface PaymentSheetProps {
   open: boolean;
@@ -138,7 +139,7 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
 
   const handleSubmitUtr = useCallback(async () => {
     const trimmed = utr.trim();
-    if (!/^\d{12}$/.test(trimmed)) {
+    if (!isValidPaymentUtr(trimmed)) {
       toast.error(s.payment_utr_invalid);
       return;
     }

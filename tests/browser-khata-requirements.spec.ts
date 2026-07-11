@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { loginAsVendor, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -11,8 +11,6 @@ const T = Date.now();
 const VENDOR_DEVICE_ID = `device_kb_${T}`;
 
 const L = {
-  myShop: 'My Shop',
-  shopInfo: 'Shop Info',
   khataSettings: 'Khata Settings',
   khataEnable: 'Enable Khata / Credit',
   billEditWarning:
@@ -144,7 +142,6 @@ async function gotoVendor(page: Page) {
 
 async function gotoVendorAndWaitOrders(page: Page) {
   await gotoVendor(page);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 20000 });
 }
 
@@ -158,25 +155,15 @@ async function gotoSettings(page: Page) {
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 20000 });
 }
 
-async function waitForMyShopReady(page: Page) {
-  // MISSING TESTID: needs data-testid="my-shop-section" on VendorSettings collapsible
-  await page
-    .waitForSelector('[data-testid="my-shop-section"]', { state: 'visible', timeout: 10000 })
-    .catch(() => undefined);
-  await expect(page.getByRole('button', { name: L.shopInfo })).toBeVisible({ timeout: 20000 });
-}
-
-async function expandMyShop(page: Page) {
-  const shopHeader = page.getByRole('button', { name: new RegExp(`^${L.myShop}$`, 'i') });
-  await expect(shopHeader).toBeVisible({ timeout: 20000 });
-  if ((await shopHeader.getAttribute('aria-expanded')) !== 'true') {
-    await shopHeader.click();
-  }
-  await waitForMyShopReady(page);
+async function expandVendorPreferences(page: Page) {
+  await openVendorPreferencesTab(page);
+  await expect(page.getByRole('button', { name: L.khataSettings })).toBeVisible({
+    timeout: 20000,
+  });
 }
 
 async function expandKhataSettings(page: Page) {
-  await expandMyShop(page);
+  await expandVendorPreferences(page);
   const khataBtn = page.getByRole('button', { name: L.khataSettings });
   await expect(khataBtn).toBeVisible({ timeout: 15000 });
   if ((await khataBtn.getAttribute('aria-expanded')) !== 'true') {

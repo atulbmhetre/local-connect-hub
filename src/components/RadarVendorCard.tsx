@@ -240,7 +240,7 @@ const VendorCategoryChips = ({
   fallbackLabel,
   getLabel,
 }: {
-  categories: { label: string; emoji: string }[];
+  categories: { label: string; emoji: string; category_id?: string }[];
   fallbackLabel: string;
   getLabel: (label: string) => string;
 }) => {
@@ -304,7 +304,7 @@ type Props = {
   fulfilledRequestId?: string | null;
   /** Menu preview (first 5 available items), batch-fetched by the parent. */
   menuItems: { name: string; price: number; unit: string | null; is_available: boolean }[];
-  categories: { label: string; emoji: string }[];
+  categories: { label: string; emoji: string; category_id?: string }[];
   trustLevel?: TrustLevel;
   dist: number | null;
   index: number;
@@ -313,6 +313,8 @@ type Props = {
   onOrderCancelled?: () => void;
   /** Pan-India service area — inline badge below shop name. */
   showPanIndiaBadge?: boolean;
+  /** Radar tab mode used to find this vendor (may differ from vendors.service_mode). */
+  radarServiceMode?: string;
 };
 
 export function RadarVendorCard({
@@ -329,12 +331,13 @@ export function RadarVendorCard({
   userNeed,
   onOrderCancelled = () => {},
   showPanIndiaBadge = false,
+  radarServiceMode,
 }: Props) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
   const tier = vendorTier(vendor);
   const verificationCopy = getVerificationCopy(s);
-  const serviceMode = String(vendor.service_mode ?? "")
+  const serviceMode = String(radarServiceMode ?? vendor.service_mode ?? "")
     .trim()
     .toLowerCase();
   const isOwnVendor = readIsOwnVendorCard(vendor.id, vendor.phone);
@@ -371,15 +374,20 @@ export function RadarVendorCard({
     setRateCardOpen(true);
     if (rateCardItems.length > 0 || rateCardLoading) return;
     setRateCardLoading(true);
-    const { data } = await supabase
+    const matchedCategoryId = categories[0]?.category_id ?? null;
+    let q = supabase
       .from("vendor_menu_items")
-      .select("name, price, unit")
+      .select("name, price, unit, category_id")
       .eq("vendor_id", vendor.id)
       .eq("is_available", true)
       .order("sort_order", { ascending: true });
+    if (matchedCategoryId) {
+      q = q.eq("category_id", matchedCategoryId);
+    }
+    const { data } = await q;
     setRateCardItems(data ?? []);
     setRateCardLoading(false);
-  }, [rateCardItems.length, rateCardLoading, vendor.id]);
+  }, [rateCardItems.length, rateCardLoading, vendor.id, categories]);
 
   useEffect(() => {
     setHelpCount(vendor.total_helped ?? 0);
@@ -1085,7 +1093,9 @@ export function RadarVendorCard({
       <ParchiSheet
         vendor={parchiVendor}
         vendorId={vendor.id}
-        serviceMode={parchiVendor.service_mode}
+        serviceMode={serviceMode}
+        orderCategoryId={categories[0]?.category_id ?? null}
+        orderCategoryLabel={categories[0]?.label ?? null}
         isOpen={parchiOpen}
         onClose={() => setParchiOpen(false)}
         onOrderSent={() => setResolutionSessionTick((n) => n + 1)}

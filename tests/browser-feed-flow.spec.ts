@@ -71,7 +71,6 @@ async function gotoFeedWithStubbedPosts(page: Page, posts: StubFeedPost[]) {
   await page.context().grantPermissions(['geolocation']);
   await page.evaluate(() => localStorage.removeItem('aaspaas:feed_cache'));
   await page.goto(`${APP_URL}/feed`);
-  await page.waitForLoadState('networkidle');
 }
 
 test.beforeAll(async () => {
@@ -136,7 +135,6 @@ test('FD-UI-01: feed screen loads and shows feed-screen testid', async ({ page }
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
   await page.goto(`${APP_URL}/feed`);
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('feed-screen')).toBeVisible({ timeout: 8000 });
 });
@@ -144,7 +142,6 @@ test('FD-UI-01: feed screen loads and shows feed-screen testid', async ({ page }
 test('FD-UI-02: feed reachable via bottom nav', async ({ page }) => {
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}`);
-  await page.waitForLoadState('networkidle');
 
   await page.getByTestId('nav-feed').click();
   await expect(page).toHaveURL(/feed/);
@@ -192,9 +189,8 @@ test('FD-UI-03: seeded announcement post card visible on feed', async ({ page })
 });
 
 test('FD-UI-04: create post button visible for vendor', async ({ page }) => {
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/feed`);
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('feed-post-btn')).toBeVisible({ timeout: 8000 });
 });
@@ -203,7 +199,6 @@ test('FD-UI-05: create post button visible for all users (no role gate)', async 
   // Button is visible to everyone — gating happens at submit time
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/feed`);
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('feed-post-btn')).toBeVisible({ timeout: 5000 });
 });

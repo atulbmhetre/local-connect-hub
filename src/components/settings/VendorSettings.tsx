@@ -4,7 +4,6 @@ import { Bell, Pencil, Trash2, Mic, Camera, Loader2 } from "lucide-react";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
-import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
 import { Capacitor } from "@capacitor/core";
 import {
   supabase,
@@ -17,7 +16,6 @@ import {
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { getVoiceLang } from "@/lib/voiceUtils";
-import { persistVendorServiceRadius } from "@/lib/vendorServiceRadius";
 import { NetworkExhaustedError, withNetworkRetry } from "@/lib/withNetworkRetry";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import {
@@ -64,6 +62,14 @@ export type MenuItem = {
   unit: string | null;
   is_available: boolean;
   sort_order: number;
+  category_id?: string | null;
+};
+
+type ApprovedCategoryChip = {
+  id: string;
+  label: string;
+  emoji: string;
+  service_mode: string;
 };
 
 export type VendorActiveOffer = {
@@ -71,6 +77,32 @@ export type VendorActiveOffer = {
   content: string;
   expires_at: string | null;
 };
+
+type OfferTargetAudience = "customers" | "vendors" | "both";
+
+type OfferCategoryRow = {
+  id: string;
+  label: string;
+  emoji: string;
+  service_mode: string;
+};
+
+function offerCategoryModeChipLabel(
+  mode: string,
+  s: {
+    category_chip_mode_help: string;
+    category_chip_mode_delivery: string;
+    category_chip_mode_booking: string;
+    category_chip_mode_appointment: string;
+  },
+): string {
+  const m = String(mode ?? "").trim().toLowerCase();
+  if (m === "help") return s.category_chip_mode_help;
+  if (m === "delivery") return s.category_chip_mode_delivery;
+  if (m === "booking") return s.category_chip_mode_booking;
+  if (m === "appointment") return s.category_chip_mode_appointment;
+  return mode;
+}
 
 export type VendorReferralCredits = {
   total: number;
@@ -91,7 +123,6 @@ type VendorReview = {
 type Props = {
   vendor: Vendor;
   onVendorUpdated: (updated: Vendor) => void;
-  onEditShopDetails?: () => void;
   shopOpen: boolean;
   onShopOpenChange: (open: boolean) => void;
   referEarnVisible?: boolean;
@@ -139,6 +170,7 @@ export function VendorSettingsOffers({
   vendorServiceRadiusKm: number;
 }) {
   const { s } = useLanguage();
+  const getLabel = useCategoryLabel();
   const [activeOffer, setActiveOffer] = useState<VendorActiveOffer | null>(initialActiveOffer);
   const [offerText, setOfferText] = useState("");
   const [offerStartsAt, setOfferStartsAt] = useState("");
@@ -152,6 +184,37 @@ export function VendorSettingsOffers({
   const [offerReachKm, setOfferReachKm] = useState(() =>
     normalizeFeedReachKm(vendorServiceRadiusKm),
   );
+  const [offerAudience, setOfferAudience] = useState<OfferTargetAudience>("customers");
+  const [offerTargetCategoryId, setOfferTargetCategoryId] = useState<string | null>(null);
+  const [showOfferCategories, setShowOfferCategories] = useState(false);
+  const [offerCategories, setOfferCategories] = useState<OfferCategoryRow[]>([]);
+  const [offerCategoriesLoading, setOfferCategoriesLoading] = useState(false);
+
+  const needsCategoryPicker = offerAudience === "vendors" || offerAudience === "both";
+
+  useEffect(() => {
+    if (!needsCategoryPicker || offerCategories.length > 0 || offerCategoriesLoading) return;
+    let cancelled = false;
+    setOfferCategoriesLoading(true);
+    void supabase
+      .from("categories")
+      .select("id, label, emoji, service_mode")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error("loadOfferCategories", error);
+          setOfferCategories([]);
+        } else {
+          setOfferCategories((data ?? []) as OfferCategoryRow[]);
+        }
+        setOfferCategoriesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsCategoryPicker, offerCategories.length, offerCategoriesLoading]);
 
   const loadActiveOffer = useCallback(async () => {
     const { data, error } = await supabase
@@ -255,6 +318,9 @@ export function VendorSettingsOffers({
       p_lat: lat,
       p_lng: lng,
       p_reach_radius_km: normalizeFeedReachKm(offerReachKm),
+      p_target_audience: offerAudience,
+      p_target_category_id:
+        offerAudience === "customers" ? null : offerTargetCategoryId,
     });
     setOfferLoading(false);
     if (error) {
@@ -267,6 +333,9 @@ export function VendorSettingsOffers({
     setOfferEndsAt("");
     setOfferStartError("");
     setOfferEndError("");
+    setOfferAudience("customers");
+    setOfferTargetCategoryId(null);
+    setShowOfferCategories(false);
     resetOfferImage();
     await loadActiveOffer();
     toast(s.vendor_offer_posted);
@@ -387,6 +456,113 @@ export function VendorSettingsOffers({
                 onChange={(km) => setOfferReachKm(normalizeFeedReachKm(km ?? DEFAULT_FEED_REACH_KM))}
               />
             </div>
+            <div className="space-y-2">
+              <SettingsSectionLabel>{s.vendor_offer_audience_label}</SettingsSectionLabel>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { id: "customers" as const, label: s.vendor_offer_audience_customers },
+                    { id: "vendors" as const, label: s.vendor_offer_audience_vendors },
+                    { id: "both" as const, label: s.vendor_offer_audience_both },
+                  ] as const
+                ).map((opt) => {
+                  const selected = offerAudience === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setOfferAudience(opt.id);
+                        if (opt.id === "customers") {
+                          setOfferTargetCategoryId(null);
+                          setShowOfferCategories(false);
+                        }
+                      }}
+                      className={cn(
+                        "rounded-xl border px-2 py-2.5 text-xs font-semibold transition-colors active:scale-[0.98]",
+                        selected
+                          ? "border-brand bg-brand/15 text-brand ring-1 ring-brand/30"
+                          : "border-surface-border bg-surface text-muted-foreground",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {needsCategoryPicker && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <SettingsSectionLabel>{s.vendor_offer_target_category_label}</SettingsSectionLabel>
+                  <span className="text-xs text-muted-foreground">
+                    {offerTargetCategoryId
+                      ? getLabel(
+                          offerCategories.find((c) => c.id === offerTargetCategoryId)?.label ?? "",
+                        )
+                      : s.vendor_offer_target_category_all}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">{s.vendor_offer_target_category_hint}</p>
+                <button
+                  type="button"
+                  onClick={() => setShowOfferCategories((v) => !v)}
+                  className="text-xs font-medium text-muted-foreground hover:text-foreground underline"
+                >
+                  {s.category_browseManual}
+                </button>
+                {showOfferCategories && (
+                  <>
+                    {offerCategoriesLoading ? (
+                      <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {s.vendor_understanding}
+                      </p>
+                    ) : offerCategories.length === 0 ? (
+                      <p className="mt-2 text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setOfferTargetCategoryId(null)}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                            offerTargetCategoryId == null
+                              ? "border-primary bg-primary/20 text-foreground ring-1 ring-primary/30"
+                              : "border-border bg-card text-foreground",
+                          )}
+                        >
+                          {s.vendor_offer_target_category_all}
+                        </button>
+                        {offerCategories.map((cat) => {
+                          const selected = offerTargetCategoryId === cat.id;
+                          return (
+                            <button
+                              key={cat.id}
+                              type="button"
+                              onClick={() => setOfferTargetCategoryId(cat.id)}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                                selected
+                                  ? "border-primary bg-primary/20 text-foreground ring-1 ring-primary/30"
+                                  : "border-border bg-card text-foreground",
+                              )}
+                            >
+                              <span>
+                                {cat.emoji} {getLabel(cat.label)}
+                              </span>
+                              <span className="text-[10px] font-normal text-muted-foreground">
+                                {offerCategoryModeChipLabel(cat.service_mode, s)}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
             <button
               type="button"
               onClick={() => void postOffer()}
@@ -548,7 +724,6 @@ export function VendorSettingsReferEarn({
 export function VendorSettings({
   vendor,
   onVendorUpdated,
-  onEditShopDetails,
   shopOpen,
   onShopOpenChange,
   referEarnVisible = false,
@@ -581,6 +756,8 @@ export function VendorSettings({
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
   const [cancelReasonsChanged, setCancelReasonsChanged] = useState(false);
   const [savingReasons, setSavingReasons] = useState(false);
+  const [approvedCategories, setApprovedCategories] = useState<ApprovedCategoryChip[]>([]);
+  const [cancelReasonCategoryId, setCancelReasonCategoryId] = useState<string | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems);
   const [menuLoading, setMenuLoading] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
@@ -589,8 +766,15 @@ export function VendorSettings({
     price: "",
     unit: "",
     description: "",
+    category_id: "" as string,
   });
-  const [newItem, setNewItem] = useState({ name: "", price: "", unit: "", description: "" });
+  const [newItem, setNewItem] = useState({
+    name: "",
+    price: "",
+    unit: "",
+    description: "",
+    category_id: "" as string,
+  });
   const [addingItem, setAddingItem] = useState(false);
   const [isListeningMenu, setIsListeningMenu] = useState(false);
   const [isProcessingImageMenu, setIsProcessingImageMenu] = useState(false);
@@ -600,8 +784,6 @@ export function VendorSettings({
   const [replyingReviewId, setReplyingReviewId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
-  const [shopInfoOpen, setShopInfoOpen] = useState(false);
-  const [savingServiceRadius, setSavingServiceRadius] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
@@ -718,45 +900,6 @@ export function VendorSettings({
     window.open(`https://wa.me/${adminPhone}?text=${waMsg}`, "_blank");
   };
 
-  const handleServiceRadiusChange = async (km: number) => {
-    if (km === normalizeServiceRadiusKm(vendor.service_radius_km)) return;
-    if (!vendorPhone) {
-      toast.error(s.vendor_radius_save_error);
-      return;
-    }
-    setSavingServiceRadius(true);
-    try {
-      const result = await withNetworkRetry(
-        () => persistVendorServiceRadius(vendor.id, vendorPhone, km),
-        {
-          onRetrying: () => {
-            showNetworkRetryingToast({ retrying: s.network_retrying });
-          },
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-      if (!result.ok) {
-        toast.error(s.vendor_radius_save_error);
-        return;
-      }
-      onVendorUpdated({ ...vendor, service_radius_km: km });
-      toast.success(s.vendor_radius_saved);
-    } catch (err) {
-      dismissNetworkRetryingToast();
-      if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void handleServiceRadiusChange(km), {
-          failed: s.network_failed,
-          retryBtn: s.network_retry_btn,
-        });
-      } else {
-        throw err;
-      }
-    } finally {
-      setSavingServiceRadius(false);
-    }
-  };
-
   const completeDraftProfile = async () => {
     setCapturingDraftLocation(true);
     try {
@@ -856,6 +999,94 @@ export function VendorSettings({
     toast.success(s.review_reply_sent);
   };
 
+  const isMultiCategory = approvedCategories.length > 1;
+  const soleCategoryId = approvedCategories.length === 1 ? approvedCategories[0].id : null;
+
+  const loadApprovedCategories = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("vendor_categories")
+      .select("category_id, is_primary, categories(id, label, emoji, service_mode)")
+      .eq("vendor_id", vendor.id)
+      .eq("status", "approved")
+      .order("is_primary", { ascending: false });
+    if (error) {
+      console.error("loadApprovedCategories", error);
+      return;
+    }
+    const chips: ApprovedCategoryChip[] = [];
+    for (const row of data ?? []) {
+      const cat = Array.isArray(row.categories) ? row.categories[0] : row.categories;
+      if (!cat?.id) continue;
+      chips.push({
+        id: cat.id,
+        label: cat.label,
+        emoji: cat.emoji ?? "",
+        service_mode: cat.service_mode ?? "help",
+      });
+    }
+    setApprovedCategories(chips);
+    setCancelReasonCategoryId((prev) => {
+      if (chips.length <= 1) return chips[0]?.id ?? null;
+      if (prev && chips.some((c) => c.id === prev)) return prev;
+      return null;
+    });
+  }, [vendor.id]);
+
+  useEffect(() => {
+    void loadApprovedCategories();
+  }, [loadApprovedCategories]);
+
+  const loadCategoryCancelReasons = useCallback(
+    async (categoryId: string | null) => {
+      if (!categoryId || approvedCategories.length <= 1) {
+        setCancelReasons([
+          vendor.cancel_reason_1 ?? "",
+          vendor.cancel_reason_2 ?? "",
+          vendor.cancel_reason_3 ?? "",
+          vendor.cancel_reason_4 ?? "",
+        ]);
+        setCancelReasonsChanged(false);
+        return;
+      }
+      const { data, error } = await supabase
+        .from("vendor_category_cancel_reasons")
+        .select("reason_text, position")
+        .eq("vendor_id", vendor.id)
+        .eq("category_id", categoryId)
+        .order("position", { ascending: true });
+      if (error) {
+        console.error("loadCategoryCancelReasons", error);
+        return;
+      }
+      const next = ["", "", "", ""];
+      for (const row of data ?? []) {
+        const pos = Number(row.position);
+        if (pos >= 1 && pos <= 4) next[pos - 1] = row.reason_text ?? "";
+      }
+      // Empty category set → show account-level as editable starting point
+      if (next.every((r) => !r.trim())) {
+        next[0] = vendor.cancel_reason_1 ?? "";
+        next[1] = vendor.cancel_reason_2 ?? "";
+        next[2] = vendor.cancel_reason_3 ?? "";
+        next[3] = vendor.cancel_reason_4 ?? "";
+      }
+      setCancelReasons(next);
+      setCancelReasonsChanged(false);
+    },
+    [
+      approvedCategories.length,
+      vendor.id,
+      vendor.cancel_reason_1,
+      vendor.cancel_reason_2,
+      vendor.cancel_reason_3,
+      vendor.cancel_reason_4,
+    ],
+  );
+
+  useEffect(() => {
+    void loadCategoryCancelReasons(cancelReasonCategoryId);
+  }, [cancelReasonCategoryId, loadCategoryCancelReasons]);
+
   // Initial menu comes from the parent's batch fetch; loadMenu only re-runs
   // after in-panel mutations (add/edit/delete/toggle/voice/scan).
   const loadMenu = useCallback(async () => {
@@ -870,14 +1101,21 @@ export function VendorSettings({
   }, [vendor.id]);
 
   useEffect(() => {
-    setCancelReasons([
-      vendor.cancel_reason_1 ?? "",
-      vendor.cancel_reason_2 ?? "",
-      vendor.cancel_reason_3 ?? "",
-      vendor.cancel_reason_4 ?? "",
-    ]);
-    setCancelReasonsChanged(false);
+    setMenuItems(initialMenuItems);
+  }, [initialMenuItems]);
+
+  useEffect(() => {
+    if (approvedCategories.length <= 1) {
+      setCancelReasons([
+        vendor.cancel_reason_1 ?? "",
+        vendor.cancel_reason_2 ?? "",
+        vendor.cancel_reason_3 ?? "",
+        vendor.cancel_reason_4 ?? "",
+      ]);
+      setCancelReasonsChanged(false);
+    }
   }, [
+    approvedCategories.length,
     vendor.cancel_reason_1,
     vendor.cancel_reason_2,
     vendor.cancel_reason_3,
@@ -976,6 +1214,22 @@ export function VendorSettings({
 
   const saveCancelReasons = async () => {
     setSavingReasons(true);
+    if (isMultiCategory && cancelReasonCategoryId) {
+      const { error } = await supabase.rpc("vendor_upsert_category_cancel_reasons", {
+        p_vendor_id: vendor.id,
+        p_vendor_phone: vendorPhone,
+        p_category_id: cancelReasonCategoryId,
+        p_reasons: cancelReasons.map((r) => r.trim()),
+      });
+      setSavingReasons(false);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      setCancelReasonsChanged(false);
+      toast.success(s.vendor_settings_saved);
+      return;
+    }
     const updates = {
       cancel_reason_1: cancelReasons[0].trim() || null,
       cancel_reason_2: cancelReasons[1].trim() || null,
@@ -995,6 +1249,13 @@ export function VendorSettings({
 
   const saveNewItem = async () => {
     if (!newItem.name.trim() || !newItem.price || !vendorPhone) return;
+    const categoryId = isMultiCategory
+      ? newItem.category_id.trim() || null
+      : soleCategoryId;
+    if (isMultiCategory && !categoryId) {
+      toast.error(s.menu_pick_category);
+      return;
+    }
     await supabase.rpc("vendor_insert_menu_items", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
@@ -1005,16 +1266,24 @@ export function VendorSettings({
           unit: newItem.unit.trim() || null,
           description: newItem.description.trim() || null,
           sort_order: menuItems.length,
+          category_id: categoryId,
         },
       ],
     });
-    setNewItem({ name: "", price: "", unit: "", description: "" });
+    setNewItem({ name: "", price: "", unit: "", description: "", category_id: "" });
     setAddingItem(false);
     void loadMenu();
   };
 
   const saveEditedMenuItem = async () => {
     if (!editingMenuItem || !editDraft.name.trim() || !editDraft.price || !vendorPhone) return;
+    const categoryId = isMultiCategory
+      ? editDraft.category_id.trim() || null
+      : soleCategoryId;
+    if (isMultiCategory && !categoryId) {
+      toast.error(s.menu_pick_category);
+      return;
+    }
     await supabase.rpc("vendor_update_menu_item", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
@@ -1023,6 +1292,7 @@ export function VendorSettings({
       p_price: parseFloat(editDraft.price),
       p_unit: editDraft.unit.trim() || null,
       p_description: editDraft.description.trim() || null,
+      p_category_id: categoryId,
     });
     setEditingMenuItem(null);
     void loadMenu();
@@ -1076,6 +1346,11 @@ export function VendorSettings({
       });
       const result = await resp.json();
       if (result.success && result.items?.length && vendorPhone) {
+        if (isMultiCategory && !newItem.category_id.trim()) {
+          toast.error(s.menu_pick_category);
+          return;
+        }
+        const categoryId = isMultiCategory ? newItem.category_id.trim() : soleCategoryId;
         await supabase.rpc("vendor_insert_menu_items", {
           p_vendor_id: vendor.id,
           p_vendor_phone: vendorPhone,
@@ -1088,6 +1363,7 @@ export function VendorSettings({
               price: item.unit_price ?? 0,
               unit: item.unit || null,
               sort_order: menuItems.length + idx,
+              category_id: categoryId,
             }),
           ),
         });
@@ -1129,6 +1405,12 @@ export function VendorSettings({
         });
         const result = await resp.json();
         if (result.success && result.items?.length && vendorPhone) {
+          if (isMultiCategory && !newItem.category_id.trim()) {
+            toast.error(s.menu_pick_category);
+            setIsProcessingImageMenu(false);
+            return;
+          }
+          const categoryId = isMultiCategory ? newItem.category_id.trim() : soleCategoryId;
           await supabase.rpc("vendor_insert_menu_items", {
             p_vendor_id: vendor.id,
             p_vendor_phone: vendorPhone,
@@ -1141,6 +1423,7 @@ export function VendorSettings({
                 price: item.unit_price ?? 0,
                 unit: item.unit || null,
                 sort_order: menuItems.length + idx,
+                category_id: categoryId,
               }),
             ),
           });
@@ -1157,8 +1440,6 @@ export function VendorSettings({
       setIsProcessingImageMenu(false);
     }
   };
-
-  const serviceModeLabel = s.settings_check7.replace(/\s*\(.*$/, "").replace(/\s+is correct$/i, "");
 
   return (
     <>
@@ -1182,7 +1463,7 @@ export function VendorSettings({
         </div>
       )}
       <SettingsParentCollapsible
-      label={s.settings_myShop}
+      label={s.settings_preferences}
       open={shopOpen}
       onToggle={() => onShopOpenChange(!shopOpen)}
     >
@@ -1270,48 +1551,6 @@ export function VendorSettings({
       </SettingsCard>
 
       <SettingsCollapsible
-        label={s.settings_shopInfo}
-        open={shopInfoOpen}
-        onToggle={() => setShopInfoOpen((o) => !o)}
-        nested
-      >
-        <SettingsRow label={s.vendor_shop_name} sublabel={vendor.shop_name}>
-          <span aria-hidden />
-        </SettingsRow>
-        <SettingsRow label={s.vendor_category_label} sublabel={getLabel(vendor.category)}>
-          <span aria-hidden />
-        </SettingsRow>
-        <SettingsRow
-          label={serviceModeLabel}
-          sublabel={getMode(vendor.service_mode ?? "help")}
-        >
-          <span aria-hidden />
-        </SettingsRow>
-        <div className="px-4 py-3.5 border-t border-surface-border">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {s.vendor_radius_label}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">{s.vendor_radius_hint}</p>
-          <div className="mt-3">
-            <ServiceRadiusChips
-              value={normalizeServiceRadiusKm(vendor.service_radius_km)}
-              onChange={(km) => void handleServiceRadiusChange(km)}
-              disabled={savingServiceRadius}
-            />
-          </div>
-        </div>
-        {onEditShopDetails && (
-          <button
-            type="button"
-            onClick={onEditShopDetails}
-            className="w-full px-4 py-3.5 border-t border-surface-border text-sm font-semibold text-brand text-center active:opacity-90"
-          >
-            {s.settings_editShopDetails}
-          </button>
-        )}
-      </SettingsCollapsible>
-
-      <SettingsCollapsible
         label={s.vendor_note_customers}
         open={noteOpen}
         onToggle={() => setNoteOpen((o) => !o)}
@@ -1386,6 +1625,14 @@ export function VendorSettings({
             label={item.name}
             sublabel={
               <>
+                {isMultiCategory && item.category_id && (
+                  <span className="block text-[10px] text-muted-foreground">
+                    {getLabel(
+                      approvedCategories.find((c) => c.id === item.category_id)?.label ??
+                        "",
+                    )}
+                  </span>
+                )}
                 {item.description && (
                   <span className="block truncate">{item.description}</span>
                 )}
@@ -1418,6 +1665,7 @@ export function VendorSettings({
                     price: String(item.price),
                     unit: item.unit ?? "",
                     description: item.description ?? "",
+                    category_id: item.category_id ?? "",
                   });
                 }}
                 className="p-1.5 text-muted-foreground active:text-brand"
@@ -1439,6 +1687,31 @@ export function VendorSettings({
 
         {addingItem && (
           <div className="px-4 py-3 border-t border-surface-border space-y-2">
+            {isMultiCategory && (
+              <div className="space-y-1.5" data-testid="menu-category-picker">
+                <p className="text-xs text-muted-foreground">{s.menu_pick_category}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {approvedCategories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() =>
+                        setNewItem((p) => ({ ...p, category_id: cat.id }))
+                      }
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-xs font-semibold",
+                        newItem.category_id === cat.id
+                          ? "border-brand bg-brand/15 text-brand"
+                          : "border-surface-border text-muted-foreground",
+                      )}
+                    >
+                      {cat.emoji ? `${cat.emoji} ` : ""}
+                      {getLabel(cat.label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <input
               type="text"
               value={newItem.name}
@@ -1481,7 +1754,7 @@ export function VendorSettings({
                 type="button"
                 onClick={() => {
                   setAddingItem(false);
-                  setNewItem({ name: "", price: "", unit: "", description: "" });
+                  setNewItem({ name: "", price: "", unit: "", description: "", category_id: "" });
                 }}
                 className="flex-1 rounded-lg border border-surface-border text-sm py-2 text-foreground"
               >
@@ -1512,6 +1785,31 @@ export function VendorSettings({
           </SheetHeader>
           {editingMenuItem && (
             <div className="mt-4 space-y-2">
+              {isMultiCategory && (
+                <div className="space-y-1.5" data-testid="menu-edit-category-picker">
+                  <p className="text-xs text-muted-foreground">{s.menu_pick_category}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {approvedCategories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() =>
+                          setEditDraft((p) => ({ ...p, category_id: cat.id }))
+                        }
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-xs font-semibold",
+                          editDraft.category_id === cat.id
+                            ? "border-brand bg-brand/15 text-brand"
+                            : "border-surface-border text-muted-foreground",
+                        )}
+                      >
+                        {cat.emoji ? `${cat.emoji} ` : ""}
+                        {getLabel(cat.label)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <input
                 type="text"
                 value={editDraft.name}
@@ -1605,6 +1903,32 @@ export function VendorSettings({
         nested
       >
         <p className="text-xs text-muted-foreground px-4 pt-3 pb-2">{s.cancelReasonsSubtitle}</p>
+        {isMultiCategory && (
+          <div className="px-4 pb-2 space-y-1.5" data-testid="cancel-reason-category-picker">
+            <p className="text-xs text-muted-foreground">{s.cancel_reasons_pick_category}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {approvedCategories.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => {
+                    setCancelReasonCategoryId(cat.id);
+                    setCancelReasonsChanged(false);
+                  }}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs font-semibold",
+                    cancelReasonCategoryId === cat.id
+                      ? "border-brand bg-brand/15 text-brand"
+                      : "border-surface-border text-muted-foreground",
+                  )}
+                >
+                  {cat.emoji ? `${cat.emoji} ` : ""}
+                  {getLabel(cat.label)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="px-4 py-2 space-y-1 border-b border-surface-border last:border-0">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1613,6 +1937,7 @@ export function VendorSettings({
             <input
               type="text"
               value={cancelReasons[i]}
+              disabled={isMultiCategory && !cancelReasonCategoryId}
               onChange={(e) => {
                 const next = [...cancelReasons];
                 next[i] = e.target.value.slice(0, 60);
@@ -1620,7 +1945,7 @@ export function VendorSettings({
                 setCancelReasonsChanged(true);
               }}
               maxLength={60}
-              className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-brand"
+              className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-brand disabled:opacity-50"
             />
           </div>
         ))}
@@ -1628,7 +1953,11 @@ export function VendorSettings({
           <button
             type="button"
             onClick={() => void saveCancelReasons()}
-            disabled={savingReasons || !cancelReasonsChanged}
+            disabled={
+              savingReasons ||
+              !cancelReasonsChanged ||
+              (isMultiCategory && !cancelReasonCategoryId)
+            }
             className="text-xs font-semibold text-brand active:opacity-80 disabled:opacity-50"
           >
             {savingReasons ? s.incoming_saving : s.saveReasons}

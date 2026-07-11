@@ -92,14 +92,23 @@ describe("excludeOfflineHelpVendors (offline appointment rule)", () => {
       vendorSlice({ is_active: false, service_mode: "appointment" }),
       vendorSlice({ is_active: false, service_mode: "delivery" }),
     ];
-    expect(excludeOfflineHelpVendors(vendors)).toHaveLength(2);
+    expect(excludeOfflineHelpVendors(vendors, "appointment")).toHaveLength(2);
+    expect(excludeOfflineHelpVendors(vendors, "delivery")).toHaveLength(2);
   });
 
-  it("excludes offline help vendors from radar candidate set", () => {
+  it("excludes offline vendors on the help tab only", () => {
     const vendors = [
       vendorSlice({ is_active: false, service_mode: "help" }),
       vendorSlice({ is_active: true, service_mode: "help" }),
     ];
-    expect(excludeOfflineHelpVendors(vendors)).toEqual([vendors[1]]);
+    expect(excludeOfflineHelpVendors(vendors, "help")).toEqual([vendors[1]]);
+  });
+
+  it("keeps offline help-primary vendors visible on delivery tab", () => {
+    const vendors = [
+      vendorSlice({ is_active: false, service_mode: "help" }),
+      vendorSlice({ is_active: true, service_mode: "delivery" }),
+    ];
+    expect(excludeOfflineHelpVendors(vendors, "delivery")).toHaveLength(2);
   });
 });

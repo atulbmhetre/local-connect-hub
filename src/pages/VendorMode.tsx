@@ -19,11 +19,9 @@ import {
   GPS_MATCH_TOLERANCE_M,
   isValidPhone,
   isValidUpi,
-  isMobileCategory,
   distanceMeters,
   useCategoryLabel,
   useServiceModeLabel,
-  invokeNotifyUser,
   invokeNotifyAdmin,
   invokeRegisterVendor,
   invokeAttachPendingCategory,
@@ -31,6 +29,11 @@ import {
   type CategorySuggestionResult,
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
+import {
+  startHelpLiveTracking,
+  stopHelpLiveTracking,
+} from "@/lib/vendorBackgroundLocation";
+import { vendorOffersHelp } from "@/lib/vendorTrackingPolicy";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import {
   isNetworkFailure,
@@ -70,7 +73,9 @@ import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
 import {
   VendorAnalytics,
   type VendorOrderStats,
+  type VendorCategoryStat,
 } from "@/components/vendor/VendorAnalytics";
+import { buildCategoryOrderStats } from "@/lib/categoryScopedVendor";
 import { cn } from "@/lib/utils";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { useLanguage } from '@/lib/language';
@@ -220,22 +225,6 @@ type BlockingOfflineOrder = {
   appointment_time: string | null;
 };
 
-function orderShouldNotifyVendorOffline(order: BlockingOfflineOrder): boolean {
-  if (order.status === "accepted") return true;
-  return order.appointment_status === "confirmed";
-}
-
-function orderShouldNotifyPendingVendorOffline(
-  order: BlockingOfflineOrder,
-  serviceMode: string | null | undefined,
-): boolean {
-  if (order.status !== "sent" && order.status !== "seen") return false;
-  if (orderShouldNotifyVendorOffline(order)) return false;
-  const mode = serviceMode ?? "help";
-  if (mode === "help") return false;
-  return orderBlocksGoingOffline(order, mode);
-}
-
 async function fetchBlockingActiveOrders(
   vendorId: string,
   serviceMode: string | null | undefined,
@@ -335,6 +324,7 @@ const VendorMode = () => {
     trialDaysLeft !== null && trialDaysLeft > 0 && !vendor?.subscription_active;
   const [loading, setLoading] = useState(false);
   const [vendorOrderStats, setVendorOrderStats] = useState<VendorOrderStats | null>(null);
+  const [vendorCategoryStats, setVendorCategoryStats] = useState<VendorCategoryStat[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [networkLoadStatus, setNetworkLoadStatus] = useState<"retrying" | "failed" | null>(null);
   const [vendorFetchTick, setVendorFetchTick] = useState(0);
@@ -375,11 +365,6 @@ const VendorMode = () => {
   const [showLocationHelp, setShowLocationHelp] = useState(false);
 
   // ---- profile actions ----
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
-  const [verifyingUpi, setVerifyingUpi] = useState(false);
-  const [updatingLocation, setUpdatingLocation] = useState(false);
-  const [verificationSheetOpen, setVerificationSheetOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const [lookupPhone, setLookupPhone] = useState("");
@@ -396,23 +381,8 @@ const VendorMode = () => {
   const [offlineConfirmOpen, setOfflineConfirmOpen] = useState(false);
   const [checkingOffline, setCheckingOffline] = useState(false);
   const [offlineBlockingOrders, setOfflineBlockingOrders] = useState<BlockingOfflineOrder[]>([]);
+  const [availabilityModes, setAvailabilityModes] = useState<string[]>([]);
 
-  const [editShopOpen, setEditShopOpen] = useState(false);
-  const [editVendorType, setEditVendorType] = useState<VendorTypeValue>("");
-  const [editShopName, setEditShopName] = useState("");
-  const [editAvailableCategories, setEditAvailableCategories] = useState<RegCategoryRow[]>([]);
-  const [editSelectedCategories, setEditSelectedCategories] = useState<RegCategoryRow[]>([]);
-  const [editSelectedCategoryIds, setEditSelectedCategoryIds] = useState<string[]>([]);
-  const [editCategoriesLoading, setEditCategoriesLoading] = useState(false);
-  const [editPhone, setEditPhone] = useState("");
-  const [editUpiId, setEditUpiId] = useState("");
-  const [editBaseType, setEditBaseType] = useState<BaseTypeValue>("");
-  const [editReachChoice, setEditReachChoice] = useState<ReachChoiceValue>("");
-  const [editAvailabilityModes, setEditAvailabilityModes] = useState<AvailabilityMode[]>([]);
-  const [editServiceRadiusKm, setEditServiceRadiusKm] = useState<number | null>(null);
-  const [savingShopDetails, setSavingShopDetails] = useState(false);
-  const editCategoriesLoadSeqRef = useRef(0);
-  const editSelectedCategoryIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     localStorage.setItem("aaspaas:role", "vendor");
@@ -474,6 +444,13 @@ const VendorMode = () => {
           setVendor(data as Vendor);
           setNetworkLoadStatus(null);
           setError(null);
+          const { data: modeRows } = await supabase
+            .from("vendor_availability_modes")
+            .select("mode")
+            .eq("vendor_id", vendorId);
+          if (!cancelled) {
+            setAvailabilityModes((modeRows ?? []).map((r) => String(r.mode)));
+          }
         }
       } catch (err) {
         if (cancelled || isTogglingRef.current) return;
@@ -530,7 +507,9 @@ const VendorMode = () => {
     void (async () => {
       const { data } = await supabase
         .from("requests")
-        .select("status, appointment_status, created_at")
+        .select(
+          "status, appointment_status, created_at, category_id, delivery_slot_deadline, fulfilled_at",
+        )
         .eq("vendor_id", vendor.id);
 
       if (cancelled) return;
@@ -553,6 +532,34 @@ const VendorMode = () => {
         declined: orders.filter((o) => o.appointment_status === "declined").length,
         cancelled: orders.filter((o) => o.status === "cancelled").length,
       });
+
+      const catIds = [
+        ...new Set(
+          orders
+            .map((o) => o.category_id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0),
+        ),
+      ];
+      const labelByCategoryId = new Map<string, string>();
+      if (catIds.length > 0) {
+        const { data: cats } = await supabase
+          .from("categories")
+          .select("id, label")
+          .in("id", catIds);
+        for (const c of cats ?? []) {
+          labelByCategoryId.set(c.id, getLabel(c.label));
+        }
+      }
+      if (cancelled) return;
+      setVendorCategoryStats(
+        buildCategoryOrderStats(orders, labelByCategoryId).map((row) => ({
+          categoryId: row.categoryId,
+          label: row.label,
+          total: row.total,
+          fulfilled: row.fulfilled,
+          onTimeRate: row.onTimeRate,
+        })),
+      );
     })();
 
     return () => {
@@ -859,278 +866,6 @@ const VendorMode = () => {
     setUpiQrUploading(false);
   };
 
-  const toggleEditCategory = (categoryId: string) => {
-    setEditSelectedCategoryIds((prev) => {
-      const next = prev.includes(categoryId)
-        ? prev.filter((id) => id !== categoryId)
-        : prev.length >= MAX_REG_CATEGORIES
-          ? prev
-          : [...prev, categoryId];
-      editSelectedCategoryIdsRef.current = next;
-      setEditSelectedCategories((prevSelected) =>
-        next
-          .map(
-            (id) =>
-              editAvailableCategories.find((c) => c.id === id) ??
-              prevSelected.find((c) => c.id === id),
-          )
-          .filter((c): c is RegCategoryRow => c != null),
-      );
-      return next;
-    });
-  };
-
-  const openEditShop = () => {
-    if (!vendor) return;
-    const loadSeq = ++editCategoriesLoadSeqRef.current;
-    setEditShopName(vendor.shop_name ?? "");
-    setEditPhone(vendor.phone ?? "");
-    setEditUpiId(vendor.upi_id ?? "");
-    setEditBaseType(
-      vendor.base_type
-        ? (vendor.base_type as BaseTypeValue)
-        : vendorTypeToBaseType(vendor.vendor_type),
-    );
-    setEditReachChoice(
-      reachChoiceFromFlags(vendor.serves_at_vendor_place, vendor.serves_at_customer_place),
-    );
-    setEditServiceRadiusKm(vendor.service_radius_km ?? null);
-    setEditAvailabilityModes([]);
-    const vt = vendor.vendor_type;
-    setEditVendorType(
-      vt === "shop" || vt === "home" || vt === "visiting" ? vt : "shop",
-    );
-    setEditAvailableCategories([]);
-    setEditSelectedCategories([]);
-    editSelectedCategoryIdsRef.current = [];
-    setEditSelectedCategoryIds([]);
-    setEditCategoriesLoading(true);
-    setEditShopOpen(true);
-
-    void (async () => {
-      const [availResult, vcResult, modesResult] = await Promise.all([
-        supabase
-          .from("categories")
-          .select("id, label, emoji, service_mode")
-          .eq("is_active", true)
-          .order("sort_order", { ascending: true }),
-        supabase
-          .from("vendor_categories")
-          .select("category_id, is_primary, categories(id, label, emoji, service_mode)")
-          .eq("vendor_id", vendor.id)
-          .eq("status", "approved")
-          .order("is_primary", { ascending: false }),
-        supabase
-          .from("vendor_availability_modes")
-          .select("mode")
-          .eq("vendor_id", vendor.id),
-      ]);
-
-      if (availResult.error) {
-        console.error("load edit categories", availResult.error);
-      }
-      const available = (availResult.data ?? []) as RegCategoryRow[];
-      setEditAvailableCategories(available);
-
-      let selected: RegCategoryRow[] = [];
-      if (!vcResult.error && vcResult.data?.length) {
-        for (const row of vcResult.data) {
-          const joined = row.categories;
-          const cat = Array.isArray(joined) ? joined[0] : joined;
-          if (!cat) continue;
-          selected.push({
-            id: cat.id,
-            label: cat.label,
-            emoji: cat.emoji,
-            service_mode: cat.service_mode,
-          });
-        }
-      }
-
-      if (selected.length === 0 && vendor.category) {
-        const legacy = available.find((c) => c.label === vendor.category);
-        if (legacy) selected = [legacy];
-      }
-
-      if (loadSeq !== editCategoriesLoadSeqRef.current) return;
-
-      const selectedIds = selected.map((c) => c.id);
-      editSelectedCategoryIdsRef.current = selectedIds;
-      setEditSelectedCategories(selected);
-      setEditSelectedCategoryIds(selectedIds);
-      const modes = (modesResult.data ?? [])
-        .map((row) => row.mode as AvailabilityMode)
-        .filter((m) => m === "help" || m === "delivery" || m === "appointment");
-      setEditAvailabilityModes(
-        modes.length > 0 ? modes : [(vendor.service_mode ?? "help") as AvailabilityMode],
-      );
-      setEditCategoriesLoading(false);
-    })();
-  };
-
-  const saveShopDetails = async () => {
-    if (!vendor) return;
-    const categoryIdsToSave = editSelectedCategoryIdsRef.current;
-    const primaryCategory =
-      editAvailableCategories.find((c) => c.id === categoryIdsToSave[0]) ??
-      editSelectedCategories.find((c) => c.id === categoryIdsToSave[0]) ??
-      null;
-    const primaryLabel = primaryCategory?.label ?? "";
-    const primaryServiceMode = (editAvailabilityModes[0] ??
-      primaryCategory?.service_mode ??
-      vendor.service_mode ??
-      "") as ServiceModeValue;
-    const resolvedShopName = resolveRegistrationShopName(
-      editBaseType,
-      vendor.name,
-      editShopName,
-    );
-    const reachFlags = editReachChoice ? reachFlagsFromChoice(editReachChoice) : null;
-    const mappedVendorType = baseTypeToVendorType(editBaseType);
-
-    if (
-      editBaseType === "" ||
-      !mappedVendorType ||
-      !resolvedShopName.trim() ||
-      categoryIdsToSave.length === 0 ||
-      !primaryLabel ||
-      !primaryServiceMode ||
-      !editPhone.trim() ||
-      !reachFlags ||
-      editAvailabilityModes.length === 0
-    ) {
-      return;
-    }
-    setSavingShopDetails(true);
-
-    const radiusKm =
-      reachFlags.serves_at_customer_place && editServiceRadiusKm != null
-        ? editServiceRadiusKm
-        : vendor.service_radius_km;
-
-    const { error } = await patchVendorOwn(vendor.id, editPhone.trim(), {
-      shop_name: resolvedShopName.trim(),
-      category: primaryLabel,
-      service_mode: primaryServiceMode,
-      vendor_type: mappedVendorType,
-      base_type: editBaseType,
-      serves_at_vendor_place: reachFlags.serves_at_vendor_place,
-      serves_at_customer_place: reachFlags.serves_at_customer_place,
-      service_radius_km: radiusKm,
-      phone: editPhone.trim(),
-      upi_id: editUpiId.trim() || null,
-      is_manual_verified: false,
-      verification_status: "identity_linked",
-      shop_photo_url: null,
-      upi_verified: false,
-    });
-
-    if (error) {
-      setSavingShopDetails(false);
-      toast.error(s.vendor_update_failed);
-      return;
-    }
-
-    const categoryServiceModes = categoryIdsToSave.map((categoryId) => {
-      const cat =
-        editAvailableCategories.find((c) => c.id === categoryId) ??
-        editSelectedCategories.find((c) => c.id === categoryId);
-      return cat?.service_mode ?? primaryServiceMode;
-    });
-
-    const { error: vcError } = await supabase.rpc("vendor_update_categories", {
-      p_vendor_id: vendor.id,
-      p_vendor_phone: editPhone.trim(),
-      p_category_ids: categoryIdsToSave,
-      p_category_service_modes: categoryServiceModes,
-    });
-    if (vcError) {
-      setSavingShopDetails(false);
-      console.error("vendor_update_categories", vcError);
-      toast.error(s.vendor_categories_partial_save);
-      return;
-    }
-
-    const { error: modesError } = await supabase.rpc("vendor_update_availability_modes", {
-      p_vendor_id: vendor.id,
-      p_vendor_phone: editPhone.trim(),
-      p_modes: editAvailabilityModes,
-    });
-    setSavingShopDetails(false);
-    if (modesError) {
-      console.error("vendor_update_availability_modes", modesError);
-      toast.error(s.vendor_update_failed);
-      return;
-    }
-
-    const { error: syncError } = await supabase.rpc("vendor_sync_category_modes", {
-      p_vendor_id: vendor.id,
-      p_vendor_phone: editPhone.trim(),
-      p_modes: editAvailabilityModes,
-    });
-    setSavingShopDetails(false);
-    if (syncError) {
-      console.error("vendor_sync_category_modes", syncError);
-      toast.error(s.vendor_update_failed);
-      return;
-    }
-
-    setVendor((prev) =>
-      prev
-        ? {
-            ...prev,
-            shop_name: resolvedShopName.trim(),
-            category: primaryLabel,
-            service_mode: primaryServiceMode,
-            vendor_type: mappedVendorType,
-            base_type: editBaseType,
-            serves_at_vendor_place: reachFlags.serves_at_vendor_place,
-            serves_at_customer_place: reachFlags.serves_at_customer_place,
-            service_radius_km: radiusKm,
-            phone: editPhone.trim(),
-            upi_id: editUpiId.trim() || null,
-            is_manual_verified: false,
-            verification_status: "identity_linked",
-            shop_photo_url: null,
-            upi_verified: false,
-          }
-        : prev,
-    );
-    void invokeNotifyAdmin(
-      "✏️ Vendor edited shop details",
-      `${resolvedShopName.trim()} — ${primaryLabel} (${primaryServiceMode})`,
-      {
-        type: "vendor_edited",
-        route: "vendor",
-        route_params: { vendor_id: vendor.id },
-      },
-    );
-    setEditShopOpen(false);
-    toast.success("Shop details updated. Admin will re-verify your account.");
-  };
-
-  const editShopNameInvalid =
-    editShopName.trim().length > 0 &&
-    (editShopName.trim().length <= 1 || looksLikeGibberish(editShopName));
-  const editShopFieldOk =
-    editBaseType === "shop"
-      ? editShopName.trim().length > 1 && !looksLikeGibberish(editShopName)
-      : editBaseType === "home"
-        ? !editShopNameInvalid
-        : editBaseType === "none";
-  const editNeedsRadius =
-    editReachChoice === "customer" || editReachChoice === "both";
-  const editRadiusOk = !editNeedsRadius || editServiceRadiusKm != null;
-
-  const editShopSaveReady =
-    editBaseType !== "" &&
-    editShopFieldOk &&
-    editSelectedCategoryIds.length > 0 &&
-    editPhone.trim().length > 0 &&
-    editReachChoice !== "" &&
-    editRadiusOk &&
-    editAvailabilityModes.length > 0;
-
   const handleWizardRegistered = async (newVendorId: string) => {
     const { data: vendorRow, error: vendorFetchError } = await supabase
       .from("vendors")
@@ -1222,8 +957,14 @@ const VendorMode = () => {
     isTogglingRef.current = true;
     setVendor({ ...vendor, is_active: next });
 
+    const offersHelp = vendorOffersHelp({
+      service_mode: vendor.service_mode,
+      availability_modes: availabilityModes,
+    });
+
     let liveCoords: { lat: number; lng: number } | null = null;
-    if (next && isMobileCategory(vendor.category)) {
+    // Case 1: Help vendors need a fresh fix when going live (continuous tracking follows).
+    if (next && offersHelp) {
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
           if (!("geolocation" in navigator)) {
@@ -1286,6 +1027,14 @@ const VendorMode = () => {
       if (next) {
         dismissRegisteredBanner(vendor.id);
         setGoLivePromptVisible(false);
+        if (offersHelp) {
+          void startHelpLiveTracking({
+            vendorId: vendor.id,
+            vendorPhone: vendor.phone,
+          });
+        }
+      } else {
+        void stopHelpLiveTracking();
       }
 
       toast(next ? s.vendor_you_are_live : s.vendor_you_are_offline, {
@@ -1295,6 +1044,9 @@ const VendorMode = () => {
             : s.vendor_live_body_short
           : s.vendor_offline_body,
       });
+      if (next && !vendor.is_manual_verified) {
+        toast.info(s.vendor_golive_unverified_nudge);
+      }
       return true;
     } catch (err) {
       dismissNetworkRetryingToast();
@@ -1309,46 +1061,6 @@ const VendorMode = () => {
       throw err;
     } finally {
       isTogglingRef.current = false;
-    }
-  };
-
-  const notifyUsersVendorOffline = (
-    orders: BlockingOfflineOrder[],
-    serviceMode: string | null | undefined,
-  ) => {
-    const activeByPhone = new Map<string, string>();
-    const pendingByPhone = new Map<string, string>();
-    for (const order of orders) {
-      const userPhone = order.user_phone?.trim();
-      if (!userPhone) continue;
-      if (orderShouldNotifyVendorOffline(order)) {
-        if (!activeByPhone.has(userPhone)) activeByPhone.set(userPhone, order.id);
-        continue;
-      }
-      if (orderShouldNotifyPendingVendorOffline(order, serviceMode)) {
-        if (!pendingByPhone.has(userPhone)) pendingByPhone.set(userPhone, order.id);
-      }
-    }
-
-    for (const [userPhone, orderId] of activeByPhone) {
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title: s.user_vendor_offline_title,
-        body: s.user_vendor_offline_body,
-        type: "order_update",
-        order_id: orderId,
-      });
-    }
-
-    for (const [userPhone, orderId] of pendingByPhone) {
-      if (activeByPhone.has(userPhone)) continue;
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title: s.goOffline_pendingOrderNotify_title,
-        body: s.goOffline_pendingOrderNotify_body,
-        type: "order_update",
-        order_id: orderId,
-      });
     }
   };
 
@@ -1382,321 +1094,9 @@ const VendorMode = () => {
   };
 
   const confirmGoOfflineAnyway = async () => {
-    const ordersToNotify = offlineBlockingOrders;
     setOfflineConfirmOpen(false);
     setOfflineBlockingOrders([]);
-    const ok = await applyActiveState(false);
-    if (ok && ordersToNotify.length > 0) {
-      notifyUsersVendorOffline(ordersToNotify, vendor.service_mode);
-    }
-  };
-
-  const verifyUpi = async () => {
-    if (!vendor) return;
-    if (!isValidUpi(vendor.upi_id)) {
-      toast.error(s.vendor_upi_format_invalid, { description: s.vendor_upi_format_body });
-      return;
-    }
-    setVerifyingUpi(true);
-    // Simulated bank-name lookup. Replace with a real PSP call later.
-    await new Promise((r) => setTimeout(r, 900));
-    const bank = vendor.upi_id.split("@")[1] ?? "bank";
-    try {
-      const { error } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await patchVendorOwn(vendor.id, vendor.phone, { upi_verified: true }),
-          ),
-        {
-          onRetrying: () => {
-            showNetworkRetryingToast({ retrying: s.network_retrying });
-          },
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-      if (error) {
-        toast.error(s.vendor_upi_check_failed, { description: error.message });
-        return;
-      }
-      void checkAndNotifyAdminGreenReady(vendor.id);
-      setVendor((prev) => (prev ? { ...prev, upi_verified: true } : prev));
-      toast.success(`${s.vendor_upi_verified}${bank.toUpperCase()}`, {
-        description: s.vendor_upi_bank_valid,
-      });
-    } catch (err) {
-      dismissNetworkRetryingToast();
-      if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void verifyUpi(), {
-          failed: s.network_failed,
-          retryBtn: s.network_retry_btn,
-        });
-      } else {
-        throw err;
-      }
-    } finally {
-      setVerifyingUpi(false);
-    }
-  };
-
-  const handleShopPhoto = async (shot: CapturedShot) => {
-    if (!vendor) return;
-    setCameraOpen(false);
-
-    // 1. GPS match check vs the recorded shop coords.
-    const hasShopLocation = vendor.latitude != null && vendor.longitude != null;
-    let gpsMatchDistance = 0;
-    if (hasShopLocation) {
-      const meters = distanceMeters(
-        { lat: vendor.latitude!, lng: vendor.longitude! },
-        shot.coords,
-      );
-      if (meters > GPS_MATCH_TOLERANCE_M) {
-        toast.error(s.vendor_mismatch_title, {
-          description: `Photo was taken ${Math.round(meters)} m from your shop. Must be within ${GPS_MATCH_TOLERANCE_M} m.`,
-        });
-        return;
-      }
-      gpsMatchDistance = Math.round(meters);
-    }
-
-    // 2. Upload to Storage.
-    const path = `${vendor.id}/${Date.now()}.jpg`;
-    try {
-      const { error: upErr } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await supabase.storage.from(SHOP_PHOTOS_BUCKET).upload(path, shot.blob, {
-              contentType: "image/jpeg",
-              upsert: true,
-            }),
-          ),
-        {
-          onRetrying: () => {
-            showNetworkRetryingToast({ retrying: s.network_retrying });
-          },
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-      if (upErr) {
-        toast.error(s.vendor_upload_failed, { description: upErr.message });
-        return;
-      }
-      const { data: pub } = supabase.storage.from(SHOP_PHOTOS_BUCKET).getPublicUrl(path);
-
-      // 3. Promote to business_verified (admin still gates the green glow).
-      const { error: updErr } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await patchVendorOwn(vendor.id, vendor.phone, {
-              shop_photo_url: pub.publicUrl,
-              verification_status: "business_verified",
-              gps_match_distance: gpsMatchDistance,
-              ...(hasShopLocation
-                ? {}
-                : {
-                    latitude: shot.coords.lat,
-                    longitude: shot.coords.lng,
-                  }),
-            }),
-          ),
-        {
-          onRetrying: () => {
-            showNetworkRetryingToast({ retrying: s.network_retrying });
-          },
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-      if (updErr) {
-        toast.error(s.vendor_save_verification_failed, { description: updErr.message });
-        return;
-      }
-      void checkAndNotifyAdminGreenReady(vendor.id);
-      if (!hasShopLocation) {
-        toast.success("Shop photo saved and location set ✓");
-        return;
-      }
-      toast.success(s.vendor_photo_verified, {
-        description: vendor.is_manual_verified
-          ? s.vendor_green_badge_live
-          : s.vendor_awaiting_admin,
-      });
-    } catch (err) {
-      dismissNetworkRetryingToast();
-      if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void handleShopPhoto(shot), {
-          failed: s.network_failed,
-          retryBtn: s.network_retry_btn,
-        });
-      } else {
-        throw err;
-      }
-    }
-  };
-
-  const handleSelfiePhoto = async (shot: CapturedShot) => {
-    if (!vendor) return;
-    setSelfieCameraOpen(false);
-
-    const path = `${vendor.id}/selfie.jpg`;
-    try {
-      const { error: upErr } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await supabase.storage.from(VENDOR_SELFIES_BUCKET).upload(path, shot.blob, {
-              contentType: "image/jpeg",
-              upsert: true,
-            }),
-          ),
-        {
-          onRetrying: () => {
-            showNetworkRetryingToast({ retrying: s.network_retrying });
-          },
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-      if (upErr) {
-        toast.error(s.vendor_upload_failed, { description: upErr.message });
-        return;
-      }
-      const { data: pub } = supabase.storage.from(VENDOR_SELFIES_BUCKET).getPublicUrl(path);
-
-      const { error: updErr } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await patchVendorOwn(vendor.id, vendor.phone, {
-              photo_selfie: pub.publicUrl,
-            }),
-          ),
-        {
-          onRetrying: () => {
-            showNetworkRetryingToast({ retrying: s.network_retrying });
-          },
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-      if (updErr) {
-        toast.error(s.vendor_save_verification_failed, { description: updErr.message });
-        return;
-      }
-
-      const { error: verErr } = await supabase.rpc("submit_vendor_verification", {
-        p_vendor_id: vendor.id,
-        p_vendor_phone: vendor.phone,
-        p_check_type: "photo_selfie",
-        p_doc_url: pub.publicUrl,
-      });
-      if (verErr) {
-        console.error("photo_selfie verification insert", verErr);
-      }
-
-      setVendor((prev) => (prev ? { ...prev, photo_selfie: pub.publicUrl } : prev));
-      toast.success(s.vendor_selfie_captured);
-    } catch (err) {
-      dismissNetworkRetryingToast();
-      if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void handleSelfiePhoto(shot), {
-          failed: s.network_failed,
-          retryBtn: s.network_retry_btn,
-        });
-      } else {
-        throw err;
-      }
-    }
-  };
-
-  const openSelfieCamera = () => {
-    if (!vendor?.shop_photo_url) return;
-    setSelfieCameraOpen(true);
-  };
-
-  const updateShopLocation = async () => {
-    if (!vendor) return;
-    if (
-      vendor.verification_status === "business_verified" ||
-      vendor.verification_status === "green_pending"
-    ) {
-      const ok = window.confirm(
-        s.vendor_location_reset_confirm,
-      );
-      if (!ok) return;
-    }
-    const c = await detectLocation();
-    if (!c) return;
-    setUpdatingLocation(true);
-
-    // If they were business_verified, drop them back to identity_linked and
-    // clear the manual flag — admin must re-approve after a fresh photo.
-    const downgraded =
-      vendor.verification_status === "business_verified" ||
-      vendor.verification_status === "green_pending";
-    const patch: Partial<Vendor> = {
-      latitude: c.lat,
-      longitude: c.lng,
-      ...(downgraded
-        ? {
-            verification_status: "identity_linked" as VerificationStatus,
-            shop_photo_url: null,
-            is_manual_verified: false,
-          }
-        : {}),
-    };
-    try {
-      const { error } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await patchVendorOwn(vendor.id, vendor.phone, patch),
-          ),
-        {
-          onRetrying: () => {
-            showNetworkRetryingToast({ retrying: s.network_retrying });
-          },
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-      if (error) {
-        toast.error(s.vendor_location_update_failed, { description: error.message });
-        return;
-      }
-      setVendor((prev) =>
-        prev
-          ? {
-              ...prev,
-              latitude: c.lat,
-              longitude: c.lng,
-              ...(downgraded
-                ? {
-                    verification_status: "identity_linked" as VerificationStatus,
-                    shop_photo_url: null,
-                    is_manual_verified: false,
-                  }
-                : {}),
-            }
-          : prev,
-      );
-      toast(downgraded ? s.vendor_reverification_required : s.vendor_location_updated, {
-        description: downgraded
-          ? s.vendor_reverification_body
-          : s.vendor_location_updated_body,
-      });
-    } catch (err) {
-      dismissNetworkRetryingToast();
-      if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void updateShopLocation(), {
-          failed: s.network_failed,
-          retryBtn: s.network_retry_btn,
-        });
-      } else {
-        throw err;
-      }
-    } finally {
-      setUpdatingLocation(false);
-    }
+    await applyActiveState(false);
   };
 
   return (
@@ -1850,8 +1250,6 @@ const VendorMode = () => {
       )}
 
       {vendor && !vendor.is_banned && (() => {
-        const profilePhotoCopy = vendorPhotoCopy(vendor.vendor_type, s);
-
         return (
         <div className="space-y-3 animate-fade-up pb-4">
           {isInTrial && (
@@ -1919,19 +1317,22 @@ const VendorMode = () => {
             {!vendor.is_manual_verified && (
               <button
                 type="button"
-                onClick={() => setVerificationSheetOpen(true)}
+                onClick={() =>
+                  navigate("/settings", { state: { vendorSettingsTab: "business" } })
+                }
                 className="mt-3 w-full rounded-xl border border-border bg-muted/40 px-4 py-3 flex items-center gap-3 text-left active:scale-[0.99] transition-transform"
               >
                 <span className="flex-1 min-w-0 text-sm font-semibold text-foreground">
-                  {vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== ""
-                    ? s.vendor_pending_label
-                    : s.vendor_complete_verification}
+                  {s.vendor_complete_verification_settings}
                 </span>
                 <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
               </button>
             )}
 
-            {isMobileCategory(vendor.category) && (
+            {vendorOffersHelp({
+              service_mode: vendor.service_mode,
+              availability_modes: availabilityModes,
+            }) && (
               <p className="mt-2 text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1">
                 <Truck className="h-3 w-3 text-brand" />
                 {s.vendor_mobile_gps}
@@ -2017,6 +1418,7 @@ const VendorMode = () => {
                   hideHeader
                   loading={loading}
                   stats={vendorOrderStats}
+                  categoryStats={vendorCategoryStats}
                   onTimeRate={
                     typeof vendor.on_time_rate === "number" && Number.isFinite(vendor.on_time_rate)
                       ? vendor.on_time_rate
@@ -2027,444 +1429,6 @@ const VendorMode = () => {
             )}
           </section>
 
-          <Sheet open={verificationSheetOpen} onOpenChange={setVerificationSheetOpen}>
-            <SheetContent
-              side="bottom"
-              className="bg-background border-t border-border rounded-t-2xl max-h-[90vh] overflow-y-auto [&>button]:hidden"
-            >
-              <div className="flex items-center justify-between border-b border-border pb-3 mb-4 -mt-1">
-                <span className="text-sm font-semibold text-foreground">{s.vendor_verification_shop}</span>
-                <button
-                  type="button"
-                  onClick={() => setVerificationSheetOpen(false)}
-                  className="text-sm font-semibold text-muted-foreground hover:text-foreground"
-                >
-                  {s.vendor_close}
-                </button>
-              </div>
-
-              {/* Verification card */}
-              <div className="rounded-2xl bg-card border border-border shadow-card p-5 space-y-4">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-5 w-5 text-secondary" />
-                  <h2 className="font-display font-bold">{s.vendor_verification_heading}</h2>
-                </div>
-
-                <Step
-                  done={isValidPhone(vendor.phone ?? "")}
-                  title={s.vendor_phone_on_file}
-                  sub={vendor.phone || s.vendor_not_provided}
-                />
-
-                <div className="flex items-start justify-between gap-3">
-                  <Step
-                    done={vendor.upi_verified}
-                    title={s.vendor_upi_bank_match}
-                    sub={vendor.upi_id}
-                  />
-                  {!vendor.upi_verified && (
-                    <button
-                      onClick={verifyUpi}
-                      disabled={verifyingUpi}
-                      className="text-xs font-semibold rounded-lg bg-primary text-primary-foreground px-3 py-2 disabled:opacity-60 shrink-0"
-                    >
-                      {verifyingUpi ? s.vendor_checking : s.vendor_verify_upi_btn}
-                    </button>
-                  )}
-                </div>
-
-                {(vendor.latitude == null || vendor.longitude == null) &&
-                  vendor.vendor_type !== "visiting" && (
-                  <div className="rounded-xl border border-amber-500/60 bg-amber-500/10 p-3">
-                    <p className="text-sm font-semibold text-amber-200">{s.vendor_location_missing_title}</p>
-                    <p className="mt-1 text-xs text-amber-100/90">
-                      {s.vendor_location_missing_body}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={updateShopLocation}
-                      disabled={updatingLocation}
-                      className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground disabled:opacity-60"
-                    >
-                      {updatingLocation ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPin className="h-3.5 w-3.5" />}
-                      {s.vendor_set_location_btn}
-                    </button>
-                  </div>
-                )}
-                {(vendor.latitude == null || vendor.longitude == null) &&
-                  vendor.vendor_type === "visiting" && (
-                  <p className="text-xs text-muted-foreground">{s.vendor_visiting_location_hint}</p>
-                )}
-
-                <div className="flex items-start justify-between gap-3">
-                  <Step
-                    done={!!vendor.shop_photo_url}
-                    title={profilePhotoCopy.title}
-                    sub={
-                      vendor.shop_photo_url
-                        ? s.vendor_photo_captured
-                        : vendor.latitude == null || vendor.longitude == null
-                          ? s.vendor_location_set_first_photo
-                          : profilePhotoCopy.hint
-                    }
-                  />
-                  <button
-                    onClick={() => setCameraOpen(true)}
-                    disabled={vendor.latitude == null || vendor.longitude == null}
-                    title={
-                      vendor.latitude == null || vendor.longitude == null
-                        ? s.vendor_location_set_first_photo
-                        : undefined
-                    }
-                    className="text-xs font-semibold rounded-lg bg-primary text-primary-foreground px-3 py-2 shrink-0 inline-flex items-center gap-1 disabled:opacity-50"
-                  >
-                    <Camera className="h-3.5 w-3.5" />
-                    {vendor.shop_photo_url ? s.vendor_reshoot : s.vendor_capture}
-                  </button>
-                </div>
-
-                {vendor.shop_photo_url && (
-                  <img
-                    src={vendor.shop_photo_url}
-                    alt={s.vendor_captured_shop}
-                    className="w-full rounded-xl border border-border"
-                  />
-                )}
-
-                <div className="flex items-start justify-between gap-3">
-                  <Step
-                    done={!!vendor.photo_selfie}
-                    title={s.vendor_selfie_title}
-                    sub={
-                      vendor.photo_selfie
-                        ? s.vendor_selfie_captured
-                        : !vendor.shop_photo_url
-                          ? profilePhotoCopy.hint
-                          : s.vendor_selfie_subtitle
-                    }
-                  />
-                  <button
-                    onClick={openSelfieCamera}
-                    disabled={!vendor.shop_photo_url}
-                    title={!vendor.shop_photo_url ? profilePhotoCopy.hint : undefined}
-                    className="text-xs font-semibold rounded-lg bg-primary text-primary-foreground px-3 py-2 shrink-0 inline-flex items-center gap-1 disabled:opacity-50"
-                  >
-                    <Camera className="h-3.5 w-3.5" />
-                    {vendor.photo_selfie ? s.vendor_selfie_reshoot : s.vendor_selfie_capture}
-                  </button>
-                </div>
-
-                {vendor.photo_selfie && (
-                  <img
-                    src={vendor.photo_selfie}
-                    alt={s.vendor_selfie_title}
-                    className="w-full max-w-xs mx-auto rounded-xl border border-border"
-                  />
-                )}
-
-                <div className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">
-                  {s.vendor_badge_approval} ({vendor.is_manual_verified ? s.vendor_approved : s.vendor_approval_pending}).
-                </div>
-              </div>
-
-              <div id="vendor-verification-banner">
-                <VendorPostRegistrationGuidance vendor={vendor} />
-              </div>
-
-              {/* Shop info */}
-              <div className="rounded-2xl bg-muted/60 p-4 text-sm space-y-2 mt-4">
-                <div>
-                  <p className="font-semibold">{vendor.shop_name}</p>
-                  <p className="text-muted-foreground">{vendor.name} · {getLabel(vendor.category)}</p>
-                  <p className="text-muted-foreground text-xs">📞 {vendor.phone}</p>
-                  <p className="text-muted-foreground text-xs">UPI: {vendor.upi_id}</p>
-                  {vendor.latitude != null && vendor.longitude != null && (
-                    <p className="text-muted-foreground text-xs">
-                      📍 {vendor.latitude.toFixed(4)}, {vendor.longitude.toFixed(4)}
-                    </p>
-                  )}
-                </div>
-                {vendor.latitude != null && vendor.longitude != null && (
-                  <button
-                    onClick={updateShopLocation}
-                    disabled={updatingLocation}
-                    className="w-full rounded-xl border-2 border-border py-2.5 text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
-                  >
-                    {updatingLocation ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <MapPin className="h-4 w-4" />
-                    )}
-                    {s.vendor_update_location}
-                  </button>
-                )}
-                {(vendor.verification_status === "business_verified" ||
-                  vendor.verification_status === "green_pending") && (
-                  <p className="text-[11px] text-muted-foreground inline-flex items-start gap-1">
-                    <AlertTriangle className="h-3 w-3 text-accent mt-0.5 shrink-0" />
-                    {s.vendor_location_reset_warning}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={openEditShop}
-                  className="w-full rounded-xl border border-border py-2.5 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-card transition-colors"
-                >
-                  <Pencil className="h-4 w-4" />
-                  Edit Shop Details
-                </button>
-              </div>
-
-              <VendorNoteEditor
-                vendorId={vendor.id}
-                initialNote={vendor.vendor_note}
-                onSaved={(newNote) =>
-                  setVendor({ ...vendor, vendor_note: newNote || null })
-                }
-              />
-            </SheetContent>
-          </Sheet>
-
-          <Sheet open={editShopOpen} onOpenChange={setEditShopOpen}>
-            <SheetContent
-              side="bottom"
-              className="bg-background border-t border-border rounded-t-2xl max-h-[90vh] overflow-y-auto [&>button]:hidden"
-            >
-              <SheetHeader className="border-b border-border pb-3 mb-4">
-                <SheetTitle className="text-left font-display">Edit Shop Details</SheetTitle>
-              </SheetHeader>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {s.reg_where_work_from}
-                  </label>
-                  <div className="mt-2 grid grid-cols-1 gap-2">
-                    {(
-                      [
-                        { value: "shop" as const, emoji: "🏪", title: s.reg_base_shop, desc: s.reg_base_shop_desc },
-                        { value: "home" as const, emoji: "🏠", title: s.reg_base_home, desc: s.reg_base_home_desc },
-                        { value: "none" as const, emoji: "🚫", title: s.reg_base_none, desc: s.reg_base_none_desc },
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => {
-                          setEditBaseType(opt.value);
-                          const vt = baseTypeToVendorType(opt.value);
-                          if (vt) setEditVendorType(vt);
-                        }}
-                        className={cn(
-                          "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
-                          "bg-surface border-surface-border",
-                          editBaseType === opt.value &&
-                            "border-primary bg-primary/15 ring-1 ring-primary/30",
-                        )}
-                      >
-                        <p className="text-base font-display font-bold text-foreground leading-tight">
-                          {opt.emoji} {opt.title}
-                        </p>
-                        <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
-                          {opt.desc}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {editBaseType === "shop" && (
-                  <Field
-                    label={s.vendor_shop_name}
-                    value={editShopName}
-                    onChange={setEditShopName}
-                    placeholder={s.vendor_shop_placeholder}
-                    required
-                    error={
-                      editShopName.length > 0 && !editShopFieldOk
-                        ? s.vendor_specify_hint
-                        : undefined
-                    }
-                  />
-                )}
-                {editBaseType === "home" && (
-                  <Field
-                    label={s.vendor_brand_name_optional}
-                    value={editShopName}
-                    onChange={setEditShopName}
-                    placeholder={s.vendor_brand_placeholder}
-                    error={editShopNameInvalid ? s.vendor_specify_hint : undefined}
-                  />
-                )}
-
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      {s.vendor_categories_label}
-                    </label>
-                    <span className="text-xs text-muted-foreground">
-                      {s.vendor_categories_selected(editSelectedCategoryIds.length)}
-                    </span>
-                  </div>
-                  {editCategoriesLoading ? (
-                    <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      {s.vendor_understanding}
-                    </p>
-                  ) : editAvailableCategories.length === 0 ? (
-                    <p className="mt-2 text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
-                  ) : (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {editAvailableCategories.map((cat) => {
-                        const selected = editSelectedCategoryIds.includes(cat.id);
-                        const atMax = editSelectedCategoryIds.length >= MAX_REG_CATEGORIES;
-                        const disabled = !selected && atMax;
-                        return (
-                          <button
-                            key={cat.id}
-                            type="button"
-                            data-testid={`vendor-edit-category-${cat.id}`}
-                            disabled={disabled}
-                            onClick={() => toggleEditCategory(cat.id)}
-                            className={cn(
-                              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                              selected
-                                ? "border-primary bg-primary/20 text-foreground ring-1 ring-primary/30"
-                                : "border-border bg-card text-foreground",
-                              disabled && "opacity-40 cursor-not-allowed",
-                            )}
-                          >
-                            <span>
-                              {cat.emoji} {getLabel(cat.label)}
-                            </span>
-                            <span className="text-[10px] font-normal text-muted-foreground">
-                              {categoryServiceModeChipLabel(cat.service_mode, s)}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {editSelectedCategoryIds.length === 0 && !editCategoriesLoading && (
-                    <p className="mt-2 text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {s.reg_edit_reach_label}
-                  </label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {(
-                      [
-                        { value: "customer" as const, label: s.reg_reach_customer },
-                        { value: "vendor" as const, label: s.reg_reach_vendor },
-                        { value: "both" as const, label: s.reg_reach_both },
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setEditReachChoice(opt.value)}
-                        className={cn(
-                          "rounded-full border px-3 py-1.5 text-sm font-medium",
-                          editReachChoice === opt.value
-                            ? "border-primary bg-primary/20"
-                            : "border-border",
-                        )}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {editNeedsRadius && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      {s.vendor_radius_label}
-                    </p>
-                    <div className="mt-3">
-                      <ServiceRadiusChips
-                        value={editServiceRadiusKm}
-                        onChange={setEditServiceRadiusKm}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {s.reg_edit_availability_label}
-                  </label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {(
-                      [
-                        { mode: "help" as const, label: s.reg_avail_help },
-                        { mode: "delivery" as const, label: s.reg_avail_delivery },
-                        { mode: "appointment" as const, label: s.reg_avail_appointment },
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.mode}
-                        type="button"
-                        onClick={() =>
-                          setEditAvailabilityModes((prev) =>
-                            prev.includes(opt.mode)
-                              ? prev.filter((m) => m !== opt.mode)
-                              : [...prev, opt.mode],
-                          )
-                        }
-                        className={cn(
-                          "rounded-full border px-3 py-1.5 text-sm font-medium",
-                          editAvailabilityModes.includes(opt.mode)
-                            ? "border-primary bg-primary/20"
-                            : "border-border",
-                        )}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <Field
-                  label={s.vendor_phone_label}
-                  value={editPhone}
-                  onChange={setEditPhone}
-                  placeholder={s.vendor_phone_placeholder}
-                  required
-                />
-                <Field
-                  label={s.vendor_upi_label}
-                  value={editUpiId}
-                  onChange={setEditUpiId}
-                  placeholder={s.vendor_upi_placeholder}
-                />
-
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditShopOpen(false)}
-                    className="flex-1 rounded-2xl border border-border py-3.5 text-sm font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void saveShopDetails()}
-                    disabled={!editShopSaveReady || savingShopDetails}
-                    className="flex-1 rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {savingShopDetails ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : null}
-                    Save
-                  </button>
-                </div>
-              </div>
-            </SheetContent>
-          </Sheet>
         </div>
         );
       })()}
@@ -2489,73 +1453,9 @@ const VendorMode = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <LiveCamera
-        open={cameraOpen}
-        onClose={() => setCameraOpen(false)}
-        onCapture={handleShopPhoto}
-      />
-      <LiveCamera
-        open={selfieCameraOpen}
-        onClose={() => setSelfieCameraOpen(false)}
-        onCapture={handleSelfiePhoto}
-        facing="front"
-        requireLocation={false}
-      />
     </AppShell>
   );
 };
 
-const Field = ({
-  label, value, onChange, placeholder, required, error, onBlur,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  required?: boolean;
-  error?: string;
-  onBlur?: () => void;
-}) => {
-  const { s } = useLanguage();
-  void s;
-
-  return (
-    <div>
-      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={onBlur}
-        placeholder={placeholder}
-        required={required}
-        className={`mt-1 w-full bg-card border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2 ${
-          error ? "border-destructive focus:ring-destructive" : "border-border focus:ring-primary"
-        }`}
-      />
-      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
-    </div>
-  );
-};
-
-const Step = ({ done, title, sub }: { done: boolean; title: string; sub: string }) => {
-  const { s } = useLanguage();
-  void s;
-
-  return (
-    <div className="flex-1 flex items-start gap-3">
-      <span
-        className={`mt-0.5 h-5 w-5 rounded-full grid place-items-center shrink-0 ${
-          done ? "bg-secondary text-secondary-foreground" : "bg-muted text-muted-foreground"
-        }`}
-      >
-        {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
-      </span>
-      <div className="min-w-0">
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="text-xs text-muted-foreground truncate">{sub}</p>
-      </div>
-    </div>
-  );
-};
 
 export default VendorMode;

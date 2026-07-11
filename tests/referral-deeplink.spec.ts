@@ -20,7 +20,6 @@ async function openPhoneEntryForTestVendor(page: Page) {
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
   await page.goto(`${APP_URL}/radar?q=${encodeURIComponent(helpCategoryLabel)}`);
-  await page.waitForLoadState('networkidle');
   await dismissWelcomeIfVisible(page);
 
   const vendorCard = page
@@ -177,7 +176,6 @@ test('REF-LINK-05: self-referral — vendor visiting own code does not create re
     .eq('vendor_id', testVendor.id);
 
   await page.goto(`${APP_URL}/`);
-  await page.waitForLoadState('networkidle');
 
   const applied = await page.evaluate(
     async ({ phone, deviceId, code }) => {

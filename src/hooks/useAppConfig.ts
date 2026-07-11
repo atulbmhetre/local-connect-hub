@@ -9,7 +9,6 @@ export interface AppConfig extends VendorSubscriptionAppConfig {
   appointmentCallLimitSeconds: number;
   vendorStoppedDistanceMeters: number;
   vendorStoppedMinutes: number;
-  locationPingSeconds: number;
   maxOrderMessageChars: number;
   referralEnabled: boolean;
   localizationEnabled: boolean;
@@ -37,7 +36,6 @@ const DEFAULT_CONFIG: AppConfig = {
   appointmentCallLimitSeconds: 180,
   vendorStoppedDistanceMeters: 200,
   vendorStoppedMinutes: 10,
-  locationPingSeconds: 60,
   maxOrderMessageChars: 200,
   referralEnabled: false,
   localizationEnabled: true,
@@ -76,7 +74,6 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   appointment_call_limit_seconds: "appointmentCallLimitSeconds",
   vendor_stopped_distance_meters: "vendorStoppedDistanceMeters",
   vendor_stopped_minutes: "vendorStoppedMinutes",
-  location_ping_seconds: "locationPingSeconds",
   max_order_message_chars: "maxOrderMessageChars",
   referral_enabled: "referralEnabled",
   localization_enabled: "localizationEnabled",

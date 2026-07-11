@@ -69,7 +69,6 @@ test('MCV-E2E-01: customer finds multi-category vendor via secondary category an
 
     // Search secondary (non-primary) category — Plumber, not Electrician.
     await page.goto(`${APP_URL}/radar?mode=help&q=${encodeURIComponent(plumber.label)}`);
-    await page.waitForLoadState('networkidle');
 
     const vendorCard = page.getByTestId('radar-vendor-card').filter({ hasText: shopName }).first();
     await expect(vendorCard).toBeVisible({ timeout: 20000 });

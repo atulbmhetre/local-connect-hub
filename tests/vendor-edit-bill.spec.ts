@@ -22,7 +22,7 @@ function uniqueCustomerPhone(): string {
 }
 
 function uniqueVendorPhone(): string {
-  return `99006${String(Date.now()).slice(-5)}${Math.floor(Math.random() * 10)}`;
+  return `99006${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 10)}`;
 }
 
 function expectErrorCode(error: { message: string } | null, code: string) {

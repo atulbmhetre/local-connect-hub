@@ -20,7 +20,6 @@ let testVendor: { id: string; phone: string };
 
 async function openSettingsDeleteSection(page: Page) {
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   await page.waitForSelector('[data-testid="settings-screen"]', { timeout: 20000 });
   const deleteBtn = page.getByRole('button', { name: 'Delete Account' });
   await deleteBtn.scrollIntoViewIfNeeded();
@@ -69,7 +68,9 @@ test('DEL-02: Delete Account opens confirmation dialog with correct copy', async
   await expect(page.getByRole('alertdialog')).toBeVisible({ timeout: 5000 });
   await expect(page.getByText('Delete your account?')).toBeVisible();
   await expect(
-    page.getByText('This will permanently delete all your data. This cannot be undone.'),
+    page.getByText(
+      'This will delete your shop. Your data cannot be recovered, and you will not be able to register a new shop with this same phone number for 30 days.',
+    ),
   ).toBeVisible();
 });
 
@@ -169,7 +170,6 @@ test('DEL-06: vendor Cancel Deletion restores normal Delete Account button', asy
 
   await loginAsVendor(page, VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
 
   const cancelBtn = page.getByRole('button', { name: 'Cancel Deletion' });

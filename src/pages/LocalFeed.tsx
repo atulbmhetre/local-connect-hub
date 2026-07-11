@@ -36,6 +36,7 @@ import {
   feedReachChipOptionsUpTo,
   normalizeFeedReachKm,
 } from "@/lib/feedReach";
+import { filterPostsByAudienceAndCategory } from "@/lib/feedAudienceFilter";
 type FeedStrings = typeof strings.en;
 const MAX_CONTENT = 200;
 const FLAG_HIDE_THRESHOLD = 5;
@@ -88,6 +89,8 @@ type FeedPost = {
   recommended_vendor_id: string | null;
   recommended_vendor_name: string | null;
   recommended_vendor_phone: string | null;
+  target_audience?: "customers" | "vendors" | "both" | null;
+  target_category_id?: string | null;
   vendors: { shop_name: string; category: string | null } | null;
   recommended_vendor: {
     shop_name: string;
@@ -377,6 +380,7 @@ export default function LocalFeed() {
         .from("vendors")
         .select("id, shop_name, service_radius_km")
         .eq("is_active", true)
+        .eq("discoverable", true)
         .ilike("shop_name", `%${q}%`)
         .order("shop_name", { ascending: true })
         .limit(5)
@@ -417,11 +421,15 @@ export default function LocalFeed() {
         return;
       }
 
+      const readerVendorIdRaw = localStorage.getItem("aaspaas:vendor_id");
+      const readerVendorId = readerVendorIdRaw?.trim() || null;
+
       const { data, error } = await supabase.rpc("get_local_feed_posts", {
         p_reader_lat: readerCoords.lat,
         p_reader_lng: readerCoords.lng,
         p_limit: 50,
         p_reader_radius_km: readerDiscoveryRadiusKm,
+        p_reader_vendor_id: readerVendorId,
       });
 
       if (error) {
@@ -437,11 +445,12 @@ export default function LocalFeed() {
           .order("created_at", { ascending: false })
           .limit(50);
         if (fallbackError) throw fallbackError;
-        const nextPosts = filterPostsByLocation(
+        const located = filterPostsByLocation(
           (fallbackData ?? []) as FeedPost[],
           readerCoords,
           readerDiscoveryRadiusKm,
         );
+        const nextPosts = await filterPostsByAudienceAndCategory(located, readerVendorId);
         setPosts(nextPosts);
         writeFeedCache(nextPosts);
         return;
@@ -1400,7 +1409,7 @@ function RecommendationCard({
         vendorId,
         post.recommended_vendor?.service_mode,
       );
-      if (!result.ok) {
+      if (result.ok === false) {
         if (result.offline) {
           toast.error(s.radar_vendorWentOffline);
         } else {

@@ -101,6 +101,11 @@ async function lsGet(page: Page, key: string): Promise<string | null> {
   return page.evaluate((k) => localStorage.getItem(k), key);
 }
 
+async function openRestoreFlow(page: Page) {
+  await page.getByTestId('firstopen-restore-entry').click();
+  await expect(page.getByTestId('firstopen-restore-cta')).toBeVisible({ timeout: 8000 });
+}
+
 async function enterPhone(page: Page, phone: string) {
   await page.getByPlaceholder('98765 43210').pressSequentially(phone, { delay: 50 });
   await page.getByPlaceholder('98765 43210').press('Tab');
@@ -143,6 +148,7 @@ test('FO-REQ-01 — Pure customer restore — phone found in users table', async
 
   await loginAsFreshUser(page);
   await expect(page.getByTestId('first-open-flow')).toBeVisible({ timeout: 8000 });
+  await openRestoreFlow(page);
   await enterPhone(page, phone);
   await tapRestore(page);
 
@@ -157,6 +163,7 @@ test('FO-REQ-02 — No account found — starts fresh', async ({ page }) => {
   const phone = nextCustomerPhone();
 
   await loginAsFreshUser(page);
+  await openRestoreFlow(page);
   await enterPhone(page, phone);
   await expect(page.getByTestId('firstopen-restore-cta')).toBeVisible({ timeout: 10000 });
   await tapRestore(page);
@@ -172,6 +179,7 @@ test('FO-REQ-03 — Vendor restore — active vendor fully restored', async ({ p
   const vendor = await createVendor(phone, 'fo03');
 
   await loginAsFreshUser(page);
+  await openRestoreFlow(page);
   await enterPhone(page, phone);
   await tapRestore(page);
 
@@ -194,6 +202,7 @@ test('FO-REQ-04 — Banned/deleted vendor — customer identity restored, vendor
   });
 
   await loginAsFreshUser(page);
+  await openRestoreFlow(page);
   await enterPhone(page, phone);
   await tapRestore(page);
 
@@ -215,6 +224,7 @@ test('FO-REQ-05 — Dual-role restore — both customer and vendor identity from
   const vendor = await createVendor(phone, 'fo05');
 
   await loginAsFreshUser(page);
+  await openRestoreFlow(page);
   await enterPhone(page, phone);
   await tapRestore(page);
 
@@ -231,6 +241,7 @@ test('FO-REQ-06 — Admin phone restore — admin panel accessible', async ({ pa
   await createVendor(phone, 'fo06');
 
   await loginAsFreshUser(page);
+  await openRestoreFlow(page);
   await enterPhone(page, phone);
   await tapRestore(page);
 
@@ -275,13 +286,13 @@ test('FO-REQ-09 — Completing flow sets welcomed flag — flow never shows agai
   const welcomedBeforeReload = await lsGet(page, 'aaspaas:welcomed');
 
   await page.reload();
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 15000 });
   expect(welcomedBeforeReload).toBe('true');
 });
 
 test('FO-REQ-10 — Phone input validates 10-digit Indian format', async ({ page }) => {
   await loginAsFreshUser(page);
+  await openRestoreFlow(page);
   await enterPhone(page, '12345');
   await tapRestore(page);
 

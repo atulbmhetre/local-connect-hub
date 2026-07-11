@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { supabase, invokecalculateTrustScore, invokeNotifyUser } from "@/lib/supabase";
+import { supabase, invokecalculateTrustScore, invokeNotifyUser, useCategoryLabel } from "@/lib/supabase";
 import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
 import { Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -26,11 +26,22 @@ import {
   withNetworkRetry,
 } from "@/lib/withNetworkRetry";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import { resolveCancelReasonsForCategory } from "@/lib/categoryScopedVendor";
 import {
   dismissNetworkRetryingToast,
   showNetworkFailedToast,
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
+import {
+  startOrderTracking,
+  stopOrderTracking,
+} from "@/lib/vendorBackgroundLocation";
+import { sendIveStartedCustomerNotification } from "@/lib/iveStartedNotify";
+import {
+  hasSentIveStarted,
+  shouldShowIveStartedButton,
+  shouldStartTrackingOnOrderAccept,
+} from "@/lib/vendorTrackingPolicy";
 
 type TrustInfo = {
   trust_score: number;
@@ -172,6 +183,7 @@ export function IncomingOrdersSection({
   const isHelpMode = serviceMode === "help";
   const canAddToLedger = serviceMode === "appointment" || serviceMode === "delivery";
   const { s } = useLanguage();
+  const getLabel = useCategoryLabel();
   const slotLabels = useMemo(
     () => ({
       asap: s.parchi_slotAsap,
@@ -210,13 +222,27 @@ export function IncomingOrdersSection({
   const [callServiceMode, setCallServiceMode] = useState<
     "help" | "delivery" | "appointment" | "booking"
   >("help");
-  const presetReasons = useMemo(
-    () => cancelReasons.filter((r): r is string => r != null && String(r).trim() !== ""),
-    [cancelReasons],
-  );
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [declineOrderId, setDeclineOrderId] = useState<string | null>(null);
   const [declineUserPhone, setDeclineUserPhone] = useState<string | null>(null);
+  const [categoryReasonsById, setCategoryReasonsById] = useState<Map<string, string[]>>(
+    () => new Map(),
+  );
+  const activeReasonOrderId = cancelOrderId ?? declineOrderId;
+  const activeReasonCategoryId = useMemo(() => {
+    if (!activeReasonOrderId) return null;
+    const row = rows.find((r) => r.id === activeReasonOrderId);
+    return row?.category_id ?? null;
+  }, [activeReasonOrderId, rows]);
+  const presetReasons = useMemo(
+    () =>
+      resolveCancelReasonsForCategory(
+        activeReasonCategoryId,
+        categoryReasonsById,
+        cancelReasons,
+      ),
+    [activeReasonCategoryId, categoryReasonsById, cancelReasons],
+  );
   const [declining, setDeclining] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [otherReasonText, setOtherReasonText] = useState("");
@@ -253,6 +279,7 @@ export function IncomingOrdersSection({
   const [ledgerOrderNote, setLedgerOrderNote] = useState("");
   const [ledgerVendorNote, setLedgerVendorNote] = useState("");
   const [ledgerSubmitting, setLedgerSubmitting] = useState(false);
+  const [iveStartedTick, setIveStartedTick] = useState(0);
   const mounted = useRef(true);
 
   /** Batch user-trust lookup: one .in() query for every order's phone. */
@@ -308,7 +335,7 @@ export function IncomingOrdersSection({
   }, [vendorId]);
 
   const selectFields =
-    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason, is_edited, payment_status, payment_utr, customer_latitude, customer_longitude";
+    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason, is_edited, payment_status, payment_utr, customer_latitude, customer_longitude, category_id, categories(label, emoji)";
 
   const FULFILLED_STALE_MS = 60 * 60 * 1000;
 
@@ -712,6 +739,33 @@ export function IncomingOrdersSection({
   }, [load]);
 
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("vendor_category_cancel_reasons")
+        .select("category_id, reason_text, position")
+        .eq("vendor_id", vendorId)
+        .order("position", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.error("loadCategoryCancelReasons", error);
+        return;
+      }
+      const map = new Map<string, string[]>();
+      for (const row of data ?? []) {
+        const list = map.get(row.category_id) ?? ["", "", "", ""];
+        const pos = Number(row.position);
+        if (pos >= 1 && pos <= 4) list[pos - 1] = row.reason_text ?? "";
+        map.set(row.category_id, list);
+      }
+      setCategoryReasonsById(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vendorId]);
+
+  useEffect(() => {
     const channel = supabase
       .channel(`incoming-orders-${vendorId}`)
       .on(
@@ -791,6 +845,7 @@ export function IncomingOrdersSection({
           order_id: id,
         });
       }
+      // Help acceptance does not start order-scoped tracking (case 1 = Go-Live).
       setRows((prev) => {
         const next = prev.map((r) => (r.id === id ? { ...r, status: "accepted" } : r));
         onUnreadCount?.(countUnreadIncomingOrders(next, serviceMode));
@@ -846,6 +901,17 @@ export function IncomingOrdersSection({
         toast.error(s.order_already_taken);
         void load({ silent: true });
         return;
+      }
+      const acceptedRow = rows.find((r) => r.id === id);
+      if (
+        acceptedRow &&
+        shouldStartTrackingOnOrderAccept({ ...acceptedRow, status: "accepted" })
+      ) {
+        const vPhone = vendorPhone;
+        void startOrderTracking(id, {
+          vendorId,
+          vendorPhone: vPhone,
+        });
       }
       const phone = userPhone?.trim();
       if (phone) {
@@ -919,6 +985,7 @@ export function IncomingOrdersSection({
           order_id: id,
         });
       }
+      void stopOrderTracking(id);
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
     } catch (err) {
       dismissNetworkRetryingToast();
@@ -1093,6 +1160,20 @@ export function IncomingOrdersSection({
           order_id: id,
         });
       }
+      const confirmedRow = rows.find((r) => r.id === id);
+      if (
+        confirmedRow &&
+        shouldStartTrackingOnOrderAccept({
+          ...confirmedRow,
+          status: "accepted",
+          appointment_status: "confirmed",
+        })
+      ) {
+        void startOrderTracking(id, {
+          vendorId,
+          vendorPhone,
+        });
+      }
       setRows((prev) =>
         prev.map((r) =>
           r.id === id ? { ...r, appointment_status: action, status: "accepted" } : r,
@@ -1112,6 +1193,22 @@ export function IncomingOrdersSection({
     } finally {
       setMarkingId(null);
     }
+  };
+
+  const handleIveStarted = async (order: IncomingOrderRow) => {
+    // Cases 4 & 5 — notification only; sendIveStartedCustomerNotification never starts tracking.
+    const result = await sendIveStartedCustomerNotification({
+      order,
+      userPhone: order.user_phone,
+    });
+    if (result.ok === false) {
+      if (result.reason === "no_phone") {
+        toast.error(s.incoming_errCouldNotUpdate);
+      }
+      return;
+    }
+    setIveStartedTick((n) => n + 1);
+    toast.success(s.incoming_iveStarted_sent);
   };
 
   const closeDeclineSheet = () => {
@@ -1397,6 +1494,7 @@ export function IncomingOrdersSection({
       toast.error(error.message);
       return;
     }
+    void stopOrderTracking(cancelOrderId);
     const userPhone = rows.find((r) => r.id === cancelOrderId)?.user_phone?.trim();
     if (userPhone) {
       const title = s.incoming_orderCancelledNotifyTitle;
@@ -1406,7 +1504,7 @@ export function IncomingOrdersSection({
         title,
         body,
         type: "order_update",
-        order_id: declineOrderId,
+        order_id: cancelOrderId,
       });
     }
     toast.success(s.orderCancelled);
@@ -1593,6 +1691,19 @@ export function IncomingOrdersSection({
                 </span>
                 {shouldShowStatusBadge(r) && badge(r)}
               </div>
+              {(() => {
+                const cat = Array.isArray(r.categories) ? r.categories[0] : r.categories;
+                if (!cat?.label) return null;
+                return (
+                  <span
+                    data-testid="incoming-order-category"
+                    className="inline-flex items-center gap-0.5 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-foreground w-fit"
+                  >
+                    {cat.emoji ? <span aria-hidden>{cat.emoji}</span> : null}
+                    <span>{getLabel(cat.label)}</span>
+                  </span>
+                );
+              })()}
               <div className="flex items-start gap-2">
                 <p className="flex-1 min-w-0 text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
                   {stripLocationTag(r.message)}
@@ -1770,6 +1881,23 @@ export function IncomingOrdersSection({
                         >
                           {s.incoming_cancelBooking}
                         </button>
+                        {(() => {
+                          void iveStartedTick;
+                          const showIve = shouldShowIveStartedButton(r);
+                          const sent = hasSentIveStarted(r.id);
+                          if (!showIve && !sent) return null;
+                          return (
+                            <button
+                              type="button"
+                              data-testid="incoming-ive-started-btn"
+                              disabled={sent}
+                              onClick={() => void handleIveStarted(r)}
+                              className="w-full rounded-lg border border-brand/50 bg-brand/10 text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                            >
+                              {sent ? s.incoming_iveStarted_sent : s.incoming_iveStarted_btn}
+                            </button>
+                          );
+                        })()}
                         {r.user_phone && (
                           <button
                             type="button"
@@ -1854,6 +1982,23 @@ export function IncomingOrdersSection({
                   )}
                   {r.status === "accepted" && (
                     <>
+                      {(() => {
+                        void iveStartedTick;
+                        const showIve = shouldShowIveStartedButton(r);
+                        const sent = hasSentIveStarted(r.id);
+                        if (!showIve && !sent) return null;
+                        return (
+                          <button
+                            type="button"
+                            data-testid="incoming-ive-started-btn"
+                            disabled={sent}
+                            onClick={() => void handleIveStarted(r)}
+                            className="w-full rounded-lg border border-brand/50 bg-brand/10 text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                          >
+                            {sent ? s.incoming_iveStarted_sent : s.incoming_iveStarted_btn}
+                          </button>
+                        );
+                      })()}
                       {r.user_phone && (
                         <button
                           type="button"

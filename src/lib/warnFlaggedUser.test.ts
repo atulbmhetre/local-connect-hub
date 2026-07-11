@@ -71,6 +71,12 @@ describe("warnFlaggedUser", () => {
       body: strings.hi.warn_user_push_body,
       type: "account_warning",
     });
-    expect(mockLogAdminAction).toHaveBeenCalledWith("warn_user", "user", "9876543210");
+    expect(mockLogAdminAction).toHaveBeenCalledWith(
+      "warn_user",
+      "user",
+      "9876543210",
+      null,
+      undefined,
+    );
   });
 });

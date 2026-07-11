@@ -9,10 +9,19 @@ export type VendorOrderStats = {
   cancelled: number;
 };
 
+export type VendorCategoryStat = {
+  categoryId: string | null;
+  label: string;
+  total: number;
+  fulfilled: number;
+  onTimeRate: number | null;
+};
+
 type Props = {
   loading: boolean;
   stats: VendorOrderStats | null;
   onTimeRate: number | null;
+  categoryStats?: VendorCategoryStat[];
   /** When true, render only the stat grid (parent supplies section chrome/header). */
   hideHeader?: boolean;
 };
@@ -45,7 +54,13 @@ function StatCell({
   );
 }
 
-export function VendorAnalytics({ loading, stats, onTimeRate, hideHeader }: Props) {
+export function VendorAnalytics({
+  loading,
+  stats,
+  onTimeRate,
+  categoryStats = [],
+  hideHeader,
+}: Props) {
   const { s } = useLanguage();
 
   const onTimeDisplay =
@@ -54,6 +69,7 @@ export function VendorAnalytics({ loading, stats, onTimeRate, hideHeader }: Prop
       : "—";
 
   const grid = (
+    <>
       <div className="grid grid-cols-2 gap-3">
         <StatCell
           value={stats?.total ?? 0}
@@ -87,6 +103,35 @@ export function VendorAnalytics({ loading, stats, onTimeRate, hideHeader }: Prop
           suffix={!loading && onTimeRate !== null ? s.radar_on_time : undefined}
         />
       </div>
+      {!loading && categoryStats.length > 0 ? (
+        <div className="mt-4 space-y-2" data-testid="vendor-analytics-by-category">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {s.settings_byCategory}
+          </p>
+          <ul className="space-y-2">
+            {categoryStats.map((row) => (
+              <li
+                key={row.categoryId ?? "uncategorized"}
+                data-testid="vendor-analytics-category-row"
+                className="rounded-xl border border-surface-border bg-background/40 px-3 py-2 flex items-center justify-between gap-2"
+              >
+                <span className="text-sm font-medium text-foreground truncate">
+                  {row.label}
+                </span>
+                <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                  {row.total} {s.settings_categoryOrders}
+                  {" · "}
+                  {row.onTimeRate != null && Number.isFinite(row.onTimeRate)
+                    ? `${Math.round(row.onTimeRate)}${s.radar_on_time}`
+                    : "—"}{" "}
+                  {s.settings_categoryOnTime}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </>
   );
 
   if (hideHeader) return grid;

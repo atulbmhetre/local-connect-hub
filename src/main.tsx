@@ -5,11 +5,13 @@ import { initThemeFromStorage } from "./lib/theme";
 import { checkAndStoreReferral } from "./lib/referral";
 import { initSentry } from "./lib/sentry";
 import { initPushNavigationListeners } from "./lib/pushNotifications";
+import { restoreVendorLocationTracking } from "./lib/vendorBackgroundLocation";
 
 initSentry();
 initThemeFromStorage();
 checkAndStoreReferral();
 void initPushNavigationListeners();
+void restoreVendorLocationTracking();
 
 try {
   if (localStorage.getItem("aaspaas:large_text") === "true") {

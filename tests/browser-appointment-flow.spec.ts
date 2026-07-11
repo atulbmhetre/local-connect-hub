@@ -69,10 +69,8 @@ test('AP-02-BROWSER: vendor confirms appointment — status accepted + DB assert
 
   await loginAsVendor(page, apptVendor.phone, apptVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
   await page.waitForTimeout(1500);
   await page.reload();
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('incoming-accept-btn').first()).toBeVisible({ timeout: 8000 });
@@ -97,10 +95,8 @@ test('AP-03-BROWSER: vendor declines appointment — uses incoming-decline-btn +
 
   await loginAsVendor(page, apptVendor.phone, apptVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
   await page.waitForTimeout(1500);
   await page.reload();
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('incoming-decline-btn').first()).toBeVisible({ timeout: 8000 });
@@ -137,10 +133,8 @@ test('AP-04-BROWSER: vendor marks appointment done — DB assert', async ({ page
 
   await loginAsVendor(page, apptVendor.phone, apptVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
   await page.waitForTimeout(1500);
   await page.reload();
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('incoming-done-btn').first()).toBeVisible({ timeout: 8000 });
@@ -165,7 +159,6 @@ test('AP-05-BROWSER: appointment shows in customer MyOrders with correct status 
 
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('order-card').first()).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('order-status-badge').first()).toBeVisible();
 });
@@ -183,7 +176,6 @@ test('AP-06-BROWSER: customer rates completed appointment — rating sheet UI + 
 
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/my-orders`);
-  await page.waitForLoadState('networkidle');
 
   await expect(page.getByTestId('order-card').first()).toBeVisible({ timeout: 8000 });
   const rateBtn = page.getByTestId('order-rate-btn').first();

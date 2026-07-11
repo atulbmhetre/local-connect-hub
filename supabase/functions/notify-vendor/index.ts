@@ -63,13 +63,33 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    const requestId =
+      typeof record?.request_id === "string" ? record.request_id.trim() : "";
+    let categoryFromRequest: string | null = null;
+    if (requestId) {
+      const { data: reqRow } = await supabase
+        .from("requests")
+        .select("category_id, categories(label)")
+        .eq("id", requestId)
+        .maybeSingle();
+      const joined = reqRow?.categories;
+      const cat = Array.isArray(joined) ? joined[0] : joined;
+      if (cat && typeof cat === "object" && "label" in cat && typeof cat.label === "string") {
+        categoryFromRequest = cat.label;
+      }
+    }
+
     const { data: vendor } = await supabase
       .from("vendors")
       .select("fcm_token, category, phone")
       .eq("id", vendorId)
       .single();
 
-    const categoryKey = record?.category ?? vendor?.category ?? "New";
+    const categoryKey =
+      categoryFromRequest ??
+      (typeof record?.category === "string" ? record.category : null) ??
+      vendor?.category ??
+      "New";
 
     let notificationTitle = record?.notification_title as string | undefined;
     if (!notificationTitle) {

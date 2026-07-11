@@ -1,11 +1,12 @@
 import { test, expect, Page } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
   invokeRegisterVendorRpc,
 } from './helpers/setup';
+import { uniqueBrowserPhone } from './helpers/session38';
 /** Stable vendor referral code: AASP + last 4 phone digits (matches src/lib/referral.ts). */
 function referralCodeFromPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
@@ -21,9 +22,8 @@ const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY!;
 
 const L = {
-  myShop: 'My Shop',
-  shopInfo: 'Shop Info',
   referEarn: '🎁 Refer & Earn',
+  menu: 'My Menu / Price List',
   copyReferralCode: 'Copy referral code',
   referralCodeLabel: 'Referral Code (optional)',
   referralAlreadyUsed: 'This referral code has already been used',
@@ -95,25 +95,13 @@ async function gotoSettings(page: Page) {
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 20000 });
 }
 
-async function waitForMyShopReady(page: Page) {
-  // MISSING TESTID: needs data-testid="my-shop-section" on VendorSettings collapsible
-  await page
-    .waitForSelector('[data-testid="my-shop-section"]', { state: 'visible', timeout: 10000 })
-    .catch(() => undefined);
-  await expect(page.getByRole('button', { name: L.shopInfo })).toBeVisible({ timeout: 20000 });
-}
-
-async function expandMyShop(page: Page) {
-  const shopHeader = page.getByRole('button', { name: new RegExp(`^${L.myShop}$`, 'i') });
-  await expect(shopHeader).toBeVisible({ timeout: 20000 });
-  if ((await shopHeader.getAttribute('aria-expanded')) !== 'true') {
-    await shopHeader.click();
-  }
-  await waitForMyShopReady(page);
+async function expandVendorPreferences(page: Page) {
+  await openVendorPreferencesTab(page);
+  await expect(page.getByRole('button', { name: L.menu })).toBeVisible({ timeout: 20000 });
 }
 
 async function expandReferEarn(page: Page) {
-  await expandMyShop(page);
+  await expandVendorPreferences(page);
   const referBtn = page.getByRole('button', { name: L.referEarn });
   await expect(referBtn).toBeVisible({ timeout: 20000 });
   if ((await referBtn.getAttribute('aria-expanded')) !== 'true') {
@@ -246,7 +234,7 @@ test('RF-REQ-03 — Refer & Earn hidden when referral_enabled=false', async ({ p
   try {
     await loginAsVendor(page, vendor.phone, vendor.id, `${DEVICE_ID}_03`);
     await gotoSettings(page);
-    await expandMyShop(page);
+    await expandVendorPreferences(page);
     await expect(page.getByRole('button', { name: L.referEarn })).not.toBeVisible();
   } finally {
     await setReferralEnabled('true');
@@ -283,29 +271,52 @@ test('RF-REQ-05 — Visiting /r/CODE stores uppercased code in localStorage', as
 });
 
 test('RF-REQ-06 — Referral code prefilled in vendor registration form', async ({ page }) => {
+  await setReferralEnabled('true');
   const storedCode = `AASP${String(T).slice(-4)}`;
-  await page.goto(APP_URL);
+  const category = await getActiveCategoryByServiceMode('delivery');
+
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
+  await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
   await page.evaluate((code) => {
     localStorage.setItem('aaspaas:referral_code', code);
     localStorage.setItem('aaspaas:welcomed', 'true');
   }, storedCode);
-  await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
+  await page.goto(`${APP_URL}/vendor`, { waitUntil: 'domcontentloaded' });
 
-  await expect(page.getByText(L.referralCodeLabel)).toBeVisible({ timeout: 15000 });
+  // Wizard step 1 → 2 → 3 (referral field is on step 3)
+  await page.getByPlaceholder('Ramesh Kumar').fill('RF Prefill Owner');
+  await page.getByRole('button', { name: 'Browse all categories' }).click();
+  await page.getByRole('button').filter({ hasText: category.label }).first().click();
+  await page
+    .locator('button')
+    .filter({ hasText: '🏪' })
+    .filter({ hasText: /Shop|दुकान/ })
+    .first()
+    .click();
+  await page.getByPlaceholder('Ramesh Tyre Works').fill(`!RF-prefill-${T}`);
+  await page.getByRole('button', { name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन/ }).click();
+  await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Next' }).click();
+
+  await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
+  await page.getByRole('button', { name: /Delivery|डिलीवरी/ }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+
+  await expect(page.getByPlaceholder('e.g. MAT-9973')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(L.referralCodeLabel)).toBeVisible({ timeout: 5000 });
   await expect(page.getByPlaceholder('e.g. MAT-9973')).toHaveValue(storedCode);
 });
 
 // ─── SELF-REFERRAL BLOCK ──────────────────────────────────────────────────────
 
 test('RF-REQ-07 — Vendor cannot use own referral code at registration', async ({ page }) => {
-  const phone = `9000000${T % 10000}`;
-  const referralCode = `AASP${String(T % 10000).padStart(4, '0')}`;
+  const phone = uniqueBrowserPhone('9000');
+  const referralCode = referralCodeFromPhone(phone);
   const vendor = await createVendor('req07', { phone, referral_code: referralCode });
   const deviceId = `${DEVICE_ID}_07`;
 
   await page.goto(APP_URL);
-  await page.waitForLoadState('networkidle');
 
   const applied = await page.evaluate(
     async ({ phone, deviceId, code }) => {
@@ -386,7 +397,6 @@ test('RF-REQ-09 — User referral creates 1 credit row for referrer vendor', asy
   createdCustomerPhones.push(customerPhone);
 
   await page.goto(APP_URL);
-  await page.waitForLoadState('networkidle');
 
   await supabaseAdmin.from('app_users').upsert({
     phone: customerPhone,
@@ -486,7 +496,6 @@ test('RF-REQ-10 — Duplicate vendor referral blocked gracefully', async ({ page
     localStorage.setItem('aaspaas:welcomed', 'true');
   });
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   await page.locator('button').filter({ hasText: '🏪 Shop' }).click();
   await page.getByPlaceholder('Ramesh Kumar').fill('RF10 Owner');

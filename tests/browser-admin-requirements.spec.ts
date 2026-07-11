@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { loginAsAdmin, loginAsCustomer, waitForSettingsAdminReady, APP_URL } from './helpers/browser-setup';
+import {
+  loginAsAdminViaSession,
+  loginAsCustomer,
+  waitForSettingsAdminReady,
+  ensureTestAdminUser,
+  getAdminSessionClient,
+  APP_URL,
+} from './helpers/browser-setup';
 import {
   supabase,
   supabaseAdmin,
@@ -239,11 +246,12 @@ async function mockAdminVendorListFetch(
   });
 }
 
+test.beforeAll(async () => {
+  await ensureTestAdminUser();
+});
+
 async function openAdminPanel(page: import('@playwright/test').Page) {
-  await loginAsAdmin(page, DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
-  await page.getByTestId('settings-tab-admin').click();
+  await loginAsAdminViaSession(page, DEVICE_ID);
   await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 8000 });
 }
 
@@ -556,7 +564,8 @@ test('ADM-REQ-08 — Stuck orders metric reflects real seeded data', async ({ pa
 test('ADM-REQ-09 — Ban requires reason, uses admin_ban_vendor RPC, creates audit row', async ({ page }) => {
   test.skip(true, PHASE_D_TEST_DEBT);
   const vendor = await seedVendor('req09');
-  await supabase.rpc('admin_unban_vendor', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: vendor.id,
   });
@@ -595,7 +604,8 @@ test('ADM-REQ-09 — Ban requires reason, uses admin_ban_vendor RPC, creates aud
 
 test('ADM-REQ-10 — Banned vendor shows distinct badge', async ({ page }) => {
   const vendor = await seedVendor('req10');
-  await supabase.rpc('admin_ban_vendor', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: vendor.id,
     p_reason: `Badge test ${T}`,
@@ -609,7 +619,8 @@ test('ADM-REQ-10 — Banned vendor shows distinct badge', async ({ page }) => {
 test('ADM-REQ-11 — Unban notifies vendor via RPC', async ({ page }) => {
   test.skip(true, PHASE_D_TEST_DEBT);
   const vendor = await seedVendor('req11');
-  await supabase.rpc('admin_ban_vendor', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_ban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: vendor.id,
     p_reason: `Unban test ${T}`,
@@ -645,7 +656,8 @@ test('ADM-REQ-12 — Admin action creates audit_actions row with full details', 
   await openAdminPanel(page);
   await findVendorRow(page, vendor);
 
-  await supabase.rpc('admin_verify_vendor', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_verify_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: vendor.id,
   });

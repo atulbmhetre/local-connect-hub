@@ -3,6 +3,7 @@ import { Camera, ChevronDown, Loader2, MapPin, Mic } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getVoiceLang } from "@/lib/voiceUtils";
+import { isValidPaymentUtr } from "@/lib/validation";
 import {
   Sheet,
   SheetContent,
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, isPhoneKnown, migrateUserPhone } from "@/lib/userIdentity";
+import { filterMenuItemsByCategoryContext } from "@/lib/categoryScopedVendor";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
@@ -57,6 +59,7 @@ type VendorMenuItem = {
   price: number;
   unit?: string | null;
   is_available: boolean;
+  category_id?: string | null;
 };
 
 export type ParchiPaymentOrder = {
@@ -77,6 +80,10 @@ type Props = {
   vendor: Vendor | null;
   vendorId?: string | null;
   serviceMode?: string | null;
+  /** Matched/search category id from Radar (optional; RPC falls back to primary). */
+  orderCategoryId?: string | null;
+  /** Display label for the matched category (used in vendor push title). */
+  orderCategoryLabel?: string | null;
   isOpen: boolean;
   onClose: () => void;
   /** Fulfilled order with payment details (optional). */
@@ -121,6 +128,8 @@ export function ParchiSheet({
   vendor,
   vendorId: vendorIdProp,
   serviceMode: serviceModeProp,
+  orderCategoryId = null,
+  orderCategoryLabel = null,
   isOpen,
   onClose,
   order,
@@ -148,6 +157,9 @@ export function ParchiSheet({
   const [appointmentTime, setAppointmentTime] = useState("");
   const [appointmentLocation, setAppointmentLocation] = useState<"home" | "shop" | "decide">("decide");
   const [deliverySlot, setDeliverySlot] = useState<string>("asap");
+  const [appointmentTiming, setAppointmentTiming] = useState<"instant" | "scheduled">(
+    "scheduled",
+  );
   const [offlineApptError, setOfflineApptError] = useState(false);
   const [trustBlock, setTrustBlock] = useState<"banned" | "suspended" | null>(null);
   const [lowTrustSheetOpen, setLowTrustSheetOpen] = useState(false);
@@ -197,6 +209,7 @@ export function ParchiSheet({
     setAppointmentTime("");
     setAppointmentLocation("decide");
     setDeliverySlot("asap");
+    setAppointmentTiming("scheduled");
     setOfflineApptError(false);
     setSelectedAddressId(null);
     setNewAddress("");
@@ -224,6 +237,14 @@ export function ParchiSheet({
   const resolvedServiceMode =
     serviceModeProp ?? effectiveVendor?.service_mode ?? "help";
   const isDeliveryMode = resolvedServiceMode === "delivery";
+  const isAppointmentMode = resolvedServiceMode === "appointment";
+  const isHelpMode = resolvedServiceMode === "help";
+
+  useEffect(() => {
+    if (!isOpen || effectiveVendor?.is_active !== false) return;
+    if (deliverySlot === "asap") setDeliverySlot("tomorrow");
+    if (appointmentTiming === "instant") setAppointmentTiming("scheduled");
+  }, [isOpen, effectiveVendor?.is_active, deliverySlot, appointmentTiming]);
 
   useEffect(() => {
     if (!isOpen || !resolvedVendorId) return;
@@ -232,7 +253,7 @@ export function ParchiSheet({
     void (async () => {
       const { data, error } = await supabase
         .from("vendor_menu_items")
-        .select("id, name, description, price, unit, is_available")
+        .select("id, name, description, price, unit, is_available, category_id")
         .eq("vendor_id", resolvedVendorId)
         .eq("is_available", true)
         .order("name", { ascending: true });
@@ -241,12 +262,14 @@ export function ParchiSheet({
         setMenuItems([]);
         return;
       }
-      setMenuItems(data as VendorMenuItem[]);
+      setMenuItems(
+        filterMenuItemsByCategoryContext(data as VendorMenuItem[], orderCategoryId),
+      );
     })();
     return () => {
       cancelled = true;
     };
-  }, [isOpen, resolvedVendorId, message]);
+  }, [isOpen, resolvedVendorId, message, orderCategoryId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -260,8 +283,8 @@ export function ParchiSheet({
   useEffect(() => {
     if (!isOpen || !effectiveVendor) return;
     const needsSilentCapture =
-      effectiveVendor.service_mode === "delivery" ||
-      (effectiveVendor.service_mode === "appointment" && appointmentLocation === "home");
+      resolvedServiceMode === "delivery" ||
+      (resolvedServiceMode === "appointment" && appointmentLocation === "home");
     if (!needsSilentCapture || !navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
@@ -274,18 +297,18 @@ export function ParchiSheet({
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 60_000 },
     );
-  }, [isOpen, effectiveVendor?.service_mode, appointmentLocation]);
+  }, [isOpen, resolvedServiceMode, appointmentLocation]);
 
   useEffect(() => {
     if (
-      effectiveVendor?.service_mode === "appointment" &&
+      resolvedServiceMode === "appointment" &&
       appointmentLocation !== "home" &&
       !shareLocationEnabled
     ) {
       setCustomerLat(null);
       setCustomerLng(null);
     }
-  }, [appointmentLocation, effectiveVendor?.service_mode, shareLocationEnabled]);
+  }, [appointmentLocation, resolvedServiceMode, shareLocationEnabled]);
 
   const handleShareLocationToggle = useCallback(async (enabled: boolean) => {
     setShareLocationEnabled(enabled);
@@ -463,29 +486,35 @@ export function ParchiSheet({
       if (!v) return;
       const text = message.trim();
       const needsAddress =
-        effectiveVendor?.service_mode === "delivery" ||
-        (effectiveVendor?.service_mode === "appointment" && appointmentLocation === "home");
+        resolvedServiceMode === "delivery" ||
+        (resolvedServiceMode === "appointment" && appointmentLocation === "home");
       const finalAddress = needsAddress
         ? selectedAddressId
           ? (addresses.find((a) => a.id === selectedAddressId)?.address_text ?? "")
           : newAddress.trim()
         : null;
       const locationNote =
-        effectiveVendor?.service_mode === "appointment"
+        resolvedServiceMode === "appointment"
           ? appointmentLocation === "home"
             ? s.parchi_locationComeToMe
             : appointmentLocation === "shop"
               ? s.parchi_locationVisitShop
               : s.parchi_locationTbd
           : "";
-      const appointmentTimestamp =
-        effectiveVendor?.service_mode === "appointment" && appointmentDate && appointmentTime
+      const isInstantAppointment =
+        isAppointmentMode && appointmentTiming === "instant" && v.is_active === true;
+      const appointmentTimestamp = isInstantAppointment
+        ? getDeliverySlotDeadline("asap")
+        : isAppointmentMode && appointmentDate && appointmentTime
           ? new Date(`${appointmentDate}T${appointmentTime}:00`).toISOString()
           : null;
-      const selectedSlot =
-        effectiveVendor?.service_mode === "delivery" ? deliverySlot : null;
+      const selectedSlot = isDeliveryMode ? deliverySlot : null;
 
-      if (effectiveVendor?.service_mode === "delivery") {
+      if (isDeliveryMode) {
+        if (selectedSlot === "asap" && v.is_active !== true) {
+          toast.error(s.parchi_errVendorNotLiveAsap);
+          return;
+        }
         const slotDeadline = getDeliverySlotDeadline(selectedSlot);
         if (slotDeadline != null && new Date(slotDeadline) < new Date()) {
           toast.error(s.parchi_slot_expired);
@@ -493,13 +522,18 @@ export function ParchiSheet({
         }
       }
 
-      if (effectiveVendor?.service_mode === "appointment") {
+      if (isAppointmentMode) {
+        if (!isInstantAppointment && appointmentTimestamp == null) {
+          toast.error(s.parchi_errNoDateTime);
+          return;
+        }
         if (appointmentTimestamp != null && new Date(appointmentTimestamp) < new Date()) {
           toast.error(s.parchi_appointment_expired);
           return;
         }
         if (
-          effectiveVendor.is_active === false &&
+          !isInstantAppointment &&
+          v.is_active === false &&
           appointmentTimestamp != null &&
           new Date(appointmentTimestamp).getTime() - Date.now() < 2 * 60 * 60 * 1000
         ) {
@@ -523,13 +557,15 @@ export function ParchiSheet({
                 p_delivery_address: finalAddress,
                 p_delivery_slot: selectedSlot,
                 p_delivery_slot_deadline:
-                  effectiveVendor?.service_mode === "delivery"
+                  resolvedServiceMode === "delivery"
                     ? getDeliverySlotDeadline(selectedSlot)
                     : null,
                 p_appointment_time: appointmentTimestamp,
                 p_appointment_status: appointmentTimestamp ? "pending" : null,
                 p_customer_latitude: customerLat ?? null,
                 p_customer_longitude: customerLng ?? null,
+                p_appointment_instant: isInstantAppointment,
+                p_category_id: orderCategoryId ?? null,
               }),
             ),
           {
@@ -542,7 +578,12 @@ export function ParchiSheet({
         dismissNetworkRetryingToast();
         if (error) {
           setSending(false);
-          toast.error(s.parchi_errCouldNotSend, { description: error.message });
+          const msg = error.message ?? "";
+          if (msg.includes("vendor_not_live_for_asap") || msg.includes("vendor_not_live_for_instant")) {
+            toast.error(s.parchi_errVendorNotLiveAsap);
+          } else {
+            toast.error(s.parchi_errCouldNotSend, { description: error.message });
+          }
           return;
         }
         void upsertUser(phone);
@@ -555,7 +596,7 @@ export function ParchiSheet({
           .trim();
         void invokeNotifyVendor({
           vendor_id: v.id,
-          category: v.category,
+          category: orderCategoryLabel?.trim() || v.category,
           message: notifyBody,
           type: "new_order",
           request_id: insertedId,
@@ -572,9 +613,7 @@ export function ParchiSheet({
         }
         setSending(false);
         toast.success(
-          v.service_mode === "appointment"
-            ? s.parchi_toastBookingSuccess
-            : s.parchi_toastOrderSuccess,
+          isAppointmentMode ? s.parchi_toastBookingSuccess : s.parchi_toastOrderSuccess,
         );
         try {
           sessionStorage.setItem(`aaspaas:parchi:${v.id}`, "1");
@@ -612,7 +651,11 @@ export function ParchiSheet({
       appointmentDate,
       appointmentTime,
       appointmentLocation,
+      appointmentTiming,
       deliverySlot,
+      resolvedServiceMode,
+      isAppointmentMode,
+      isDeliveryMode,
       config.maxOrderMessageChars,
       s,
     ],
@@ -628,8 +671,8 @@ export function ParchiSheet({
         return;
       }
       const needsAddress =
-        effectiveVendor?.service_mode === "delivery" ||
-        (effectiveVendor?.service_mode === "appointment" && appointmentLocation === "home");
+        resolvedServiceMode === "delivery" ||
+        (resolvedServiceMode === "appointment" && appointmentLocation === "home");
       const finalAddress = needsAddress
         ? selectedAddressId
           ? (addresses.find((a) => a.id === selectedAddressId)?.address_text ?? "")
@@ -640,13 +683,18 @@ export function ParchiSheet({
         toast.error(s.parchi_errNoAddress);
         return;
       }
-      if (effectiveVendor?.service_mode === "appointment") {
-        if (!appointmentDate || !appointmentTime) {
+      if (isAppointmentMode) {
+        const isInstant =
+          appointmentTiming === "instant" && effectiveVendor?.is_active === true;
+        if (!isInstant && (!appointmentDate || !appointmentTime)) {
           toast.error(s.parchi_errNoDateTime);
           return;
         }
         if (
-          effectiveVendor.is_active === false &&
+          !isInstant &&
+          effectiveVendor?.is_active === false &&
+          appointmentDate &&
+          appointmentTime &&
           new Date(`${appointmentDate}T${appointmentTime}:00`).getTime() - Date.now() <
             2 * 60 * 60 * 1000
         ) {
@@ -678,7 +726,7 @@ export function ParchiSheet({
       }
 
       if (score != null && score >= 25 && score <= 49) {
-        if (effectiveVendor?.service_mode === "help") {
+        if (resolvedServiceMode === "help") {
           toast.error("Help mode is currently unavailable for your account");
           onClose();
           return;
@@ -708,6 +756,9 @@ export function ParchiSheet({
       appointmentDate,
       appointmentTime,
       appointmentLocation,
+      appointmentTiming,
+      isAppointmentMode,
+      resolvedServiceMode,
       s,
     ],
   );
@@ -756,8 +807,8 @@ export function ParchiSheet({
     const v = effectiveVendor as VendorWithQr | null;
     if (!order || !v) return;
     const trimmed = paymentUtr.trim();
-    if (!trimmed) {
-      toast.error(s.payment_utr_empty);
+    if (!isValidPaymentUtr(trimmed)) {
+      toast.error(trimmed ? s.payment_utr_invalid : s.payment_utr_empty);
       return;
     }
     setUtrSubmitting(true);
@@ -808,7 +859,9 @@ export function ParchiSheet({
     ];
 
     return all.filter(
-      (slot) => slot.alwaysShow || (slot.cutoffHour !== undefined && hour < slot.cutoffHour),
+      (slot) =>
+        (slot.alwaysShow || (slot.cutoffHour !== undefined && hour < slot.cutoffHour)) &&
+        (slot.value !== "asap" || online),
     );
   };
 
@@ -829,7 +882,7 @@ export function ParchiSheet({
           >
           <SheetHeader className="sr-only">
             <SheetTitle>
-              {effectiveVendor?.service_mode === "appointment"
+              {resolvedServiceMode === "appointment"
                 ? `${s.parchi_titleBook}${effectiveVendor?.shop_name ?? ""}`
                 : `${s.parchi_titleOrder}${effectiveVendor?.shop_name ?? ""}`}
             </SheetTitle>
@@ -849,7 +902,7 @@ export function ParchiSheet({
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-1.5">
-              {effectiveVendor?.service_mode === "appointment" ? (
+              {resolvedServiceMode === "appointment" ? (
                 online ? (
                   <>{s.parchi_onlineBooking}</>
                 ) : (
@@ -887,8 +940,8 @@ export function ParchiSheet({
             )}
             {!trustBlock && (
             <>
-            {(effectiveVendor?.service_mode === "delivery" ||
-              (effectiveVendor?.service_mode === "appointment" && appointmentLocation === "home")) && (
+            {(resolvedServiceMode === "delivery" ||
+              (resolvedServiceMode === "appointment" && appointmentLocation === "home")) && (
               <div className="space-y-2">
                 <p className="text-xs text-gray-400 flex items-center gap-1">
                   <MapPin className="h-3 w-3" /> {s.parchi_deliveryAddress}
@@ -952,7 +1005,7 @@ export function ParchiSheet({
               </div>
             )}
 
-            {effectiveVendor?.service_mode === "appointment" && (
+            {isAppointmentMode && (
               <div className="space-y-3">
                 <div className="space-y-2">
                   <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">{s.parchi_whereQuestion}</p>
@@ -995,33 +1048,67 @@ export function ParchiSheet({
                 <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
                   {s.parchi_whenAppt}
                 </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-500">{s.parchi_dateLabel}</label>
-                    <input
-                      type="date"
-                      value={appointmentDate}
-                      min={new Date().toISOString().split("T")[0]}
-                      onChange={(e) => {
-                        setAppointmentDate(e.target.value);
+                <div className="grid grid-cols-1 gap-2">
+                  {online && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAppointmentTiming("instant");
                         setOfflineApptError(false);
                       }}
-                      className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-500">{s.parchi_timeLabel}</label>
-                    <input
-                      type="time"
-                      value={appointmentTime}
-                      onChange={(e) => {
-                        setAppointmentTime(e.target.value);
-                        setOfflineApptError(false);
-                      }}
-                      className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
-                    />
-                  </div>
+                      className={`rounded-xl border py-2.5 px-3 text-sm font-semibold text-left transition-colors ${
+                        appointmentTiming === "instant"
+                          ? "border-brand bg-brand/15 text-brand"
+                          : "border-surface-border bg-surface text-gray-400"
+                      }`}
+                    >
+                      {s.parchi_appointmentInstantEmoji}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppointmentTiming("scheduled");
+                      setOfflineApptError(false);
+                    }}
+                    className={`rounded-xl border py-2.5 px-3 text-sm font-semibold text-left transition-colors ${
+                      appointmentTiming === "scheduled"
+                        ? "border-brand bg-brand/15 text-brand"
+                        : "border-surface-border bg-surface text-gray-400"
+                    }`}
+                  >
+                    {s.parchi_appointmentScheduled}
+                  </button>
                 </div>
+                {appointmentTiming === "scheduled" && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-xs text-gray-500">{s.parchi_dateLabel}</label>
+                      <input
+                        type="date"
+                        value={appointmentDate}
+                        min={new Date().toISOString().split("T")[0]}
+                        onChange={(e) => {
+                          setAppointmentDate(e.target.value);
+                          setOfflineApptError(false);
+                        }}
+                        className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-gray-500">{s.parchi_timeLabel}</label>
+                      <input
+                        type="time"
+                        value={appointmentTime}
+                        onChange={(e) => {
+                          setAppointmentTime(e.target.value);
+                          setOfflineApptError(false);
+                        }}
+                        className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
+                      />
+                    </div>
+                  </div>
+                )}
                 {offlineApptError && (
                   <p className="text-xs text-amber-600 leading-snug">
                     {s.parchi_offline_appt_too_soon}
@@ -1030,7 +1117,7 @@ export function ParchiSheet({
               </div>
             )}
 
-            {effectiveVendor?.service_mode === "delivery" && (
+            {isDeliveryMode && (
               <div className="space-y-2">
                 <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
                   {s.parchi_whenDelivery}
@@ -1196,7 +1283,7 @@ export function ParchiSheet({
                 htmlFor="parchi-message"
                 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5 block"
               >
-                {effectiveVendor?.service_mode === "appointment"
+                {resolvedServiceMode === "appointment"
                   ? s.parchi_whenAppt
                   : s.parchi_orderLabel}
               </label>
@@ -1208,7 +1295,7 @@ export function ParchiSheet({
                 onChange={(e) => setMessage(e.target.value.slice(0, config.maxOrderMessageChars))}
                 rows={5}
                 placeholder={
-                  effectiveVendor?.service_mode === "appointment"
+                  resolvedServiceMode === "appointment"
                     ? s.parchi_placeholderAppt
                     : s.parchi_placeholderOrder
                 }
@@ -1246,7 +1333,7 @@ export function ParchiSheet({
               {len}{s.parchi_charSeparator}{config.maxOrderMessageChars}
             </div>
 
-            {effectiveVendor?.service_mode === "help" && (
+            {resolvedServiceMode === "help" && (
               <div className="space-y-1.5 mt-3">
                 <label className="flex items-center gap-2.5 cursor-pointer">
                   <input
@@ -1374,8 +1461,12 @@ export function ParchiSheet({
                         <input
                           id="parchi-payment-utr"
                           type="text"
+                          inputMode="numeric"
+                          maxLength={12}
                           value={paymentUtr}
-                          onChange={(e) => setPaymentUtr(e.target.value)}
+                          onChange={(e) =>
+                            setPaymentUtr(e.target.value.replace(/\D/g, "").slice(0, 12))
+                          }
                           className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
                         />
                         <button
@@ -1414,7 +1505,7 @@ export function ParchiSheet({
           </div>
           {!trustBlock && (
             <div className="shrink-0 border-t border-surface-border bg-page-bg px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2">
-              {effectiveVendor?.service_mode === "appointment" ? (
+              {resolvedServiceMode === "appointment" ? (
                 <p className="text-[11px] text-muted-foreground text-center">
                   {s.parchi_cancellationAppt}
                 </p>
@@ -1432,7 +1523,7 @@ export function ParchiSheet({
               >
                 {sending
                   ? "..."
-                  : effectiveVendor?.service_mode === "appointment"
+                  : resolvedServiceMode === "appointment"
                     ? s.parchi_btnConfirmBooking
                     : s.parchi_btnSendOrder}
               </button>

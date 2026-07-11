@@ -1,11 +1,25 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_SESSION } from './helpers/setup';
 
 const T = Date.now();
 const LOCAL_CUSTOMER_PHONE = `8800${String(T).slice(-6)}`;
 const TEST_DEVICE_ID = `device_khata_${TEST_SESSION}`;
 let testVendor: any;
+
+async function waitForOrdersLoaded(page: Page) {
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="incoming-orders-section"]')?.getAttribute('data-loading') === 'false',
+    { timeout: 20000 },
+  );
+}
+
+async function waitForLedgerLoaded(page: Page) {
+  await page.waitForFunction(
+    () => document.querySelector('[data-loading]')?.getAttribute('data-loading') === 'false',
+    { timeout: 20000 },
+  );
+}
 
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
@@ -50,24 +64,22 @@ async function seedKhataBill(requestId: string, amount: number) {
 
 test('BK-UI-01: vendor send bill button visible on accepted order', async ({ page }) => {
   await seedAcceptedOrder('Bill button test');
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(1500);
+  await waitForOrdersLoaded(page);
   await page.reload();
-  await page.waitForLoadState('networkidle');
+  await waitForOrdersLoaded(page);
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('incoming-bill-btn').first()).toBeVisible({ timeout: 8000 });
 });
 
 test('BK-UI-02: bill sheet opens when send bill clicked', async ({ page }) => {
   await seedAcceptedOrder('Bill sheet test');
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(1500);
+  await waitForOrdersLoaded(page);
   await page.reload();
-  await page.waitForLoadState('networkidle');
+  await waitForOrdersLoaded(page);
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
   await page.getByTestId('incoming-bill-btn').first().click();
   await expect(page.getByTestId('bill-sheet')).toBeVisible({ timeout: 5000 });
@@ -97,18 +109,17 @@ test('BK-DB-02: khata bill creates ledger entry with correct outstanding', async
 test('BK-UI-03: ledger screen accessible for vendor', async ({ page }) => {
   const order = await seedAcceptedOrder('Ledger UI test');
   await seedKhataBill(order!.id, 300);
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/ledger`);
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('ledger-screen')).toBeVisible({ timeout: 8000 });
 });
 
 test('BK-UI-04: ledger balance visible on ledger screen', async ({ page }) => {
   const order = await seedAcceptedOrder('Balance display test');
   await seedKhataBill(order!.id, 750);
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/ledger`);
-  await page.waitForLoadState('networkidle');
+  await waitForLedgerLoaded(page);
   await expect(page.getByTestId('ledger-screen')).toBeVisible({ timeout: 8000 });
   // Balance testid is on the customer detail sheet — open the seeded entry
   await page.getByRole('button', { name: /₹750\.00/ }).click();

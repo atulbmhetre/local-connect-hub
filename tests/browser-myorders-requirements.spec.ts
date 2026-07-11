@@ -151,7 +151,6 @@ async function openParchiSheet(
       ? `&q=${encodeURIComponent(vendor.category)}`
       : '';
   await page.goto(`${APP_URL}/radar?mode=${mode}${q}`);
-  await page.waitForLoadState('networkidle');
   const card = page.locator(`#radar-vendor-card-${vendor.id}`);
   await expect(card).toBeVisible({ timeout: 30000 });
   await card.getByTestId('radar-vendor-card-order-btn').click({ timeout: 10000 });
@@ -174,7 +173,6 @@ async function openHelpParchiSheet(
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
   await page.goto(`${APP_URL}/radar?mode=help`);
-  await page.waitForLoadState('networkidle');
 
   const byShop = page.getByTestId('radar-vendor-card').filter({ hasText: vendor.shop_name });
   await expect(byShop.first()).toBeVisible({ timeout: 20000 });

@@ -1,5 +1,5 @@
 import { test, expect, Page, Locator } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -219,7 +219,6 @@ async function gotoRadar(
   if (opts.mode) params.set('mode', opts.mode);
   const qs = params.toString();
   await page.goto(`${APP_URL}/radar${qs ? `?${qs}` : ''}`);
-  await page.waitForLoadState('networkidle');
 }
 
 function vendorCard(page: Page, shopName: string): Locator {
@@ -559,6 +558,7 @@ test('RV-REQ-14 — Vendor sees reviews in Settings → My Reviews', async ({ pa
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 20000 });
+  await openVendorPreferencesTab(page);
 
   const reviewsHeader = page.getByRole('button', { name: new RegExp(L.reviewMyReviews, 'i') });
   await reviewsHeader.scrollIntoViewIfNeeded();
@@ -595,6 +595,7 @@ test('RV-REQ-15 — Vendor can respond to a review', async ({ page }) => {
 
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await openVendorPreferencesTab(page);
   await page.getByRole('button', { name: new RegExp(L.reviewMyReviews, 'i') }).click();
 
   const reviewCard = page.locator('div.rounded-xl').filter({ hasText: reviewText });
@@ -644,6 +645,7 @@ test('RV-REQ-16 — Vendor response visible on review card after submit', async 
 
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await openVendorPreferencesTab(page);
   await page.getByRole('button', { name: new RegExp(L.reviewMyReviews, 'i') }).click();
 
   const reviewCard = page.locator('div.rounded-xl').filter({ hasText: reviewText });

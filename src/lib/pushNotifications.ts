@@ -64,7 +64,7 @@ async function showForegroundNotification(notification: PushNotificationSchema):
 }
 
 export function navigateFromPushData(data: Record<string, unknown> | undefined): void {
-  if (!data || data.type === "location_ping") return;
+  if (!data) return;
   const navigate = getAppNavigate();
   if (!navigate) {
     if (typeof data.route === "string" && data.route.trim()) {
@@ -73,42 +73,6 @@ export function navigateFromPushData(data: Record<string, unknown> | undefined):
     return;
   }
   handlePushNotificationData(navigate, data);
-}
-
-async function handleLocationPing(data: Record<string, string> | undefined): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
-  if (data?.type !== "location_ping") return;
-
-  const vendorId = localStorage.getItem(VENDOR_ID_KEY);
-  if (!vendorId) return;
-
-  try {
-    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-      if (!("geolocation" in navigator)) {
-        reject(new Error("Geolocation not supported"));
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0,
-      });
-    });
-
-    const vendorPhone = await fetchVendorPhone(vendorId);
-    if (!vendorPhone) return;
-
-    const { error } = await patchVendorOwn(vendorId, vendorPhone, {
-      latitude: pos.coords.latitude,
-      longitude: pos.coords.longitude,
-      last_updated: new Date().toISOString(),
-    });
-    if (error) {
-      console.error("Location ping failed", error);
-    }
-  } catch {
-    /* best-effort silent ping */
-  }
 }
 
 async function ensureNotificationChannels(): Promise<void> {
@@ -177,8 +141,6 @@ async function setupPushRegistration(
   if (!foregroundListenerAttached) {
     foregroundListenerAttached = true;
     await PushNotifications.addListener("pushNotificationReceived", (notification) => {
-      void handleLocationPing(notification.data);
-      if (notification.data?.type === "location_ping") return;
       vibrateOnOrderPush(role);
       void showForegroundNotification(notification);
       console.info("Push received in foreground", notification);

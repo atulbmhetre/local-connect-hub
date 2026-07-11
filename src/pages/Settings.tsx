@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -48,6 +48,7 @@ import {
   withNetworkRetry,
 } from "@/lib/withNetworkRetry";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
+import { stopAllVendorLocationTracking } from "@/lib/vendorBackgroundLocation";
 import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { logAdminAction } from "@/lib/adminAudit";
@@ -92,6 +93,8 @@ import {
   type VendorActiveOffer,
   type VendorReferralCredits,
 } from "@/components/settings/VendorSettings";
+import { VendorMyBusiness } from "@/components/settings/VendorMyBusiness";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
@@ -383,7 +386,6 @@ const ADMIN_CONFIG_WHITELIST = [
   // Vendor behaviour
   "vendor_stopped_minutes",
   "vendor_stopped_distance_meters",
-  "location_ping_seconds",
   "max_order_message_chars",
   // Referral credits
   "referral_user_credit",
@@ -429,7 +431,6 @@ const ADMIN_CONFIG_TYPES: Partial<Record<AdminConfigKey, AdminConfigValueType>> 
   appointment_accept_timeout_hours: "number",
   vendor_stopped_minutes: "number",
   vendor_stopped_distance_meters: "number",
-  location_ping_seconds: "number",
   max_order_message_chars: "number",
   ai_category_confidence_threshold: "number",
   vendor_trial_days: "number",
@@ -465,7 +466,6 @@ const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
   appointment_accept_timeout_hours: "Appointment Accept Timeout (hours)",
   vendor_stopped_minutes: "Vendor Stopped Detection (minutes)",
   vendor_stopped_distance_meters: "Vendor Stopped Detection Distance (meters)",
-  location_ping_seconds: "Vendor Location Ping Interval (seconds)",
   max_order_message_chars: "Max Order Message Characters",
   referral_user_credit: "Referral Credit — Customer (₹)",
   referral_vendor_credit_total: "Referral Credit — Vendor Total (₹)",
@@ -554,7 +554,7 @@ type NativePermissionKind = "notifications" | "location" | "camera" | "microphon
 type NativePermissionStatuses = {
   notifications: PermissionState;
   location: PermissionState;
-  camera: PermissionState;
+  camera: PermissionState | "limited";
   microphone: PermissionState;
 };
 
@@ -575,7 +575,9 @@ async function checkNativePermissionStatuses(): Promise<NativePermissionStatuses
   };
 }
 
-async function requestNativePermission(kind: NativePermissionKind): Promise<PermissionState> {
+async function requestNativePermission(
+  kind: NativePermissionKind,
+): Promise<PermissionState | "limited"> {
   switch (kind) {
     case "notifications": {
       const result = await PushNotifications.requestPermissions();
@@ -623,6 +625,7 @@ const Settings = () => {
   const getServiceModeLabel = useServiceModeLabel();
   const [titleTaps, setTitleTaps] = useState(0);
   const [devOpen, setDevOpen] = useState(false);
+  const [adminTabRevealed, setAdminTabRevealed] = useState(false);
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [devMenuPin, setDevMenuPin] = useState(DEV_MENU_PIN_DEFAULT);
@@ -630,14 +633,41 @@ const Settings = () => {
   const deviceId = getDeviceId();
   const vendorId = localStorage.getItem("aaspaas:vendor_id");
   const isVendor = Boolean(vendorId?.trim());
-  const ADMIN_PHONE_FALLBACK = "8888169446";
-  const [adminPhone, setAdminPhone] = useState(ADMIN_PHONE_FALLBACK);
-  const [adminConfigLoaded, setAdminConfigLoaded] = useState(false);
-  const isAdmin =
-    userPhone != null &&
-    (userPhone === adminPhone ||
-      (!adminConfigLoaded && userPhone === ADMIN_PHONE_FALLBACK));
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminAuthChecked, setAdminAuthChecked] = useState(false);
+  const [adminLoginEmail, setAdminLoginEmail] = useState("");
+  const [adminLoginPassword, setAdminLoginPassword] = useState("");
+  const [adminLoginError, setAdminLoginError] = useState<string | null>(null);
+  const [adminLoginSubmitting, setAdminLoginSubmitting] = useState(false);
+  const [adminSessionEmail, setAdminSessionEmail] = useState<string | null>(null);
   const [devPhone, setDevPhone] = useState(userPhone ?? "");
+
+  const adminRpcLabel = () => getUserPhone()?.trim() || null;
+  const adminAuditLabel = () => getUserPhone()?.trim() || adminSessionEmail || null;
+
+  const checkAdminSession = useCallback(async (): Promise<boolean> => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) {
+      setIsAdmin(false);
+      setAdminSessionEmail(null);
+      return false;
+    }
+
+    setAdminSessionEmail(session.user.email?.trim() || null);
+
+    const { data, error } = await supabase.rpc("is_admin_session");
+    if (error) {
+      console.error("is_admin_session", error);
+      setIsAdmin(false);
+      return false;
+    }
+
+    const admin = data === true;
+    setIsAdmin(admin);
+    return admin;
+  }, []);
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [vendorExtras, setVendorExtras] = useState<{
@@ -756,6 +786,20 @@ const Settings = () => {
   } | null>(null);
   const [accountOpen, setAccountOpen] = useState(true);
   const [shopOpen, setShopOpen] = useState(() => Boolean(vendorId?.trim()));
+  const initialVendorPanelTab =
+    (location.state as { vendorSettingsTab?: string } | null)?.vendorSettingsTab === "preferences"
+      ? "preferences"
+      : "business";
+  const [vendorPanelTab, setVendorPanelTab] = useState<"business" | "preferences">(
+    initialVendorPanelTab,
+  );
+
+  useEffect(() => {
+    const tab = (location.state as { vendorSettingsTab?: string } | null)?.vendorSettingsTab;
+    if (tab === "business" || tab === "preferences") {
+      setVendorPanelTab(tab);
+    }
+  }, [location.state]);
   const [referOpen, setReferOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [deviceOpen, setDeviceOpen] = useState(false);
@@ -790,8 +834,8 @@ const Settings = () => {
     }
   };
 
-  const renderPermissionAction = (status: PermissionState, onRequest: () => void) => {
-    if (status === "granted") {
+  const renderPermissionAction = (status: PermissionState | "limited", onRequest: () => void) => {
+    if (status === "granted" || status === "limited") {
       return (
         <span className="shrink-0 text-lg leading-none" aria-label="Granted">
           ✅
@@ -914,20 +958,30 @@ const Settings = () => {
 
   useEffect(() => {
     void (async () => {
+      await checkAdminSession();
+      setAdminAuthChecked(true);
+    })();
+  }, [checkAdminSession]);
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      void checkAdminSession();
+    });
+    return () => subscription.unsubscribe();
+  }, [checkAdminSession]);
+
+  useEffect(() => {
+    void (async () => {
       const { data, error } = await supabase
         .from("app_config")
         .select("key, value")
-        .in("key", ["admin_phone", "dev_menu_pin"]);
-      if (error || !data) {
-        setAdminConfigLoaded(true);
-        return;
-      }
-      for (const row of data) {
-        const value = String(row.value ?? "").trim();
-        if (row.key === "admin_phone" && value) setAdminPhone(value);
-        if (row.key === "dev_menu_pin" && value) setDevMenuPin(value);
-      }
-      setAdminConfigLoaded(true);
+        .eq("key", "dev_menu_pin")
+        .maybeSingle();
+      if (error || !data) return;
+      const value = String(data.value ?? "").trim();
+      if (value) setDevMenuPin(value);
     })();
   }, []);
 
@@ -945,8 +999,8 @@ const Settings = () => {
   }, []);
 
   useEffect(() => {
-    if (isAdmin) setActiveTab("admin");
-  }, [isAdmin]);
+    if (isAdmin && adminTabRevealed) setActiveTab("admin");
+  }, [isAdmin, adminTabRevealed]);
 
   useEffect(() => {
     const phone = userPhone?.trim();
@@ -1106,11 +1160,8 @@ const Settings = () => {
   useEffect(() => {
     if (!isAdmin) return;
     const load = async () => {
-      const adminPhone = getUserPhone()?.trim();
-      if (!adminPhone) return;
-
       const { data, error } = await supabase.rpc("get_admin_dashboard_stats", {
-        p_admin_phone: adminPhone,
+        p_admin_phone: adminRpcLabel(),
       });
       if (error) {
         console.error("get_admin_dashboard_stats", error);
@@ -1392,7 +1443,8 @@ const Settings = () => {
 
     setLowRatings(
       (data ?? []).map((row) => {
-        const vendor = row.vendors as { shop_name: string | null } | null;
+        const vendorRaw = row.vendors as { shop_name: string | null } | { shop_name: string | null }[] | null;
+        const vendor = Array.isArray(vendorRaw) ? vendorRaw[0] : vendorRaw;
         return {
           id: row.id,
           vendor_id: row.vendor_id,
@@ -1412,11 +1464,9 @@ const Settings = () => {
   }, [isAdmin]);
 
   const loadRecommendations = async () => {
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) return;
     setRecommendationsLoading(true);
     const { data, error } = await supabase.rpc("get_recommendations_for_admin", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
     });
     setRecommendationsLoading(false);
     if (error) {
@@ -1436,15 +1486,8 @@ const Settings = () => {
     setLowRatingDeletingId(row.id);
     setLowRatings((prev) => prev.filter((r) => r.id !== row.id));
 
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setLowRatingDeletingId(null);
-      void loadLowRatings();
-      return;
-    }
-
     const { error } = await supabase.rpc("admin_delete_review", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_review_id: row.id,
     });
     if (error) {
@@ -1460,6 +1503,7 @@ const Settings = () => {
       "vendor",
       row.vendor_id,
       `review_id:${row.id} rating:${row.rating}`,
+      adminAuditLabel(),
     );
 
     setLowRatingDeletingId(null);
@@ -1633,14 +1677,8 @@ const Settings = () => {
       return next;
     });
     setAdminConfigSaving(key);
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setAdminConfigSaving(null);
-      toast.error("Admin phone required");
-      return;
-    }
     const { error } = await supabase.rpc("admin_update_app_config", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_key: key,
       p_value: newValue,
     });
@@ -1656,21 +1694,25 @@ const Settings = () => {
     if (key === "referral_enabled") {
       setReferEarnVisible(parseAdminConfigBoolean(newValue));
     }
-    logAdminAction("update_config", "config", key, `${key} = ${newValue}`);
+    logAdminAction("update_config", "config", key, `${key} = ${newValue}`, adminAuditLabel());
     toast.success(s.admin_config_updated);
   };
 
   const warnFlaggedUser = async (phone: string) => {
     setFlaggedAction(phone);
 
-    const result = await runWarnFlaggedUser(phone, {
-      localizationEnabled: config.localizationEnabled,
-      langHindiEnabled: config.langHindiEnabled,
-      langMarathiEnabled: config.langMarathiEnabled,
-    });
+    const result = await runWarnFlaggedUser(
+      phone,
+      {
+        localizationEnabled: config.localizationEnabled,
+        langHindiEnabled: config.langHindiEnabled,
+        langMarathiEnabled: config.langMarathiEnabled,
+      },
+      adminAuditLabel(),
+    );
 
     setFlaggedAction(null);
-    if (!result.ok) {
+    if (result.ok === false) {
       console.error("warnFlaggedUser", result.error);
       toast.error("Warning sent but count not saved");
       return;
@@ -1683,14 +1725,8 @@ const Settings = () => {
     const v = vendorBanDialog.vendor;
     if (!v || !vendorBanReason.trim()) return;
     setVendorBanAction(v.id);
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setVendorBanAction(null);
-      toast.error("Admin phone required");
-      return;
-    }
     const { error } = await supabase.rpc("admin_ban_vendor", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_vendor_id: v.id,
       p_reason: vendorBanReason.trim(),
     });
@@ -1708,7 +1744,7 @@ const Settings = () => {
       message: body,
       type: "account_banned",
     });
-    logAdminAction("ban_vendor", "vendor", v.id, vendorBanReason.trim());
+    logAdminAction("ban_vendor", "vendor", v.id, vendorBanReason.trim(), adminAuditLabel());
     setVendorBanAction(null);
     toast.success("Vendor banned");
     setVendorBanDialog({ open: false, vendor: null });
@@ -1719,14 +1755,8 @@ const Settings = () => {
   const unbanVendor = async (vendorId: string) => {
     setVendorBanAction(vendorId);
     const vendorRow = vendorList.find((v) => v.id === vendorId);
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setVendorBanAction(null);
-      toast.error("Admin phone required");
-      return;
-    }
     const { error } = await supabase.rpc("admin_unban_vendor", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_vendor_id: vendorId,
     });
     setVendorBanAction(null);
@@ -1739,7 +1769,7 @@ const Settings = () => {
     if (phone) {
       notifyAccountRestored(phone, "vendor", vendorId);
     }
-    logAdminAction("unban_vendor", "vendor", vendorId);
+    logAdminAction("unban_vendor", "vendor", vendorId, null, adminAuditLabel());
     toast.success("Vendor unbanned");
     await loadVendorList();
   };
@@ -1747,13 +1777,8 @@ const Settings = () => {
   const confirmBanUser = async () => {
     if (!banDialog.phone || !banReason.trim()) return;
     setFlaggedAction(banDialog.phone);
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setFlaggedAction(null);
-      return;
-    }
     const { error } = await supabase.rpc("admin_ban_user", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_user_phone: banDialog.phone,
       p_reason: banReason.trim(),
     });
@@ -1770,7 +1795,7 @@ const Settings = () => {
       body: s.user_banned_body,
       type: "account_banned",
     });
-    logAdminAction("ban_user", "user", bannedPhone, reason);
+    logAdminAction("ban_user", "user", bannedPhone, reason, adminAuditLabel());
     toast.success("User banned");
     setBanDialog({ open: false, phone: null });
     setBanReason("");
@@ -1779,13 +1804,8 @@ const Settings = () => {
 
   const unbanFlaggedUser = async (phone: string) => {
     setFlaggedAction(phone);
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setFlaggedAction(null);
-      return;
-    }
     const { error } = await supabase.rpc("admin_unban_user", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_user_phone: phone,
     });
     setFlaggedAction(null);
@@ -1794,21 +1814,15 @@ const Settings = () => {
       return;
     }
     notifyAccountRestored(phone, "settings");
-    logAdminAction("unban_user", "user", phone);
+    logAdminAction("unban_user", "user", phone, null, adminAuditLabel());
     toast.success("User unbanned");
     await loadFlaggedUsers();
   };
 
   const approvePendingCategory = async (cat: (typeof pendingCategories)[number]) => {
     setPendingAction(cat.id);
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setPendingAction(null);
-      toast.error("Admin phone required");
-      return;
-    }
     const { error } = await supabase.rpc("admin_approve_category", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_category_id: cat.id,
     });
     setPendingAction(null);
@@ -1817,20 +1831,14 @@ const Settings = () => {
       return;
     }
     await notifyCategoryVendor(cat, "approved");
-    logAdminAction("approve_category", "category", cat.id);
+    logAdminAction("approve_category", "category", cat.id, null, adminAuditLabel());
     await loadPendingCategories();
   };
 
   const rejectPendingCategory = async (cat: (typeof pendingCategories)[number]) => {
     setPendingAction(cat.id);
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setPendingAction(null);
-      toast.error("Admin phone required");
-      return;
-    }
     const { error: updateError } = await supabase.rpc("admin_reject_category", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_category_id: cat.id,
     });
     setPendingAction(null);
@@ -1839,7 +1847,7 @@ const Settings = () => {
       return;
     }
     await notifyCategoryVendor(cat, "rejected");
-    logAdminAction("reject_category", "category", cat.id);
+    logAdminAction("reject_category", "category", cat.id, null, adminAuditLabel());
     await loadPendingCategories();
   };
 
@@ -1930,14 +1938,8 @@ const Settings = () => {
     if (!verifySheet.vendor || !allChecked) return;
     setVerifying(verifySheet.vendor.id);
     const vendor = verifySheet.vendor;
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setVerifying(null);
-      toast.error("Admin phone required");
-      return;
-    }
     const { error } = await supabase.rpc("admin_verify_vendor", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_vendor_id: vendor.id,
     });
     if (error) {
@@ -1950,7 +1952,7 @@ const Settings = () => {
       title: s.vendor_approved_title,
       body: s.vendor_approved_body,
     });
-    logAdminAction("verify_vendor", "vendor", vendor.id);
+    logAdminAction("verify_vendor", "vendor", vendor.id, null, adminAuditLabel());
     localStorage.removeItem(verifyProgressKey(vendor.id));
     await loadVendorList();
     setVerifying(null);
@@ -1961,14 +1963,8 @@ const Settings = () => {
   const confirmUnverify = async (vendorId: string) => {
     if (!window.confirm(s.settings_removeVerifyConfirm)) return;
     setVerifying(vendorId);
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setVerifying(null);
-      toast.error("Admin phone required");
-      return;
-    }
     const { error } = await supabase.rpc("admin_unverify_vendor", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_vendor_id: vendorId,
     });
     if (error) {
@@ -1982,7 +1978,7 @@ const Settings = () => {
       title: s.vendor_unverified_title,
       body: s.vendor_unverified_body,
     });
-    logAdminAction("unverify_vendor", "vendor", vendorId);
+    logAdminAction("unverify_vendor", "vendor", vendorId, null, adminAuditLabel());
     await loadVendorList();
     setVerifying(null);
     toast(s.settings_verificationRemoved);
@@ -1990,14 +1986,8 @@ const Settings = () => {
 
   const setAdminCheckStatus = async (vendorId: string, status: "passed" | "failed") => {
     setAdminCheckUpdating(true);
-    const adminPhone = getUserPhone()?.trim();
-    if (!adminPhone) {
-      setAdminCheckUpdating(false);
-      toast.error("Admin phone required");
-      return;
-    }
     const { error } = await supabase.rpc("admin_set_vendor_check", {
-      p_admin_phone: adminPhone,
+      p_admin_phone: adminRpcLabel(),
       p_vendor_id: vendorId,
       p_status: status,
     });
@@ -2019,6 +2009,7 @@ const Settings = () => {
       "vendor",
       vendorId,
       "admin_check",
+      adminAuditLabel(),
     );
     toast.success(status === "passed" ? "Admin check marked passed" : "Admin check marked failed");
   };
@@ -2069,6 +2060,7 @@ const Settings = () => {
     setTitleTaps(next);
     if (next >= 7) {
       setTitleTaps(0);
+      setAdminTabRevealed(true);
       setPinInput("");
       setPinDialogOpen(true);
     }
@@ -2088,6 +2080,7 @@ const Settings = () => {
   };
 
   const reset = async () => {
+    await stopAllVendorLocationTracking();
     const phone = localStorage.getItem("aaspaas:user_phone");
     if (phone) {
       const { data: addressRows } = await supabase
@@ -2209,7 +2202,7 @@ const Settings = () => {
     setDeleteAccountLoading(false);
     setDeleteConfirmOpen(false);
 
-    if (!result.ok) {
+    if (result.ok === false) {
       toast.error(result.error);
       return;
     }
@@ -2250,7 +2243,7 @@ const Settings = () => {
     const result = await invokeCancelDeletion(phone);
     setDeleteAccountLoading(false);
 
-    if (!result.ok) {
+    if (result.ok === false) {
       toast.error(result.error);
       return;
     }
@@ -2259,15 +2252,54 @@ const Settings = () => {
     toast.success(s.delete_account_cancelled);
   };
 
+  const submitAdminLogin = async (event: FormEvent) => {
+    event.preventDefault();
+    setAdminLoginError(null);
+    setAdminLoginSubmitting(true);
+
+    const email = adminLoginEmail.trim();
+    const password = adminLoginPassword;
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setAdminLoginSubmitting(false);
+      setAdminLoginError("Invalid email or password");
+      return;
+    }
+
+    const isAdminSession = await checkAdminSession();
+    setAdminLoginSubmitting(false);
+
+    if (!isAdminSession) {
+      await supabase.auth.signOut();
+      setAdminLoginError("Invalid email or password");
+      return;
+    }
+
+    setAdminLoginPassword("");
+    setActiveTab("admin");
+  };
+
+  const logOutAdmin = async () => {
+    setAdminTabRevealed(false);
+    setIsAdmin(false);
+    setAdminSessionEmail(null);
+    setActiveTab("settings");
+    setAdminLoginEmail("");
+    setAdminLoginPassword("");
+    setAdminLoginError(null);
+    await supabase.auth.signOut();
+  };
+
   return (
     <AppShell theme="dark">
       <div
         className="pb-8"
         data-testid="settings-screen"
-        data-admin-config-loaded={adminConfigLoaded ? "true" : "false"}
+        data-admin-auth-checked={adminAuthChecked ? "true" : "false"}
       >
-      {isAdmin && (
-        <div className="flex gap-2 px-4 pt-2 pb-4" data-testid="settings-admin-tabs">
+      {adminTabRevealed && (
+      <div className="flex gap-2 px-4 pt-2 pb-4" data-testid="settings-admin-tabs">
           <button
             type="button"
             data-testid="settings-tab-settings"
@@ -2297,7 +2329,7 @@ const Settings = () => {
         </div>
       )}
 
-      {(!isAdmin || activeTab === "settings") && (
+      {(!adminTabRevealed || activeTab === "settings") && (
       <>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -2556,18 +2588,48 @@ const Settings = () => {
             <p className="text-sm text-muted-foreground px-4 mb-5">{s.settings_loading}</p>
           )}
           {vendor && vendorExtras && (
-            <VendorSettings
-              vendor={vendor}
-              onVendorUpdated={setVendor}
-              onEditShopDetails={() => navigate("/vendor")}
-              shopOpen={shopOpen}
-              onShopOpenChange={setShopOpen}
-              referEarnVisible={referEarnVisible}
-              userPhone={userPhone}
-              activeOffer={vendorExtras.activeOffer}
-              referralCredits={vendorExtras.referralCredits}
-              menuItems={vendorExtras.menuItems}
-            />
+            <Tabs
+              value={vendorPanelTab}
+              onValueChange={(v) => setVendorPanelTab(v as "business" | "preferences")}
+              className="px-4 mb-4"
+            >
+              <TabsList className="w-full grid grid-cols-2 h-11 bg-muted/80">
+                <TabsTrigger
+                  value="business"
+                  data-testid="settings-vendor-tab-business"
+                  className="text-sm font-semibold"
+                >
+                  {s.settings_myBusiness}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="preferences"
+                  data-testid="settings-vendor-tab-preferences"
+                  className="text-sm font-semibold"
+                >
+                  {s.settings_preferences}
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="business" className="mt-4">
+                <VendorMyBusiness
+                  vendor={vendor}
+                  onVendorUpdated={setVendor}
+                  userPhone={userPhone}
+                />
+              </TabsContent>
+              <TabsContent value="preferences" className="mt-4">
+                <VendorSettings
+                  vendor={vendor}
+                  onVendorUpdated={setVendor}
+                  shopOpen={shopOpen}
+                  onShopOpenChange={setShopOpen}
+                  referEarnVisible={referEarnVisible}
+                  userPhone={userPhone}
+                  activeOffer={vendorExtras.activeOffer}
+                  referralCredits={vendorExtras.referralCredits}
+                  menuItems={vendorExtras.menuItems}
+                />
+              </TabsContent>
+            </Tabs>
           )}
         </>
       )}
@@ -2795,8 +2857,75 @@ const Settings = () => {
       </>
       )}
 
-      {isAdmin && activeTab === "admin" && (
+      {adminTabRevealed && activeTab === "admin" && !adminAuthChecked && (
+        <div className="px-4 py-8 flex justify-center" data-testid="admin-auth-loading">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {adminTabRevealed && activeTab === "admin" && adminAuthChecked && !isAdmin && (
+        <SettingsCard className="mx-4 border-brand/20" data-testid="admin-login-gate">
+          <div className="px-4 py-3 border-b border-surface-border">
+            <p className="text-sm font-medium text-foreground">Admin sign in</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Sign in with your admin account to access moderation tools.
+            </p>
+          </div>
+          <form className="px-4 py-4 space-y-3" onSubmit={(e) => void submitAdminLogin(e)}>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-muted-foreground" htmlFor="admin-login-email">
+                Email
+              </label>
+              <input
+                id="admin-login-email"
+                type="email"
+                autoComplete="username"
+                value={adminLoginEmail}
+                onChange={(e) => setAdminLoginEmail(e.target.value)}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-muted-foreground" htmlFor="admin-login-password">
+                Password
+              </label>
+              <input
+                id="admin-login-password"
+                type="password"
+                autoComplete="current-password"
+                value={adminLoginPassword}
+                onChange={(e) => setAdminLoginPassword(e.target.value)}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            {adminLoginError && (
+              <p className="text-xs text-destructive" data-testid="admin-login-error">
+                {adminLoginError}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={adminLoginSubmitting || !adminLoginEmail.trim() || !adminLoginPassword}
+              className="w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground disabled:opacity-50"
+            >
+              {adminLoginSubmitting ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+        </SettingsCard>
+      )}
+
+      {adminTabRevealed && isAdmin && activeTab === "admin" && (
         <div data-testid="admin-panel">
+          <div className="px-4 pb-2 flex justify-end">
+            <button
+              type="button"
+              data-testid="admin-log-out"
+              onClick={() => void logOutAdmin()}
+              className="text-xs font-semibold text-muted-foreground underline"
+            >
+              Log out
+            </button>
+          </div>
           <SettingsCard className="border-brand/20">
             <div className="px-4 py-3 border-b border-surface-border">
               <p className="text-sm font-medium text-foreground">{s.settings_adminHealth}</p>
@@ -3434,14 +3563,8 @@ const Settings = () => {
                         return;
                       }
                       const vendorId = vendorRow.id as string;
-                      const adminPhone = getUserPhone()?.trim();
-                      if (!adminPhone) {
-                        toast.error("Admin phone required");
-                        setWaiveSubmitting(false);
-                        return;
-                      }
                       const { error: updErr } = await supabase.rpc("admin_apply_vendor_waiveoff", {
-                        p_admin_phone: adminPhone,
+                        p_admin_phone: adminRpcLabel(),
                         p_vendor_id: vendorId,
                         p_percent: percent,
                         p_months: months,
@@ -3464,6 +3587,7 @@ const Settings = () => {
                         "vendor",
                         vendorId,
                         `waiveoff:${percent}%x${months}months`,
+                        adminAuditLabel(),
                       );
                       toast.success(s.admin_sub_waiveoff_applied);
                       setWaiveSubmitting(false);

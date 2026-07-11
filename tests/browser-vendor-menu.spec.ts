@@ -1,24 +1,18 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, APP_URL } from './helpers/browser-setup';
-import { supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
+import { supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 let testVendor: any;
 
 async function openMenuSection(page: any) {
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
-  // MY SHOP is open by default for vendors — but click to ensure
-  const myShop = page.getByRole('button', { name: /my shop/i }).first();
-  await expect(myShop).toBeVisible({ timeout: 8000 });
-  const shopContent = page.getByText(/my menu/i).first();
-  const shopAlreadyOpen = await shopContent.isVisible({ timeout: 1000 }).catch(() => false);
-  if (!shopAlreadyOpen) await myShop.click();
-  await page.waitForTimeout(500);
-  // Open "My Menu / Price List" sub-section
+  await openVendorPreferencesTab(page);
   const menuCollapsible = page.getByRole('button', { name: /my menu/i }).first();
-  await expect(menuCollapsible).toBeVisible({ timeout: 5000 });
-  await menuCollapsible.click();
+  await expect(menuCollapsible).toBeVisible({ timeout: 8000 });
+  if ((await menuCollapsible.getAttribute('aria-expanded')) !== 'true') {
+    await menuCollapsible.click();
+  }
   await page.waitForTimeout(500);
 }
 
@@ -31,23 +25,23 @@ test.afterAll(async () => {
   await cleanupTestData();
 });
 
-test('MENU-01: MY SHOP section visible for vendor in settings', async ({ page }) => {
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+test('MENU-01: menu section visible for vendor in Preferences tab', async ({ page }) => {
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  await page.waitForLoadState('networkidle');
+  await openVendorPreferencesTab(page);
 
-  await expect(page.getByText('MY SHOP')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByRole('button', { name: /my menu/i }).first()).toBeVisible({ timeout: 8000 });
 });
 
 test('MENU-02: Add Item button visible in MY SHOP menu section', async ({ page }) => {
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await openMenuSection(page);
   const addBtn = page.getByRole('button', { name: /add item|add menu|new item/i }).first();
   await expect(addBtn).toBeVisible({ timeout: 8000 });
 });
 
 test('MENU-03: add menu item — inserts row in vendor_menu_items', async ({ page }) => {
-  await loginAsVendor(page, TEST_VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await openMenuSection(page);
 
   const addBtn = page.getByRole('button', { name: '+ Add Item' }).first();

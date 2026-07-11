@@ -85,7 +85,7 @@ export function handlePushNotificationData(
   navigate: NavigateFunction,
   data: Record<string, unknown> | undefined,
 ): void {
-  if (!data || data.type === "location_ping") return;
+  if (!data) return;
   const route = typeof data.route === "string" ? data.route : undefined;
   if (!route) return;
   const params = parsePushRouteParams(

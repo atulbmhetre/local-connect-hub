@@ -192,7 +192,6 @@ test('QRD-01 — decode succeeds on real QR upload, payee ID stored', async ({ p
     await page.goto(APP_URL);
     await page.evaluate(() => localStorage.clear());
     await page.goto(`${APP_URL}/vendor`);
-    await page.waitForLoadState('networkidle');
 
     await page.locator('button').filter({ hasText: L.shopType }).click();
     await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);

@@ -122,7 +122,6 @@ async function loginVendorAndWaitOrders(page: Page, vendor: VendorRow) {
   await loginAsVendor(page, vendor.phone, vendor.id, VENDOR_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 20000 });
-  await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 20000 });
 }
 

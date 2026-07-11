@@ -133,7 +133,6 @@ test('VR-E2E-01: shop vendor registers with GPS via 3-page wizard', async ({ pag
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   await completeWizardPage1Shop(page, {
     ownerName,
@@ -223,7 +222,6 @@ test('VR-MULTI-01: registration UI selects 2 categories and persists both in ven
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
   await page.getByRole('button', { name: 'Browse all categories' }).click();
@@ -287,7 +285,6 @@ test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode categ
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   await completeWizardPage1Shop(page, {
     ownerName,
@@ -302,14 +299,12 @@ test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode categ
   await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('No orders yet!')).toBeVisible({ timeout: 10000 });
 
-  await page.getByRole('button', { name: /Complete your verification/i }).click();
-  await page.getByRole('button', { name: /Edit Shop Details/i }).click();
-  await expect(page.getByRole('heading', { name: 'Edit Shop Details' })).toBeVisible({
-    timeout: 10000,
-  });
-  const editSheet = page.locator('[role="dialog"]').filter({ hasText: 'Edit Shop Details' });
-  await expect(editSheet.getByText(deliveryCat.label).first()).toBeVisible();
-  await expect(editSheet.getByText('🚚 Delivery').first()).toBeVisible();
+  await page.getByRole('button', { name: /Complete verification in Settings/i }).click();
+  await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('vendor-my-business')).toBeVisible({ timeout: 10000 });
+  const myBusiness = page.getByTestId('vendor-my-business');
+  await expect(myBusiness.getByText(deliveryCat.label).first()).toBeVisible();
+  await expect(myBusiness.getByText('🚚 Delivery').first()).toBeVisible();
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
     .from('vendors')
@@ -347,7 +342,6 @@ test('VR-SHOP-APPT-01: shop vendor registers via UI with appointment-mode catego
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   await completeWizardPage1Shop(page, {
     ownerName,
@@ -362,14 +356,12 @@ test('VR-SHOP-APPT-01: shop vendor registers via UI with appointment-mode catego
   await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('No orders yet!')).toBeVisible({ timeout: 10000 });
 
-  await page.getByRole('button', { name: /Complete your verification/i }).click();
-  await page.getByRole('button', { name: /Edit Shop Details/i }).click();
-  await expect(page.getByRole('heading', { name: 'Edit Shop Details' })).toBeVisible({
-    timeout: 10000,
-  });
-  const editSheet = page.locator('[role="dialog"]').filter({ hasText: 'Edit Shop Details' });
-  await expect(editSheet.getByText(appointmentCat.label).first()).toBeVisible();
-  await expect(editSheet.getByText('🗓️ Appointment').first()).toBeVisible();
+  await page.getByRole('button', { name: /Complete verification in Settings/i }).click();
+  await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('vendor-my-business')).toBeVisible({ timeout: 10000 });
+  const myBusiness = page.getByTestId('vendor-my-business');
+  await expect(myBusiness.getByText(appointmentCat.label).first()).toBeVisible();
+  await expect(myBusiness.getByText('🗓️ Appointment').first()).toBeVisible();
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
     .from('vendors')
@@ -426,7 +418,6 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForLoadState('networkidle');
 
   await completeWizardPage1Shop(page, {
     ownerName,

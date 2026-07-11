@@ -171,14 +171,12 @@ test('HM-07b: helped counter does not duplicate on same order', async () => {
   expect(after?.total_helped).toBe(currentCount);
 });
 
-test('HM-02c: vendor GPS ping interval config exists', async () => {
+test('HM-02c: FCM location_ping config retired (Capgo watcher owns Help GPS)', async () => {
   const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'location_ping_seconds')
-    .single();
+    .maybeSingle();
 
-  expect(data).not.toBeNull();
-  const seconds = parseInt(data!.value);
-  expect(seconds).toBe(60);
+  expect(data).toBeNull();
 });
