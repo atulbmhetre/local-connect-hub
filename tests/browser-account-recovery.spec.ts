@@ -20,7 +20,20 @@ const EXISTING_PHONE = uniqueBrowserPhone('8802');
 let testVendor: { id: string; shop_name: string };
 
 test.beforeAll(async () => {
-  testVendor = await createTestVendor({ service_mode: 'delivery', is_active: true });
+  // Delivery empty-browse requires customer-place reach (same as SLOT-01 / RA-01).
+  testVendor = await createTestVendor({
+    service_mode: 'delivery',
+    serves_at_customer_place: true,
+    is_active: true,
+  });
+  await supabaseAdmin
+    .from('vendors')
+    .update({ serves_at_customer_place: true, service_mode: 'delivery', is_active: true })
+    .eq('id', testVendor.id);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ serves_at_customer_place: true })
+    .eq('vendor_id', testVendor.id);
 });
 
 test.afterEach(async () => {

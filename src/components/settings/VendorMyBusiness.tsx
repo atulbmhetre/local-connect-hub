@@ -3,6 +3,7 @@ import { Camera, CheckCircle2, Loader2, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
+import { BusinessVerificationBadge } from "@/components/VerificationBadge";
 import { SettingsCard, SettingsSectionLabel } from "@/components/settings/SettingsSection";
 import {
   supabase,
@@ -45,9 +46,29 @@ import {
   showNetworkFailedToast,
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
+import {
+  inheritCategorySettingsFromAccount,
+} from "@/lib/categoryScopedVendor";
+import { BusinessSetupSheet } from "@/components/vendor/BusinessSetupSheet";
 
 type RegCategoryRow = Pick<Category, "id" | "label" | "emoji"> & {
   service_mode: string;
+  shop_photo_url?: string | null;
+  gps_match_distance?: number | null;
+  verification_status?: string | null;
+  is_manual_verified?: boolean | null;
+  vendor_note?: string | null;
+};
+
+type CategoryEditSettings = {
+  brand_name: string;
+  reachChoice: ReachChoiceValue;
+  service_radius_km: number | null;
+  vendor_note: string;
+  shop_photo_url: string | null;
+  gps_match_distance: number | null;
+  verification_status: string | null;
+  is_manual_verified: boolean;
 };
 
 type Props = {
@@ -55,6 +76,62 @@ type Props = {
   onVendorUpdated: (updated: Vendor) => void;
   userPhone?: string | null;
 };
+
+function settingsFromAccount(account: {
+  shop_name?: string | null;
+  serves_at_vendor_place?: boolean | null;
+  serves_at_customer_place?: boolean | null;
+  service_radius_km?: number | null;
+}): CategoryEditSettings {
+  const inherited = inheritCategorySettingsFromAccount(account);
+  return {
+    brand_name: inherited.brand_name ?? "",
+    reachChoice:
+      reachChoiceFromFlags(
+        inherited.serves_at_vendor_place,
+        inherited.serves_at_customer_place,
+      ) || "customer",
+    service_radius_km: inherited.service_radius_km,
+    vendor_note: "",
+    shop_photo_url: null,
+    gps_match_distance: null,
+    verification_status: null,
+    is_manual_verified: false,
+  };
+}
+
+function settingsFromCategoryRow(
+  row: {
+    brand_name?: string | null;
+    serves_at_vendor_place?: boolean | null;
+    serves_at_customer_place?: boolean | null;
+    service_radius_km?: number | null;
+    vendor_note?: string | null;
+    shop_photo_url?: string | null;
+    gps_match_distance?: number | null;
+    verification_status?: string | null;
+    is_manual_verified?: boolean | null;
+  },
+  accountFallback: CategoryEditSettings,
+): CategoryEditSettings {
+  const reach =
+    reachChoiceFromFlags(row.serves_at_vendor_place, row.serves_at_customer_place) ||
+    accountFallback.reachChoice;
+  return {
+    brand_name: String(row.brand_name ?? "").trim() || accountFallback.brand_name,
+    reachChoice: reach,
+    service_radius_km:
+      row.service_radius_km != null && Number.isFinite(Number(row.service_radius_km))
+        ? Number(row.service_radius_km)
+        : accountFallback.service_radius_km,
+    vendor_note: String(row.vendor_note ?? "").trim(),
+    shop_photo_url: row.shop_photo_url ?? null,
+    gps_match_distance:
+      row.gps_match_distance != null ? Number(row.gps_match_distance) : null,
+    verification_status: row.verification_status ?? null,
+    is_manual_verified: row.is_manual_verified === true,
+  };
+}
 
 function categoryServiceModeChipLabel(
   mode: string,
@@ -184,6 +261,11 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const [availableCategories, setAvailableCategories] = useState<RegCategoryRow[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<RegCategoryRow[]>([]);
+  const [categorySettingsById, setCategorySettingsById] = useState<
+    Record<string, CategoryEditSettings>
+  >({});
+  const [photoCategoryId, setPhotoCategoryId] = useState<string | null>(null);
+  const [addBusinessOpen, setAddBusinessOpen] = useState(false);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [verifyingUpi, setVerifyingUpi] = useState(false);
@@ -194,6 +276,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const loadSeqRef = useRef(0);
   const selectedCategoryIdsRef = useRef<string[]>([]);
   const savedCategoryIdsRef = useRef<string[]>([]);
+  const [categoriesReloadKey, setCategoriesReloadKey] = useState(0);
 
   const hydrateFromVendor = useCallback((v: Vendor) => {
     setOwnerName(v.name ?? "");
@@ -226,7 +309,9 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           .order("sort_order", { ascending: true }),
         supabase
           .from("vendor_categories")
-          .select("category_id, is_primary, categories(id, label, emoji, service_mode)")
+          .select(
+            "category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, categories(id, label, emoji, service_mode)",
+          )
           .eq("vendor_id", vendor.id)
           .eq("status", "approved")
           .order("is_primary", { ascending: false }),
@@ -242,6 +327,13 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       setAvailableCategories(available);
 
       let selected: RegCategoryRow[] = [];
+      const accountDefaults = settingsFromAccount({
+        shop_name: vendor.shop_name,
+        serves_at_vendor_place: vendor.serves_at_vendor_place,
+        serves_at_customer_place: vendor.serves_at_customer_place,
+        service_radius_km: vendor.service_radius_km,
+      });
+      const nextSettings: Record<string, CategoryEditSettings> = {};
       if (!vcResult.error && vcResult.data?.length) {
         for (const row of vcResult.data) {
           const joined = row.categories;
@@ -252,12 +344,21 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
             label: cat.label,
             emoji: cat.emoji,
             service_mode: cat.service_mode,
+            shop_photo_url: row.shop_photo_url,
+            gps_match_distance: row.gps_match_distance,
+            verification_status: row.verification_status,
+            is_manual_verified: row.is_manual_verified,
+            vendor_note: row.vendor_note,
           });
+          nextSettings[cat.id] = settingsFromCategoryRow(row, accountDefaults);
         }
       }
       if (selected.length === 0 && vendor.category) {
         const legacy = available.find((c) => c.label === vendor.category);
-        if (legacy) selected = [legacy];
+        if (legacy) {
+          selected = [legacy];
+          nextSettings[legacy.id] = accountDefaults;
+        }
       }
 
       const selectedIds = selected.map((c) => c.id);
@@ -265,6 +366,10 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       savedCategoryIdsRef.current = selectedIds;
       setSelectedCategories(selected);
       setSelectedCategoryIds(selectedIds);
+      setCategorySettingsById(nextSettings);
+      setPhotoCategoryId((prev) =>
+        prev && selectedIds.includes(prev) ? prev : selectedIds[0] ?? null,
+      );
 
       const modes = (modesResult.data ?? [])
         .map((row) => row.mode as AvailabilityMode)
@@ -274,7 +379,26 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       );
       setCategoriesLoading(false);
     })();
-  }, [vendor.id, vendor.category, vendor.service_mode]);
+  }, [
+    vendor.id,
+    vendor.category,
+    vendor.service_mode,
+    vendor.shop_name,
+    vendor.serves_at_vendor_place,
+    vendor.serves_at_customer_place,
+    vendor.service_radius_km,
+    categoriesReloadKey,
+  ]);
+
+  const isMultiCategory = selectedCategoryIds.length > 1;
+
+  const accountDefaultsForInherit = (): CategoryEditSettings =>
+    settingsFromAccount({
+      shop_name: shopName.trim() || vendor.shop_name,
+      serves_at_vendor_place: reachFlagsFromChoice(reachChoice)?.serves_at_vendor_place,
+      serves_at_customer_place: reachFlagsFromChoice(reachChoice)?.serves_at_customer_place,
+      service_radius_km: serviceRadiusKm,
+    });
 
   const toggleCategory = (categoryId: string) => {
     setSelectedCategoryIds((prev) => {
@@ -295,8 +419,33 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           )
           .filter((c): c is RegCategoryRow => c != null),
       );
+      setCategorySettingsById((prevSettings) => {
+        const nextSettings = { ...prevSettings };
+        for (const id of next) {
+          if (!nextSettings[id]) {
+            nextSettings[id] = accountDefaultsForInherit();
+          }
+        }
+        for (const id of Object.keys(nextSettings)) {
+          if (!next.includes(id)) delete nextSettings[id];
+        }
+        return nextSettings;
+      });
       return next;
     });
+  };
+
+  const updateCategorySettings = (
+    categoryId: string,
+    patch: Partial<CategoryEditSettings>,
+  ) => {
+    setCategorySettingsById((prev) => ({
+      ...prev,
+      [categoryId]: {
+        ...(prev[categoryId] ?? accountDefaultsForInherit()),
+        ...patch,
+      },
+    }));
   };
 
   const needsRadius = reachChoice === "customer" || reachChoice === "both";
@@ -312,14 +461,21 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const radiusOk = !needsRadius || serviceRadiusKm != null;
   const ownerOk = ownerName.trim().length > 1 && !looksLikeGibberish(ownerName);
 
+  const multiCategorySettingsOk = selectedCategoryIds.every((id) => {
+    const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
+    if (!cfg.reachChoice) return false;
+    const needsCatRadius = cfg.reachChoice === "customer" || cfg.reachChoice === "both";
+    if (needsCatRadius && cfg.service_radius_km == null) return false;
+    return true;
+  });
+
   const saveReady =
     ownerOk &&
     baseType !== "" &&
     shopFieldOk &&
     selectedCategoryIds.length > 0 &&
     phone.trim().length > 0 &&
-    reachChoice !== "" &&
-    radiusOk &&
+    (isMultiCategory ? multiCategorySettingsOk : reachChoice !== "" && radiusOk) &&
     availabilityModes.length > 0;
 
   const saveProfile = async () => {
@@ -348,6 +504,13 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
             .map((id) => availableCategories.find((c) => c.id === id))
             .filter((c): c is RegCategoryRow => c != null),
         );
+        setCategorySettingsById((prev) => {
+          const next: Record<string, CategoryEditSettings> = {};
+          for (const id of restoredIds) {
+            next[id] = prev[id] ?? accountDefaultsForInherit();
+          }
+          return next;
+        });
         return;
       }
     }
@@ -360,15 +523,45 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       primaryCategory?.service_mode ??
       vendor.service_mode ??
       "") as "help" | "delivery" | "appointment" | "booking";
-    const reachFlags = reachChoice ? reachFlagsFromChoice(reachChoice) : null;
+
+    const multi = categoryIdsToSave.length > 1;
+    const primaryCatSettings =
+      categorySettingsById[categoryIdsToSave[0]] ?? accountDefaultsForInherit();
+    const effectiveReachChoice = multi ? primaryCatSettings.reachChoice : reachChoice;
+    const effectiveRadiusKm = multi ? primaryCatSettings.service_radius_km : serviceRadiusKm;
+    const reachFlags = effectiveReachChoice
+      ? reachFlagsFromChoice(effectiveReachChoice)
+      : null;
     const mappedVendorType = baseTypeToVendorType(baseType);
     if (!mappedVendorType || !reachFlags || !primaryLabel || !primaryServiceMode) return;
 
     const resolvedShopName = resolveRegistrationShopName(baseType, ownerName, shopName);
     const radiusKm =
-      reachFlags.serves_at_customer_place && serviceRadiusKm != null
-        ? serviceRadiusKm
+      reachFlags.serves_at_customer_place && effectiveRadiusKm != null
+        ? effectiveRadiusKm
         : vendor.service_radius_km;
+
+    const brandNames = categoryIdsToSave.map((id) => {
+      if (!multi) return resolvedShopName.trim();
+      const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
+      return String(cfg.brand_name ?? "").trim() || resolvedShopName.trim();
+    });
+    const servesVendorPlace = categoryIdsToSave.map((id) => {
+      if (!multi) return reachFlags.serves_at_vendor_place;
+      const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
+      return reachFlagsFromChoice(cfg.reachChoice)?.serves_at_vendor_place === true;
+    });
+    const servesCustomerPlace = categoryIdsToSave.map((id) => {
+      if (!multi) return reachFlags.serves_at_customer_place;
+      const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
+      return reachFlagsFromChoice(cfg.reachChoice)?.serves_at_customer_place === true;
+    });
+    const radii = categoryIdsToSave.map((id, i) => {
+      if (!servesCustomerPlace[i]) return null;
+      if (!multi) return serviceRadiusKm;
+      const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
+      return cfg.service_radius_km;
+    });
 
     const upiChanged = upiId.trim() !== (vendor.upi_id ?? "").trim();
     const phoneChanged = phone.trim() !== (vendor.phone ?? "").trim();
@@ -439,6 +632,10 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       p_vendor_phone: phone.trim(),
       p_category_ids: categoryIdsToSave,
       p_category_service_modes: categoryServiceModes,
+      p_brand_names: brandNames,
+      p_serves_at_vendor_place: servesVendorPlace,
+      p_serves_at_customer_place: servesCustomerPlace,
+      p_service_radius_km: radii,
     });
     if (vcError) {
       setSaving(false);
@@ -545,6 +742,11 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
 
   const handleShopPhoto = async (shot: CapturedShot) => {
     setCameraOpen(false);
+    const targetCategoryId = photoCategoryId ?? selectedCategoryIds[0] ?? null;
+    if (!targetCategoryId) {
+      toast.error(s.vendor_categories_required);
+      return;
+    }
     const hasShopLocation = vendor.latitude != null && vendor.longitude != null;
     let gpsMatchDistance = 0;
     if (hasShopLocation) {
@@ -561,7 +763,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       gpsMatchDistance = Math.round(meters);
     }
 
-    const path = `${vendor.id}/${Date.now()}.jpg`;
+    const path = `${vendor.id}/${targetCategoryId}/${Date.now()}.jpg`;
     try {
       const { error: upErr } = await withNetworkRetry(
         async () =>
@@ -585,14 +787,14 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       const { error: updErr } = await withNetworkRetry(
         async () =>
           throwOnSupabaseNetworkError(
-            await patchVendorOwn(vendor.id, vendor.phone, {
-              shop_photo_url: pub.publicUrl,
-              verification_status: "business_verified",
-              gps_match_distance: gpsMatchDistance,
-              is_manual_verified: false,
-              ...(hasShopLocation
-                ? {}
-                : { latitude: shot.coords.lat, longitude: shot.coords.lng }),
+            await supabase.rpc("vendor_submit_category_shop_photo", {
+              p_vendor_id: vendor.id,
+              p_vendor_phone: vendorPhone || phone.trim(),
+              p_category_id: targetCategoryId,
+              p_shop_photo_url: pub.publicUrl,
+              p_gps_match_distance: gpsMatchDistance,
+              p_set_account_lat: hasShopLocation ? null : shot.coords.lat,
+              p_set_account_lng: hasShopLocation ? null : shot.coords.lng,
             }),
           ),
         {
@@ -605,19 +807,29 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         toast.error(s.vendor_save_verification_failed, { description: updErr.message });
         return;
       }
-      void checkAndNotifyAdminGreenReady(vendor.id);
-      onVendorUpdated({
-        ...vendor,
-        shop_photo_url: pub.publicUrl,
-        verification_status: "business_verified",
-        gps_match_distance: gpsMatchDistance,
-        is_manual_verified: false,
-        ...(hasShopLocation
-          ? {}
-          : { latitude: shot.coords.lat, longitude: shot.coords.lng }),
+      void supabase.rpc("vendor_promote_category_green_pending", {
+        p_vendor_id: vendor.id,
+        p_category_id: targetCategoryId,
       });
+      setCategorySettingsById((prev) => ({
+        ...prev,
+        [targetCategoryId]: {
+          ...(prev[targetCategoryId] ?? accountDefaultsForInherit()),
+          shop_photo_url: pub.publicUrl,
+          gps_match_distance: gpsMatchDistance,
+          verification_status: "business_verified",
+          is_manual_verified: false,
+        },
+      }));
+      if (!hasShopLocation) {
+        onVendorUpdated({
+          ...vendor,
+          latitude: shot.coords.lat,
+          longitude: shot.coords.lng,
+        });
+      }
       toast.success(s.vendor_photo_verified, {
-        description: vendor.is_manual_verified ? s.vendor_green_badge_live : s.vendor_awaiting_admin,
+        description: s.vendor_awaiting_admin,
       });
     } catch (err) {
       dismissNetworkRetryingToast();
@@ -692,10 +904,17 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   };
 
   const updateShopLocation = async () => {
-    if (
-      vendor.verification_status === "business_verified" ||
-      vendor.verification_status === "green_pending"
-    ) {
+    const anyVerifiedBiz = selectedCategoryIds.some((id) => {
+      const cfg = categorySettingsById[id];
+      const status = cfg?.verification_status;
+      return (
+        cfg?.is_manual_verified === true ||
+        status === "business_verified" ||
+        status === "green_pending" ||
+        (cfg?.shop_photo_url != null && String(cfg.shop_photo_url).trim() !== "")
+      );
+    });
+    if (anyVerifiedBiz) {
       const ok = window.confirm(s.vendor_location_reset_confirm);
       if (!ok) return;
     }
@@ -719,9 +938,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       return;
     }
 
-    const downgraded =
-      vendor.verification_status === "business_verified" ||
-      vendor.verification_status === "green_pending";
+    const downgraded = anyVerifiedBiz;
     const patch: Partial<Vendor> = {
       latitude: coords.lat,
       longitude: coords.lng,
@@ -748,6 +965,25 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         toast.error(s.vendor_location_update_failed, { description: error.message });
         return;
       }
+      if (downgraded) {
+        await supabase.rpc("vendor_clear_category_photo_verifications", {
+          p_vendor_id: vendor.id,
+          p_vendor_phone: vendor.phone,
+        });
+        setCategorySettingsById((prev) => {
+          const next = { ...prev };
+          for (const id of selectedCategoryIds) {
+            next[id] = {
+              ...(next[id] ?? accountDefaultsForInherit()),
+              shop_photo_url: null,
+              gps_match_distance: null,
+              verification_status: "identity_linked",
+              is_manual_verified: false,
+            };
+          }
+          return next;
+        });
+      }
       onVendorUpdated({ ...vendor, ...patch });
       toast(downgraded ? s.vendor_reverification_required : s.vendor_location_updated, {
         description: downgraded ? s.vendor_reverification_body : s.vendor_location_updated_body,
@@ -767,8 +1003,13 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     }
   };
 
+  const activePhotoCategoryId = photoCategoryId ?? selectedCategoryIds[0] ?? null;
+  const activePhotoSettings = activePhotoCategoryId
+    ? categorySettingsById[activePhotoCategoryId]
+    : null;
   const hasShopPhoto =
-    vendor.shop_photo_url != null && String(vendor.shop_photo_url).trim() !== "";
+    activePhotoSettings?.shop_photo_url != null &&
+    String(activePhotoSettings.shop_photo_url).trim() !== "";
   const hasSelfie = vendor.photo_selfie != null && String(vendor.photo_selfie).trim() !== "";
   const hasLocation = vendor.latitude != null && vendor.longitude != null;
 
@@ -832,7 +1073,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               error={shopName.length > 0 && !shopFieldOk ? s.vendor_specify_hint : undefined}
             />
           )}
-          {baseType === "home" && (
+          {baseType === "home" && !isMultiCategory && (
             <Field
               label={s.vendor_brand_name_optional}
               value={shopName}
@@ -857,81 +1098,215 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                 {s.vendor_understanding}
               </p>
             ) : (
-              <div className="mt-2 flex flex-wrap gap-2" data-testid="my-business-categories">
-                {availableCategories.map((cat) => {
-                  const selected = selectedCategoryIds.includes(cat.id);
-                  const atMax = selectedCategoryIds.length >= MAX_REG_CATEGORIES;
-                  const disabled = !selected && atMax;
-                  return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      data-testid={`vendor-edit-category-${cat.id}`}
-                      disabled={disabled}
-                      onClick={() => toggleCategory(cat.id)}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                        selected
-                          ? "border-primary bg-primary/20 text-foreground ring-1 ring-primary/30"
-                          : "border-border bg-card text-foreground",
-                        disabled && "opacity-40 cursor-not-allowed",
-                      )}
-                    >
-                      <span>
-                        {cat.emoji} {getLabel(cat.label)}
-                      </span>
-                      <span className="text-[10px] font-normal text-muted-foreground">
-                        {categoryServiceModeChipLabel(cat.service_mode, s)}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="mt-2 space-y-3" data-testid="my-business-categories">
+                <div>
+                  <p className="text-[11px] font-semibold text-foreground mb-1.5">
+                    {s.vendor_categories_yours}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedCategories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        data-testid={`vendor-edit-category-${cat.id}`}
+                        data-selected="true"
+                        onClick={() => toggleCategory(cat.id)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
+                          "border-primary bg-primary/20 text-foreground ring-1 ring-primary/30",
+                        )}
+                      >
+                        <span>
+                          {cat.emoji} {getLabel(cat.label)}
+                        </span>
+                        <span className="text-[10px] font-normal text-muted-foreground">
+                          {categoryServiceModeChipLabel(cat.service_mode, s)}
+                        </span>
+                      </button>
+                    ))}
+                    {selectedCategories.length === 0 && (
+                      <p className="text-xs text-muted-foreground">{s.vendor_categories_pick}</p>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">
+                    {s.vendor_categories_available}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {availableCategories
+                      .filter((cat) => !selectedCategoryIds.includes(cat.id))
+                      .map((cat) => {
+                        const atMax = selectedCategoryIds.length >= MAX_REG_CATEGORIES;
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            data-testid={`vendor-edit-category-${cat.id}`}
+                            data-selected="false"
+                            disabled={atMax}
+                            onClick={() => toggleCategory(cat.id)}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 rounded-full border border-dashed px-3 py-1.5 text-sm font-medium transition-colors",
+                              "border-muted-foreground/40 bg-muted/30 text-muted-foreground",
+                              atMax && "opacity-40 cursor-not-allowed",
+                            )}
+                          >
+                            <span>
+                              + {cat.emoji} {getLabel(cat.label)}
+                            </span>
+                            <span className="text-[10px] font-normal opacity-80">
+                              {categoryServiceModeChipLabel(cat.service_mode, s)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {s.reg_edit_reach_label}
-            </label>
-            <p className="mt-1 text-xs text-muted-foreground">{s.my_business_reach_hint}</p>
-            <div className="mt-2 space-y-2">
-              {(
-                [
-                  { value: "customer" as const, label: s.reg_reach_customer, desc: s.reg_reach_customer_desc },
-                  { value: "vendor" as const, label: s.reg_reach_vendor, desc: s.reg_reach_vendor_desc },
-                  { value: "both" as const, label: s.reg_reach_both, desc: s.reg_reach_both_desc },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  data-testid={`my-business-reach-${opt.value}`}
-                  onClick={() => setReachChoice(opt.value)}
-                  className={cn(
-                    "w-full rounded-xl border p-3 text-left",
-                    reachChoice === opt.value
-                      ? "border-primary bg-primary/15 ring-1 ring-primary/30"
-                      : "border-border bg-card",
-                  )}
+          {isMultiCategory &&
+            selectedCategories.map((cat) => {
+              const cfg = categorySettingsById[cat.id] ?? accountDefaultsForInherit();
+              const catNeedsRadius = cfg.reachChoice === "customer" || cfg.reachChoice === "both";
+              return (
+                <div
+                  key={`cat-settings-${cat.id}`}
+                  data-testid={`my-business-category-settings-${cat.id}`}
+                  className="rounded-2xl border border-surface-border bg-muted/20 p-3 space-y-3"
                 >
-                  <p className="text-sm font-semibold text-foreground">{opt.label}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{opt.desc}</p>
-                </button>
-              ))}
-            </div>
-          </div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {cat.emoji} {getLabel(cat.label)}
+                  </p>
+                  <Field
+                    label={s.my_business_category_brand}
+                    value={cfg.brand_name}
+                    onChange={(v) => updateCategorySettings(cat.id, { brand_name: v })}
+                    placeholder={s.vendor_brand_placeholder}
+                  />
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {s.my_business_category_reach}
+                    </label>
+                    <div className="mt-2 space-y-2">
+                      {(
+                        [
+                          {
+                            value: "customer" as const,
+                            label: s.reg_reach_customer,
+                            desc: s.reg_reach_customer_desc,
+                          },
+                          {
+                            value: "vendor" as const,
+                            label: s.reg_reach_vendor,
+                            desc: s.reg_reach_vendor_desc,
+                          },
+                          {
+                            value: "both" as const,
+                            label: s.reg_reach_both,
+                            desc: s.reg_reach_both_desc,
+                          },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          data-testid={`my-business-cat-reach-${cat.id}-${opt.value}`}
+                          onClick={() =>
+                            updateCategorySettings(cat.id, { reachChoice: opt.value })
+                          }
+                          className={cn(
+                            "w-full rounded-xl border p-3 text-left",
+                            cfg.reachChoice === opt.value
+                              ? "border-primary bg-primary/15 ring-1 ring-primary/30"
+                              : "border-border bg-card",
+                          )}
+                        >
+                          <p className="text-sm font-semibold text-foreground">{opt.label}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{opt.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {catNeedsRadius && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {s.my_business_category_radius}
+                      </p>
+                      <div className="mt-3" data-testid={`my-business-cat-radius-${cat.id}`}>
+                        <ServiceRadiusChips
+                          value={cfg.service_radius_km}
+                          onChange={(km) =>
+                            updateCategorySettings(cat.id, { service_radius_km: km })
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
-          {needsRadius && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {s.vendor_radius_label}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">{s.vendor_radius_hint}</p>
-              <div className="mt-3" data-testid="my-business-radius">
-                <ServiceRadiusChips value={serviceRadiusKm} onChange={setServiceRadiusKm} />
+          {!isMultiCategory && (
+            <>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {s.reg_edit_reach_label}
+                </label>
+                <p className="mt-1 text-xs text-muted-foreground">{s.my_business_reach_hint}</p>
+                <div className="mt-2 space-y-2">
+                  {(
+                    [
+                      {
+                        value: "customer" as const,
+                        label: s.reg_reach_customer,
+                        desc: s.reg_reach_customer_desc,
+                      },
+                      {
+                        value: "vendor" as const,
+                        label: s.reg_reach_vendor,
+                        desc: s.reg_reach_vendor_desc,
+                      },
+                      {
+                        value: "both" as const,
+                        label: s.reg_reach_both,
+                        desc: s.reg_reach_both_desc,
+                      },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      data-testid={`my-business-reach-${opt.value}`}
+                      onClick={() => setReachChoice(opt.value)}
+                      className={cn(
+                        "w-full rounded-xl border p-3 text-left",
+                        reachChoice === opt.value
+                          ? "border-primary bg-primary/15 ring-1 ring-primary/30"
+                          : "border-border bg-card",
+                      )}
+                    >
+                      <p className="text-sm font-semibold text-foreground">{opt.label}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{opt.desc}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+
+              {needsRadius && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {s.vendor_radius_label}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">{s.vendor_radius_hint}</p>
+                  <div className="mt-3" data-testid="my-business-radius">
+                    <ServiceRadiusChips value={serviceRadiusKm} onChange={setServiceRadiusKm} />
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           <div>
@@ -1000,17 +1375,62 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         />
 
         <VerifyRow
-          label={s.vendor_verification_shop}
-          hint={s.my_business_shop_photo_hint}
+          label={s.business_photo_verify}
+          hint={s.business_photo_verify_hint}
           verified={hasShopPhoto}
           verifiedLabel={s.my_business_verified}
           actionLabel={hasShopPhoto ? s.vendor_reshoot : s.my_business_verify_now}
-          onAction={() => setCameraOpen(true)}
+          onAction={() => {
+            if (!activePhotoCategoryId) {
+              toast.error(s.vendor_categories_required);
+              return;
+            }
+            setCameraOpen(true);
+          }}
           actionDisabled={!hasLocation && baseType !== "none"}
         >
-          {hasShopPhoto && (
+          {selectedCategories.length > 1 && (
+            <div className="flex flex-wrap gap-2 mb-2" data-testid="my-business-photo-category-picker">
+              {selectedCategories.map((cat) => {
+                const cfg = categorySettingsById[cat.id];
+                const has = cfg?.shop_photo_url != null && String(cfg.shop_photo_url).trim() !== "";
+                const selected = cat.id === activePhotoCategoryId;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    data-testid={`my-business-photo-cat-${cat.id}`}
+                    onClick={() => setPhotoCategoryId(cat.id)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-semibold",
+                      selected
+                        ? "border-primary bg-primary/20"
+                        : "border-border text-muted-foreground",
+                    )}
+                  >
+                    {cat.emoji} {getLabel(cat.label)}
+                    {has ? " ✓" : ""}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {activePhotoCategoryId && (
+            <div className="mb-2" data-testid={`my-business-trust-${activePhotoCategoryId}`}>
+              <BusinessVerificationBadge
+                account={vendor}
+                business={{
+                  is_manual_verified: activePhotoSettings?.is_manual_verified ?? false,
+                  shop_photo_url: activePhotoSettings?.shop_photo_url ?? null,
+                  verification_status: activePhotoSettings?.verification_status ?? null,
+                }}
+                showLabel
+              />
+            </div>
+          )}
+          {hasShopPhoto && activePhotoSettings?.shop_photo_url && (
             <img
-              src={vendor.shop_photo_url!}
+              src={activePhotoSettings.shop_photo_url}
               alt={s.vendor_captured_shop}
               className="w-full rounded-xl border border-border"
             />
@@ -1024,7 +1444,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           verifiedLabel={s.my_business_verified}
           actionLabel={hasSelfie ? s.vendor_selfie_reshoot : s.my_business_verify_now}
           onAction={() => setSelfieCameraOpen(true)}
-          actionDisabled={!hasShopPhoto}
+          actionDisabled={!hasLocation && baseType !== "none"}
         >
           {hasSelfie && (
             <img
@@ -1049,7 +1469,19 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           actionLoading={updatingLocation}
         />
 
-        <div className="px-4 pb-2">
+        <div className="px-4 pb-2 space-y-3">
+          <button
+            type="button"
+            data-testid="my-business-add-business"
+            onClick={() => setAddBusinessOpen(true)}
+            disabled={selectedCategoryIds.length >= MAX_REG_CATEGORIES}
+            className="w-full rounded-2xl border border-dashed border-primary/50 bg-primary/5 py-3.5 text-sm font-semibold text-primary disabled:opacity-50"
+          >
+            {s.my_business_add_business}
+          </button>
+          <p className="text-xs text-muted-foreground text-center">
+            {s.my_business_add_business_hint}
+          </p>
           <button
             type="button"
             data-testid="my-business-save"
@@ -1062,6 +1494,16 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           </button>
         </div>
       </SettingsCard>
+
+      <BusinessSetupSheet
+        open={addBusinessOpen}
+        onOpenChange={setAddBusinessOpen}
+        vendor={vendor}
+        existingCategoryIds={selectedCategoryIds}
+        existingSettings={categorySettingsById}
+        availabilityModes={availabilityModes}
+        onAdded={() => setCategoriesReloadKey((k) => k + 1)}
+      />
 
       <LiveCamera open={cameraOpen} onClose={() => setCameraOpen(false)} onCapture={handleShopPhoto} />
       <LiveCamera

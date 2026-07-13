@@ -69,7 +69,7 @@ function nextPhone(prefix: '990' | '880'): string {
 async function seedVendor(
   tag: string,
   overrides: Record<string, unknown> = {},
-): Promise<{ id: string; phone: string; shopName: string }> {
+): Promise<{ id: string; phone: string; shopName: string; categoryLabel: string }> {
   const phone = nextPhone('990');
   const category = await getActiveCategoryByServiceMode('delivery');
   // Leading "!000-" keeps test vendors first in admin list sort (shop_name ASC).
@@ -96,7 +96,12 @@ async function seedVendor(
   await seedVendorCategory(vendor!.id, category);
   await supabaseAdmin.from('app_users').upsert({ phone }, { onConflict: 'phone' });
   createdVendorIds.push(vendor!.id);
-  return { id: vendor!.id, phone: vendor!.phone, shopName: vendor!.shop_name };
+  return {
+    id: vendor!.id,
+    phone: vendor!.phone,
+    shopName: vendor!.shop_name,
+    categoryLabel: category.label,
+  };
 }
 
 async function seedDiamondVerification(vendorId: string) {
@@ -301,8 +306,13 @@ async function findVendorRow(
   return row;
 }
 
-async function verifyVendorThroughUi(page: import('@playwright/test').Page, vendorRow: ReturnType<typeof page.locator>) {
-  await vendorRow.getByRole('button', { name: /Unverified/i }).click();
+async function verifyVendorThroughUi(
+  page: import('@playwright/test').Page,
+  vendorRow: ReturnType<typeof page.locator>,
+  categoryLabel: string,
+) {
+  // Per-category button: XCircle + emoji, title = category label
+  await vendorRow.locator(`button[title="${categoryLabel}"]`).click();
   const sheet = page.locator('div.fixed.inset-0').filter({ has: page.getByText('Verification checks') });
   await expect(sheet).toBeVisible({ timeout: 8000 });
 
@@ -350,9 +360,10 @@ test('ADM-REQ-01 — Admin verify sheet shows full checklist', async ({ page }) 
 
   await openAdminPanel(page);
   const vendorRow = await findVendorRow(page, vendor);
-  await vendorRow.getByRole('button', { name: /Unverified/i }).click();
+  await vendorRow.locator(`button[title="${vendor.categoryLabel}"]`).click();
 
   await expect(page.getByText('Verification checks')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByText(/Select business to verify/i)).toBeVisible();
   for (const label of [
     'UPI Format',
     'UPI Penny-drop',
@@ -398,13 +409,14 @@ test('ADM-REQ-03 — Admin unverify resets vendor — via RPC', async ({ page })
   await mockAdminVendorVerificationFetch(page, vendor.id);
   await openAdminPanel(page);
   const vendorRow = await findVendorRow(page, vendor);
-  await verifyVendorThroughUi(page, vendorRow);
+  await verifyVendorThroughUi(page, vendorRow, vendor.categoryLabel);
 
   const verifiedRow = await findVendorRow(page, vendor);
-  await expect(verifiedRow.getByRole('button', { name: /^Verified$/i })).toBeVisible({ timeout: 8000 });
+  const catBtn = verifiedRow.locator(`button[title="${vendor.categoryLabel}"]`);
+  await expect(catBtn).toHaveClass(/bg-green-500\/10/, { timeout: 8000 });
 
   page.once('dialog', (dialog) => dialog.accept());
-  await verifiedRow.getByRole('button', { name: /^Verified$/i }).click();
+  await catBtn.click();
   await page.waitForTimeout(1500);
 
   const { data, error } = await supabaseAdmin
@@ -414,6 +426,13 @@ test('ADM-REQ-03 — Admin unverify resets vendor — via RPC', async ({ page })
     .single();
   expect(error).toBeNull();
   expect(data?.is_manual_verified).toBe(false);
+
+  const { data: catRow } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('is_manual_verified')
+    .eq('vendor_id', vendor.id)
+    .single();
+  expect(catRow?.is_manual_verified).toBe(false);
 });
 
 test('ADM-REQ-04 — Pending category shows suggestion count', async ({ page }) => {

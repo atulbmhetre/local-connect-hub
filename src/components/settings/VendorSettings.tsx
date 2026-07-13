@@ -52,7 +52,7 @@ import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
 import { uploadFeedImage } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
 import { FeedReachChips } from "@/components/FeedReachChips";
-import { DEFAULT_FEED_REACH_KM, normalizeFeedReachKm } from "@/lib/feedReach";
+import { DEFAULT_FEED_REACH_KM, normalizeFeedReachKm, VENDOR_FEED_REACH_CHIP_OPTIONS } from "@/lib/feedReach";
 
 export type MenuItem = {
   id: string;
@@ -453,6 +453,7 @@ export function VendorSettingsOffers({
               <FeedReachChips
                 mode="poster"
                 value={offerReachKm}
+                options={VENDOR_FEED_REACH_CHIP_OPTIONS}
                 onChange={(km) => setOfferReachKm(normalizeFeedReachKm(km ?? DEFAULT_FEED_REACH_KM))}
               />
             </div>

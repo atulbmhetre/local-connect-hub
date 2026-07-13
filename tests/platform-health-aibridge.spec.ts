@@ -54,22 +54,14 @@ test.afterAll(async () => {
 
 test('HEALTH-01: admin settings shows ADMIN section', async ({ page }) => {
   await loginAsAdmin(page, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
+  // loginAsAdminViaSession already reveals Admin tab — remounting Settings would hide it.
   await expect(page.getByTestId('settings-tab-admin')).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 5000 });
 });
 
 test('HEALTH-02: admin sees App Health card title', async ({ page }) => {
   await loginAsAdmin(page, TEST_DEVICE_ID);
-  await page.goto(`${APP_URL}/settings`);
-  await waitForSettingsAdminReady(page);
   const healthTitle = page.getByText('Admin — App Health');
-  const alreadyVisible = await healthTitle.isVisible({ timeout: 2000 }).catch(() => false);
-  if (!alreadyVisible) {
-    await page.getByTestId('settings-tab-admin').click();
-    await page.waitForTimeout(500);
-  }
   await expect(healthTitle).toBeVisible({ timeout: 5000 });
 });
 

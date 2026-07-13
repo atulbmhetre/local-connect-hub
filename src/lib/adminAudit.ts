@@ -4,6 +4,8 @@ import { getUserPhone } from "@/lib/userIdentity";
 export type AdminActionType =
   | "verify_vendor"
   | "unverify_vendor"
+  | "verify_vendor_category"
+  | "unverify_vendor_category"
   | "ban_vendor"
   | "unban_vendor"
   | "warn_user"
@@ -16,7 +18,7 @@ export type AdminActionType =
   | "admin_check_passed"
   | "admin_check_failed";
 
-export type AdminTargetType = "vendor" | "user" | "category" | "config";
+export type AdminTargetType = "vendor" | "user" | "category" | "config" | "vendor_category";
 
 /** Fire-and-forget admin audit row; never blocks the caller. */
 export function logAdminAction(

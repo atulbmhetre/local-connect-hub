@@ -68,9 +68,7 @@ test('DEL-02: Delete Account opens confirmation dialog with correct copy', async
   await expect(page.getByRole('alertdialog')).toBeVisible({ timeout: 5000 });
   await expect(page.getByText('Delete your account?')).toBeVisible();
   await expect(
-    page.getByText(
-      'This will delete your shop. Your data cannot be recovered, and you will not be able to register a new shop with this same phone number for 30 days.',
-    ),
+    page.getByText('This will permanently delete your account. Your data cannot be recovered.'),
   ).toBeVisible();
 });
 

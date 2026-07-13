@@ -8,11 +8,19 @@ const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 let testVendor: any;
 
 test.beforeAll(async () => {
-  testVendor = await createTestVendor();
+  // Delivery empty-browse requires customer-place reach (per-business radar filter).
+  testVendor = await createTestVendor({
+    service_mode: 'delivery',
+    serves_at_customer_place: true,
+  });
   await createTestCustomer(LOCAL_CUSTOMER_PHONE);
   await supabaseAdmin.from('vendors')
-    .update({ service_mode: 'delivery', is_active: true })
+    .update({ service_mode: 'delivery', is_active: true, serves_at_customer_place: true })
     .eq('id', testVendor.id);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ serves_at_customer_place: true })
+    .eq('vendor_id', testVendor.id);
 });
 
 test.afterAll(async () => {

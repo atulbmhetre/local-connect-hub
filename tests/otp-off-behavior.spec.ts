@@ -129,14 +129,15 @@ test.describe('OTP-off production fidelity (no Supabase session)', () => {
   });
 
   test('admin dashboard stats via get_admin_dashboard_stats RPC', async () => {
-    const anon = createOtpOffClient();
+    const { getAdminSessionClient } = await import('./helpers/browser-setup');
+    const adminClient = await getAdminSessionClient();
 
     const { count: expectedTotal, error: countError } = await supabaseAdmin
       .from('requests')
       .select('id', { count: 'exact', head: true });
     expect(countError).toBeNull();
 
-    const { data, error } = await anon.rpc('get_admin_dashboard_stats', {
+    const { data, error } = await adminClient.rpc('get_admin_dashboard_stats', {
       p_admin_phone: TEST_ADMIN_PHONE,
     });
     expect(error, error?.message).toBeNull();

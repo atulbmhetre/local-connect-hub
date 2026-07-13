@@ -1,17 +1,13 @@
 import { test, expect } from '@playwright/test';
 import {
-  supabase,
   supabaseAdmin,
   invokeRegisterVendorRpc,
   deleteVendorRegistrationArtifacts,
   TEST_SESSION,
 } from './helpers/setup';
+import { uniqueTestPhone } from './helpers/session38';
 
 const FUNCTION_NAME = 'register_vendor';
-
-function uniquePhone(suffix: string): string {
-  return `99007${String(Date.now()).slice(-5)}${suffix}`;
-}
 
 function uniqueReferralCode(suffix: string): string {
   return `RL${suffix}${Date.now().toString(36).slice(-4)}`.toUpperCase();
@@ -27,7 +23,7 @@ async function cleanupRateLimitRows(phone: string) {
 }
 
 test('RV-RL-01: 3 registrations with the same phone succeed; 4th within 5 minutes is rate-limited', async () => {
-  const phone = uniquePhone('1');
+  const phone = uniqueTestPhone('99071');
   const createdVendorIds: string[] = [];
 
   try {
@@ -64,8 +60,8 @@ test('RV-RL-01: 3 registrations with the same phone succeed; 4th within 5 minute
 });
 
 test('RV-RL-02: a different phone is unaffected when another phone is rate-limited', async () => {
-  const limitedPhone = uniquePhone('2a');
-  const otherPhone = uniquePhone('2b');
+  const limitedPhone = uniqueTestPhone('99072');
+  const otherPhone = uniqueTestPhone('99073');
   const createdVendorIds: string[] = [];
 
   try {

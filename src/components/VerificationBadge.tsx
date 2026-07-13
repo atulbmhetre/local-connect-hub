@@ -1,18 +1,21 @@
-import { ShieldCheck, AlertTriangle, Clock } from "lucide-react";
+import { ShieldCheck, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Vendor } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { strings } from "@/lib/strings";
+import {
+  businessBadgeTone,
+  type AccountTrustSignals,
+  type BusinessTrustSignals,
+} from "@/lib/businessTrust";
 
 export type VerificationDisplayTier = "green" | "yellow" | "red";
 
 type VerificationStrings = typeof strings.en;
 
 /**
- * Single source of truth for trust tier UI. Reads only from the vendor row:
- * - Green: admin has manually verified
- * - Yellow: not yet approved, but photo, UPI verified, or legacy `verification_status` Yellow
- * - Red: no manual verification and no submitted identity signals
+ * Legacy account-level tier (admin lists / older call sites).
+ * Customer-facing Radar/order badges should use BusinessVerificationBadge.
  */
 export function vendorTier(v: Vendor): VerificationDisplayTier {
   if (v.is_manual_verified === true) return "green";
@@ -42,41 +45,40 @@ export function getVerificationCopy(s: VerificationStrings): Record<
   };
 }
 
-export const VerificationBadge = ({
-  vendor,
+/** Binary per-business badge for customers (Verified | Unverified only). */
+export function BusinessVerificationBadge({
+  account,
+  business,
   size = "sm",
   showLabel = false,
   className,
 }: {
-  vendor: Vendor;
+  account: AccountTrustSignals;
+  business: BusinessTrustSignals | null | undefined;
   size?: "sm" | "md";
   showLabel?: boolean;
   className?: string;
-}) => {
+}) {
   const { s } = useLanguage();
-  const tier = vendorTier(vendor);
-  const copy = getVerificationCopy(s);
-  const { label, sub } = copy[tier];
-  const Icon = tier === "green" ? ShieldCheck : tier === "yellow" ? Clock : AlertTriangle;
-
-  const tone =
-    tier === "green"
-      ? "bg-brand/15 text-green-700 dark:text-brand ring-brand/40"
-      : tier === "yellow"
-        ? "bg-warning/15 text-yellow-600 ring-warning/45"
-        : "bg-amber-950/40 text-amber-400 ring-amber-800/50";
-
-  const glow = tier === "green" ? "shadow-[0_0_18px_rgba(34,197,94,0.45)]" : "";
-
+  const tone = businessBadgeTone(account, business);
+  const verified = tone === "verified";
+  const label = verified ? s.badge_verified : s.badge_unverified;
+  const sub = verified ? s.verification_green_sub : s.verification_red_sub;
+  const Icon = verified ? ShieldCheck : AlertTriangle;
+  const palette = verified
+    ? "bg-brand/15 text-green-700 dark:text-brand ring-brand/40"
+    : "bg-amber-950/40 text-amber-400 ring-amber-800/50";
+  const glow = verified ? "shadow-[0_0_18px_rgba(34,197,94,0.45)]" : "";
   const dims = size === "md" ? "h-6 w-6" : "h-4 w-4";
 
   if (!showLabel) {
     return (
       <span
         title={`${label} — ${sub}`}
+        data-testid={verified ? "badge-verified" : "badge-unverified"}
         className={cn(
           "inline-grid place-items-center rounded-full ring-1 p-1 shrink-0",
-          tone,
+          palette,
           glow,
           className,
         )}
@@ -88,9 +90,10 @@ export const VerificationBadge = ({
 
   return (
     <span
+      data-testid={verified ? "badge-verified" : "badge-unverified"}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full ring-1 px-2.5 py-1 font-semibold text-xs leading-snug",
-        tone,
+        palette,
         glow,
         className,
       )}
@@ -98,6 +101,40 @@ export const VerificationBadge = ({
       <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
       {label}
     </span>
+  );
+}
+
+/**
+ * @deprecated Prefer BusinessVerificationBadge with category context.
+ * Falls back to account-level is_manual_verified as a single-business proxy.
+ */
+export const VerificationBadge = ({
+  vendor,
+  size = "sm",
+  showLabel = false,
+  className,
+  business,
+}: {
+  vendor: Vendor;
+  size?: "sm" | "md";
+  showLabel?: boolean;
+  className?: string;
+  business?: BusinessTrustSignals | null;
+}) => {
+  return (
+    <BusinessVerificationBadge
+      account={vendor}
+      business={
+        business ?? {
+          is_manual_verified: vendor.is_manual_verified,
+          shop_photo_url: vendor.shop_photo_url,
+          verification_status: vendor.verification_status,
+        }
+      }
+      size={size}
+      showLabel={showLabel}
+      className={className}
+    />
   );
 };
 

@@ -1,7 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import {
   loginAsFreshUser,
-  waitForSettingsAdminReady,
 } from './helpers/browser-setup';
 import {
   supabaseAdmin,
@@ -235,9 +234,9 @@ test('FO-REQ-05 — Dual-role restore — both customer and vendor identity from
   expect(await lsGet(page, 'aaspaas:vendor_id')).toBe(vendor.id);
 });
 
-test('FO-REQ-06 — Admin phone restore — admin panel accessible', async ({ page }) => {
+test('FO-REQ-06 — Admin session login — admin panel accessible', async ({ page }) => {
+  // Admin access is session-based (admin_users + Auth), not admin_phone restore.
   const phone = nextVendorPhone();
-  await setAdminPhone(phone);
   await createVendor(phone, 'fo06');
 
   await loginAsFreshUser(page);
@@ -248,9 +247,9 @@ test('FO-REQ-06 — Admin phone restore — admin panel accessible', async ({ pa
   await expect(page.getByText(EN.firstopen_restore_found)).toBeVisible({ timeout: 15000 });
   await waitForFlowComplete(page);
 
-  await page.getByTestId('nav-settings').click();
-  await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 15000 });
-  await waitForSettingsAdminReady(page);
+  const { loginAsAdminViaSession } = await import('./helpers/browser-setup');
+  await loginAsAdminViaSession(page, `device_fo06_${T}`);
+  await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('settings-tab-admin')).toBeVisible({ timeout: 10000 });
 });
 

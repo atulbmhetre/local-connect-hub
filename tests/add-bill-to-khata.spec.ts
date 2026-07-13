@@ -350,3 +350,174 @@ test('ABK-07: bill_not_found — random bill id is rejected', async () => {
   expect(error).not.toBeNull();
   expect(error?.message).toContain('bill_not_found');
 });
+
+async function setVendorRedLimit(vendorId: string, redLimit: number | null) {
+  const { error } = await supabaseAdmin
+    .from('vendors')
+    .update({
+      khata_amber_limit: redLimit && redLimit > 0 ? Math.max(1, redLimit - 100) : 0,
+      khata_red_limit: redLimit,
+    })
+    .eq('id', vendorId);
+  if (error) throw new Error(`setVendorRedLimit failed: ${error.message}`);
+}
+
+test('ABK-08: already-red blocks add_bill_to_khata with khata_red_limit_exceeded', async () => {
+  const userPhone = uniqueCustomerPhone();
+  const requestId = await seedRequest(testVendor.id, userPhone);
+  const redLimit = 500;
+  const priorOutstanding = 600;
+  const billTotal = 100;
+
+  try {
+    await setVendorRedLimit(testVendor.id, redLimit);
+    const { error: ledgerSeedError } = await supabaseAdmin.from('khata_ledger').insert({
+      vendor_id: testVendor.id,
+      user_phone: userPhone,
+      total_outstanding: priorOutstanding,
+    });
+    expect(ledgerSeedError).toBeNull();
+
+    const billId = await insertCashBill({
+      requestId,
+      vendorId: testVendor.id,
+      customerPhone: userPhone,
+      total: billTotal,
+    });
+
+    const { error } = await callAddBillToKhata(billId, testVendor.id, testVendor.phone);
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain('khata_red_limit_exceeded');
+
+    const { data: bill } = await supabaseAdmin
+      .from('order_bills')
+      .select('payment_mode')
+      .eq('id', billId)
+      .single();
+    expect(bill?.payment_mode).toBe('cash');
+    expect(await getLedgerOutstanding(testVendor.id, userPhone)).toBe(priorOutstanding);
+  } finally {
+    await setVendorRedLimit(testVendor.id, 0);
+    await cleanupKhataForPhone(userPhone);
+    await cleanupRequest(requestId);
+  }
+});
+
+test('ABK-09: already-red blocks insert_bill_with_items (khata mode)', async () => {
+  const userPhone = uniqueCustomerPhone();
+  const requestId = await seedRequest(testVendor.id, userPhone);
+  const redLimit = 500;
+  const priorOutstanding = 600;
+
+  try {
+    await setVendorRedLimit(testVendor.id, redLimit);
+    const { error: ledgerSeedError } = await supabaseAdmin.from('khata_ledger').insert({
+      vendor_id: testVendor.id,
+      user_phone: userPhone,
+      total_outstanding: priorOutstanding,
+    });
+    expect(ledgerSeedError).toBeNull();
+
+    const { data: billId, error } = await supabase.rpc('insert_bill_with_items', {
+      p_order_id: requestId,
+      p_vendor_id: testVendor.id,
+      p_customer_phone: userPhone,
+      p_total: 100,
+      p_payment_mode: 'khata',
+      p_payment_status: 'unpaid',
+      p_notes: null,
+      p_items: [{ name: 'Blocked', quantity: 1, unit_price: 100, unit: null }],
+    });
+
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain('khata_red_limit_exceeded');
+    expect(billId).toBeNull();
+    expect(await getLedgerOutstanding(testVendor.id, userPhone)).toBe(priorOutstanding);
+
+    const { count } = await supabaseAdmin
+      .from('order_bills')
+      .select('id', { count: 'exact', head: true })
+      .eq('request_id', requestId);
+    expect(count ?? 0).toBe(0);
+  } finally {
+    await setVendorRedLimit(testVendor.id, 0);
+    await cleanupKhataForPhone(userPhone);
+    await cleanupRequest(requestId);
+  }
+});
+
+test('ABK-10: crossing into red on this bill is allowed', async () => {
+  const userPhone = uniqueCustomerPhone();
+  const requestId = await seedRequest(testVendor.id, userPhone);
+  const redLimit = 500;
+  const priorOutstanding = 400;
+  const billTotal = 200;
+
+  try {
+    await setVendorRedLimit(testVendor.id, redLimit);
+    const { error: ledgerSeedError } = await supabaseAdmin.from('khata_ledger').insert({
+      vendor_id: testVendor.id,
+      user_phone: userPhone,
+      total_outstanding: priorOutstanding,
+    });
+    expect(ledgerSeedError).toBeNull();
+
+    const { data: billId, error } = await supabase.rpc('insert_bill_with_items', {
+      p_order_id: requestId,
+      p_vendor_id: testVendor.id,
+      p_customer_phone: userPhone,
+      p_total: billTotal,
+      p_payment_mode: 'khata',
+      p_payment_status: 'unpaid',
+      p_notes: null,
+      p_items: [{ name: 'Cross red', quantity: 1, unit_price: billTotal, unit: null }],
+    });
+
+    expect(error).toBeNull();
+    expect(billId).toBeTruthy();
+    expect(await getLedgerOutstanding(testVendor.id, userPhone)).toBe(
+      priorOutstanding + billTotal,
+    );
+  } finally {
+    await setVendorRedLimit(testVendor.id, 0);
+    await cleanupKhataForPhone(userPhone);
+    await cleanupRequest(requestId);
+  }
+});
+
+test('ABK-11: no red limit (0) does not block khata bill', async () => {
+  const userPhone = uniqueCustomerPhone();
+  const requestId = await seedRequest(testVendor.id, userPhone);
+  const priorOutstanding = 900;
+  const billTotal = 150;
+
+  try {
+    await setVendorRedLimit(testVendor.id, 0);
+    const { error: ledgerSeedError } = await supabaseAdmin.from('khata_ledger').insert({
+      vendor_id: testVendor.id,
+      user_phone: userPhone,
+      total_outstanding: priorOutstanding,
+    });
+    expect(ledgerSeedError).toBeNull();
+
+    const { data: billId, error } = await supabase.rpc('insert_bill_with_items', {
+      p_order_id: requestId,
+      p_vendor_id: testVendor.id,
+      p_customer_phone: userPhone,
+      p_total: billTotal,
+      p_payment_mode: 'khata',
+      p_payment_status: 'unpaid',
+      p_notes: null,
+      p_items: [{ name: 'No limit', quantity: 1, unit_price: billTotal, unit: null }],
+    });
+
+    expect(error).toBeNull();
+    expect(billId).toBeTruthy();
+    expect(await getLedgerOutstanding(testVendor.id, userPhone)).toBe(
+      priorOutstanding + billTotal,
+    );
+  } finally {
+    await cleanupKhataForPhone(userPhone);
+    await cleanupRequest(requestId);
+  }
+});

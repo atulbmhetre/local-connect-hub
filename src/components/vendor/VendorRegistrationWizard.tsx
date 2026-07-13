@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { CheckCircle2, ChevronLeft, Loader2, MapPin } from "lucide-react";
+import { Camera, CheckCircle2, ChevronLeft, Loader2, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
+import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
 import {
@@ -10,7 +11,6 @@ import {
   isReferralEnabled,
   referralCodeFromPhone,
 } from "@/lib/referral";
-import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import {
   supabase,
   SUPABASE_URL,
@@ -22,12 +22,15 @@ import {
   invokeRegisterVendor,
   invokeAttachPendingCategory,
   invokeSuggestCategory,
+  GPS_MATCH_TOLERANCE_M,
+  SHOP_PHOTOS_BUCKET,
+  VENDOR_SELFIES_BUCKET,
+  distanceMeters,
   type CategorySuggestionResult,
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import {
   withNetworkRetry,
-  throwOnSupabaseNetworkError,
   isNetworkFailure,
 } from "@/lib/withNetworkRetry";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
@@ -41,7 +44,6 @@ import {
   type ReachChoiceValue,
   baseTypeToVendorType,
   looksLikeGibberish,
-  MAX_REG_CATEGORIES,
   reachFlagsFromChoice,
   resolveRegistrationShopName,
   showRegistrationGuidanceToast,
@@ -178,14 +180,14 @@ export function VendorRegistrationWizard({
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
 
-  const [regPage, setRegPage] = useState<1 | 2 | 3>(1);
+  const [regPage, setRegPage] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(false);
 
   const [baseType, setBaseType] = useState<BaseTypeValue>("");
   const [name, setName] = useState("");
   const [shopName, setShopName] = useState("");
   const [businessDescription, setBusinessDescription] = useState("");
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [regCategories, setRegCategories] = useState<RegCategoryRow[]>([]);
   const [regCategoriesLoading, setRegCategoriesLoading] = useState(true);
   const [extraRegCategories, setExtraRegCategories] = useState<RegCategoryRow[]>([]);
@@ -200,9 +202,10 @@ export function VendorRegistrationWizard({
     service_mode: string;
   } | null>(null);
 
-  const [reachChoice, setReachChoice] = useState<ReachChoiceValue>("");
+  const [reachChoice, setReachChoice] = useState<ReachChoiceValue | "">("");
   const [serviceRadiusKm, setServiceRadiusKm] = useState<number | null>(null);
   const [availabilityModes, setAvailabilityModes] = useState<AvailabilityMode[]>([]);
+  const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
 
   const [phone, setPhone] = useState("");
   const [upi, setUpi] = useState("");
@@ -219,6 +222,18 @@ export function VendorRegistrationWizard({
   const [locating, setLocating] = useState(false);
   const [locationInlineError, setLocationInlineError] = useState<string | null>(null);
   const [showLocationHelp, setShowLocationHelp] = useState(false);
+
+  const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
+  const [selfieBlob, setSelfieBlob] = useState<Blob | null>(null);
+  const [selfieDataUrl, setSelfieDataUrl] = useState<string | null>(null);
+
+  const [shopCameraOpen, setShopCameraOpen] = useState(false);
+  const [shopPhotoBlob, setShopPhotoBlob] = useState<Blob | null>(null);
+  const [shopPhotoDataUrl, setShopPhotoDataUrl] = useState<string | null>(null);
+  const [shopPhotoCoords, setShopPhotoCoords] = useState<{ lat: number; lng: number } | null>(
+    null,
+  );
+  const [shopPhotoGpsDistance, setShopPhotoGpsDistance] = useState(0);
 
   useEffect(() => {
     void isReferralEnabled().then(setReferralEnabled);
@@ -258,8 +273,8 @@ export function VendorRegistrationWizard({
   }, [regCategories, extraRegCategories]);
 
   const primaryCategory =
-    selectedCategoryIds.length > 0
-      ? allRegCategories.find((c) => c.id === selectedCategoryIds[0]) ?? null
+    selectedCategoryId != null
+      ? allRegCategories.find((c) => c.id === selectedCategoryId) ?? null
       : null;
   const effectiveCategory =
     primaryCategory?.label ?? pendingNewCategoryCreate?.category_name ?? "";
@@ -273,20 +288,27 @@ export function VendorRegistrationWizard({
   const shopFieldOk =
     baseType === "shop" ? shopOk : baseType === "home" ? !homeShopInvalid : true;
   const categoryOk =
-    (selectedCategoryIds.length > 0 && effectiveCategory.length > 1) ||
+    (selectedCategoryId != null && effectiveCategory.length > 1) ||
     pendingNewCategoryCreate != null;
   const gpsOk = coords != null;
+  const selfieCaptured = selfieBlob != null;
+  const shopPhotoCaptured = shopPhotoBlob != null;
   const reachFlags = reachChoice ? reachFlagsFromChoice(reachChoice) : null;
   const needsRadius = reachFlags?.serves_at_customer_place === true;
   const radiusOk = !needsRadius || serviceRadiusKm != null;
 
-  const page1Ready =
-    baseType !== "" && nameOk && shopFieldOk && categoryOk && gpsOk;
-  const page2Ready =
-    reachChoice !== "" && radiusOk && availabilityModes.length > 0;
   const phoneOk = isValidPhone(phone);
   const upiFmtOk = isValidUpi(upi);
-  const page3Ready = phoneOk && upiFmtOk;
+
+  const stepAReady =
+    baseType !== "" && nameOk && phoneOk && upiFmtOk && gpsOk && selfieCaptured;
+  const stepBReady =
+    categoryOk &&
+    shopFieldOk &&
+    reachChoice !== "" &&
+    radiusOk &&
+    availabilityModes.length > 0 &&
+    shopPhotoCaptured;
 
   const detectLocation = (opts?: { silent?: boolean }): Promise<{ lat: number; lng: number } | null> => {
     return new Promise((resolve) => {
@@ -336,7 +358,7 @@ export function VendorRegistrationWizard({
     );
   };
 
-  const tryPage1Next = () => {
+  const tryStepANext = () => {
     if (baseType === "") {
       showRegistrationGuidanceToast(s.reg_toast_missing_base_type);
       return;
@@ -345,35 +367,23 @@ export function VendorRegistrationWizard({
       showRegistrationGuidanceToast(s.reg_toast_missing_name);
       return;
     }
-    if (baseType === "shop" && !shopOk) {
-      showRegistrationGuidanceToast(s.reg_toast_missing_shop_name);
+    if (!phoneOk) {
+      showRegistrationGuidanceToast(s.vendor_phone_invalid_body);
       return;
     }
-    if (!categoryOk) {
-      showRegistrationGuidanceToast(s.reg_toast_missing_categories);
+    if (!upiFmtOk) {
+      showRegistrationGuidanceToast(s.vendor_upi_id_format_invalid);
       return;
     }
     if (!gpsOk) {
       showRegistrationGuidanceToast(s.reg_toast_missing_gps);
       return;
     }
+    if (!selfieCaptured) {
+      showRegistrationGuidanceToast(s.vendor_selfie_capture);
+      return;
+    }
     setRegPage(2);
-  };
-
-  const tryPage2Next = () => {
-    if (reachChoice === "") {
-      showRegistrationGuidanceToast(s.reg_toast_missing_reach);
-      return;
-    }
-    if (!radiusOk) {
-      showRegistrationGuidanceToast(s.reg_toast_missing_radius);
-      return;
-    }
-    if (availabilityModes.length === 0) {
-      showRegistrationGuidanceToast(s.reg_toast_missing_availability);
-      return;
-    }
-    setRegPage(3);
   };
 
   const selectCategoryFromSuggestion = (
@@ -389,7 +399,7 @@ export function VendorRegistrationWizard({
         { id, label, emoji: emoji ?? "✨", service_mode: serviceModeValue },
       ];
     });
-    setSelectedCategoryIds([id]);
+    setSelectedCategoryId(id);
     setCategorySuggestion(null);
     setPendingNewCategoryCreate(null);
     setShowManualCategories(false);
@@ -432,6 +442,7 @@ export function VendorRegistrationWizard({
           category_name: result.category_name ?? desc,
           service_mode: result.service_mode ?? "help",
         });
+        setSelectedCategoryId(null);
       }
     } catch {
       dismissNetworkRetryingToast();
@@ -446,18 +457,14 @@ export function VendorRegistrationWizard({
       category_name: categorySuggestion.category_name,
       service_mode: categorySuggestion.service_mode ?? "help",
     });
-    setSelectedCategoryIds([]);
+    setSelectedCategoryId(null);
     setCategorySuggestion(null);
     toast.success(s.category_suggest_new(categorySuggestion.category_name));
   };
 
-  const toggleRegCategory = (categoryId: string) => {
+  const selectRegCategory = (categoryId: string) => {
     setPendingNewCategoryCreate(null);
-    setSelectedCategoryIds((prev) => {
-      if (prev.includes(categoryId)) return prev.filter((id) => id !== categoryId);
-      if (prev.length >= MAX_REG_CATEGORIES) return prev;
-      return [...prev, categoryId];
-    });
+    setSelectedCategoryId((prev) => (prev === categoryId ? null : categoryId));
   };
 
   const handleUpiQrFile = async (file: File) => {
@@ -480,9 +487,53 @@ export function VendorRegistrationWizard({
     setUpiQrUploading(false);
   };
 
+  const handleSelfieCapture = (shot: CapturedShot) => {
+    setSelfieCameraOpen(false);
+    setSelfieBlob(shot.blob);
+    setSelfieDataUrl(shot.dataUrl);
+    toast.success(s.vendor_selfie_captured);
+  };
+
+  const handleShopPhotoCapture = (shot: CapturedShot) => {
+    setShopCameraOpen(false);
+    if (coords) {
+      const meters = distanceMeters(coords, shot.coords);
+      if (meters > GPS_MATCH_TOLERANCE_M) {
+        toast.error(s.vendor_mismatch_title, {
+          description: `Photo was taken ${Math.round(meters)} m from your shop. Must be within ${GPS_MATCH_TOLERANCE_M} m.`,
+        });
+        return;
+      }
+      setShopPhotoGpsDistance(Math.round(meters));
+    } else {
+      setShopPhotoGpsDistance(0);
+    }
+    setShopPhotoBlob(shot.blob);
+    setShopPhotoDataUrl(shot.dataUrl);
+    setShopPhotoCoords(shot.coords);
+    toast.success(s.vendor_photo_verified);
+  };
+
   const register = async (e: FormEvent) => {
     e.preventDefault();
-    if (!page3Ready || !page2Ready || !page1Ready || !reachFlags) return;
+    if (!stepAReady || !stepBReady || !reachFlags || !selfieBlob || !shopPhotoBlob) return;
+
+    if (baseType === "shop" && !shopOk) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_shop_name);
+      return;
+    }
+    if (!categoryOk) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_categories);
+      return;
+    }
+    if (!radiusOk) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_radius);
+      return;
+    }
+    if (availabilityModes.length === 0) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_availability);
+      return;
+    }
 
     setLoading(true);
     setParentError(null);
@@ -494,12 +545,23 @@ export function VendorRegistrationWizard({
       return;
     }
 
-    const categoryIdsForRpc = [...selectedCategoryIds];
+    const resolvedShopName = resolveRegistrationShopName(baseType, name, shopName);
+    // Pending-only flow needs a temporary category row; attach_pending replaces it after create.
+    const categoryIdsForRpc = selectedCategoryId
+      ? [selectedCategoryId]
+      : pendingNewCategoryCreate && regCategories[0]
+        ? [regCategories[0].id]
+        : [];
+    if (categoryIdsForRpc.length === 0) {
+      setLoading(false);
+      showRegistrationGuidanceToast(s.reg_toast_missing_categories);
+      return;
+    }
     const categoryServiceModes = categoryIdsForRpc.map(() => primaryServiceMode);
 
     const registerResult = await invokeRegisterVendor({
       name: name.trim(),
-      shop_name: resolveRegistrationShopName(baseType, name, shopName),
+      shop_name: resolvedShopName,
       category: effectiveCategory,
       phone: phone.trim(),
       upi_id: upi.trim(),
@@ -525,7 +587,6 @@ export function VendorRegistrationWizard({
       setLoading(false);
       if (isDuplicateVendorPhoneError({ code: registerResult.code, message: registerResult.error })) {
         onDuplicatePhone();
-        setLoading(false);
         return;
       }
       if (isRateLimitedError({ code: registerResult.code, message: registerResult.error })) {
@@ -540,6 +601,7 @@ export function VendorRegistrationWizard({
     const newVendorId = registerResult.vendorId;
     let resolvedPrimaryServiceMode = primaryServiceMode;
     let resolvedCategoryLabel = effectiveCategory;
+    let resolvedCategoryId = selectedCategoryId;
 
     if (pendingNewCategoryCreate) {
       const created = await invokeSuggestCategory({
@@ -552,6 +614,7 @@ export function VendorRegistrationWizard({
           pendingNewCategoryCreate.service_mode) as AvailabilityMode;
         resolvedCategoryLabel =
           created.category_name ?? pendingNewCategoryCreate.category_name;
+        resolvedCategoryId = created.category_id;
 
         const attachResult = await invokeAttachPendingCategory({
           vendorId: newVendorId,
@@ -565,6 +628,94 @@ export function VendorRegistrationWizard({
             category: resolvedCategoryLabel,
             service_mode: resolvedPrimaryServiceMode,
           });
+        }
+      }
+    }
+
+    try {
+      const selfiePath = `${newVendorId}/selfie.jpg`;
+      const { error: selfieUpErr } = await supabase.storage
+        .from(VENDOR_SELFIES_BUCKET)
+        .upload(selfiePath, selfieBlob, { contentType: "image/jpeg", upsert: true });
+      if (!selfieUpErr) {
+        const { data: selfiePub } = supabase.storage
+          .from(VENDOR_SELFIES_BUCKET)
+          .getPublicUrl(selfiePath);
+        await patchVendorOwn(newVendorId, phone.trim(), {
+          photo_selfie: selfiePub.publicUrl,
+        });
+      } else {
+        console.error("selfie upload failed", selfieUpErr);
+      }
+    } catch (err) {
+      console.error("selfie upload failed", err);
+    }
+
+    if (resolvedCategoryId && shopPhotoBlob) {
+      try {
+        const shopPath = `${newVendorId}/${resolvedCategoryId}/${Date.now()}.jpg`;
+        const { error: shopUpErr } = await supabase.storage
+          .from(SHOP_PHOTOS_BUCKET)
+          .upload(shopPath, shopPhotoBlob, { contentType: "image/jpeg", upsert: true });
+        if (!shopUpErr) {
+          const { data: shopPub } = supabase.storage
+            .from(SHOP_PHOTOS_BUCKET)
+            .getPublicUrl(shopPath);
+          const hasAccountCoords = coords != null;
+          await supabase.rpc("vendor_submit_category_shop_photo", {
+            p_vendor_id: newVendorId,
+            p_vendor_phone: phone.trim(),
+            p_category_id: resolvedCategoryId,
+            p_shop_photo_url: shopPub.publicUrl,
+            p_gps_match_distance: shopPhotoGpsDistance,
+            p_set_account_lat: hasAccountCoords ? null : shopPhotoCoords?.lat ?? null,
+            p_set_account_lng: hasAccountCoords ? null : shopPhotoCoords?.lng ?? null,
+          });
+        } else {
+          console.error("shop photo upload failed", shopUpErr);
+        }
+      } catch (err) {
+        console.error("shop photo upload failed", err);
+      }
+    }
+
+    const filledReasons = cancelReasons.map((r) => r.trim());
+    if (resolvedCategoryId && filledReasons.some((r) => r.length > 0)) {
+      const { error: reasonsErr } = await supabase.rpc(
+        "vendor_upsert_category_cancel_reasons",
+        {
+          p_vendor_id: newVendorId,
+          p_vendor_phone: phone.trim(),
+          p_category_id: resolvedCategoryId,
+          p_reasons: filledReasons,
+        },
+      );
+      if (reasonsErr) {
+        console.error("cancel reasons upsert failed", reasonsErr);
+      }
+    }
+
+    if (resolvedCategoryId) {
+      const brandTrim = shopName.trim();
+      const brandDiffers =
+        brandTrim.length > 0 && brandTrim.toLowerCase() !== resolvedShopName.toLowerCase();
+      const noteTrim = vendorNote.trim();
+      if (brandDiffers || noteTrim.length > 0) {
+        const patch: Record<string, unknown> = {
+          serves_at_vendor_place: reachFlags.serves_at_vendor_place,
+          serves_at_customer_place: reachFlags.serves_at_customer_place,
+          service_radius_km: serviceRadiusKm,
+        };
+        if (brandTrim.length > 0) patch.brand_name = brandTrim;
+        if (noteTrim.length > 0) patch.vendor_note = noteTrim;
+        const { error: profileErr } = await supabase.rpc("vendor_update_category_profile", {
+          p_vendor_id: newVendorId,
+          p_vendor_phone: phone.trim(),
+          p_category_id: resolvedCategoryId,
+          p_patch: patch,
+        });
+        if (profileErr) {
+          console.error("category profile update failed", profileErr);
         }
       }
     }
@@ -619,7 +770,10 @@ export function VendorRegistrationWizard({
   return (
     <form onSubmit={register} className="space-y-4 animate-fade-up">
       <p className="text-xs text-center text-muted-foreground uppercase tracking-wider">
-        {s.reg_wizard_step(regPage, 3)}
+        {s.reg_wizard_step(regPage, 2)}
+      </p>
+      <p className="text-sm text-center font-semibold text-foreground">
+        {regPage === 1 ? s.reg_step_account : s.reg_step_business}
       </p>
 
       {regPage === 1 && (
@@ -632,106 +786,42 @@ export function VendorRegistrationWizard({
             required
           />
 
+          <RegField
+            label={s.vendor_phone_label}
+            value={phone}
+            onChange={setPhone}
+            placeholder={s.vendor_phone_placeholder}
+            required
+          />
+          <RegField
+            label={s.vendor_upi_label}
+            value={upi}
+            onChange={setUpi}
+            onBlur={() => setUpiBlurred(true)}
+            placeholder={s.vendor_upi_placeholder}
+            required
+            error={upiFormatError}
+          />
           <div>
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {s.vendor_categories_label} *
-              </label>
-              <span className="text-xs text-muted-foreground">
-                {s.vendor_categories_selected(selectedCategoryIds.length)}
-              </span>
-            </div>
-            <Textarea
-              value={businessDescription}
-              onChange={(e) => setBusinessDescription(e.target.value)}
-              placeholder={s.category_describe_placeholder}
-              className="mt-2 min-h-[72px] resize-none"
+            <label className="text-xs text-muted-foreground">{s.vendor_upi_qr_label}</label>
+            <input
+              ref={upiQrInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void handleUpiQrFile(f);
+              }}
             />
             <button
               type="button"
-              onClick={() => void handleFindCategory()}
-              disabled={categorySuggesting || businessDescription.trim().length < 3}
-              className="mt-2 w-full rounded-xl bg-brand px-3 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              disabled={upiQrUploading}
+              onClick={() => upiQrInputRef.current?.click()}
+              className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
             >
-              {categorySuggesting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {s.category_finding}
-                </>
-              ) : (
-                s.category_findButton
-              )}
+              {upiQrUploading ? "Uploading..." : s.vendor_upi_qr_hint}
             </button>
-            {categorySuggestion?.outcome === "high_existing" && categorySuggestion.category_id && (
-              <div className="mt-3 rounded-2xl border border-brand/40 bg-brand/10 p-3 space-y-2">
-                <p className="text-sm font-semibold">{s.category_suggestion(categorySuggestion.category_name ?? "")}</p>
-                <button
-                  type="button"
-                  onClick={() =>
-                    selectCategoryFromSuggestion(
-                      categorySuggestion.category_id!,
-                      categorySuggestion.category_name ?? "",
-                      categorySuggestion.emoji,
-                      categorySuggestion.service_mode ?? "help",
-                    )
-                  }
-                  className="w-full rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
-                >
-                  {s.category_confirm}
-                </button>
-              </div>
-            )}
-            {(categorySuggestion?.outcome === "new_suggested" ||
-              categorySuggestion?.outcome === "medium_new") && (
-              <div className="mt-3 rounded-2xl border border-border bg-muted/40 p-3">
-                <button
-                  type="button"
-                  onClick={confirmNewCategorySuggestion}
-                  className="w-full rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
-                >
-                  {s.category_confirm}
-                </button>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setShowManualCategories((v) => !v)}
-              className="mt-3 text-xs font-medium text-muted-foreground underline"
-            >
-              {s.category_browseManual}
-            </button>
-            {showManualCategories && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {regCategoriesLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  allRegCategories.map((cat) => {
-                    const selected = selectedCategoryIds.includes(cat.id);
-                    const atMax = selectedCategoryIds.length >= MAX_REG_CATEGORIES;
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        disabled={!selected && atMax}
-                        onClick={() => toggleRegCategory(cat.id)}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium",
-                          selected
-                            ? "border-primary bg-primary/20 ring-1 ring-primary/30"
-                            : "border-border bg-card",
-                          !selected && atMax && "opacity-40",
-                        )}
-                      >
-                        {cat.emoji} {getLabel(cat.label)}
-                        <span className="text-[10px] text-muted-foreground">
-                          {categoryServiceModeChipLabel(cat.service_mode, s)}
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            )}
           </div>
 
           <div>
@@ -762,26 +852,6 @@ export function VendorRegistrationWizard({
               />
             </div>
           </div>
-
-          {baseType === "shop" && (
-            <RegField
-              label={s.vendor_shop_name}
-              value={shopName}
-              onChange={setShopName}
-              placeholder={s.vendor_shop_placeholder}
-              required
-              error={shopName.length > 0 && !shopOk ? s.vendor_specify_hint : undefined}
-            />
-          )}
-          {baseType === "home" && (
-            <RegField
-              label={s.vendor_brand_name_optional}
-              value={shopName}
-              onChange={setShopName}
-              placeholder={s.vendor_brand_placeholder}
-              error={homeShopInvalid ? s.vendor_specify_hint : undefined}
-            />
-          )}
 
           {baseType !== "" && baseType !== "none" && (
             <>
@@ -835,12 +905,49 @@ export function VendorRegistrationWizard({
             </p>
           )}
 
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {s.vendor_selfie_title} *
+            </label>
+            <p className="mt-1 text-xs text-muted-foreground">{s.vendor_selfie_subtitle}</p>
+            <button
+              type="button"
+              data-testid="reg-selfie-capture"
+              onClick={() => setSelfieCameraOpen(true)}
+              className={cn(
+                "mt-2 w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold",
+                selfieCaptured
+                  ? "border-secondary text-secondary bg-secondary/5"
+                  : "border-border",
+              )}
+            >
+              <Camera className="h-4 w-4" />
+              {selfieCaptured ? s.vendor_selfie_reshoot : s.vendor_selfie_capture}
+            </button>
+            {selfieDataUrl && (
+              <img
+                src={selfieDataUrl}
+                alt={s.vendor_selfie_title}
+                className="mt-2 w-full max-w-xs mx-auto rounded-xl border border-border"
+              />
+            )}
+          </div>
+
+          {referralEnabled && (
+            <RegField
+              label={s.vendor_referralCodeLabel}
+              value={referralCodeInput}
+              onChange={(v) => setReferralCodeInput(v.toUpperCase().trim())}
+              placeholder={s.vendor_referralCodePlaceholder}
+            />
+          )}
+
           <button
             type="button"
-            onClick={tryPage1Next}
+            onClick={tryStepANext}
             className={cn(
               "w-full rounded-2xl bg-primary text-primary-foreground py-4 font-semibold",
-              !page1Ready && "opacity-50",
+              !stepAReady && "opacity-50",
             )}
           >
             {s.reg_wizard_next}
@@ -850,6 +957,136 @@ export function VendorRegistrationWizard({
 
       {regPage === 2 && (
         <>
+          <p className="text-xs text-muted-foreground text-center">{s.reg_account_done_hint}</p>
+
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {s.vendor_categories_label} *
+              </label>
+              {selectedCategoryId && (
+                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-brand" />
+                  {getLabel(primaryCategory?.label ?? "")}
+                </span>
+              )}
+              {pendingNewCategoryCreate && !selectedCategoryId && (
+                <span className="text-xs text-muted-foreground">
+                  {pendingNewCategoryCreate.category_name}
+                </span>
+              )}
+            </div>
+            <Textarea
+              value={businessDescription}
+              onChange={(e) => setBusinessDescription(e.target.value)}
+              placeholder={s.category_describe_placeholder}
+              className="mt-2 min-h-[72px] resize-none"
+            />
+            <button
+              type="button"
+              onClick={() => void handleFindCategory()}
+              disabled={categorySuggesting || businessDescription.trim().length < 3}
+              className="mt-2 w-full rounded-xl bg-brand px-3 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            >
+              {categorySuggesting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {s.category_finding}
+                </>
+              ) : (
+                s.category_findButton
+              )}
+            </button>
+            {categorySuggestion?.outcome === "high_existing" && categorySuggestion.category_id && (
+              <div className="mt-3 rounded-2xl border border-brand/40 bg-brand/10 p-3 space-y-2">
+                <p className="text-sm font-semibold">
+                  {s.category_suggestion(categorySuggestion.category_name ?? "")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    selectCategoryFromSuggestion(
+                      categorySuggestion.category_id!,
+                      categorySuggestion.category_name ?? "",
+                      categorySuggestion.emoji,
+                      categorySuggestion.service_mode ?? "help",
+                    )
+                  }
+                  className="w-full rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
+                >
+                  {s.category_confirm}
+                </button>
+              </div>
+            )}
+            {(categorySuggestion?.outcome === "new_suggested" ||
+              categorySuggestion?.outcome === "medium_new") && (
+              <div className="mt-3 rounded-2xl border border-border bg-muted/40 p-3">
+                <button
+                  type="button"
+                  onClick={confirmNewCategorySuggestion}
+                  className="w-full rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
+                >
+                  {s.category_confirm}
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowManualCategories((v) => !v)}
+              className="mt-3 text-xs font-medium text-muted-foreground underline"
+            >
+              {s.category_browseManual}
+            </button>
+            {showManualCategories && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {regCategoriesLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  allRegCategories.map((cat) => {
+                    const selected = selectedCategoryId === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => selectRegCategory(cat.id)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium",
+                          selected
+                            ? "border-primary bg-primary/20 ring-1 ring-primary/30"
+                            : "border-border bg-card",
+                        )}
+                      >
+                        {cat.emoji} {getLabel(cat.label)}
+                        <span className="text-[10px] text-muted-foreground">
+                          {categoryServiceModeChipLabel(cat.service_mode, s)}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
+          {baseType === "shop" ? (
+            <RegField
+              label={s.vendor_shop_name}
+              value={shopName}
+              onChange={setShopName}
+              placeholder={s.vendor_shop_placeholder}
+              required
+              error={shopName.length > 0 && !shopOk ? s.vendor_specify_hint : undefined}
+            />
+          ) : (
+            <RegField
+              label={s.my_business_category_brand}
+              value={shopName}
+              onChange={setShopName}
+              placeholder={s.vendor_brand_placeholder}
+              error={homeShopInvalid ? s.vendor_specify_hint : undefined}
+            />
+          )}
+
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {s.reg_where_reach_you} *
@@ -909,6 +1146,7 @@ export function VendorRegistrationWizard({
                 <button
                   key={opt.mode}
                   type="button"
+                  data-testid={`reg-avail-${opt.mode}`}
                   onClick={() => toggleAvailability(opt.mode)}
                   className={cn(
                     "rounded-2xl border-2 p-3 text-left min-w-[140px] flex-1",
@@ -926,68 +1164,30 @@ export function VendorRegistrationWizard({
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setRegPage(1)}
-              className="flex-1 rounded-2xl border border-border py-4 font-semibold inline-flex items-center justify-center gap-1"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              {s.reg_wizard_back}
-            </button>
-            <button
-              type="button"
-              onClick={tryPage2Next}
-              className={cn(
-                "flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold",
-                !page2Ready && "opacity-50",
-              )}
-            >
-              {s.reg_wizard_next}
-            </button>
-          </div>
-        </>
-      )}
-
-      {regPage === 3 && (
-        <>
-          <RegField
-            label={s.vendor_phone_label}
-            value={phone}
-            onChange={setPhone}
-            placeholder={s.vendor_phone_placeholder}
-            required
-          />
-          <RegField
-            label={s.vendor_upi_label}
-            value={upi}
-            onChange={setUpi}
-            onBlur={() => setUpiBlurred(true)}
-            placeholder={s.vendor_upi_placeholder}
-            required
-            error={upiFormatError}
-          />
           <div>
-            <label className="text-xs text-muted-foreground">{s.vendor_upi_qr_label}</label>
-            <input
-              ref={upiQrInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void handleUpiQrFile(f);
-              }}
-            />
-            <button
-              type="button"
-              disabled={upiQrUploading}
-              onClick={() => upiQrInputRef.current?.click()}
-              className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
-            >
-              {upiQrUploading ? "Uploading..." : s.vendor_upi_qr_hint}
-            </button>
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {s.cancelReasons}
+            </label>
+            <p className="mt-1 text-xs text-muted-foreground">{s.cancelReasonsSubtitle}</p>
+            <div className="mt-2 space-y-2">
+              {[0, 1, 2, 3].map((i) => (
+                <input
+                  key={i}
+                  type="text"
+                  value={cancelReasons[i]}
+                  onChange={(e) => {
+                    const next = [...cancelReasons];
+                    next[i] = e.target.value.slice(0, 60);
+                    setCancelReasons(next);
+                  }}
+                  maxLength={60}
+                  placeholder={`${s.rejectionReasonField} ${i + 1}`}
+                  className="w-full bg-card border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              ))}
+            </div>
           </div>
+
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {s.vendor_note_label}
@@ -1000,18 +1200,39 @@ export function VendorRegistrationWizard({
               className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-3 text-sm resize-none"
             />
           </div>
-          {referralEnabled && (
-            <RegField
-              label={s.vendor_referralCodeLabel}
-              value={referralCodeInput}
-              onChange={(v) => setReferralCodeInput(v.toUpperCase().trim())}
-              placeholder={s.vendor_referralCodePlaceholder}
-            />
-          )}
+
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {s.business_photo_verify} *
+            </label>
+            <p className="mt-1 text-xs text-muted-foreground">{s.business_photo_verify_hint}</p>
+            <button
+              type="button"
+              data-testid="reg-shop-photo-capture"
+              onClick={() => setShopCameraOpen(true)}
+              className={cn(
+                "mt-2 w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold",
+                shopPhotoCaptured
+                  ? "border-secondary text-secondary bg-secondary/5"
+                  : "border-border",
+              )}
+            >
+              <Camera className="h-4 w-4" />
+              {shopPhotoCaptured ? s.vendor_reshoot : s.my_business_verify_now}
+            </button>
+            {shopPhotoDataUrl && (
+              <img
+                src={shopPhotoDataUrl}
+                alt={s.vendor_captured_shop}
+                className="mt-2 w-full rounded-xl border border-border"
+              />
+            )}
+          </div>
+
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setRegPage(2)}
+              onClick={() => setRegPage(1)}
               className="flex-1 rounded-2xl border border-border py-4 font-semibold inline-flex items-center justify-center gap-1"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -1019,7 +1240,7 @@ export function VendorRegistrationWizard({
             </button>
             <button
               type="submit"
-              disabled={!page3Ready || loading}
+              disabled={!stepBReady || loading}
               className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
@@ -1028,6 +1249,19 @@ export function VendorRegistrationWizard({
           </div>
         </>
       )}
+
+      <LiveCamera
+        open={selfieCameraOpen}
+        onClose={() => setSelfieCameraOpen(false)}
+        onCapture={handleSelfieCapture}
+        facing="front"
+        requireLocation={false}
+      />
+      <LiveCamera
+        open={shopCameraOpen}
+        onClose={() => setShopCameraOpen(false)}
+        onCapture={handleShopPhotoCapture}
+      />
     </form>
   );
 }

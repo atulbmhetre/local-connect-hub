@@ -47,16 +47,29 @@ export const LiveCamera = ({
     const launchCamera = async () => {
       setError(null);
       try {
-        const photo = await CapacitorCamera.getPhoto({
-          quality: 85,
-          allowEditing: false,
-          resultType: CameraResultType.DataUrl,
-          source: CameraSource.Camera,
-          direction: facing === "front" ? CameraDirection.Front : CameraDirection.Rear,
-        });
+        const e2eMock =
+          typeof window !== "undefined" &&
+          (window as unknown as { __E2E_MOCK_CAMERA__?: boolean }).__E2E_MOCK_CAMERA__ ===
+            true;
+
+        let dataUrl: string | undefined;
+        if (e2eMock) {
+          // 1x1 JPEG — Playwright / headless cannot open the native camera.
+          dataUrl =
+            "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAFfgH/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUCf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQMBAT8Bf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIBAT8Bf//Z";
+        } else {
+          const photo = await CapacitorCamera.getPhoto({
+            quality: 85,
+            allowEditing: false,
+            resultType: CameraResultType.DataUrl,
+            source: CameraSource.Camera,
+            direction: facing === "front" ? CameraDirection.Front : CameraDirection.Rear,
+          });
+          dataUrl = photo.dataUrl;
+        }
 
         if (cancelled) return;
-        if (!photo.dataUrl) {
+        if (!dataUrl) {
           setError("Couldn't capture a photo.");
           return;
         }
@@ -77,10 +90,10 @@ export const LiveCamera = ({
           coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         }
 
-        const blob = await fetch(photo.dataUrl).then((r) => r.blob());
+        const blob = await fetch(dataUrl).then((r) => r.blob());
         onCapture({
           blob,
-          dataUrl: photo.dataUrl,
+          dataUrl,
           coords,
           takenAt: new Date().toISOString(),
         });

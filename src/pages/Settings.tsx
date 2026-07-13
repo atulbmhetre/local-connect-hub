@@ -113,10 +113,15 @@ import {
 } from "@/lib/trustLevel";
 
 type AdminVendorCategory = {
+  category_id: string | null;
   label: string;
   emoji: string;
   service_mode: string;
   is_primary: boolean;
+  shop_photo_url: string | null;
+  gps_match_distance: number | null;
+  verification_status: string | null;
+  is_manual_verified: boolean;
 };
 
 type AdminVendorListRow = {
@@ -167,8 +172,13 @@ const VERIFICATION_CHECK_META: { check_type: string; label: string; icon: string
 function buildAdminVendorCategoriesMap(
   rows: {
     vendor_id: string;
+    category_id: string | null;
     is_primary: boolean | null;
     service_mode: string | null;
+    shop_photo_url?: string | null;
+    gps_match_distance?: number | null;
+    verification_status?: string | null;
+    is_manual_verified?: boolean | null;
     categories:
       | { label: string; emoji: string }
       | { label: string; emoji: string }[]
@@ -184,10 +194,16 @@ function buildAdminVendorCategoriesMap(
 
     const list = map.get(row.vendor_id) ?? [];
     list.push({
+      category_id: row.category_id,
       label: resolved.label,
       emoji: resolved.emoji ?? "✨",
       service_mode: row.service_mode ?? "help",
       is_primary: row.is_primary === true,
+      shop_photo_url: row.shop_photo_url ?? null,
+      gps_match_distance:
+        row.gps_match_distance != null ? Number(row.gps_match_distance) : null,
+      verification_status: row.verification_status ?? null,
+      is_manual_verified: row.is_manual_verified === true,
     });
     map.set(row.vendor_id, list);
   }
@@ -253,7 +269,19 @@ function AdminVendorCategoryChips({
     categories.length > 0
       ? categories
       : fallbackLabel
-        ? [{ label: fallbackLabel, emoji: "✨", service_mode: "help", is_primary: true }]
+        ? [
+            {
+              category_id: null,
+              label: fallbackLabel,
+              emoji: "✨",
+              service_mode: "help",
+              is_primary: true,
+              shop_photo_url: null,
+              gps_match_distance: null,
+              verification_status: null,
+              is_manual_verified: false,
+            } satisfies AdminVendorCategory,
+          ]
         : [];
 
   if (chips.length === 0) return null;
@@ -741,11 +769,17 @@ const Settings = () => {
   const [verifySheet, setVerifySheet] = useState<{
     open: boolean;
     vendor: (typeof vendorList)[number] | null;
-  }>({ open: false, vendor: null });
+    category: AdminVendorCategory | null;
+  }>({ open: false, vendor: null, category: null });
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
   const [verifyAutoTicked, setVerifyAutoTicked] = useState<Set<string>>(() => new Set());
   const [verifyReferrerLabel, setVerifyReferrerLabel] = useState<string | null>(null);
   const [adminCheckUpdating, setAdminCheckUpdating] = useState(false);
+  const [verifyBusinessPicker, setVerifyBusinessPicker] = useState<{
+    open: boolean;
+    vendor: (typeof vendorList)[number] | null;
+    mode: "verify" | "unverify";
+  }>({ open: false, vendor: null, mode: "verify" });
   const { addresses, loading: addressesLoading, refresh: refreshAddresses } = useUserAddresses();
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [editAddressValue, setEditAddressValue] = useState("");
@@ -1247,7 +1281,9 @@ const Settings = () => {
       fetchByIdChunks("loadVendorList/vendor_categories", vendorIds, (chunk) =>
         supabase
           .from("vendor_categories")
-          .select("vendor_id, is_primary, service_mode, categories(label, emoji)")
+          .select(
+            "vendor_id, category_id, is_primary, service_mode, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, categories(label, emoji)",
+          )
           .in("vendor_id", chunk)
           .eq("status", "approved"),
       ),
@@ -1275,10 +1311,15 @@ const Settings = () => {
       if (categories.length === 0 && v.category) {
         categories = [
           {
+            category_id: null,
             label: v.category,
             emoji: "✨",
             service_mode: v.service_mode ?? "help",
             is_primary: true,
+            shop_photo_url: v.shop_photo_url,
+            gps_match_distance: v.gps_match_distance,
+            verification_status: null,
+            is_manual_verified: v.is_manual_verified,
           },
         ];
       }
@@ -1873,13 +1914,23 @@ const Settings = () => {
     return "bg-muted text-muted-foreground border border-border";
   };
 
-  const openVerifySheet = (vendor: (typeof vendorList)[number]) => {
-    const savedChecks = loadVerifyChecks(vendor.id);
-    const autoChecks = buildVerifyAutoChecks(vendor);
+  const openVerifySheet = (
+    vendor: (typeof vendorList)[number],
+    category: AdminVendorCategory,
+  ) => {
+    const progressId = category.category_id
+      ? `${vendor.id}:${category.category_id}`
+      : vendor.id;
+    const savedChecks = loadVerifyChecks(progressId);
+    const autoChecks = buildVerifyAutoChecks({
+      shop_photo_url: category.shop_photo_url ?? vendor.shop_photo_url,
+      gps_match_distance: category.gps_match_distance ?? vendor.gps_match_distance,
+      upi_verified: vendor.upi_verified,
+    });
     setVerifyAutoTicked(
       new Set(Object.keys(autoChecks).filter((k) => autoChecks[k])),
     );
-    setVerifySheet({ open: true, vendor });
+    setVerifySheet({ open: true, vendor, category });
     setVerifyChecks({ ...emptyVerifyChecks(), ...autoChecks, ...savedChecks });
     setVerifyReferrerLabel(null);
     void (async () => {
@@ -1907,8 +1958,47 @@ const Settings = () => {
     })();
   };
 
+  const beginVerifyOrUnverify = (
+    vendor: (typeof vendorList)[number],
+    mode: "verify" | "unverify",
+  ) => {
+    const cats = vendor.categories.filter((c) => c.category_id);
+    if (cats.length <= 1) {
+      const cat =
+        cats[0] ??
+        ({
+          category_id: null,
+          label: vendor.category,
+          emoji: "✨",
+          service_mode: vendor.service_mode ?? "help",
+          is_primary: true,
+          shop_photo_url: vendor.shop_photo_url,
+          gps_match_distance: vendor.gps_match_distance,
+          verification_status: null,
+          is_manual_verified: vendor.is_manual_verified,
+        } satisfies AdminVendorCategory);
+      if (mode === "verify") openVerifySheet(vendor, cat);
+      else void confirmUnverifyCategory(vendor.id, cat.category_id);
+      return;
+    }
+    const actionable =
+      mode === "verify"
+        ? cats.filter((c) => !c.is_manual_verified)
+        : cats.filter((c) => c.is_manual_verified);
+    if (actionable.length === 0) {
+      toast(mode === "verify" ? "All businesses already verified" : "No verified businesses");
+      return;
+    }
+    if (actionable.length === 1) {
+      if (mode === "verify") openVerifySheet(vendor, actionable[0]);
+      else void confirmUnverifyCategory(vendor.id, actionable[0].category_id);
+      return;
+    }
+    setVerifyBusinessPicker({ open: true, vendor, mode });
+  };
+
   const closeVerifySheet = () => {
-    setVerifySheet({ open: false, vendor: null });
+    setVerifySheet({ open: false, vendor: null, category: null });
     setVerifyChecks({});
     setVerifyAutoTicked(new Set());
     setVerifyReferrerLabel(null);
@@ -1936,11 +2026,19 @@ const Settings = () => {
 
   const confirmVerify = async () => {
     if (!verifySheet.vendor || !allChecked) return;
-    setVerifying(verifySheet.vendor.id);
     const vendor = verifySheet.vendor;
-    const { error } = await supabase.rpc("admin_verify_vendor", {
+    const category = verifySheet.category;
+    const categoryId = category?.category_id;
+    if (!categoryId) {
+      toast.error("Select a business category to verify");
+      return;
+    }
+    const verifyingKey = `${vendor.id}:${categoryId}`;
+    setVerifying(verifyingKey);
+    const { error } = await supabase.rpc("admin_verify_vendor_category", {
       p_admin_phone: adminRpcLabel(),
       p_vendor_id: vendor.id,
+      p_category_id: categoryId,
     });
     if (error) {
       setVerifying(null);
@@ -1952,36 +2050,45 @@ const Settings = () => {
       title: s.vendor_approved_title,
       body: s.vendor_approved_body,
     });
-    logAdminAction("verify_vendor", "vendor", vendor.id, null, adminAuditLabel());
-    localStorage.removeItem(verifyProgressKey(vendor.id));
+    logAdminAction("verify_vendor_category", "vendor_category", categoryId, null, adminAuditLabel());
+    localStorage.removeItem(verifyProgressKey(verifyingKey));
     await loadVendorList();
     setVerifying(null);
     closeVerifySheet();
     toast(s.settings_vendorVerified);
   };
 
-  const confirmUnverify = async (vendorId: string) => {
+  const confirmUnverifyCategory = async (
+    vendorId: string,
+    categoryId: string | null,
+  ) => {
+    if (!categoryId) {
+      toast.error("Missing business category");
+      return;
+    }
     if (!window.confirm(s.settings_removeVerifyConfirm)) return;
-    setVerifying(vendorId);
-    const { error } = await supabase.rpc("admin_unverify_vendor", {
+    const verifyingKey = `${vendorId}:${categoryId}`;
+    setVerifying(verifyingKey);
+    const { error } = await supabase.rpc("admin_unverify_vendor_category", {
       p_admin_phone: adminRpcLabel(),
       p_vendor_id: vendorId,
+      p_category_id: categoryId,
     });
     if (error) {
       setVerifying(null);
       toast.error("Update failed: " + error.message);
       return;
     }
-    const vendorPhone = vendorList.find((v) => v.id === vendorId)?.phone ?? null;
-    notifyVendorVerification(vendorId, vendorPhone, {
-      type: "account_unverified",
-      title: s.vendor_unverified_title,
-      body: s.vendor_unverified_body,
-    });
-    logAdminAction("unverify_vendor", "vendor", vendorId, null, adminAuditLabel());
+    logAdminAction("unverify_vendor_category", "vendor_category", categoryId, null, adminAuditLabel());
     await loadVendorList();
     setVerifying(null);
     toast(s.settings_verificationRemoved);
+  };
+
+  const confirmUnverify = async (vendorId: string) => {
+    const vendor = vendorList.find((v) => v.id === vendorId);
+    if (!vendor) return;
+    beginVerifyOrUnverify(vendor, "unverify");
   };
 
   const setAdminCheckStatus = async (vendorId: string, status: "passed" | "failed") => {
@@ -2368,6 +2475,7 @@ const Settings = () => {
           open={identityOpen}
           onToggle={() => setIdentityOpen((o) => !o)}
           nested
+          testId="settings-identity-toggle"
         >
           <div className="px-4 py-3.5">
             {identityPhone != null ? (
@@ -2719,7 +2827,8 @@ const Settings = () => {
         </>
       )}
 
-      <SettingsCard className="mx-4 mb-3 border-surface-border">
+      <SettingsCard className="mx-4 mb-3 border-surface-border" data-testid="settings-feed-discovery">
+        {/* Account-level only (app_users.feed_discovery_radius_km) — never per-category. */}
         <SettingsRow
           label={s.settings_feedDiscoveryRadius}
           sublabel={s.settings_feedDiscoveryRadiusHint}
@@ -3079,35 +3188,50 @@ const Settings = () => {
                       <p className="text-xs text-muted-foreground">{v.phone}</p>
                     </div>
                     <div className="shrink-0 flex flex-col items-end gap-1.5">
-                      {!v.is_manual_verified && hasVerifyInProgress(v.id) && (
+                      {v.categories.some((c) => !c.is_manual_verified) &&
+                        hasVerifyInProgress(v.id) && (
                         <span className="rounded-full bg-amber-500/10 text-amber-600 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
                           In progress
                         </span>
                       )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          v.is_manual_verified ? void confirmUnverify(v.id) : openVerifySheet(v)
-                        }
-                        disabled={verifying === v.id}
-                        className={`flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
-                          v.is_manual_verified
-                            ? "bg-green-500/10 text-green-500 border border-green-500/30"
-                            : "bg-destructive/10 text-destructive border border-destructive/30"
-                        }`}
-                      >
-                        {verifying === v.id ? (
-                          s.settings_btnLoading
-                        ) : v.is_manual_verified ? (
-                          <>
-                            <CheckCircle className="h-3 w-3" /> {s.settings_verified}
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="h-3 w-3" /> {s.settings_unverified}
-                          </>
-                        )}
-                      </button>
+                      <div className="flex flex-wrap justify-end gap-1 max-w-[11rem]">
+                        {v.categories.map((cat, idx) => {
+                          const key = cat.category_id
+                            ? `${v.id}:${cat.category_id}`
+                            : `${v.id}:${idx}`;
+                          const busy = verifying === key || verifying === v.id;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              title={getLabel(cat.label)}
+                              onClick={() =>
+                                cat.is_manual_verified
+                                  ? void confirmUnverifyCategory(v.id, cat.category_id)
+                                  : openVerifySheet(v, cat)
+                              }
+                              disabled={busy || (!cat.category_id && !cat.is_manual_verified)}
+                              className={`flex items-center gap-1 rounded-xl px-2 py-1 text-[10px] font-semibold transition-colors ${
+                                cat.is_manual_verified
+                                  ? "bg-green-500/10 text-green-500 border border-green-500/30"
+                                  : "bg-destructive/10 text-destructive border border-destructive/30"
+                              }`}
+                            >
+                              {busy ? (
+                                s.settings_btnLoading
+                              ) : cat.is_manual_verified ? (
+                                <>
+                                  <CheckCircle className="h-3 w-3" /> {cat.emoji}
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle className="h-3 w-3" /> {cat.emoji}
+                                </>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                       {!v.is_banned ? (
                         <button
                           type="button"
@@ -3799,7 +3923,11 @@ const Settings = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>{s.delete_account_confirm_title}</AlertDialogTitle>
             <AlertDialogDescription>
-              {dualRoleDelete ? s.deletion_dualRoleNotice : s.delete_account_confirm_body}
+              {dualRoleDelete
+                ? s.deletion_dualRoleNotice
+                : isVendor
+                  ? s.delete_account_confirm_body
+                  : s.delete_account_confirm_body_customer}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
@@ -3938,10 +4066,16 @@ const Settings = () => {
               </a>
             </p>
             <p className="text-xs text-muted-foreground mb-1">
-              Category: {verifySheet.vendor.category}
+              {s.admin_verify_pick_business}:{" "}
+              {verifySheet.category
+                ? `${verifySheet.category.emoji} ${getLabel(verifySheet.category.label)}`
+                : verifySheet.vendor.category}
             </p>
             <p className="text-xs text-muted-foreground mb-4">
-              Service mode: {adminServiceModeLabel(verifySheet.vendor.service_mode)}
+              Service mode:{" "}
+              {adminServiceModeLabel(
+                verifySheet.category?.service_mode ?? verifySheet.vendor.service_mode,
+              )}
             </p>
 
             <div className="rounded-2xl border border-border bg-muted/20 p-4 mb-5 space-y-2">
@@ -4000,9 +4134,14 @@ const Settings = () => {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
                   Shop photo
                 </p>
-                {verifySheet.vendor.shop_photo_url?.trim() ? (
+                {(
+                  verifySheet.category?.shop_photo_url ?? verifySheet.vendor.shop_photo_url
+                )?.trim() ? (
                   <img
-                    src={verifySheet.vendor.shop_photo_url}
+                    src={
+                      (verifySheet.category?.shop_photo_url ??
+                        verifySheet.vendor.shop_photo_url)!
+                    }
                     alt="Shop verification"
                     className="w-full h-[100px] object-cover rounded-xl border border-border"
                   />
@@ -4042,7 +4181,8 @@ const Settings = () => {
                 </p>
                 {(() => {
                   const { text, className } = gpsMatchAdminLabel(
-                    verifySheet.vendor.gps_match_distance,
+                    verifySheet.category?.gps_match_distance ??
+                      verifySheet.vendor.gps_match_distance,
                   );
                   return <p className={cn("text-xs font-medium", className)}>{text}</p>;
                 })()}
@@ -4102,10 +4242,13 @@ const Settings = () => {
                   onChange={(e) => {
                     const checked = e.target.checked;
                     if (!verifySheet.vendor) return;
+                    const progressId = verifySheet.category?.category_id
+                      ? `${verifySheet.vendor.id}:${verifySheet.category.category_id}`
+                      : verifySheet.vendor.id;
                     setVerifyChecks((prev) => {
                       const updated = { ...prev, [item.id]: checked };
                       localStorage.setItem(
-                        verifyProgressKey(verifySheet.vendor!.id),
+                        verifyProgressKey(progressId),
                         JSON.stringify(updated),
                       );
                       return updated;
@@ -4127,12 +4270,21 @@ const Settings = () => {
             <button
               type="button"
               onClick={() => void confirmVerify()}
-              disabled={!allChecked || verifying === verifySheet.vendor?.id}
+              disabled={
+                !allChecked ||
+                verifying ===
+                  (verifySheet.category?.category_id
+                    ? `${verifySheet.vendor.id}:${verifySheet.category.category_id}`
+                    : verifySheet.vendor.id)
+              }
               className={`w-full rounded-2xl py-4 font-bold text-sm transition-colors mt-4 ${
                 allChecked ? "bg-green-500 text-white" : "bg-muted text-muted-foreground cursor-not-allowed"
               }`}
             >
-              {verifying === verifySheet.vendor?.id
+              {verifying ===
+              (verifySheet.category?.category_id
+                ? `${verifySheet.vendor.id}:${verifySheet.category.category_id}`
+                : verifySheet.vendor.id)
                 ? s.settings_verifying
                 : allChecked
                   ? s.settings_markVerified_ready

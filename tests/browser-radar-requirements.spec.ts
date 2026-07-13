@@ -4,7 +4,6 @@ import {
   supabaseAdmin,
   getActiveCategoryByLabel,
   seedVendorCategory,
-  seedBronzeVendorVerification,
 } from './helpers/setup';
 
 /** Unique suffix for all test data in this file. */
@@ -79,12 +78,15 @@ async function createNearbyVendor(
       profile_status: 'complete',
       service_radius_km: 9999,
       is_manual_verified: false,
+      // Empty delivery browse uses account-level reach when no category match context.
+      serves_at_customer_place: true,
+      serves_at_vendor_place: true,
       ...overrides,
     })
     .select('id, shop_name, category, service_mode')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category);
+  await seedVendorCategory(vendor.id, category, { serves_at_customer_place: true });
   createdVendorIds.push(vendor.id);
   return vendor;
 }
@@ -259,7 +261,7 @@ test('RAD-07b — Offline vendor card — action blocked', async ({ page }) => {
   await expect(page.getByTestId('parchi-sheet')).not.toBeVisible();
 });
 
-// ─── TRUST BADGE — PROGRESSIVE DISCLOSURE ──────────────────────────────────
+// ─── TRUST BADGE — BINARY Verified / Unverified (per-business) ─────────────
 
 test('RAD-09a — Unverified vendor shows VerificationBadge only', async ({ page }) => {
   const vendor = await createNearbyVendor('delivery', 'Grocery Store', 'unverified', {
@@ -267,28 +269,42 @@ test('RAD-09a — Unverified vendor shows VerificationBadge only', async ({ page
     shop_photo_url: null,
     upi_verified: false,
     verification_status: null,
+    serves_at_customer_place: true,
   });
   await gotoRadar(page, { q: 'grocery', mode: 'delivery' });
   const card = vendorCard(page, vendor.shop_name);
   await expect(card).toBeVisible({ timeout: 25000 });
-  // VerificationBadge icon has title with Unverified label
-  await expect(card.locator('span[title*="Unverified"]')).toBeVisible();
+  // BusinessVerificationBadge with showLabel — visible label text, no title attribute
+  const unverifiedBadge = card.getByTestId('badge-unverified');
+  await expect(unverifiedBadge).toBeVisible();
+  await expect(unverifiedBadge).toHaveText(/Unverified|असत्यापित/i);
+  await expect(card.getByTestId('badge-verified')).not.toBeVisible();
   await expect(card.getByText(L.trustBronze, { exact: true })).not.toBeVisible();
   await expect(card.getByText(L.trustGold, { exact: true })).not.toBeVisible();
   await expect(card.getByText(L.trustSilver, { exact: true })).not.toBeVisible();
   await expect(card.getByText(L.trustDiamond, { exact: true })).not.toBeVisible();
 });
 
-test('RAD-09b — Manually verified vendor shows trust tier badge only', async ({ page }) => {
-  const vendor = await createNearbyVendor('delivery', 'Grocery Store', 'verified-bronze', {
+test('RAD-09b — Manually verified vendor shows Verified badge only', async ({ page }) => {
+  const vendor = await createNearbyVendor('delivery', 'Grocery Store', 'verified', {
     is_manual_verified: true,
+    upi_verified: true,
+    photo_selfie: 'https://picsum.photos/seed/rad09b/100',
+    serves_at_customer_place: true,
   });
-  await seedBronzeVendorVerification(vendor.id);
+  // Per-business badge reads vendor_categories.is_manual_verified
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ is_manual_verified: true, serves_at_customer_place: true })
+    .eq('vendor_id', vendor.id);
   await gotoRadar(page, { q: 'grocery', mode: 'delivery' });
   const card = vendorCard(page, vendor.shop_name);
   await expect(card).toBeVisible({ timeout: 25000 });
-  await expect(card.getByText(L.trustBronze, { exact: true })).toBeVisible();
-  await expect(card.locator('span[title*="Unverified"]')).not.toBeVisible();
+  const verifiedBadge = card.getByTestId('badge-verified');
+  await expect(verifiedBadge).toBeVisible();
+  await expect(verifiedBadge).toHaveText(/Verified|सत्यापित/i);
+  await expect(card.getByTestId('badge-unverified')).not.toBeVisible();
+  await expect(card.getByText(L.trustBronze, { exact: true })).not.toBeVisible();
 });
 
 // ─── SAVED NEIGHBOURS ──────────────────────────────────────────────────────

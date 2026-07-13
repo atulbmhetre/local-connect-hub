@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
+import { getAdminSessionClient } from './helpers/browser-setup';
 import { assertRowExists } from './helpers/db-assert';
 
 let testVendor: any;
@@ -38,7 +39,8 @@ test('TRUST-02: warn_count starts at 0', async () => {
 });
 
 test('AD-05: admin warns customer — warn_count increments', async () => {
-  const { error } = await supabase.rpc('admin_warn_user', {
+  const adminClient = await getAdminSessionClient();
+  const { error } = await adminClient.rpc('admin_warn_user', {
     p_admin_phone: ADMIN_PHONE,
     p_user_phone: TEST_CUSTOMER_PHONE,
   });
@@ -87,7 +89,8 @@ test('AD-07: customer with warn_count >= 3 is flagged as risky', async () => {
 });
 
 test('AD-06: admin bans customer — is_banned = true', async () => {
-  const { error } = await supabase.rpc('admin_ban_user', {
+  const adminClient = await getAdminSessionClient();
+  const { error } = await adminClient.rpc('admin_ban_user', {
     p_admin_phone: ADMIN_PHONE,
     p_user_phone: TEST_CUSTOMER_PHONE,
     p_reason: 'Test ban',
@@ -148,7 +151,8 @@ test('TRUST-03: user flag inserted correctly', async () => {
 });
 
 test('TRUST-04: trust score can be updated', async () => {
-  await supabase.rpc('admin_unban_user', {
+  const adminClient = await getAdminSessionClient();
+  await adminClient.rpc('admin_unban_user', {
     p_admin_phone: ADMIN_PHONE,
     p_user_phone: TEST_CUSTOMER_PHONE,
   });

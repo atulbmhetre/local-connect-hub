@@ -84,6 +84,11 @@ type Props = {
   orderCategoryId?: string | null;
   /** Display label for the matched category (used in vendor push title). */
   orderCategoryLabel?: string | null;
+  /** Category-scoped reach when ordering in a matched category context. */
+  orderCategoryReach?: {
+    serves_at_vendor_place: boolean;
+    serves_at_customer_place: boolean;
+  } | null;
   isOpen: boolean;
   onClose: () => void;
   /** Fulfilled order with payment details (optional). */
@@ -130,6 +135,7 @@ export function ParchiSheet({
   serviceMode: serviceModeProp,
   orderCategoryId = null,
   orderCategoryLabel = null,
+  orderCategoryReach = null,
   isOpen,
   onClose,
   order,
@@ -240,11 +246,37 @@ export function ParchiSheet({
   const isAppointmentMode = resolvedServiceMode === "appointment";
   const isHelpMode = resolvedServiceMode === "help";
 
+  const resolvedReach = orderCategoryReach ?? {
+    serves_at_vendor_place: effectiveVendor?.serves_at_vendor_place === true,
+    serves_at_customer_place:
+      effectiveVendor?.serves_at_customer_place === true ||
+      (effectiveVendor?.serves_at_vendor_place !== true &&
+        effectiveVendor?.serves_at_customer_place !== false),
+  };
+  const canServeAtCustomer = resolvedReach.serves_at_customer_place === true;
+  const canServeAtVendor = resolvedReach.serves_at_vendor_place === true;
+
   useEffect(() => {
     if (!isOpen || effectiveVendor?.is_active !== false) return;
     if (deliverySlot === "asap") setDeliverySlot("tomorrow");
     if (appointmentTiming === "instant") setAppointmentTiming("scheduled");
   }, [isOpen, effectiveVendor?.is_active, deliverySlot, appointmentTiming]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (appointmentLocation === "home" && !canServeAtCustomer) {
+      setAppointmentLocation(canServeAtVendor ? "shop" : "decide");
+    } else if (appointmentLocation === "shop" && !canServeAtVendor) {
+      setAppointmentLocation(canServeAtCustomer ? "home" : "decide");
+    }
+  }, [isOpen, canServeAtCustomer, canServeAtVendor, appointmentLocation]);
+
+  useEffect(() => {
+    if (!isOpen || !isDeliveryMode) return;
+    if (deliverySlot === "asap" && !canServeAtCustomer) {
+      setDeliverySlot("tomorrow");
+    }
+  }, [isOpen, isDeliveryMode, deliverySlot, canServeAtCustomer]);
 
   useEffect(() => {
     if (!isOpen || !resolvedVendorId) return;
@@ -861,7 +893,7 @@ export function ParchiSheet({
     return all.filter(
       (slot) =>
         (slot.alwaysShow || (slot.cutoffHour !== undefined && hour < slot.cutoffHour)) &&
-        (slot.value !== "asap" || online),
+        (slot.value !== "asap" || (online && canServeAtCustomer)),
     );
   };
 
@@ -1010,6 +1042,7 @@ export function ParchiSheet({
                 <div className="space-y-2">
                   <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">{s.parchi_whereQuestion}</p>
                   <div className="grid grid-cols-3 gap-2">
+                    {canServeAtCustomer && (
                     <button
                       type="button"
                       onClick={() => setAppointmentLocation("home")}
@@ -1021,6 +1054,8 @@ export function ParchiSheet({
                     >
                       {s.parchi_locationComeToMeBtn}
                     </button>
+                    )}
+                    {canServeAtVendor && (
                     <button
                       type="button"
                       onClick={() => setAppointmentLocation("shop")}
@@ -1032,6 +1067,7 @@ export function ParchiSheet({
                     >
                       {s.parchi_locationVisitBtn}
                     </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setAppointmentLocation("decide")}

@@ -25,6 +25,22 @@ describe("filterPostsByAudienceAndCategory", () => {
     expect(result.map((p) => p.id)).toEqual(["2", "3"]);
   });
 
+  it("shows vendors-only posts to a vendor reader", async () => {
+    fromMock.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          eq: () => Promise.resolve({ data: [], error: null }),
+        }),
+      }),
+    });
+    const posts = [
+      { id: "v-only", target_audience: "vendors" as const, target_category_id: null },
+      { id: "cust", target_audience: "customers" as const, target_category_id: null },
+    ];
+    const result = await filterPostsByAudienceAndCategory(posts, "vendor-1");
+    expect(result.map((p) => p.id)).toEqual(["v-only"]);
+  });
+
   it("hides category-scoped vendor posts from vendors without that category", async () => {
     fromMock.mockReturnValue({
       select: () => ({
@@ -57,5 +73,43 @@ describe("filterPostsByAudienceAndCategory", () => {
     ];
     const result = await filterPostsByAudienceAndCategory(posts, "vendor-1");
     expect(result.map((p) => p.id)).toEqual(["plumber", "all-vendors"]);
+  });
+
+  it("shows a Pharmacy-targeted offer to a Pharmacy vendor, not to a Grocery vendor", async () => {
+    const posts = [
+      {
+        id: "pharmacy-offer",
+        target_audience: "vendors" as const,
+        target_category_id: "cat-pharmacy",
+      },
+    ];
+
+    fromMock.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          eq: () =>
+            Promise.resolve({
+              data: [{ category_id: "cat-pharmacy" }],
+              error: null,
+            }),
+        }),
+      }),
+    });
+    const pharmacySees = await filterPostsByAudienceAndCategory(posts, "pharmacy-vendor");
+    expect(pharmacySees.map((p) => p.id)).toEqual(["pharmacy-offer"]);
+
+    fromMock.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          eq: () =>
+            Promise.resolve({
+              data: [{ category_id: "cat-grocery" }],
+              error: null,
+            }),
+        }),
+      }),
+    });
+    const grocerySees = await filterPostsByAudienceAndCategory(posts, "grocery-vendor");
+    expect(grocerySees.map((p) => p.id)).toEqual([]);
   });
 });

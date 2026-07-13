@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, loginAsFreshUser, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, loginAsFreshUser, gotoRadarDelivery, APP_URL } from './helpers/browser-setup';
 import { createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategories, seedBronzeVendorVerification, seedVendorCategory, TEST_SESSION, supabaseAdmin } from './helpers/setup';
 
 const T = Date.now();
@@ -12,11 +12,24 @@ const PHASE_D_TEST_DEBT =
   'Phase D test debt — needs session-aware test redesign. Tracked for dedicated test session.';
 
 test.beforeAll(async () => {
-  testVendor = await createTestVendor();
+  // Default /radar is help mode; delivery empty-browse needs customer-place reach.
+  testVendor = await createTestVendor({
+    service_mode: 'delivery',
+    serves_at_customer_place: true,
+  });
   await supabaseAdmin
     .from('vendors')
-    .update({ is_active: true, profile_status: 'complete' })
+    .update({
+      is_active: true,
+      profile_status: 'complete',
+      service_mode: 'delivery',
+      serves_at_customer_place: true,
+    })
     .eq('id', testVendor.id);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ serves_at_customer_place: true })
+    .eq('vendor_id', testVendor.id);
   try {
     await createTestCustomer(LOCAL_CUSTOMER_PHONE);
   } catch (err: unknown) {
@@ -91,7 +104,8 @@ test('RA-01: radar loads and shows vendor cards', async ({ page }) => {
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
-  await page.goto(`${APP_URL}/radar`);
+  // Bare /radar defaults to help; seed is delivery — open delivery mode.
+  await gotoRadarDelivery(page);
   await expect(page.getByTestId('radar-vendor-card').first()).toBeVisible({ timeout: 15000 });
 });
 

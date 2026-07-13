@@ -253,7 +253,13 @@ export async function seedOrderBill(
 export async function seedVendorCategory(
   vendorId: string,
   category: { id: string; service_mode: string },
-  opts: { is_primary?: boolean; needs_review?: boolean } = {},
+  opts: {
+    is_primary?: boolean;
+    needs_review?: boolean;
+    is_manual_verified?: boolean;
+    serves_at_vendor_place?: boolean;
+    serves_at_customer_place?: boolean;
+  } = {},
 ) {
   const { error } = await supabaseAdmin.from('vendor_categories').insert({
     vendor_id: vendorId,
@@ -262,6 +268,15 @@ export async function seedVendorCategory(
     status: 'approved',
     needs_review: opts.needs_review ?? false,
     service_mode: category.service_mode,
+    ...(opts.is_manual_verified !== undefined
+      ? { is_manual_verified: opts.is_manual_verified }
+      : {}),
+    ...(opts.serves_at_vendor_place !== undefined
+      ? { serves_at_vendor_place: opts.serves_at_vendor_place }
+      : {}),
+    ...(opts.serves_at_customer_place !== undefined
+      ? { serves_at_customer_place: opts.serves_at_customer_place }
+      : {}),
   });
   if (error) throw error;
 }

@@ -21,8 +21,8 @@ const CUSTOMER_PHONE = `88008${String(T).slice(-5)}`;
 const DEVICE_ID = `device_set_${T}`;
 const VENDOR_DEVICE_ID = `device_set_vendor_${T}`;
 
-/** Whitelist length in Settings.tsx ADMIN_CONFIG_WHITELIST (requirement doc says 24; code has 30). */
-const ADMIN_CONFIG_ROW_COUNT = 30;
+/** Whitelist length in Settings.tsx ADMIN_CONFIG_WHITELIST (location_ping_seconds removed in Part M). */
+const ADMIN_CONFIG_ROW_COUNT = 29;
 
 const L = {
   myAccount: 'My Account',
@@ -428,17 +428,16 @@ test('SET-REQ-15 — Admin sees Admin tab in Settings', async ({ page }) => {
   await gotoSettings(page);
   await expect(page.getByTestId('settings-tab-admin')).not.toBeVisible();
 
+  // loginAsAdminViaSession reveals the tab and signs in — do not remount Settings
+  // afterward or adminTabRevealed resets to false.
   await loginAsAdmin(page, DEVICE_ID);
-  await gotoSettings(page);
-  await waitForSettingsAdminReady(page);
-  await expect(page.getByTestId('settings-tab-admin')).toBeVisible();
+  await expect(page.getByTestId('settings-tab-admin')).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId('settings-tab-admin')).toHaveText(L.adminTab);
+  await expect(page.getByTestId('admin-panel')).toBeVisible();
 });
 
 test('SET-REQ-16 — Admin App Config shows all 24 whitelisted keys', async ({ page }) => {
   await loginAsAdmin(page, DEVICE_ID);
-  await gotoSettings(page);
-  await waitForSettingsAdminReady(page);
 
   await page.getByRole('button', { name: L.appConfig }).click();
   const panel = page.getByTestId('admin-panel');
@@ -459,28 +458,16 @@ test('SET-REQ-17 — Admin config UPSERT — saves new key that does not exist i
     await supabaseAdmin.from('app_config').delete().eq('key', probeKey);
 
     await loginAsAdmin(page, DEVICE_ID);
-    await gotoSettings(page);
-    await waitForSettingsAdminReady(page);
-    await page.getByRole('button', { name: L.appConfig }).click();
     await expect(page.getByTestId('admin-panel')).toBeVisible({ timeout: 15000 });
 
-    // Same RPC the admin UI Save button uses (admin_update_app_config), with a test-only key.
-    const adminPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
-    expect(adminPhone).toBeTruthy();
-
-    const rpcError = await page.evaluate(
-      async ({ adminPhone, probeKey }) => {
-        const { supabase } = await import('/src/lib/supabase.ts');
-        const { error } = await supabase.rpc('admin_update_app_config', {
-          p_admin_phone: adminPhone,
-          p_key: probeKey,
-          p_value: '21',
-        });
-        return error?.message ?? null;
-      },
-      { adminPhone: adminPhone!, probeKey },
-    );
-    expect(rpcError, rpcError ?? undefined).toBeNull();
+    const { getAdminSessionClient } = await import('./helpers/browser-setup');
+    const adminClient = await getAdminSessionClient();
+    const { error } = await adminClient.rpc('admin_update_app_config', {
+      p_admin_phone: 'session-admin',
+      p_key: probeKey,
+      p_value: '21',
+    });
+    expect(error, error?.message ?? undefined).toBeNull();
 
     await expect
       .poll(async () => {
@@ -499,15 +486,11 @@ test('SET-REQ-17 — Admin config UPSERT — saves new key that does not exist i
 
 test('SET-REQ-18 — Admin Pending Categories section visible', async ({ page }) => {
   await loginAsAdmin(page, DEVICE_ID);
-  await gotoSettings(page);
-  await waitForSettingsAdminReady(page);
   await expect(page.getByRole('button', { name: /Pending Categories/ })).toBeVisible();
 });
 
 test('SET-REQ-19 — Admin Low Ratings section visible', async ({ page }) => {
   await loginAsAdmin(page, DEVICE_ID);
-  await gotoSettings(page);
-  await waitForSettingsAdminReady(page);
   await expect(page.getByRole('button', { name: /Low Ratings \(2★ and below\)/ })).toBeVisible();
 });
 
@@ -550,8 +533,6 @@ test('SET-REQ-20 — Admin can delete a low-rated review', async ({ page }) => {
     .eq('id', vendor.id);
 
   await loginAsAdmin(page, DEVICE_ID);
-  await gotoSettings(page);
-  await waitForSettingsAdminReady(page);
   await page.getByRole('button', { name: /Low Ratings \(2★ and below\)/ }).click();
 
   const reviewRow = page.locator('div.rounded-2xl.border.border-border').filter({ hasText: reviewText });

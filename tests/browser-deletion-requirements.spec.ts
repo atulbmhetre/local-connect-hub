@@ -18,8 +18,8 @@ const L = {
   myAccount: 'My Account',
   deleteAccount: 'Delete Account',
   confirmTitle: 'Delete your account?',
-  confirmBody:
-    'This will delete your shop. Your data cannot be recovered, and you will not be able to register a new shop with this same phone number for 30 days.',
+  /** Customer-only confirm body — no shop / 30-day grace language. */
+  confirmBody: 'This will permanently delete your account. Your data cannot be recovered.',
   yesDelete: 'Yes, Delete',
   cancel: 'Cancel',
   scheduledPrefix: 'Account deletion scheduled',

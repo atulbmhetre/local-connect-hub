@@ -25,6 +25,7 @@ import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import { getVoiceLang } from "@/lib/voiceUtils";
+import { messageForKhataChargeError } from "@/lib/khataBillErrors";
 
 type Props = {
   isOpen: boolean;
@@ -319,7 +320,13 @@ export function BillSheet({
     });
 
     if (billError || !billId) {
-      toast.error(s.bill_sendFailed);
+      toast.error(
+        messageForKhataChargeError(
+          billError?.message,
+          s.khata_errAlreadyAtRedLimit,
+          s.bill_sendFailed,
+        ),
+      );
       setSending(false);
       return;
     }

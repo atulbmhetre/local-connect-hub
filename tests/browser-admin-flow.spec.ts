@@ -444,8 +444,10 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
   const vendorRow = page.locator(`#admin-vendor-${verifyVendor!.id}`);
   await expect(vendorRow).toBeVisible({ timeout: 20000 });
   await vendorRow.scrollIntoViewIfNeeded();
-  await vendorRow.getByRole('button', { name: /Unverified|असत्यापित/i }).first().click({ timeout: 10000 });
+  // Per-category verify button: icon + emoji, title = category label (no "Unverified" text)
+  await vendorRow.locator(`button[title="${primaryCategory.label}"]`).click({ timeout: 10000 });
   await expect(page.getByText('Verification checks')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByText(/Select business to verify/i)).toBeVisible();
 
   for (const label of ['UPI Format', 'UPI Penny-drop', 'Shop Photo', 'Selfie Photo', 'GPS', 'Admin Check', 'Aadhaar/DigiLocker']) {
     await expect(page.getByText(label, { exact: false }).first()).toBeVisible();

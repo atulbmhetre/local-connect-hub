@@ -26,7 +26,14 @@ import {
   withNetworkRetry,
 } from "@/lib/withNetworkRetry";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
-import { resolveCancelReasonsForCategory } from "@/lib/categoryScopedVendor";
+import {
+  resolveCancelReasonsForCategory,
+  resolveCategoryBrandName,
+} from "@/lib/categoryScopedVendor";
+import {
+  isKhataRedLimitExceededError,
+  messageForKhataChargeError,
+} from "@/lib/khataBillErrors";
 import {
   dismissNetworkRetryingToast,
   showNetworkFailedToast,
@@ -228,6 +235,20 @@ export function IncomingOrdersSection({
   const [categoryReasonsById, setCategoryReasonsById] = useState<Map<string, string[]>>(
     () => new Map(),
   );
+  const [categoryBrandById, setCategoryBrandById] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+
+  const brandForOrder = useCallback(
+    (categoryId: string | null | undefined) =>
+      resolveCategoryBrandName(
+        categoryId ? categoryBrandById.get(categoryId) : null,
+        shopName,
+        categoryId,
+      ) || shopName,
+    [categoryBrandById, shopName],
+  );
+
   const activeReasonOrderId = cancelOrderId ?? declineOrderId;
   const activeReasonCategoryId = useMemo(() => {
     if (!activeReasonOrderId) return null;
@@ -401,6 +422,10 @@ export function IncomingOrdersSection({
     }
     if (message.includes("customer_phone_required")) {
       toast.error(s.bill_errKhataNoPhone);
+      return;
+    }
+    if (isKhataRedLimitExceededError(message)) {
+      toast.error(s.khata_errAlreadyAtRedLimit);
       return;
     }
     if (message.includes("unauthorised")) {
@@ -741,24 +766,39 @@ export function IncomingOrdersSection({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const { data, error } = await supabase
-        .from("vendor_category_cancel_reasons")
-        .select("category_id, reason_text, position")
-        .eq("vendor_id", vendorId)
-        .order("position", { ascending: true });
+      const [reasonsResult, brandsResult] = await Promise.all([
+        supabase
+          .from("vendor_category_cancel_reasons")
+          .select("category_id, reason_text, position")
+          .eq("vendor_id", vendorId)
+          .order("position", { ascending: true }),
+        supabase
+          .from("vendor_categories")
+          .select("category_id, brand_name")
+          .eq("vendor_id", vendorId)
+          .eq("status", "approved"),
+      ]);
       if (cancelled) return;
-      if (error) {
-        console.error("loadCategoryCancelReasons", error);
-        return;
+      if (reasonsResult.error) {
+        console.error("loadCategoryCancelReasons", reasonsResult.error);
+      } else {
+        const map = new Map<string, string[]>();
+        for (const row of reasonsResult.data ?? []) {
+          const list = map.get(row.category_id) ?? ["", "", "", ""];
+          const pos = Number(row.position);
+          if (pos >= 1 && pos <= 4) list[pos - 1] = row.reason_text ?? "";
+          map.set(row.category_id, list);
+        }
+        setCategoryReasonsById(map);
       }
-      const map = new Map<string, string[]>();
-      for (const row of data ?? []) {
-        const list = map.get(row.category_id) ?? ["", "", "", ""];
-        const pos = Number(row.position);
-        if (pos >= 1 && pos <= 4) list[pos - 1] = row.reason_text ?? "";
-        map.set(row.category_id, list);
+      if (!brandsResult.error) {
+        const brands = new Map<string, string>();
+        for (const row of brandsResult.data ?? []) {
+          const brand = String(row.brand_name ?? "").trim();
+          if (brand) brands.set(row.category_id, brand);
+        }
+        setCategoryBrandById(brands);
       }
-      setCategoryReasonsById(map);
     })();
     return () => {
       cancelled = true;
@@ -1389,12 +1429,19 @@ export function IncomingOrdersSection({
       });
 
       if (error || !billId) {
-        toast.error(error?.message ?? s.bill_sendFailed);
+        toast.error(
+          messageForKhataChargeError(
+            error?.message,
+            s.khata_errAlreadyAtRedLimit,
+            error?.message || s.bill_sendFailed,
+          ),
+        );
         return;
       }
 
       const title = s.bill_notifTitle;
-      const body = `${shopName}: ₹${amount} — ${s.khata_wordLabel}`;
+      const ledgerCat = rows.find((r) => r.id === ledgerOrderId)?.category_id ?? null;
+      const body = `${brandForOrder(ledgerCat)}: ₹${amount} — ${s.khata_wordLabel}`;
       void invokeNotifyUser({
         user_phone: ledgerUserPhone,
         title,
@@ -2515,7 +2562,9 @@ export function IncomingOrdersSection({
           requestId={editBillTarget.requestId}
           vendorId={vendorId}
           userPhone={editBillTarget.userPhone}
-          shopName={shopName}
+          shopName={brandForOrder(
+            rows.find((r) => r.id === editBillTarget.requestId)?.category_id,
+          )}
           originalTotal={editBillTarget.total_amount}
           paymentMode={editBillTarget.payment_mode}
           paymentStatus={editBillTarget.payment_status}
@@ -2553,7 +2602,7 @@ export function IncomingOrdersSection({
           requestId={billRequestId}
           vendorId={vendorId}
           userPhone={billUserPhone}
-          shopName={shopName}
+          shopName={brandForOrder(rows.find((r) => r.id === billRequestId)?.category_id)}
           khataAmberLimit={khataAmberLimit}
           khataRedLimit={khataRedLimit}
         />

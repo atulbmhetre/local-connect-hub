@@ -19,16 +19,61 @@ async function mockVendorGeolocation(page: Page) {
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
 }
 
-async function completeWizardPage1Shop(
+async function enableE2eCameraMock(page: Page) {
+  await page.addInitScript(() => {
+    (window as unknown as { __E2E_MOCK_CAMERA__?: boolean }).__E2E_MOCK_CAMERA__ = true;
+  });
+}
+
+/** Step A: account (name, phone, UPI, base, GPS, selfie, optional referral). */
+async function completeWizardStepA(
   page: Page,
   opts: {
     ownerName: string;
-    shopName: string;
-    categoryLabel: string;
-    categoryFilter?: RegExp;
+    phone: string;
+    upi: string;
+    base?: 'shop' | 'home' | 'none';
+    referralCode?: string;
   },
 ) {
+  const base = opts.base ?? 'shop';
   await page.getByPlaceholder('Ramesh Kumar').fill(opts.ownerName);
+  await page.getByPlaceholder('+91 98xxxxxxxx').fill(opts.phone);
+  await page.getByPlaceholder('name@okbank').fill(opts.upi);
+  const baseLabel =
+    base === 'shop' ? /Shop|दुकान/ : base === 'home' ? /Home|घर/ : /No fixed place|fixed/;
+  await page.locator('button').filter({ hasText: baseLabel }).first().click();
+  if (base !== 'none') {
+    await page
+      .getByRole('button', {
+        name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
+      })
+      .click();
+  } else {
+    await page.waitForTimeout(1500);
+  }
+  await page.getByTestId('reg-selfie-capture').click();
+  await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
+    timeout: 15000,
+  });
+  if (opts.referralCode) {
+    await page.getByPlaceholder('e.g. MAT-9973').fill(opts.referralCode);
+  }
+  await page.getByRole('button', { name: 'Next' }).click();
+}
+
+/** Step B: single business + shop photo → Register. */
+async function completeWizardStepB(
+  page: Page,
+  opts: {
+    categoryLabel: string;
+    categoryFilter?: RegExp;
+    brandName?: string;
+    reach?: 'customer' | 'vendor' | 'both';
+    modes: Array<'help' | 'delivery' | 'appointment'>;
+    pickRadius?: boolean;
+  },
+) {
   await page.getByRole('button', { name: 'Browse all categories' }).click();
   const chip = opts.categoryFilter
     ? page
@@ -38,26 +83,9 @@ async function completeWizardPage1Shop(
     : page.getByRole('button').filter({ hasText: opts.categoryLabel });
   await expect(chip.first()).toBeVisible({ timeout: 15000 });
   await chip.first().click();
-  await page
-    .locator('button')
-    .filter({ hasText: '🏪' })
-    .filter({ hasText: /Shop|दुकान/ })
-    .first()
-    .click();
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(opts.shopName);
-  await page.getByRole('button', { name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन/ }).click();
-  await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled({ timeout: 10000 });
-  await page.getByRole('button', { name: 'Next' }).click();
-}
-
-async function completeWizardPage2(
-  page: Page,
-  opts: {
-    reach?: 'customer' | 'vendor' | 'both';
-    modes: Array<'help' | 'delivery' | 'appointment'>;
-    pickRadius?: boolean;
-  },
-) {
+  // Shop base requires a shop/brand name on Step B (shopFieldOk).
+  const brand = opts.brandName ?? `Shop ${Date.now().toString().slice(-4)}`;
+  await page.getByPlaceholder('Ramesh Tyre Works').fill(brand);
   const reach = opts.reach ?? 'vendor';
   if (reach === 'customer') {
     await page.getByRole('button', { name: /At their place|उनके पास/ }).click();
@@ -66,27 +94,61 @@ async function completeWizardPage2(
   } else {
     await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
   }
-  if (opts.pickRadius) {
+  const needRadius = opts.pickRadius ?? (reach === 'customer' || reach === 'both');
+  if (needRadius) {
     await page.getByRole('button', { name: '15 km' }).click();
   }
   for (const mode of opts.modes) {
-    const label =
-      mode === 'help' ? /Urgent help|तुरंत/ : mode === 'delivery' ? /Delivery|डिलीवरी/ : /Appointments|अपॉइंटमेंट/;
-    await page.getByRole('button', { name: label }).click();
+    await page.getByTestId(`reg-avail-${mode}`).click();
   }
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByTestId('reg-shop-photo-capture').click();
+  await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
+    timeout: 15000,
+  });
+  await expect(page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी करा/i })).toBeEnabled({
+    timeout: 10000,
+  });
+  await page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी करा/i }).click();
 }
 
-async function completeWizardPage3(
+/** Add a second business from Settings → My Business → BusinessSetupSheet. */
+async function addBusinessViaSetupSheet(
   page: Page,
-  opts: { phone: string; upi: string; referralCode?: string },
+  opts: {
+    categoryLabel: string;
+    brandName: string;
+    reach?: 'customer' | 'vendor' | 'both';
+  },
 ) {
-  await page.getByPlaceholder('+91 98xxxxxxxx').fill(opts.phone);
-  await page.getByPlaceholder('name@okbank').fill(opts.upi);
-  if (opts.referralCode) {
-    await page.getByPlaceholder('e.g. MAT-9973').fill(opts.referralCode);
+  await page.getByTestId('my-business-add-business').click();
+  await expect(page.getByText(/Add another business/i).first()).toBeVisible({ timeout: 10000 });
+
+  const chip = page
+    .getByRole('button')
+    .filter({ hasText: opts.categoryLabel })
+    .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
+  await expect(chip.first()).toBeVisible({ timeout: 15000 });
+  await chip.first().click();
+
+  await page.getByPlaceholder('e.g. Ramesh Home Kitchen').fill(opts.brandName);
+
+  const reach = opts.reach ?? 'vendor';
+  if (reach === 'customer') {
+    await page.getByRole('button', { name: /At their place|उनके पास/ }).click();
+  } else if (reach === 'both') {
+    await page.getByRole('button', { name: /^Both$|दोनों/ }).click();
+  } else {
+    await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
   }
-  await page.getByRole('button', { name: 'Register me' }).click();
+  if (reach === 'customer' || reach === 'both') {
+    await page.getByRole('button', { name: '15 km' }).click();
+  }
+
+  await page.getByTestId('add-business-shop-photo').click();
+  await page.waitForTimeout(800);
+
+  await page.getByTestId('add-business-submit').click();
+  await expect(page.getByTestId('my-business-add-business')).toBeVisible({ timeout: 20000 });
 }
 
 async function cleanupVendorReferralArtifacts(
@@ -123,25 +185,29 @@ test.afterAll(async () => {
   await cleanupTestData();
 });
 
-test('VR-E2E-01: shop vendor registers with GPS via 3-page wizard', async ({ page }) => {
+test('VR-E2E-01: shop vendor registers with GPS via 2-page wizard', async ({ page }) => {
   const phone = `99000${Date.now().toString().slice(-5)}`;
   const category = await getFirstActiveCategory();
   const ownerName = 'Browser Reg Owner';
   const shopName = `Browser Reg Shop ${phone.slice(-4)}`;
 
   await mockVendorGeolocation(page);
+  await enableE2eCameraMock(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
 
-  await completeWizardPage1Shop(page, {
+  await completeWizardStepA(page, {
     ownerName,
-    shopName,
-    categoryLabel: category.label,
+    phone,
+    upi: 'browserreg@upi',
   });
-  await completeWizardPage2(page, { modes: ['help'] });
   const since = new Date().toISOString();
-  await completeWizardPage3(page, { phone, upi: 'browserreg@upi' });
+  await completeWizardStepB(page, {
+    categoryLabel: category.label,
+    brandName: shopName,
+    modes: ['help'],
+  });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
@@ -159,10 +225,22 @@ test('VR-E2E-01: shop vendor registers with GPS via 3-page wizard', async ({ pag
 
   const { data: categoryRows, error: categoryError } = await supabaseAdmin
     .from('vendor_categories')
-    .select('id')
+    .select('id, shop_photo_url')
     .eq('vendor_id', vendorId);
   expect(categoryError).toBeNull();
   expect((categoryRows?.length ?? 0)).toBeGreaterThanOrEqual(1);
+  await expect
+    .poll(
+      async () => {
+        const { data } = await supabaseAdmin
+          .from('vendor_categories')
+          .select('shop_photo_url')
+          .eq('vendor_id', vendorId);
+        return data?.[0]?.shop_photo_url ?? null;
+      },
+      { timeout: 20000 },
+    )
+    .toBeTruthy();
 
   const { data: verificationRows, error: verificationError } = await supabaseAdmin
     .from('vendor_verification')
@@ -209,7 +287,7 @@ test('VR-E2E-01: shop vendor registers with GPS via 3-page wizard', async ({ pag
   await deleteVendorRegistrationArtifacts(vendorId);
 });
 
-test('VR-MULTI-01: registration UI selects 2 categories and persists both in vendor_categories', async ({
+test('VR-MULTI-01: register one business then add second via My Business sheet', async ({
   page,
 }) => {
   const electrician = await getActiveCategoryByLabel('Electrician');
@@ -219,31 +297,32 @@ test('VR-MULTI-01: registration UI selects 2 categories and persists both in ven
   const shopName = `Multi Cat Shop ${phone.slice(-4)}`;
 
   await mockVendorGeolocation(page);
+  await enableE2eCameraMock(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
 
-  await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
-  await page.getByRole('button', { name: 'Browse all categories' }).click();
-  const categoryChip = (label: string) =>
-    page.getByRole('button').filter({ hasText: label }).filter({ hasText: /Help|Delivery|Appointment/ });
-  await expect(categoryChip(electrician.label).first()).toBeVisible({ timeout: 15000 });
-  await categoryChip(electrician.label).first().click();
-  await expect(page.getByText('1/5 selected')).toBeVisible({ timeout: 5000 });
-  await categoryChip(plumber.label).first().click();
-  await expect(page.getByText('2/5 selected')).toBeVisible({ timeout: 5000 });
-  await page
-    .locator('button')
-    .filter({ hasText: '🏪' })
-    .filter({ hasText: /Shop|दुकान/ })
-    .first()
-    .click();
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
-  await page.getByRole('button', { name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन/ }).click();
-  await page.getByRole('button', { name: 'Next' }).click();
-  await completeWizardPage2(page, { modes: ['help'] });
-  await completeWizardPage3(page, { phone, upi: 'multicat@upi' });
+  await completeWizardStepA(page, {
+    ownerName,
+    phone,
+    upi: 'multicat@upi',
+  });
+  await completeWizardStepB(page, {
+    categoryLabel: electrician.label,
+    brandName: shopName,
+    modes: ['help'],
+  });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
+
+  await page.getByRole('button', { name: /Complete verification in Settings/i }).click();
+  await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('vendor-my-business')).toBeVisible({ timeout: 10000 });
+
+  await addBusinessViaSetupSheet(page, {
+    categoryLabel: plumber.label,
+    brandName: `Plumber Brand ${phone.slice(-4)}`,
+    reach: 'vendor',
+  });
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
     .from('vendors')
@@ -252,6 +331,19 @@ test('VR-MULTI-01: registration UI selects 2 categories and persists both in ven
     .single();
   expect(vendorError).toBeNull();
   const vendorId = vendor!.id;
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await supabaseAdmin
+          .from('vendor_categories')
+          .select('id')
+          .eq('vendor_id', vendorId);
+        return data?.length ?? 0;
+      },
+      { timeout: 20000 },
+    )
+    .toBe(2);
 
   const { data: categoryRows, error: categoryError } = await supabaseAdmin
     .from('vendor_categories')
@@ -282,18 +374,22 @@ test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode categ
   const shopName = `Delivery Shop ${phone.slice(-4)}`;
 
   await mockVendorGeolocation(page);
+  await enableE2eCameraMock(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
 
-  await completeWizardPage1Shop(page, {
+  await completeWizardStepA(page, {
     ownerName,
-    shopName,
+    phone,
+    upi: 'deliveryshop@upi',
+  });
+  await completeWizardStepB(page, {
     categoryLabel: deliveryCat.label,
     categoryFilter: /🚚 Delivery/,
+    brandName: shopName,
+    modes: ['delivery'],
   });
-  await completeWizardPage2(page, { modes: ['delivery'] });
-  await completeWizardPage3(page, { phone, upi: 'deliveryshop@upi' });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
   await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 10000 });
@@ -339,18 +435,22 @@ test('VR-SHOP-APPT-01: shop vendor registers via UI with appointment-mode catego
   const shopName = `Appt Shop ${phone.slice(-4)}`;
 
   await mockVendorGeolocation(page);
+  await enableE2eCameraMock(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
 
-  await completeWizardPage1Shop(page, {
+  await completeWizardStepA(page, {
     ownerName,
-    shopName,
+    phone,
+    upi: 'apptshop@upi',
+  });
+  await completeWizardStepB(page, {
     categoryLabel: appointmentCat.label,
     categoryFilter: /🗓️ Appointment/,
+    brandName: shopName,
+    modes: ['appointment'],
   });
-  await completeWizardPage2(page, { modes: ['appointment'] });
-  await completeWizardPage3(page, { phone, upi: 'apptshop@upi' });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
   await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 10000 });
@@ -415,16 +515,17 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
   const shopName = `Referred Shop ${phone.slice(-4)}`;
 
   await mockVendorGeolocation(page);
+  await enableE2eCameraMock(page);
   await page.goto(APP_URL);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${APP_URL}/vendor`);
 
-  await completeWizardPage1Shop(page, {
+  await completeWizardStepA(page, {
     ownerName,
-    shopName,
-    categoryLabel: category.label,
+    phone,
+    upi: 'referredreg@upi',
+    referralCode: referrerCode,
   });
-  await completeWizardPage2(page, { modes: ['help'] });
 
   const referralEdgeResponse = page.waitForResponse(
     (resp) =>
@@ -433,10 +534,10 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
     { timeout: 30000 },
   );
 
-  await completeWizardPage3(page, {
-    phone,
-    upi: 'referredreg@upi',
-    referralCode: referrerCode,
+  await completeWizardStepB(page, {
+    categoryLabel: category.label,
+    brandName: shopName,
+    modes: ['help'],
   });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 

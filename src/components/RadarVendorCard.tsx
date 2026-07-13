@@ -15,7 +15,7 @@ import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { VerificationBadge, vendorTier, getVerificationCopy } from "@/components/VerificationBadge";
+import { VerificationBadge, BusinessVerificationBadge } from "@/components/VerificationBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -32,6 +32,10 @@ import {
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
 import type { TrustLevel } from "@/lib/trustLevel";
+import {
+  resolveCategoryBrandName,
+  resolveCategoryReach,
+} from "@/lib/categoryScopedVendor";
 
 const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
 const VENDOR_SELF_STORAGE_KEY = "aaspaas:vendor_id";
@@ -304,7 +308,18 @@ type Props = {
   fulfilledRequestId?: string | null;
   /** Menu preview (first 5 available items), batch-fetched by the parent. */
   menuItems: { name: string; price: number; unit: string | null; is_available: boolean }[];
-  categories: { label: string; emoji: string; category_id?: string }[];
+  categories: {
+    label: string;
+    emoji: string;
+    category_id?: string;
+    brand_name?: string | null;
+    serves_at_vendor_place?: boolean | null;
+    serves_at_customer_place?: boolean | null;
+    service_radius_km?: number | null;
+    is_manual_verified?: boolean | null;
+    shop_photo_url?: string | null;
+    verification_status?: string | null;
+  }[];
   trustLevel?: TrustLevel;
   dist: number | null;
   index: number;
@@ -315,6 +330,8 @@ type Props = {
   showPanIndiaBadge?: boolean;
   /** Radar tab mode used to find this vendor (may differ from vendors.service_mode). */
   radarServiceMode?: string;
+  /** Pre-resolved display brand from parent (matched category). */
+  displayBrandName?: string;
 };
 
 export function RadarVendorCard({
@@ -332,15 +349,42 @@ export function RadarVendorCard({
   onOrderCancelled = () => {},
   showPanIndiaBadge = false,
   radarServiceMode,
+  displayBrandName,
 }: Props) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
-  const tier = vendorTier(vendor);
-  const verificationCopy = getVerificationCopy(s);
   const serviceMode = String(radarServiceMode ?? vendor.service_mode ?? "")
     .trim()
     .toLowerCase();
   const isOwnVendor = readIsOwnVendorCard(vendor.id, vendor.phone);
+  const matchedCategoryId = categories[0]?.category_id ?? null;
+  const brandName =
+    displayBrandName?.trim() ||
+    resolveCategoryBrandName(
+      categories[0]?.brand_name,
+      vendor.shop_name,
+      matchedCategoryId,
+    ) ||
+    vendor.shop_name;
+  const categoryReach = resolveCategoryReach(
+    categories[0],
+    {
+      serves_at_vendor_place: vendor.serves_at_vendor_place,
+      serves_at_customer_place: vendor.serves_at_customer_place,
+    },
+    matchedCategoryId,
+  );
+  const businessTrust = categories[0]
+    ? {
+        is_manual_verified: categories[0].is_manual_verified,
+        shop_photo_url: categories[0].shop_photo_url,
+        verification_status: categories[0].verification_status,
+      }
+    : {
+        is_manual_verified: vendor.is_manual_verified,
+        shop_photo_url: vendor.shop_photo_url,
+        verification_status: vendor.verification_status,
+      };
 
   const [helpCount, setHelpCount] = useState(() => vendor.total_helped ?? 0);
   const [deliveredCount, setDeliveredCount] = useState(() => vendor.total_delivered ?? 0);
@@ -542,11 +586,12 @@ export function RadarVendorCard({
   const showUnsaveRow = isNeighbourSaved;
 
   const accentRing =
-    tier === "green"
+    businessTrust.is_manual_verified === true &&
+    vendor.upi_verified === true &&
+    vendor.photo_selfie != null &&
+    vendor.latitude != null
       ? "ring-brand/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
-      : tier === "yellow"
-        ? "ring-warning/40"
-        : "ring-destructive/30";
+      : "ring-destructive/30";
 
   const handleConnect = useCallback(async () => {
     const { data } = await supabase
@@ -789,14 +834,14 @@ export function RadarVendorCard({
       )}
       <div className="flex items-start gap-3">
         <div className="h-12 w-12 rounded-xl bg-gradient-vendor grid place-items-center shrink-0 overflow-hidden">
-          {vendor.shop_photo_url ? (
+          {businessTrust.shop_photo_url || vendor.shop_photo_url ? (
             <img
-              src={vendor.shop_photo_url}
-              alt={`${vendor.shop_name} shop`}
+              src={(businessTrust.shop_photo_url || vendor.shop_photo_url)!}
+              alt={`${brandName} shop`}
               className="h-full w-full object-cover cursor-pointer"
               loading="lazy"
               onClick={() => {
-                setLightboxUrl(vendor.shop_photo_url);
+                setLightboxUrl(businessTrust.shop_photo_url || vendor.shop_photo_url);
                 setLightboxOpen(true);
               }}
             />
@@ -808,7 +853,7 @@ export function RadarVendorCard({
           <div className="flex items-start gap-1.5 min-w-0">
             <div className="min-w-0 flex-1">
               <h3 className="text-base font-bold text-foreground break-words leading-snug inline-flex items-center gap-1.5 flex-wrap">
-                <span>{vendor.shop_name}</span>
+                <span>{brandName}</span>
                 {vendor.is_active === true && (
                   <span
                     className="h-2 w-2 rounded-full bg-brand shrink-0"
@@ -826,16 +871,11 @@ export function RadarVendorCard({
               )}
             </div>
             <span className="inline-flex items-center gap-1 shrink-0 flex-wrap justify-end">
-              {vendor.is_manual_verified === true ? (
-                <TrustLevelBadge level={trustLevel} />
-              ) : (
-                <>
-                  <VerificationBadge vendor={vendor} />
-                  <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
-                    {verificationCopy[tier].label}
-                  </span>
-                </>
-              )}
+              <BusinessVerificationBadge
+                account={vendor}
+                business={businessTrust}
+                showLabel
+              />
             </span>
           </div>
           <VendorTypeLabel vendorType={vendor.vendor_type} />
@@ -892,7 +932,17 @@ export function RadarVendorCard({
         </div>
       </div>
 
-      <TrustWarningBanner tier={tier} context="radar" />
+      <TrustWarningBanner
+        tier={
+          businessTrust.is_manual_verified === true &&
+          vendor.upi_verified === true &&
+          !!vendor.photo_selfie &&
+          vendor.latitude != null
+            ? "green"
+            : "red"
+        }
+        context="radar"
+      />
 
       <VendorReputationLine
         vendor={vendor}
@@ -936,8 +986,8 @@ export function RadarVendorCard({
           <SheetHeader className="text-left">
             <SheetTitle>
               {serviceMode === "delivery"
-                ? `${s.radar_menuLabel} — ${vendor.shop_name}`
-                : `${s.radar_rateCardLabel} — ${vendor.shop_name}`}
+                ? `${s.radar_menuLabel} — ${brandName}`
+                : `${s.radar_rateCardLabel} — ${brandName}`}
             </SheetTitle>
           </SheetHeader>
           <div className="mt-4">
@@ -1096,6 +1146,7 @@ export function RadarVendorCard({
         serviceMode={serviceMode}
         orderCategoryId={categories[0]?.category_id ?? null}
         orderCategoryLabel={categories[0]?.label ?? null}
+        orderCategoryReach={categoryReach}
         isOpen={parchiOpen}
         onClose={() => setParchiOpen(false)}
         onOrderSent={() => setResolutionSessionTick((n) => n + 1)}

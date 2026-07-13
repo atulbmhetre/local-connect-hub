@@ -122,13 +122,28 @@ export async function postDeleteAccount(
   return { status: res.status, body: json };
 }
 
+/**
+ * Always returns a 10-digit Indian mobile matching ^[6-9][0-9]{9}$.
+ * Prefix should start with 6–9 (e.g. '8800', '9900'); result is truncated to 10 digits.
+ */
 export function uniqueTestPhone(prefix = '88001'): string {
-  return `${prefix}${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 10)}`;
+  const raw = `${prefix}${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 10)}`.replace(
+    /\D/g,
+    '',
+  );
+  let phone = raw.slice(0, 10);
+  if (phone.length < 10) {
+    phone = (phone + '0000000000').slice(0, 10);
+  }
+  if (!/^[6-9]/.test(phone)) {
+    phone = `9${phone.slice(1)}`;
+  }
+  return phone;
 }
 
-/** 10-digit Indian mobile for browser phone-entry UI (maxLength 10). */
+/** 10-digit Indian mobile for browser phone-entry UI (maxLength 10). Same constraint as uniqueTestPhone. */
 export function uniqueBrowserPhone(prefix: string): string {
-  return `${prefix}${Date.now().toString().slice(-6)}`.slice(0, 10);
+  return uniqueTestPhone(prefix);
 }
 
 export async function createModeVendor(

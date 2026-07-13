@@ -61,6 +61,11 @@ import {
   passesTrackARadiusFilter,
 } from "@/lib/radarVendorFilter";
 import {
+  resolveCategoryBrandName,
+  resolveCategoryReach,
+  resolveCategoryServiceRadius,
+} from "@/lib/categoryScopedVendor";
+import {
   FIRE_EMERGENCY_LABELS,
   MEDICAL_EMERGENCY_LABELS,
   ROADSIDE_EMERGENCY_LABELS,
@@ -80,7 +85,15 @@ export type RadarMenuItem = {
 };
 
 export type RadarVendorResult = Vendor & {
-  categories: { label: string; emoji: string; category_id?: string }[];
+  categories: {
+    label: string;
+    emoji: string;
+    category_id?: string;
+    brand_name?: string | null;
+    serves_at_vendor_place?: boolean | null;
+    serves_at_customer_place?: boolean | null;
+    service_radius_km?: number | null;
+  }[];
   trustLevel: TrustLevel;
   /** First 5 available menu items, batch-fetched so cards render complete. */
   menuPreview: RadarMenuItem[];
@@ -89,6 +102,10 @@ export type RadarVendorResult = Vendor & {
   fulfilledRequestId: string | null;
   isSavedNeighbour: boolean;
   isPanIndia?: boolean;
+  /** Display brand for matched category context (falls back to shop_name). */
+  displayBrandName?: string;
+  /** Effective service radius for matched category context. */
+  effectiveServiceRadiusKm?: number | null;
 };
 
 type Ranked = { vendor: RadarVendorResult; dist: number | null };
@@ -232,13 +249,46 @@ function buildVendorCategoriesMap(
     vendor_id: string;
     category_id: string;
     is_primary: boolean | null;
+    brand_name?: string | null;
+    serves_at_vendor_place?: boolean | null;
+    serves_at_customer_place?: boolean | null;
+    service_radius_km?: number | null;
+    is_manual_verified?: boolean | null;
+    shop_photo_url?: string | null;
+    verification_status?: string | null;
     categories: { label: string; emoji: string } | { label: string; emoji: string }[] | null;
   }[],
   matchedCategoryIdsByVendor?: Map<string, Set<string>>,
-): Map<string, { label: string; emoji: string; category_id: string }[]> {
+): Map<
+  string,
+  {
+    label: string;
+    emoji: string;
+    category_id: string;
+    brand_name?: string | null;
+    serves_at_vendor_place?: boolean | null;
+    serves_at_customer_place?: boolean | null;
+    service_radius_km?: number | null;
+    is_manual_verified?: boolean | null;
+    shop_photo_url?: string | null;
+    verification_status?: string | null;
+  }[]
+> {
   const map = new Map<
     string,
-    { label: string; emoji: string; is_primary: boolean; category_id: string }[]
+    {
+      label: string;
+      emoji: string;
+      is_primary: boolean;
+      category_id: string;
+      brand_name?: string | null;
+      serves_at_vendor_place?: boolean | null;
+      serves_at_customer_place?: boolean | null;
+      service_radius_km?: number | null;
+      is_manual_verified?: boolean | null;
+      shop_photo_url?: string | null;
+      verification_status?: string | null;
+    }[]
   >();
 
   for (const row of rows) {
@@ -252,14 +302,34 @@ function buildVendorCategoriesMap(
       emoji: resolved.emoji ?? "✨",
       is_primary: row.is_primary === true,
       category_id: row.category_id,
+      brand_name: row.brand_name,
+      serves_at_vendor_place: row.serves_at_vendor_place,
+      serves_at_customer_place: row.serves_at_customer_place,
+      service_radius_km: row.service_radius_km,
+      is_manual_verified: row.is_manual_verified,
+      shop_photo_url: row.shop_photo_url,
+      verification_status: row.verification_status,
     });
     map.set(row.vendor_id, list);
   }
 
-  const out = new Map<string, { label: string; emoji: string; category_id: string }[]>();
+  const out = new Map<
+    string,
+    {
+      label: string;
+      emoji: string;
+      category_id: string;
+      brand_name?: string | null;
+      serves_at_vendor_place?: boolean | null;
+      serves_at_customer_place?: boolean | null;
+      service_radius_km?: number | null;
+      is_manual_verified?: boolean | null;
+      shop_photo_url?: string | null;
+      verification_status?: string | null;
+    }[]
+  >();
   for (const [vendorId, list] of map) {
     const matched = matchedCategoryIdsByVendor?.get(vendorId);
-    // Category search: show only matched categories. Empty browse: show all (primary first).
     const filtered =
       matchedCategoryIdsByVendor != null && matched
         ? list.filter((c) => matched.has(c.category_id))
@@ -267,7 +337,31 @@ function buildVendorCategoriesMap(
     filtered.sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
     out.set(
       vendorId,
-      filtered.map(({ label, emoji, category_id }) => ({ label, emoji, category_id })),
+      filtered.map(
+        ({
+          label,
+          emoji,
+          category_id,
+          brand_name,
+          serves_at_vendor_place,
+          serves_at_customer_place,
+          service_radius_km,
+          is_manual_verified,
+          shop_photo_url,
+          verification_status,
+        }) => ({
+          label,
+          emoji,
+          category_id,
+          brand_name,
+          serves_at_vendor_place,
+          serves_at_customer_place,
+          service_radius_km,
+          is_manual_verified,
+          shop_photo_url,
+          verification_status,
+        }),
+      ),
     );
   }
   return out;
@@ -846,7 +940,15 @@ const RadarSearch = () => {
         let verificationRows: VendorVerificationRow[] = [];
         let categoriesByVendor = new Map<
           string,
-          { label: string; emoji: string; category_id: string }[]
+          {
+            label: string;
+            emoji: string;
+            category_id: string;
+            brand_name?: string | null;
+            serves_at_vendor_place?: boolean | null;
+            serves_at_customer_place?: boolean | null;
+            service_radius_km?: number | null;
+          }[]
         >();
         const menuByVendor = new Map<string, RadarMenuItem[]>();
         let activeOrderVendorIds = new Set<string>();
@@ -895,7 +997,9 @@ const RadarSearch = () => {
                 .eq("is_latest", true),
               supabase
                 .from("vendor_categories")
-                .select("vendor_id, category_id, is_primary, categories(label, emoji)")
+                .select(
+                  "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, is_manual_verified, shop_photo_url, verification_status, categories(label, emoji)",
+                )
                 .in("vendor_id", vendorIds)
                 .eq("status", "approved"),
               supabase
@@ -957,27 +1061,67 @@ const RadarSearch = () => {
             dist: number | null;
             isPanIndia?: boolean;
           },
-        ): Ranked => ({
-          vendor: {
-            ...(v as Vendor),
-            categories: categoriesByVendor.get(v.id) ?? [],
-            trustLevel: trustByVendor.get(v.id) ?? "Unverified",
-            menuPreview: menuByVendor.get(v.id) ?? [],
-            hasActiveOrder: activeOrderVendorIds.has(v.id),
-            hasFulfilledOrder: fulfilledVendorIds.has(v.id),
-            fulfilledRequestId: fulfilledRequestByVendor.get(v.id) ?? null,
-            isSavedNeighbour: savedVendorIds.has(v.id),
-            isPanIndia: extras.isPanIndia,
-          },
-          dist: extras.dist,
-        });
+        ): Ranked => {
+          const cats = categoriesByVendor.get(v.id) ?? [];
+          const matchedCat = cats[0];
+          const matchedId =
+            categoryModeSearch && matchedCat?.category_id ? matchedCat.category_id : null;
+          const displayBrandName = resolveCategoryBrandName(
+            matchedCat?.brand_name,
+            v.shop_name,
+            matchedId,
+          );
+          const effectiveServiceRadiusKm = resolveCategoryServiceRadius(
+            matchedCat?.service_radius_km,
+            v.service_radius_km,
+            matchedId,
+          );
+          return {
+            vendor: {
+              ...(v as Vendor),
+              categories: cats,
+              trustLevel: trustByVendor.get(v.id) ?? "Unverified",
+              menuPreview: menuByVendor.get(v.id) ?? [],
+              hasActiveOrder: activeOrderVendorIds.has(v.id),
+              hasFulfilledOrder: fulfilledVendorIds.has(v.id),
+              fulfilledRequestId: fulfilledRequestByVendor.get(v.id) ?? null,
+              isSavedNeighbour: savedVendorIds.has(v.id),
+              isPanIndia: extras.isPanIndia,
+              displayBrandName,
+              effectiveServiceRadiusKm,
+            },
+            dist: extras.dist,
+          };
+        };
 
         const trackARanked: Ranked[] = [];
         if (!panIndiaOnly && coords) {
           for (const v of trackAVendors) {
-            if (isPanIndiaServiceRadius(v.service_radius_km)) continue;
+            const cats = categoriesByVendor.get(v.id) ?? [];
+            const matchedCat = cats[0];
+            const matchedId =
+              categoryModeSearch && matchedCat?.category_id ? matchedCat.category_id : null;
+            const reach = resolveCategoryReach(
+              matchedCat,
+              {
+                serves_at_vendor_place: v.serves_at_vendor_place,
+                serves_at_customer_place: v.serves_at_customer_place,
+              },
+              matchedId,
+            );
+            // Delivery search requires customer-place reach for the matched category.
+            if (selectedMode === "delivery" && !reach.serves_at_customer_place) continue;
+
+            const effectiveRadius = resolveCategoryServiceRadius(
+              matchedCat?.service_radius_km,
+              v.service_radius_km,
+              matchedId,
+            );
+            if (isPanIndiaServiceRadius(effectiveRadius ?? v.service_radius_km)) continue;
             const dist = distanceKm(coords, { lat: v.latitude!, lng: v.longitude! });
-            if (!passesTrackARadiusFilter(dist, userBracket, v.service_radius_km)) continue;
+            if (!passesTrackARadiusFilter(dist, userBracket, effectiveRadius ?? v.service_radius_km)) {
+              continue;
+            }
             trackARanked.push(buildVendorResult(v, { dist }));
           }
           trackARanked.sort((a, b) =>
@@ -1363,6 +1507,7 @@ const RadarSearch = () => {
                   hasOrdered={vendor.hasActiveOrder}
                   hasFulfilledOrder={vendor.hasFulfilledOrder}
                   fulfilledRequestId={vendor.fulfilledRequestId}
+                  displayBrandName={vendor.displayBrandName}
                   onOrderCancelled={() => void fetchVendors({ silent: true })}
                 />
               </div>
@@ -1394,6 +1539,7 @@ const RadarSearch = () => {
                   hasOrdered={vendor.hasActiveOrder}
                   hasFulfilledOrder={vendor.hasFulfilledOrder}
                   fulfilledRequestId={vendor.fulfilledRequestId}
+                  displayBrandName={vendor.displayBrandName}
                   showPanIndiaBadge
                   onOrderCancelled={() => void fetchVendors({ silent: true })}
                 />

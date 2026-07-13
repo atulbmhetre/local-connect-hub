@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { supabase, supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
-import { assertRowExists, assertNotificationCreated } from './helpers/db-assert';
+import { supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
+import { getAdminSessionClient } from './helpers/browser-setup';
+import { assertNotificationCreated } from './helpers/db-assert';
 
 let testVendor: any;
 let testCategoryId: string;
@@ -68,7 +69,8 @@ test('CAT-03: pending categories visible to admin', async () => {
 });
 
 test('AD-08: admin approves category — is_active = true, pending_review = false', async () => {
-  const { error } = await supabase.rpc('admin_approve_category', {
+  const adminClient = await getAdminSessionClient();
+  const { error } = await adminClient.rpc('admin_approve_category', {
     p_admin_phone: ADMIN_PHONE,
     p_category_id: testCategoryId,
   });
@@ -112,10 +114,12 @@ test('AD-09: admin rejects category — is_active stays false', async () => {
     .single();
 
   // Admin rejects — set pending_review = false, is_active stays false
-  await supabase.rpc('admin_reject_category', {
+  const adminClient = await getAdminSessionClient();
+  const { error: rejectErr } = await adminClient.rpc('admin_reject_category', {
     p_admin_phone: ADMIN_PHONE,
     p_category_id: newCat.id,
   });
+  expect(rejectErr).toBeNull();
 
   const { data } = await supabaseAdmin
     .from('categories')

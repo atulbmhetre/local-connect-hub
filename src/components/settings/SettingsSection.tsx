@@ -142,6 +142,7 @@ export function SettingsCollapsible({
   children,
   headerClassName,
   nested = false,
+  testId,
 }: {
   label: ReactNode;
   badge?: ReactNode;
@@ -151,15 +152,22 @@ export function SettingsCollapsible({
   headerClassName?: string;
   /** Inside a parent group — tighter layout, no outer horizontal margin on card. */
   nested?: boolean;
+  testId?: string;
 }) {
   return (
     <div className={cn("mb-1", nested && "mb-2 last:mb-0")}>
       <button
         type="button"
-        onClick={onToggle}
+        data-testid={testId}
+        onClick={(e) => {
+          // Nested under SettingsParentCollapsible — never let the click toggle the parent.
+          e.preventDefault();
+          e.stopPropagation();
+          onToggle();
+        }}
         aria-expanded={open}
         className={cn(
-          "w-full flex items-center justify-between gap-2 text-left active:opacity-90",
+          "relative z-10 w-full flex items-center justify-between gap-2 text-left active:opacity-90",
           nested ? "px-3 py-2.5" : "px-4 py-3",
           headerClassName,
         )}

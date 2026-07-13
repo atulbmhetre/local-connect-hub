@@ -352,8 +352,10 @@ test('IO-DEL-02 — Delivery order status=seen (after vendor opens orders — bu
     delivery_slot: 'morning',
   });
   await loginVendorAndWaitOrders(page, vendor);
-  const row = await getRequestRow(id);
-  expect(row?.status).toBe('seen');
+  // Cards render before vendor_mark_sent_seen finishes — poll DB
+  await expect
+    .poll(async () => (await getRequestRow(id))?.status, { timeout: 10000 })
+    .toBe('seen');
   const card = incomingCard(page, msg);
   await expect(acceptBtn(card)).toBeVisible();
   await expect(markDoneBtn(card)).not.toBeVisible();
@@ -410,6 +412,10 @@ test('IO-DEL-05 — Vendor badge for delivery mode', async ({ page }) => {
     ids.push(id);
   }
   await loginVendorAndWaitOrders(page, vendor);
+  // Cards render before vendor_mark_sent_seen finishes — poll DB
+  await expect
+    .poll(async () => (await getRequestRow(ids[0]))?.status, { timeout: 10000 })
+    .toBe('seen');
   for (const id of ids) {
     const row = await getRequestRow(id);
     expect(row?.status).toBe('seen');
@@ -533,6 +539,10 @@ test('IO-BOOK-05 — Vendor badge for booking mode', async ({ page }) => {
     ids.push(id);
   }
   await loginVendorAndWaitOrders(page, vendor);
+  // Cards render before vendor_mark_sent_seen finishes — poll DB
+  await expect
+    .poll(async () => (await getRequestRow(ids[0]))?.status, { timeout: 10000 })
+    .toBe('seen');
   for (const id of ids) {
     expect((await getRequestRow(id))?.status).toBe('seen');
   }

@@ -31,9 +31,13 @@ import { buildRecommendedVendorRadarUrl, resolveRecommendedVendorRadarLink } fro
 import { maskPhoneNumbers } from "@/lib/textUtils";
 import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
 import {
+  CUSTOMER_FEED_REACH_CHIP_OPTIONS,
   DEFAULT_FEED_REACH_KM,
+  MAX_CUSTOMER_FEED_REACH_KM,
   capFeedReachToMax,
+  clampCustomerFeedReachKm,
   feedReachChipOptionsUpTo,
+  isFeedCityWideKm,
   normalizeFeedReachKm,
 } from "@/lib/feedReach";
 import { filterPostsByAudienceAndCategory } from "@/lib/feedAudienceFilter";
@@ -345,10 +349,18 @@ export default function LocalFeed() {
   }, [viewerPhone]);
 
   const composeReachOptions = useMemo(() => {
-    if (composeType === "recommendation" && recommendedVendorId && taggedVendorServiceRadiusKm != null) {
-      return feedReachChipOptionsUpTo(taggedVendorServiceRadiusKm);
+    // Customers never get city/nationwide. Tagged recommendations may be capped further
+    // by the vendor's service radius (still never above the customer modest max).
+    if (
+      composeType === "recommendation" &&
+      recommendedVendorId &&
+      taggedVendorServiceRadiusKm != null &&
+      !isFeedCityWideKm(taggedVendorServiceRadiusKm)
+    ) {
+      const capped = Math.min(taggedVendorServiceRadiusKm, MAX_CUSTOMER_FEED_REACH_KM);
+      return feedReachChipOptionsUpTo(capped);
     }
-    return undefined;
+    return CUSTOMER_FEED_REACH_CHIP_OPTIONS;
   }, [composeType, recommendedVendorId, taggedVendorServiceRadiusKm]);
 
   useEffect(() => {
@@ -827,7 +839,7 @@ export default function LocalFeed() {
       p_recommended_vendor_id: recommendationFields.recommended_vendor_id ?? null,
       p_recommended_vendor_name: recommendationFields.recommended_vendor_name ?? null,
       p_recommended_vendor_phone: recommendationFields.recommended_vendor_phone ?? null,
-      p_reach_radius_km: normalizeFeedReachKm(composeReachKm),
+      p_reach_radius_km: clampCustomerFeedReachKm(composeReachKm),
     });
 
     setSubmitting(false);

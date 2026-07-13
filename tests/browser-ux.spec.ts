@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, gotoRadarDelivery, clickRadarOrderCard, APP_URL } from './helpers/browser-setup';
-import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategoryByLabel, seedBronzeVendorVerification, seedVendorCategory, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
+import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategoryByLabel, seedVendorCategory, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
 const MOBILE_VIEWPORT = { width: 390, height: 844 }; // iPhone 14
@@ -8,11 +8,19 @@ const SMALL_ANDROID = { width: 360, height: 800 }; // Redmi/Realme typical
 let testVendor: any;
 
 test.beforeAll(async () => {
-  testVendor = await createTestVendor();
+  // Delivery empty-browse requires customer-place reach (per-business radar filter).
+  testVendor = await createTestVendor({
+    service_mode: 'delivery',
+    serves_at_customer_place: true,
+  });
   await createTestCustomer();
   await supabaseAdmin.from('vendors')
-    .update({ service_mode: 'delivery', is_active: true })
+    .update({ service_mode: 'delivery', is_active: true, serves_at_customer_place: true })
     .eq('id', testVendor.id);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ serves_at_customer_place: true })
+    .eq('vendor_id', testVendor.id);
 });
 
 test.afterAll(async () => {
@@ -392,7 +400,7 @@ test('UX-OVERLAP-02: parchi submit button visible in viewport when sheet is open
 
 // ─── VENDOR CARD CONTENT ──────────────────────────────────────────────────
 
-test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge', async ({ page }) => {
+test('UX-CARD-01: radar card shows category chips, home type label, Verified badge', async ({ page }) => {
   const cardPhone = `99004${Date.now().toString().slice(-5)}`;
   const shopName = `!CARD-${Date.now()}`;
   const categories = [
@@ -416,6 +424,10 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
       profile_status: 'complete',
       service_radius_km: 15,
       is_manual_verified: true,
+      upi_verified: true,
+      photo_selfie: 'https://picsum.photos/seed/uxcard/100',
+      serves_at_customer_place: true,
+      serves_at_vendor_place: true,
       vendor_note: `test_session:${TEST_SESSION}`,
       shop_photo_url: 'https://picsum.photos/200',
     })
@@ -423,9 +435,16 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
     .single();
   expect(error).toBeNull();
 
-  await seedVendorCategory(cardVendor!.id, categories[0], { is_primary: true });
-  await seedVendorCategory(cardVendor!.id, categories[1], { is_primary: false });
-  await seedBronzeVendorVerification(cardVendor!.id);
+  await seedVendorCategory(cardVendor!.id, categories[0], {
+    is_primary: true,
+    is_manual_verified: true,
+    serves_at_customer_place: true,
+  });
+  await seedVendorCategory(cardVendor!.id, categories[1], {
+    is_primary: false,
+    is_manual_verified: true,
+    serves_at_customer_place: true,
+  });
 
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
@@ -437,7 +456,9 @@ test('UX-CARD-01: radar card shows category chips, home type label, Bronze badge
   const card = page.locator(`#radar-vendor-card-${cardVendor!.id}`);
   await expect(card).toBeVisible({ timeout: 20000 });
   await expect(card.getByText(/Home based/i)).toBeVisible();
-  await expect(card.getByText(/Bronze|ब्रॉन्ज/i)).toBeVisible();
+  await expect(card.getByTestId('badge-verified')).toBeVisible();
+  await expect(card.getByText(/Verified|सत्यापित/i).first()).toBeVisible();
+  await expect(card.getByText(/Bronze|ब्रॉन्ज/i)).not.toBeVisible();
   await expect(card.getByText(categories[0].label, { exact: false }).first()).toBeVisible();
   // Category search shows only the matched category, not the vendor's full list
   await expect(card.getByText(categories[1].label, { exact: true })).not.toBeVisible();

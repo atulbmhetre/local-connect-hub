@@ -26,6 +26,8 @@ export default defineConfig({
   },
   retries: 1,
   workers: 1,
+  // Prod smoke needs :4173 + .env.test.prod — run via playwright.prod-smoke.config.ts
+  testIgnore: ['**/prod-vendor-wizard-smoke.spec.ts'],
   use: {
     baseURL: process.env.VITE_APP_URL || 'http://localhost:8081',
     headless: true,

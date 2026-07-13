@@ -1,4 +1,82 @@
-/** Pure helpers for category-scoped menus and cancel-reason fallback. */
+/** Pure helpers for category-scoped menus, cancel reasons, brand/reach/radius. */
+
+export type CategoryScopedProfile = {
+  brand_name?: string | null;
+  serves_at_vendor_place?: boolean | null;
+  serves_at_customer_place?: boolean | null;
+  service_radius_km?: number | null;
+};
+
+/** Prefer category brand when in matched-category context; else account shop_name. */
+export function resolveCategoryBrandName(
+  categoryBrand: string | null | undefined,
+  accountShopName: string | null | undefined,
+  matchedCategoryId?: string | null,
+): string {
+  if (matchedCategoryId) {
+    const brand = String(categoryBrand ?? "").trim();
+    if (brand) return brand;
+  }
+  return String(accountShopName ?? "").trim();
+}
+
+export function resolveCategoryReach(
+  category: Pick<
+    CategoryScopedProfile,
+    "serves_at_vendor_place" | "serves_at_customer_place"
+  > | null | undefined,
+  account: {
+    serves_at_vendor_place?: boolean | null;
+    serves_at_customer_place?: boolean | null;
+  },
+  matchedCategoryId?: string | null,
+): { serves_at_vendor_place: boolean; serves_at_customer_place: boolean } {
+  if (matchedCategoryId && category) {
+    const v = category.serves_at_vendor_place;
+    const c = category.serves_at_customer_place;
+    if (v != null || c != null) {
+      return {
+        serves_at_vendor_place: v === true,
+        serves_at_customer_place: c === true,
+      };
+    }
+  }
+  return {
+    serves_at_vendor_place: account.serves_at_vendor_place === true,
+    serves_at_customer_place: account.serves_at_customer_place === true,
+  };
+}
+
+export function resolveCategoryServiceRadius(
+  categoryRadius: number | null | undefined,
+  accountRadius: number | null | undefined,
+  matchedCategoryId?: string | null,
+): number | null | undefined {
+  if (matchedCategoryId && categoryRadius != null && Number.isFinite(Number(categoryRadius))) {
+    return Number(categoryRadius);
+  }
+  return accountRadius;
+}
+
+/** Account defaults applied when a new category is selected in the UI (before save). */
+export function inheritCategorySettingsFromAccount(account: {
+  shop_name?: string | null;
+  serves_at_vendor_place?: boolean | null;
+  serves_at_customer_place?: boolean | null;
+  service_radius_km?: number | null;
+}): Required<CategoryScopedProfile> {
+  const vendorPlace = account.serves_at_vendor_place === true;
+  const customerPlace = account.serves_at_customer_place === true;
+  return {
+    brand_name: String(account.shop_name ?? "").trim() || null,
+    serves_at_vendor_place: vendorPlace,
+    serves_at_customer_place: customerPlace || (!vendorPlace && !customerPlace),
+    service_radius_km:
+      account.service_radius_km != null && Number.isFinite(Number(account.service_radius_km))
+        ? Number(account.service_radius_km)
+        : null,
+  };
+}
 
 export type MenuItemWithCategory = {
   id?: string;

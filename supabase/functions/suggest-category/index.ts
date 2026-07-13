@@ -269,30 +269,6 @@ async function notifyAdmin(
   }
 }
 
-async function notifyAdminInbox(
-  supabase: ReturnType<typeof createClient>,
-  title: string,
-  body: string,
-): Promise<void> {
-  const { data: configRow } = await supabase
-    .from("app_config")
-    .select("value")
-    .eq("key", "admin_phone")
-    .maybeSingle();
-  const adminPhone = configRow?.value?.trim();
-  if (!adminPhone) return;
-
-  await supabase.from("user_notifications").insert({
-    user_phone: adminPhone,
-    type: "admin_alert",
-    title,
-    body,
-    route: "settings",
-    is_informational: false,
-    is_read: false,
-  });
-}
-
 async function upsertPendingNewCategory(
   supabase: ReturnType<typeof createClient>,
   supabaseUrl: string,
@@ -391,8 +367,8 @@ async function upsertPendingNewCategory(
   const adminTitle = "New category suggested";
   const adminBody =
     `${titleLabel} / ${suggestion.service_mode} — ${suggestion.reasoning}`;
+  // notify-admin inserts inbox + sends FCM in one invoke (same as new_vendor path).
   await notifyAdmin(supabaseUrl, serviceRoleKey, adminTitle, adminBody);
-  await notifyAdminInbox(supabase, adminTitle, adminBody);
 
   return { category_id: inserted.id, outcome: "new_pending" };
 }
