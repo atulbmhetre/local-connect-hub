@@ -584,7 +584,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               service_radius_km: radiusKm,
               phone: phone.trim(),
               upi_id: upiId.trim() || null,
-              ...(upiChanged ? { upi_verified: false } : {}),
               ...(phoneChanged || upiChanged
                 ? {
                     is_manual_verified: false,
@@ -708,7 +707,11 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       const { error } = await withNetworkRetry(
         async () =>
           throwOnSupabaseNetworkError(
-            await patchVendorOwn(vendor.id, vendor.phone, { upi_verified: true }),
+            await supabase.rpc("vendor_verify_upi", {
+              p_vendor_id: vendor.id,
+              p_vendor_phone: vendor.phone,
+              p_upi_id: trimmed,
+            }),
           ),
         {
           onRetrying: () => showNetworkRetryingToast({ retrying: s.network_retrying }),
