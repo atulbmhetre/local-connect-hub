@@ -78,6 +78,44 @@ type EditBillTarget = {
   payment_status: string;
 };
 
+/** Page size for incoming-orders fetch; raised from silent 20-cap. */
+const INCOMING_PAGE_SIZE = 50;
+/** Soft overlap window for appointment cards (± minutes). */
+const APPOINTMENT_OVERLAP_WINDOW_MS = 30 * 60 * 1000;
+
+function isActiveAppointmentOrder(
+  r: Pick<IncomingOrderRow, "appointment_time" | "status" | "appointment_status">,
+): boolean {
+  if (!r.appointment_time) return false;
+  if (r.status === "cancelled" || r.status === "declined") return false;
+  // Decline leaves status='seen'; exclude those from soft overlap.
+  if (r.appointment_status === "declined" || r.appointment_status === "cancelled") {
+    return false;
+  }
+  return true;
+}
+
+/** Request ids that have another active appointment within ±30 minutes. */
+function buildAppointmentOverlapIds(orders: IncomingOrderRow[]): Set<string> {
+  const withTime = orders.filter(isActiveAppointmentOrder);
+  const ids = new Set<string>();
+  for (let i = 0; i < withTime.length; i += 1) {
+    const a = withTime[i];
+    const tA = new Date(a.appointment_time!).getTime();
+    if (!Number.isFinite(tA)) continue;
+    for (let j = i + 1; j < withTime.length; j += 1) {
+      const b = withTime[j];
+      const tB = new Date(b.appointment_time!).getTime();
+      if (!Number.isFinite(tB)) continue;
+      if (Math.abs(tA - tB) <= APPOINTMENT_OVERLAP_WINDOW_MS) {
+        ids.add(a.id);
+        ids.add(b.id);
+      }
+    }
+  }
+  return ids;
+}
+
 function getUserTrustBadge(
   trust: TrustInfo | undefined,
   labels: {
@@ -222,6 +260,9 @@ export function IncomingOrdersSection({
   const [rows, setRows] = useState<IncomingOrderRow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [truncatedRemaining, setTruncatedRemaining] = useState(0);
+  const fetchLimitRef = useRef(INCOMING_PAGE_SIZE);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [calledUser, setCalledUser] = useState<Record<string, boolean>>({});
   const [callSheetOpen, setCallSheetOpen] = useState(false);
@@ -640,24 +681,36 @@ export function IncomingOrdersSection({
   );
 
   const load = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; limit?: number }) => {
+      const limit = opts?.limit ?? fetchLimitRef.current;
+      fetchLimitRef.current = limit;
       if (!opts?.silent) setLoading(true);
       const windowOr = `${buildRequestsActiveWindowOrFilter("vendor")},status.eq.fulfilled`;
-      const { data, error } = await supabase
-        .from("requests")
-        .select(selectFields)
-        .eq("vendor_id", vendorId)
-        .or(windowOr)
-        .order("created_at", { ascending: false })
-        .limit(20);
+      const [{ data, error }, { count: totalMatching }] = await Promise.all([
+        supabase
+          .from("requests")
+          .select(selectFields)
+          .eq("vendor_id", vendorId)
+          .or(windowOr)
+          .order("created_at", { ascending: false })
+          .limit(limit),
+        supabase
+          .from("requests")
+          .select("id", { count: "exact", head: true })
+          .eq("vendor_id", vendorId)
+          .or(windowOr),
+      ]);
       if (!mounted.current) return;
       if (error) {
         setRows([]);
+        setTruncatedRemaining(0);
         onUnreadCount?.(0);
         setLoading(false);
         return;
       }
       const list = (data ?? []) as IncomingOrderRow[];
+      const total = typeof totalMatching === "number" ? totalMatching : list.length;
+      setTruncatedRemaining(Math.max(0, total - list.length));
 
       const terminalIds = list
         .filter((r) => r.status === "fulfilled" || r.status === "done")
@@ -702,15 +755,25 @@ export function IncomingOrdersSection({
         } else if (!mounted.current) {
           return;
         }
-        const { data: refreshed } = await supabase
-          .from("requests")
-          .select(selectFields)
-          .eq("vendor_id", vendorId)
-          .or(windowOr)
-          .order("created_at", { ascending: false })
-          .limit(20);
+        const [{ data: refreshed }, { count: refreshedTotal }] = await Promise.all([
+          supabase
+            .from("requests")
+            .select(selectFields)
+            .eq("vendor_id", vendorId)
+            .or(windowOr)
+            .order("created_at", { ascending: false })
+            .limit(fetchLimitRef.current),
+          supabase
+            .from("requests")
+            .select("id", { count: "exact", head: true })
+            .eq("vendor_id", vendorId)
+            .or(windowOr),
+        ]);
         if (!mounted.current) return;
         const refreshedList = ((refreshed ?? []) as IncomingOrderRow[]) ?? activeList;
+        const refreshedTotalN =
+          typeof refreshedTotal === "number" ? refreshedTotal : refreshedList.length;
+        setTruncatedRemaining(Math.max(0, refreshedTotalN - refreshedList.length));
         const refreshedTerminalIds = refreshedList
           .filter((r) => r.status === "fulfilled" || r.status === "done")
           .map((r) => r.id);
@@ -752,6 +815,24 @@ export function IncomingOrdersSection({
       loadTrustForOrders,
     ],
   );
+
+  useEffect(() => {
+    fetchLimitRef.current = INCOMING_PAGE_SIZE;
+    setTruncatedRemaining(0);
+  }, [vendorId]);
+
+  const loadMoreIncoming = useCallback(async () => {
+    if (loadingMore || truncatedRemaining <= 0) return;
+    setLoadingMore(true);
+    try {
+      await load({
+        silent: true,
+        limit: fetchLimitRef.current + INCOMING_PAGE_SIZE,
+      });
+    } finally {
+      if (mounted.current) setLoadingMore(false);
+    }
+  }, [load, loadingMore, truncatedRemaining]);
 
   useEffect(() => {
     mounted.current = true;
@@ -1572,6 +1653,8 @@ export function IncomingOrdersSection({
 
   const unread = countUnreadIncomingOrders(rows, serviceMode);
 
+  const appointmentOverlapIds = useMemo(() => buildAppointmentOverlapIds(rows), [rows]);
+
   const filteredRows = useMemo(() => {
     if (!searchQuery.trim()) return rows;
     const q = searchQuery.toLowerCase().trim();
@@ -1869,6 +1952,14 @@ export function IncomingOrdersSection({
                           })}
                         </span>
                       </div>
+                      {appointmentOverlapIds.has(r.id) && (
+                        <p
+                          data-testid="incoming-appointment-overlap"
+                          className="text-muted-foreground font-normal pt-0.5"
+                        >
+                          {s.incoming_appointmentOverlap}
+                        </p>
+                      )}
                     </div>
                   );
                 })()}
@@ -2283,6 +2374,22 @@ export function IncomingOrdersSection({
             </li>
           ))}
         </ul>
+      )}
+
+      {truncatedRemaining > 0 && !searchQuery.trim() && (
+        <div className="pt-1" data-testid="incoming-orders-truncated">
+          <button
+            type="button"
+            data-testid="incoming-orders-load-more"
+            disabled={loadingMore}
+            onClick={() => void loadMoreIncoming()}
+            className="w-full rounded-xl border border-border bg-muted/40 py-2.5 text-sm font-semibold text-foreground disabled:opacity-50"
+          >
+            {loadingMore
+              ? s.incoming_loadingMore
+              : s.incoming_loadMore.replace("{count}", String(truncatedRemaining))}
+          </button>
+        </div>
       )}
 
       <Sheet open={flagOrderId != null} onOpenChange={(open) => !open && closeFlagSheet()}>

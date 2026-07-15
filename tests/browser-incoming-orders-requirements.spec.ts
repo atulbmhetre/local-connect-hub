@@ -666,3 +666,97 @@ test('IO-CAT-01 — Incoming order card shows category chip from requests.catego
   await expect(chip).toBeVisible();
   await expect(chip).toContainText(orderCategory.label);
 });
+
+test('IO-LOAD-01: orders past first page visible via load more (not silently dropped)', async ({
+  page,
+}) => {
+  const PAGE_SIZE = 50;
+  const vendor = await createVendor('delivery', 'LOAD01');
+  const customerPhone = nextCustomerPhone();
+  await seedCustomer(customerPhone);
+
+  const messages: string[] = [];
+  for (let i = 0; i < PAGE_SIZE + 1; i += 1) {
+    const msg = `IO-LOAD-01-${String(i).padStart(2, '0')}-${T}`;
+    messages.push(msg);
+    await seedRequest(vendor.id, customerPhone, msg, { status: 'sent' });
+  }
+  const oldestMsg = messages[0]; // inserted first → lowest created_at → beyond first page
+
+  await loginVendorAndWaitOrders(page, vendor);
+
+  await expect(page.getByTestId('incoming-order-card')).toHaveCount(PAGE_SIZE, {
+    timeout: 20000,
+  });
+  await expect(incomingCard(page, oldestMsg)).toHaveCount(0);
+  await expect(page.getByTestId('incoming-orders-load-more')).toBeVisible();
+  await expect(page.getByTestId('incoming-orders-load-more')).toContainText(
+    '1 more orders — load more',
+  );
+
+  await page.getByTestId('incoming-orders-load-more').click();
+  await expect(incomingCard(page, oldestMsg)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('incoming-order-card')).toHaveCount(PAGE_SIZE + 1);
+});
+
+test('IO-OVERLAP-01: soft overlap note shows only for ±30min active appointments', async ({
+  page,
+}) => {
+  const vendor = await createVendor('appointment', 'OVERLAP01');
+  const customerPhone = nextCustomerPhone();
+  await seedCustomer(customerPhone);
+
+  const base = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  base.setMinutes(0, 0, 0);
+  const overlapA = new Date(base.getTime()).toISOString();
+  const overlapB = new Date(base.getTime() + 20 * 60 * 1000).toISOString(); // +20 min
+  const farAway = new Date(base.getTime() + 3 * 60 * 60 * 1000).toISOString(); // +3h
+
+  const msgA = `IO-OVERLAP-A ${T}`;
+  const msgB = `IO-OVERLAP-B ${T}`;
+  const msgFar = `IO-OVERLAP-FAR ${T}`;
+  const msgCancelled = `IO-OVERLAP-CX ${T}`;
+
+  await seedRequest(vendor.id, customerPhone, msgA, {
+    status: 'sent',
+    appointment_status: 'pending',
+    appointment_time: overlapA,
+  });
+  await seedRequest(vendor.id, customerPhone, msgB, {
+    status: 'sent',
+    appointment_status: 'pending',
+    appointment_time: overlapB,
+  });
+  await seedRequest(vendor.id, customerPhone, msgFar, {
+    status: 'sent',
+    appointment_status: 'pending',
+    appointment_time: farAway,
+  });
+  // Same timestamp as A but cancelled — must not trigger overlap alone for Far
+  await seedRequest(vendor.id, customerPhone, msgCancelled, {
+    status: 'cancelled',
+    appointment_status: 'cancelled',
+    appointment_time: farAway,
+  });
+
+  await loginVendorAndWaitOrders(page, vendor);
+
+  const cardA = incomingCard(page, msgA);
+  const cardB = incomingCard(page, msgB);
+  const cardFar = incomingCard(page, msgFar);
+
+  await expect(cardA).toBeVisible();
+  await expect(cardB).toBeVisible();
+  await expect(cardFar).toBeVisible();
+
+  await expect(cardA.getByTestId('incoming-appointment-overlap')).toBeVisible();
+  await expect(cardA.getByTestId('incoming-appointment-overlap')).toHaveText(
+    'You have another appointment around this time',
+  );
+  await expect(cardB.getByTestId('incoming-appointment-overlap')).toBeVisible();
+  await expect(cardFar.getByTestId('incoming-appointment-overlap')).toHaveCount(0);
+
+  // Confirm / Decline still enabled on overlapping cards (non-blocking)
+  await expect(cardA.getByTestId('incoming-accept-btn')).toBeEnabled();
+  await expect(cardA.getByTestId('incoming-decline-btn')).toBeEnabled();
+});
