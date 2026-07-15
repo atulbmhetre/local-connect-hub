@@ -20,10 +20,22 @@ import {
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { supabase, useCategoryLabel, type Vendor, distanceKm } from "@/lib/supabase";
+import { supabase, invokeInitiateCall, useCategoryLabel, type Vendor, distanceKm } from "@/lib/supabase";
 import { VerificationBadge, vendorTier } from "@/components/VerificationBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useLanguage } from "@/lib/language";
+import { useAppConfig } from "@/hooks/useAppConfig";
+import { getUserPhone } from "@/lib/userIdentity";
 import { toast } from "sonner";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import {
@@ -78,7 +90,9 @@ const LiveTracking = () => {
   const navigate = useNavigate();
   const { vendorId } = useParams<{ vendorId: string }>();
   const { s } = useLanguage();
+  const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
+  const secureCallingLive = config.exotelSecureCallingEnabled;
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,8 +107,10 @@ const LiveTracking = () => {
   const [stalled, setStalled] = useState(false);
   const [now, setNow] = useState(Date.now());
 
-  // AI-Bridge call modal state.
+  // AI-Bridge call modal state (opened only after initiate-call succeeds).
   const [callOpen, setCallOpen] = useState(false);
+  const [callInitiating, setCallInitiating] = useState(false);
+  const [directCallConfirmOpen, setDirectCallConfirmOpen] = useState(false);
   const [callStart, setCallStart] = useState<number | null>(null);
   const [muted, setMuted] = useState(false);
   const [speaker, setSpeaker] = useState(false);
@@ -235,14 +251,51 @@ const LiveTracking = () => {
     return [20.5937, 78.9629]; // India centroid fallback
   }, [helper, user]);
 
-  const handleSecureCall = () => {
+  const vendorDisplayName = vendor?.name?.trim() || vendor?.shop_name || "vendor";
+
+  const openDirectTel = () => {
+    const phone = vendor?.phone?.replace(/[\s\-+]/g, "").trim();
+    if (!phone) {
+      toast.error(s.ai_bridge_call_failed);
+      return;
+    }
+    window.open(`tel:${phone}`, "_self");
+  };
+
+  const handleSecureCall = async () => {
     if (!vendor) return;
+    if (!secureCallingLive) {
+      toast(s.secure_call_coming_soon);
+      return;
+    }
+
+    const caller = (getUserPhone() ?? "").replace(/[\s\-+]/g, "").trim();
+    const vendorPhone = vendor.phone.replace(/[\s\-+]/g, "").trim();
+    if (!caller || !vendorPhone) {
+      toast.error(s.ai_bridge_call_failed);
+      setDirectCallConfirmOpen(true);
+      return;
+    }
+
+    setCallInitiating(true);
+    const result = await invokeInitiateCall({
+      caller_phone: caller,
+      vendor_phone: vendorPhone,
+      service_mode: vendor.service_mode ?? "help",
+    });
+    setCallInitiating(false);
+
+    if (!result.success) {
+      setDirectCallConfirmOpen(true);
+      return;
+    }
+
     setMuted(false);
     setSpeaker(false);
     setCallStart(Date.now());
     setCallOpen(true);
-    toast("AI-Bridge Secure Call connected", {
-      description: `Routing through proxy — ${vendor.name}'s number stays private.`,
+    toast(s.secure_call_connected, {
+      description: s.secure_call_connected_body.replace("{name}", vendorDisplayName),
     });
   };
 
@@ -254,10 +307,7 @@ const LiveTracking = () => {
 
   const handleVerifyCall = () => {
     if (!vendor) return;
-    handleSecureCall();
-    toast("Checking status via AI-Bridge", {
-      description: `Connecting securely with ${vendor.name} to confirm they're on the way.`,
-    });
+    void handleSecureCall();
   };
 
   // Live call duration ticker.
@@ -538,8 +588,9 @@ const LiveTracking = () => {
             </p>
           </div>
           <button
-            onClick={handleVerifyCall}
-            className="rounded-lg bg-orange-500 text-black px-3 py-1.5 text-xs font-bold active:scale-95"
+            onClick={() => void handleVerifyCall()}
+            disabled={callInitiating || !secureCallingLive}
+            className="rounded-lg bg-orange-500 text-black px-3 py-1.5 text-xs font-bold active:scale-95 disabled:opacity-50"
           >
             Check
           </button>
@@ -583,15 +634,33 @@ const LiveTracking = () => {
       {/* Secure Call CTA */}
       <div className="mx-4 mt-3">
         <button
-          onClick={handleSecureCall}
-          className="w-full rounded-2xl bg-brand text-black py-4 flex items-center justify-center gap-2 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_28px_rgba(34,197,94,0.45)]"
+          type="button"
+          onClick={() => void handleSecureCall()}
+          disabled={callInitiating || !secureCallingLive}
+          className="w-full rounded-2xl bg-brand text-black py-4 flex items-center justify-center gap-2 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_28px_rgba(34,197,94,0.45)] disabled:opacity-60 disabled:active:scale-100"
         >
-          <PhoneCall className="h-5 w-5" />
-          Secure Call · AI-Bridge
+          {callInitiating ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              {s.secure_call_connecting}
+            </>
+          ) : !secureCallingLive ? (
+            <>
+              <PhoneCall className="h-5 w-5" />
+              {s.secure_call_coming_soon}
+            </>
+          ) : (
+            <>
+              <PhoneCall className="h-5 w-5" />
+              {s.secure_call_cta}
+            </>
+          )}
         </button>
         <p className="text-[10px] text-center text-gray-500 mt-2 flex items-center justify-center gap-1">
           <Lock className="h-3 w-3" />
-          Numbers are masked end-to-end via Aaspaas proxy.
+          {secureCallingLive
+            ? s.secure_call_masked_hint
+            : s.secure_call_coming_soon}
         </p>
       </div>
 
@@ -625,8 +694,41 @@ const LiveTracking = () => {
       {/* Screen-flash fallback overlay */}
       {flashing && !torchTrackRef.current && <div className="aaspaas-flash-overlay" />}
 
-      {/* Secure Call modal */}
-      {callOpen && (
+      {/* Connecting overlay — only while initiate-call is in flight */}
+      {callInitiating && (
+        <div className="fixed inset-0 z-50 bg-page-bg/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 px-6">
+          <Loader2 className="h-10 w-10 animate-spin text-brand" />
+          <p className="text-sm font-semibold text-brand">{s.secure_call_connecting}</p>
+          <p className="text-[11px] text-gray-400 text-center max-w-xs">
+            {s.secure_call_masked_hint}
+          </p>
+        </div>
+      )}
+
+      <AlertDialog open={directCallConfirmOpen} onOpenChange={setDirectCallConfirmOpen}>
+        <AlertDialogContent className="rounded-2xl border border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{s.secure_call_failed_title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {s.secure_call_failed_body.replace("{name}", vendorDisplayName)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{s.settings_cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setDirectCallConfirmOpen(false);
+                openDirectTel();
+              }}
+            >
+              {s.secure_call_call_directly}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Secure Call modal — only after API confirms success */}
+      {callOpen && vendor && (
         <div className="fixed inset-0 z-50 bg-page-bg/95 backdrop-blur-sm flex flex-col items-center justify-between py-12 px-6">
           <div className="flex flex-col items-center gap-3 mt-6">
             <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.3em] text-brand font-bold">

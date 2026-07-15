@@ -22,7 +22,7 @@ const DEVICE_ID = `device_set_${T}`;
 const VENDOR_DEVICE_ID = `device_set_vendor_${T}`;
 
 /** Whitelist length in Settings.tsx ADMIN_CONFIG_WHITELIST (location_ping_seconds removed in Part M). */
-const ADMIN_CONFIG_ROW_COUNT = 29;
+const ADMIN_CONFIG_ROW_COUNT = 30;
 
 const L = {
   myAccount: 'My Account',

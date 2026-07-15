@@ -428,6 +428,18 @@ test('R5-01 — Customer with a received bill can tap Call Now and opens the tru
   });
   if (billErr) throw billErr;
 
+  // Secure Call CTAs are gated on live Exotel config; enable only for this probe.
+  const { data: prevExotel } = await supabaseAdmin
+    .from('app_config')
+    .select('value')
+    .eq('key', 'exotel_secure_calling_enabled')
+    .maybeSingle();
+  const { error: exotelFlagErr } = await supabaseAdmin.from('app_config').upsert(
+    { key: 'exotel_secure_calling_enabled', value: 'true' },
+    { onConflict: 'key' },
+  );
+  if (exotelFlagErr) throw exotelFlagErr;
+
   let initiateCallHit = false;
   await page.route('**/functions/v1/initiate-call**', async (route) => {
     initiateCallHit = true;
@@ -438,11 +450,24 @@ test('R5-01 — Customer with a received bill can tap Call Now and opens the tru
     });
   });
 
-  await loginAsCustomer(page, CUSTOMER_PHONE, CUSTOMER_DEVICE);
-  await page.goto(`${APP_URL}/my-orders`);
-  await expect(page.getByText(`R5 bill call ${T}`)).toBeVisible({ timeout: 20000 });
-  await page.getByRole('button', { name: L.callNow }).first().click();
-  await expect(page.getByText(L.aiBridge).first()).toBeVisible({ timeout: 10000 });
-  await page.getByRole('button', { name: L.callNow }).last().click();
-  await expect.poll(() => initiateCallHit, { timeout: 10000 }).toBe(true);
+  try {
+    await loginAsCustomer(page, CUSTOMER_PHONE, CUSTOMER_DEVICE);
+    await page.goto(`${APP_URL}/my-orders`);
+    await expect(page.getByText(`R5 bill call ${T}`)).toBeVisible({ timeout: 20000 });
+    await page.getByRole('button', { name: L.callNow }).first().click();
+    await expect(page.getByText(L.aiBridge).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: L.callNow }).last()).toBeEnabled({
+      timeout: 15000,
+    });
+    await page.getByRole('button', { name: L.callNow }).last().click();
+    await expect.poll(() => initiateCallHit, { timeout: 10000 }).toBe(true);
+  } finally {
+    await supabaseAdmin.from('app_config').upsert(
+      {
+        key: 'exotel_secure_calling_enabled',
+        value: prevExotel?.value ?? 'false',
+      },
+      { onConflict: 'key' },
+    );
+  }
 });

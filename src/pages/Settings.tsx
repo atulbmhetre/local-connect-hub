@@ -433,6 +433,7 @@ const ADMIN_CONFIG_WHITELIST = [
   "localization_enabled",
   "lang_hindi_enabled",
   "lang_marathi_enabled",
+  "exotel_secure_calling_enabled",
   // AI
   "ai_category_confidence_threshold",
   // App
@@ -451,6 +452,7 @@ const ADMIN_CONFIG_TYPES: Partial<Record<AdminConfigKey, AdminConfigValueType>> 
   localization_enabled: "boolean",
   lang_hindi_enabled: "boolean",
   lang_marathi_enabled: "boolean",
+  exotel_secure_calling_enabled: "boolean",
   help_accept_timeout_hours: "number",
   help_accept_timeout_minutes: "number",
   help_near_deadline_minutes: "number",
@@ -510,6 +512,7 @@ const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
   localization_enabled: "Localization Enabled",
   lang_hindi_enabled: "Hindi Language Enabled",
   lang_marathi_enabled: "Marathi Language Enabled",
+  exotel_secure_calling_enabled: "Exotel Secure Calling Enabled",
   ai_category_confidence_threshold: "AI Category Confidence Threshold (0–1)",
   dev_menu_pin: "Developer Menu PIN",
   feed_notification_radius_km: "Feed Notification Radius (km)",

@@ -23,6 +23,8 @@ export interface AppConfig extends VendorSubscriptionAppConfig {
   referralVeteranThresholdMonths: number;
   helpAcceptTimeoutHours: number;
   aiCategoryConfidenceThreshold: number;
+  /** When true (after Exotel KYC), masked Secure Call is offered to clients. */
+  exotelSecureCallingEnabled: boolean;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -50,6 +52,7 @@ const DEFAULT_CONFIG: AppConfig = {
   referralVeteranThresholdMonths: 12,
   helpAcceptTimeoutHours: 2,
   aiCategoryConfidenceThreshold: 0.85,
+  exotelSecureCallingEnabled: false,
 };
 
 const BOOLEAN_KEYS = new Set<keyof AppConfig>([
@@ -57,6 +60,7 @@ const BOOLEAN_KEYS = new Set<keyof AppConfig>([
   "localizationEnabled",
   "langHindiEnabled",
   "langMarathiEnabled",
+  "exotelSecureCallingEnabled",
 ]);
 
 const STRING_KEYS = new Set<keyof AppConfig>([
@@ -90,6 +94,7 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   ai_category_confidence_threshold: "aiCategoryConfidenceThreshold",
   payments_enabled: "payments_enabled",
   razorpay_key_id: "razorpay_key_id",
+  exotel_secure_calling_enabled: "exotelSecureCallingEnabled",
 };
 
 for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {

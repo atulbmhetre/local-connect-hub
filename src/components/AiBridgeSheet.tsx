@@ -9,6 +9,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   VerificationBadge,
   vendorTier,
   getVerificationCopy,
@@ -96,12 +106,15 @@ export function AiBridgeSheet({
   const vendorRow = useMemo(() => asVendor(vendor), [vendor]);
   const tier = vendorTier(vendorRow);
   const verificationCopy = getVerificationCopy(s);
+  const secureCallingLive = config.exotelSecureCallingEnabled;
+  const vendorDisplayName = vendor.name?.trim() || vendor.shop_name || "vendor";
 
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefText, setBriefText] = useState<string | null>(null);
   const [briefFailed, setBriefFailed] = useState(false);
   const [callLoading, setCallLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [directCallConfirmOpen, setDirectCallConfirmOpen] = useState(false);
 
   const limitMinutes = (() => {
     switch ((vendor.service_mode ?? "").toLowerCase()) {
@@ -156,6 +169,7 @@ export function AiBridgeSheet({
       setBriefFailed(false);
       setCallLoading(false);
       setConnecting(false);
+      setDirectCallConfirmOpen(false);
       return;
     }
     void loadBrief();
@@ -170,7 +184,21 @@ export function AiBridgeSheet({
     return () => window.clearTimeout(t);
   }, [connecting, onClose]);
 
+  const openDirectTel = () => {
+    const vendorPhone = vendor.phone.replace(/[\s\-+]/g, "").trim();
+    if (!vendorPhone) {
+      toast.error(s.ai_bridge_call_failed);
+      return;
+    }
+    window.open(`tel:${vendorPhone}`, "_self");
+  };
+
   const handleCallNow = async () => {
+    if (!secureCallingLive) {
+      toast(s.secure_call_coming_soon);
+      return;
+    }
+
     const caller = callerPhone.replace(/[\s\-+]/g, "").trim();
     const vendorPhone = vendor.phone.replace(/[\s\-+]/g, "").trim();
     if (!caller) {
@@ -191,7 +219,7 @@ export function AiBridgeSheet({
     setCallLoading(false);
 
     if (!result.success) {
-      window.open(`tel:${vendorPhone}`, "_self");
+      setDirectCallConfirmOpen(true);
       return;
     }
 
@@ -288,12 +316,17 @@ export function AiBridgeSheet({
           ) : (
             <button
               type="button"
-              disabled={briefLoading || callLoading}
+              disabled={briefLoading || callLoading || !secureCallingLive}
               onClick={() => void handleCallNow()}
               className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
             >
               {callLoading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  {s.secure_call_connecting}
+                </>
+              ) : !secureCallingLive ? (
+                s.secure_call_coming_soon
               ) : (
                 s.ai_bridge_call_now
               )}
@@ -301,6 +334,28 @@ export function AiBridgeSheet({
           )}
         </div>
       </SheetContent>
+
+      <AlertDialog open={directCallConfirmOpen} onOpenChange={setDirectCallConfirmOpen}>
+        <AlertDialogContent className="rounded-2xl border border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{s.secure_call_failed_title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {s.secure_call_failed_body_bridge.replace("{name}", vendorDisplayName)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{s.settings_cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setDirectCallConfirmOpen(false);
+                openDirectTel();
+              }}
+            >
+              {s.secure_call_call_directly}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }
