@@ -43,6 +43,25 @@ function radarResolutionAlreadyMarked(vendorId: string): boolean {
   }
 }
 
+/** Map submit_vendor_review exception codes to localized copy (fallback = generic save error). */
+function messageForSubmitReviewError(
+  message: string | null | undefined,
+  copy: {
+    rating_errCouldNotSave: string;
+    rating_errRequestNotFound: string;
+    rating_errVendorMismatch: string;
+    rating_errOrderNotFulfilled: string;
+    rating_errNotAuthorized: string;
+  },
+): string {
+  const m = message ?? "";
+  if (m.includes("request_not_found")) return copy.rating_errRequestNotFound;
+  if (m.includes("vendor_mismatch")) return copy.rating_errVendorMismatch;
+  if (m.includes("order_not_fulfilled")) return copy.rating_errOrderNotFulfilled;
+  if (m.includes("not_found_or_unauthorized")) return copy.rating_errNotAuthorized;
+  return copy.rating_errCouldNotSave;
+}
+
 // DB migration (run if not applied): ALTER TABLE vendors ADD COLUMN IF NOT EXISTS low_rating_admin_notified boolean DEFAULT false;
 
 
@@ -193,7 +212,7 @@ export function RatingSheet({
 
     if (insertError) {
       setLoading(false);
-      toast.error(s.rating_errCouldNotSave);
+      toast.error(messageForSubmitReviewError(insertError.message, s));
       onDismiss();
       return;
     }

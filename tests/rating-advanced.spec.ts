@@ -1,12 +1,73 @@
 import { test, expect } from '@playwright/test';
-import { supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
+import {
+  supabaseAdmin,
+  createTestVendor,
+  createTestCustomer,
+  cleanupTestData,
+  cleanupTestVendors,
+  TEST_CUSTOMER_PHONE,
+  TEST_SESSION,
+} from './helpers/setup';
 import { assertRowExists, assertVendorField } from './helpers/db-assert';
 
 let testVendor: any;
+let otherVendor: any;
 const ADMIN_PHONE = '8888169446';
+const DEVICE_ID = `device_rating_adv_${TEST_SESSION}`;
+const FAKE_REQUEST_ID = '00000000-0000-4000-8000-000000000099';
+
+async function seedRequest(opts: {
+  vendorId?: string;
+  status?: string;
+  userPhone?: string;
+  deviceId?: string | null;
+  message?: string;
+}) {
+  const { data, error } = await supabaseAdmin
+    .from('requests')
+    .insert({
+      vendor_id: opts.vendorId ?? testVendor.id,
+      user_phone: opts.userPhone ?? TEST_CUSTOMER_PHONE,
+      device_id: opts.deviceId === undefined ? DEVICE_ID : opts.deviceId,
+      message: opts.message ?? `rating-gate ${TEST_SESSION}`,
+      status: opts.status ?? 'fulfilled',
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function callSubmitReview(args: {
+  vendorId: string;
+  requestId: string;
+  userPhone: string;
+  deviceId?: string | null;
+  rating?: number;
+  reviewText?: string | null;
+  serviceMode?: string;
+}) {
+  return supabaseAdmin.rpc('submit_vendor_review', {
+    p_vendor_id: args.vendorId,
+    p_request_id: args.requestId,
+    p_user_phone: args.userPhone,
+    p_device_id: args.deviceId ?? null,
+    p_rating: args.rating ?? 5,
+    p_review_text: args.reviewText ?? null,
+    p_service_mode: args.serviceMode ?? 'delivery',
+  });
+}
+
+function expectRpcCode(error: { message?: string } | null, code: string) {
+  expect(error, `expected RPC error containing ${code}`).not.toBeNull();
+  expect(error!.message ?? '').toContain(code);
+}
 
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
+  otherVendor = await createTestVendor({
+    shop_name: `Other Shop ${TEST_SESSION}`,
+  });
   await createTestCustomer();
 });
 
@@ -271,4 +332,139 @@ test('RV-04: skip rating — no vendor_reviews row inserted', async () => {
     .eq('request_id', order.id);
 
   expect(data?.length).toBe(0);
+});
+
+// ─── submit_vendor_review order-verification gates ─────────────────────────
+
+test('RV-GATE-01: submit_vendor_review rejects missing request_id → request_not_found', async () => {
+  const { data, error } = await callSubmitReview({
+    vendorId: testVendor.id,
+    requestId: FAKE_REQUEST_ID,
+    userPhone: TEST_CUSTOMER_PHONE,
+    deviceId: DEVICE_ID,
+  });
+  expect(data).toBeNull();
+  expectRpcCode(error, 'request_not_found');
+});
+
+test('RV-GATE-02: submit_vendor_review rejects wrong vendor_id → vendor_mismatch', async () => {
+  const order = await seedRequest({
+    vendorId: testVendor.id,
+    status: 'fulfilled',
+    message: `RV-GATE-02 ${TEST_SESSION}`,
+  });
+  const { data, error } = await callSubmitReview({
+    vendorId: otherVendor.id,
+    requestId: order.id,
+    userPhone: TEST_CUSTOMER_PHONE,
+    deviceId: DEVICE_ID,
+  });
+  expect(data).toBeNull();
+  expectRpcCode(error, 'vendor_mismatch');
+});
+
+test('RV-GATE-03: submit_vendor_review rejects non-fulfilled order → order_not_fulfilled', async () => {
+  const order = await seedRequest({
+    status: 'accepted',
+    message: `RV-GATE-03 ${TEST_SESSION}`,
+  });
+  const { data, error } = await callSubmitReview({
+    vendorId: testVendor.id,
+    requestId: order.id,
+    userPhone: TEST_CUSTOMER_PHONE,
+    deviceId: DEVICE_ID,
+  });
+  expect(data).toBeNull();
+  expectRpcCode(error, 'order_not_fulfilled');
+});
+
+test('RV-GATE-04: submit_vendor_review rejects wrong customer phone/device → not_found_or_unauthorized', async () => {
+  const order = await seedRequest({
+    status: 'fulfilled',
+    userPhone: TEST_CUSTOMER_PHONE,
+    deviceId: DEVICE_ID,
+    message: `RV-GATE-04 ${TEST_SESSION}`,
+  });
+  const { data, error } = await callSubmitReview({
+    vendorId: testVendor.id,
+    requestId: order.id,
+    userPhone: '8800099999',
+    deviceId: 'device_not_matching_order',
+  });
+  expect(data).toBeNull();
+  expectRpcCode(error, 'not_found_or_unauthorized');
+});
+
+test('RV-GATE-05: submit_vendor_review happy path — fulfilled matching order/customer succeeds', async () => {
+  const order = await seedRequest({
+    status: 'fulfilled',
+    message: `RV-GATE-05 ${TEST_SESSION}`,
+  });
+  const { data, error } = await callSubmitReview({
+    vendorId: testVendor.id,
+    requestId: order.id,
+    userPhone: TEST_CUSTOMER_PHONE,
+    deviceId: DEVICE_ID,
+    rating: 5,
+    reviewText: 'Gate happy path',
+  });
+  expect(error).toBeNull();
+  expect(data?.rating).toBe(5);
+  expect(data?.request_id).toBe(order.id);
+  expect(data?.vendor_id).toBe(testVendor.id);
+  expect(data?.user_phone).toBe(TEST_CUSTOMER_PHONE);
+
+  const { data: row } = await supabaseAdmin
+    .from('vendor_reviews')
+    .select('id, rating')
+    .eq('request_id', order.id)
+    .maybeSingle();
+  expect(row?.rating).toBe(5);
+});
+
+test('RV-GATE-06: submit_vendor_review duplicate request → review_already_exists', async () => {
+  const order = await seedRequest({
+    status: 'fulfilled',
+    message: `RV-GATE-06 ${TEST_SESSION}`,
+  });
+  const first = await callSubmitReview({
+    vendorId: testVendor.id,
+    requestId: order.id,
+    userPhone: TEST_CUSTOMER_PHONE,
+    deviceId: DEVICE_ID,
+    rating: 4,
+  });
+  expect(first.error).toBeNull();
+
+  const second = await callSubmitReview({
+    vendorId: testVendor.id,
+    requestId: order.id,
+    userPhone: TEST_CUSTOMER_PHONE,
+    deviceId: DEVICE_ID,
+    rating: 5,
+  });
+  expect(second.data).toBeNull();
+  expectRpcCode(second.error, 'review_already_exists');
+});
+
+test('RV-GATE-07: submit_vendor_review invalid rating → invalid_rating', async () => {
+  const order = await seedRequest({
+    status: 'fulfilled',
+    message: `RV-GATE-07 ${TEST_SESSION}`,
+  });
+  const { data, error } = await callSubmitReview({
+    vendorId: testVendor.id,
+    requestId: order.id,
+    userPhone: TEST_CUSTOMER_PHONE,
+    deviceId: DEVICE_ID,
+    rating: 0,
+  });
+  expect(data).toBeNull();
+  expectRpcCode(error, 'invalid_rating');
+
+  const { data: rows } = await supabaseAdmin
+    .from('vendor_reviews')
+    .select('id')
+    .eq('request_id', order.id);
+  expect(rows?.length ?? 0).toBe(0);
 });
