@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
+  supabase,
   cleanupTestData, cleanupTestVendors,
   createTestVendor,
   getFirstActiveCategory,
@@ -93,7 +94,8 @@ test('VR-01b: admin notified after new vendor registration', async () => {
 test('VR-02: duplicate phone — register_vendor returns 23505, no second row created', async () => {
   const category = await getFirstActiveCategory();
   const phone = `99002${Date.now().toString().slice(-5)}`;
-  const referralCode = `VR02${Date.now().toString(36).slice(-6).toUpperCase()}`;
+  const referralCodeA = `VR02A${Date.now().toString(36).slice(-5).toUpperCase()}`;
+  const referralCodeB = `VR02B${Date.now().toString(36).slice(-5).toUpperCase()}`;
 
   const { data: existing } = await supabaseAdmin.from('vendors').select('id').eq('phone', phone);
   for (const row of existing ?? []) {
@@ -102,7 +104,7 @@ test('VR-02: duplicate phone — register_vendor returns 23505, no second row cr
 
   const firstResult = await invokeRegisterVendorRpc({
     phone,
-    referral_code: referralCode,
+    referral_code: referralCodeA,
     name: 'VR02 Owner',
     shop_name: `VR02 Shop ${TEST_SESSION}`,
     category: category.label,
@@ -117,9 +119,10 @@ test('VR-02: duplicate phone — register_vendor returns 23505, no second row cr
     .eq('phone', phone);
   expect(beforeCount).toBe(1);
 
+  // Different referral_code so vendors_referral_code_key cannot produce a false-positive 23505.
   const duplicateResult = await invokeRegisterVendorRpc({
     phone,
-    referral_code: referralCode,
+    referral_code: referralCodeB,
     name: 'Duplicate Attempt',
     shop_name: 'Duplicate Shop',
     category: category.label,
@@ -130,6 +133,7 @@ test('VR-02: duplicate phone — register_vendor returns 23505, no second row cr
   expect(duplicateResult.vendorId).toBeUndefined();
   expect(duplicateResult.error).toBeDefined();
   expect(duplicateResult.error?.code).toBe('23505');
+  expect(duplicateResult.error?.message ?? '').toMatch(/vendors_phone_key/);
 
   const { count: afterCount } = await supabaseAdmin
     .from('vendors')
@@ -449,5 +453,166 @@ test('AD-11: app_config whitelisted keys are readable and updatable', async () =
 
     expect(error).toBeNull();
     expect(data?.value).toBeDefined();
+  }
+});
+
+// ─── UPI VERIFY RPC (vendor_verify_upi + patch gate) ─────────────────────────
+
+test('VV-07: vendor_update_own rejects upi_verified in generic patch', async () => {
+  const vendor = await createTestVendor({
+    phone: `99071${Date.now().toString().slice(-5)}`,
+    upi_id: 'vv07vendor@oksbi',
+    is_active: false,
+  });
+
+  try {
+    const { error } = await supabase.rpc('vendor_update_own', {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendor.phone,
+      p_patch: { upi_verified: true },
+    });
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain('field_not_allowed');
+
+    const { data } = await supabaseAdmin
+      .from('vendors')
+      .select('upi_verified')
+      .eq('id', vendor.id)
+      .single();
+    expect(data?.upi_verified).toBe(false);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendor.id);
+  }
+});
+
+test('VV-08: vendor_verify_upi rejects mismatched p_upi_id', async () => {
+  const savedUpi = 'vv08saved@oksbi';
+  const vendor = await createTestVendor({
+    phone: `99072${Date.now().toString().slice(-5)}`,
+    upi_id: savedUpi,
+    is_active: false,
+  });
+
+  try {
+    await supabaseAdmin
+      .from('vendors')
+      .update({ upi_verified: false })
+      .eq('id', vendor.id);
+
+    const { error } = await supabase.rpc('vendor_verify_upi', {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendor.phone,
+      p_upi_id: 'vv08other@oksbi',
+    });
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain('upi_id_mismatch');
+
+    const { data } = await supabaseAdmin
+      .from('vendors')
+      .select('upi_verified')
+      .eq('id', vendor.id)
+      .single();
+    expect(data?.upi_verified).toBe(false);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendor.id);
+  }
+});
+
+test('VV-09: vendor_verify_upi succeeds when p_upi_id matches saved VPA', async () => {
+  const savedUpi = 'vv09match@oksbi';
+  const vendor = await createTestVendor({
+    phone: `99073${Date.now().toString().slice(-5)}`,
+    upi_id: savedUpi,
+    is_active: false,
+  });
+
+  try {
+    await supabaseAdmin
+      .from('vendors')
+      .update({ upi_verified: false })
+      .eq('id', vendor.id);
+
+    const { error } = await supabase.rpc('vendor_verify_upi', {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendor.phone,
+      p_upi_id: savedUpi,
+    });
+    expect(error).toBeNull();
+
+    const { data } = await supabaseAdmin
+      .from('vendors')
+      .select('upi_verified')
+      .eq('id', vendor.id)
+      .single();
+    expect(data?.upi_verified).toBe(true);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendor.id);
+  }
+});
+
+test('VV-10: vendor_verify_upi rejects invalid format even if it matches saved', async () => {
+  const badUpi = 'notanupi';
+  const vendor = await createTestVendor({
+    phone: `99074${Date.now().toString().slice(-5)}`,
+    upi_id: 'vv10temp@oksbi',
+    is_active: false,
+  });
+
+  try {
+    // Seed a non-VPA value directly (DB has no format CHECK) so match would pass if format were skipped.
+    await supabaseAdmin
+      .from('vendors')
+      .update({ upi_id: badUpi, upi_verified: false })
+      .eq('id', vendor.id);
+
+    const { error } = await supabase.rpc('vendor_verify_upi', {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendor.phone,
+      p_upi_id: badUpi,
+    });
+    expect(error).not.toBeNull();
+    expect(error?.message).toContain('invalid_upi_format');
+
+    const { data } = await supabaseAdmin
+      .from('vendors')
+      .select('upi_verified')
+      .eq('id', vendor.id)
+      .single();
+    expect(data?.upi_verified).toBe(false);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendor.id);
+  }
+});
+
+test('VV-11: changing upi_id via vendor_update_own clears upi_verified server-side', async () => {
+  const vendor = await createTestVendor({
+    phone: `99075${Date.now().toString().slice(-5)}`,
+    upi_id: 'vv11old@oksbi',
+    is_active: false,
+  });
+
+  try {
+    await supabaseAdmin
+      .from('vendors')
+      .update({ upi_verified: true })
+      .eq('id', vendor.id);
+
+    const { error } = await supabase.rpc('vendor_update_own', {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendor.phone,
+      // Intentionally omit upi_verified — server must clear it.
+      p_patch: { upi_id: 'vv11new@oksbi' },
+    });
+    expect(error).toBeNull();
+
+    const { data } = await supabaseAdmin
+      .from('vendors')
+      .select('upi_id, upi_verified')
+      .eq('id', vendor.id)
+      .single();
+    expect(data?.upi_id).toBe('vv11new@oksbi');
+    expect(data?.upi_verified).toBe(false);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendor.id);
   }
 });
