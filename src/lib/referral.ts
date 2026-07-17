@@ -134,16 +134,14 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
 
     if (userError || !userCreated) return false;
 
-    const triggeredAt = new Date().toISOString();
-
     const creditAmount = await getReferralUserCreditAmount();
 
+    // Amount is resolved server-side from app_config; p_credit_amount is ignored if sent.
     const { data: referralId, error: rewardError } = await supabase.rpc(
       "record_user_referral_reward",
       {
         p_referrer_vendor_id: vendor.id,
         p_user_phone: phone,
-        p_credit_amount: creditAmount,
       },
     );
 

@@ -218,6 +218,26 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: "Too many requests, please wait a moment and try again." });
     }
 
+    // Second layer: per new_vendor_id (stops hammering a known id + code combo).
+    const { data: allowedVendor, error: rlVendorError } = await supabase.rpc(
+      "check_and_log_rate_limit",
+      {
+        p_function_name: "process-vendor-referral",
+        p_identifier_type: "vendor_id",
+        p_identifier: new_vendor_id,
+        p_max_requests: 5,
+        p_window_seconds: 600,
+      },
+    );
+    if (rlVendorError) {
+      console.error("process-vendor-referral vendor_id rate limit RPC failed", rlVendorError);
+    } else if (allowedVendor === false) {
+      return jsonResponse({
+        success: false,
+        error: "Too many requests, please wait a moment and try again.",
+      });
+    }
+
     if (!(await isReferralEnabled(supabase))) {
       return jsonResponse({ skipped: true });
     }
@@ -263,6 +283,28 @@ serve(async (req) => {
     const referrerPhoneNorm = normalizePhone(referrerPhoneRow?.phone ?? referrer.phone);
     if (newPhoneNorm && referrerPhoneNorm && newPhoneNorm === referrerPhoneNorm) {
       return jsonResponse({ success: false, error: "Self-referral not allowed" });
+    }
+
+    // Third layer: per new-vendor phone when known (same window as vendor_id).
+    if (newPhoneNorm) {
+      const { data: allowedPhone, error: rlPhoneError } = await supabase.rpc(
+        "check_and_log_rate_limit",
+        {
+          p_function_name: "process-vendor-referral",
+          p_identifier_type: "phone",
+          p_identifier: newPhoneNorm,
+          p_max_requests: 5,
+          p_window_seconds: 600,
+        },
+      );
+      if (rlPhoneError) {
+        console.error("process-vendor-referral phone rate limit RPC failed", rlPhoneError);
+      } else if (allowedPhone === false) {
+        return jsonResponse({
+          success: false,
+          error: "Too many requests, please wait a moment and try again.",
+        });
+      }
     }
 
     const referralConfig = await loadReferralConfig(supabase);
