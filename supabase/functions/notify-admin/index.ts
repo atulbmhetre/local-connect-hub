@@ -70,6 +70,22 @@ serve(async (req) => {
       });
     }
 
+    const { data: allowed, error: rlError } = await supabase.rpc("check_and_log_rate_limit", {
+      p_function_name: "notify-admin",
+      p_identifier_type: "phone",
+      p_identifier: adminPhone.trim(),
+      p_max_requests: 40,
+      p_window_seconds: 300,
+    });
+    if (rlError) {
+      console.error("notify-admin rate limit check failed", rlError);
+    } else if (allowed === false) {
+      return new Response(JSON.stringify({ error: "rate_limited", ok: false }), {
+        status: 429,
+        headers: CORS_HEADERS,
+      });
+    }
+
     const { data: deviceRow } = await supabase
       .from("user_devices")
       .select("fcm_token")

@@ -63,6 +63,8 @@ serve(async (req) => {
     const directToken = (payload?.fcm_token as string | undefined)?.trim();
     const title = String(payload?.title ?? "").substring(0, 100);
     const body = String(payload?.body ?? "").substring(0, 100);
+    const skipInbox =
+      payload?.skip_inbox === true || payload?.p_skip_inbox === true;
 
     if (!userPhone?.trim() && !directToken) {
       return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
@@ -72,6 +74,26 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // 40 / 5 min per target phone — allows legitimate order bursts, blocks spam floods
+    const ratePhone = userPhone?.trim();
+    if (ratePhone) {
+      const { data: allowed, error: rlError } = await supabase.rpc("check_and_log_rate_limit", {
+        p_function_name: "notify-user",
+        p_identifier_type: "phone",
+        p_identifier: ratePhone,
+        p_max_requests: 40,
+        p_window_seconds: 300,
+      });
+      if (rlError) {
+        console.error("notify-user rate limit check failed", rlError);
+      } else if (allowed === false) {
+        return new Response(JSON.stringify({ error: "rate_limited", sent: 0 }), {
+          status: 429,
+          headers: CORS_HEADERS,
+        });
+      }
+    }
 
     const fcmData = buildFcmData(payload, title, body);
     let route =
@@ -90,7 +112,7 @@ serve(async (req) => {
       }
     }
 
-    if (userPhone?.trim() && (title.trim() || body.trim())) {
+    if (!skipInbox && userPhone?.trim() && (title.trim() || body.trim())) {
       try {
         const { error: inboxError } = await supabase.from("user_notifications").insert({
           user_phone: userPhone.trim(),

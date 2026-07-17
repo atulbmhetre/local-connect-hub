@@ -15,6 +15,12 @@ type OpenAlert = {
   first_failed_at: string;
 };
 
+type FcmFailureRow = {
+  notification_type: string;
+  failure_events: number | string;
+  success_events: number | string;
+};
+
 function formatRelativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "just now";
@@ -27,8 +33,15 @@ function formatRelativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
+function toCount(v: number | string | null | undefined): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function AdminSystemHealthCard() {
   const [openAlerts, setOpenAlerts] = useState<Map<string, OpenAlert>>(new Map());
+  const [fcmRows, setFcmRows] = useState<FcmFailureRow[]>([]);
+  const [fcmLoadError, setFcmLoadError] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -47,6 +60,19 @@ export function AdminSystemHealthCard() {
         next.set(row.function_name, row as OpenAlert);
       }
       setOpenAlerts(next);
+
+      const { data: fcmData, error: fcmError } = await supabase.rpc(
+        "get_admin_fcm_failure_stats",
+        { p_hours: 24 },
+      );
+      if (fcmError) {
+        console.error("get_admin_fcm_failure_stats failed", fcmError);
+        setFcmLoadError(true);
+        setFcmRows([]);
+        return;
+      }
+      setFcmLoadError(false);
+      setFcmRows((Array.isArray(fcmData) ? fcmData : []) as FcmFailureRow[]);
     };
 
     void load();
@@ -56,6 +82,9 @@ export function AdminSystemHealthCard() {
 
     return () => window.clearInterval(intervalId);
   }, []);
+
+  const totalFcmFailures = fcmRows.reduce((sum, r) => sum + toCount(r.failure_events), 0);
+  const failingTypes = fcmRows.filter((r) => toCount(r.failure_events) > 0);
 
   return (
     <SettingsCard className="border-brand/20" data-testid="admin-system-health">
@@ -88,6 +117,42 @@ export function AdminSystemHealthCard() {
             </div>
           );
         })}
+      </div>
+
+      <div className="px-4 py-3 border-t border-surface-border" data-testid="admin-fcm-health">
+        <p className="text-sm font-medium text-foreground">FCM delivery (24h)</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Push failures from fcm_delivery_log
+        </p>
+        <div className="flex items-start gap-2.5 py-2.5">
+          <span
+            className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
+              fcmLoadError || totalFcmFailures > 0 ? "bg-destructive" : "bg-green-500"
+            }`}
+            aria-hidden
+          />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground" data-testid="admin-fcm-failure-total">
+              {fcmLoadError
+                ? "Unable to load FCM stats"
+                : totalFcmFailures === 0
+                  ? "No delivery failures"
+                  : `${totalFcmFailures} failed send${totalFcmFailures === 1 ? "" : "s"}`}
+            </p>
+            {!fcmLoadError && failingTypes.length > 0 && (
+              <ul className="mt-1 space-y-0.5" data-testid="admin-fcm-failure-breakdown">
+                {failingTypes.map((row) => (
+                  <li key={row.notification_type} className="text-xs text-muted-foreground">
+                    {row.notification_type}: {toCount(row.failure_events)} failed
+                    {toCount(row.success_events) > 0
+                      ? ` · ${toCount(row.success_events)} ok`
+                      : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       </div>
     </SettingsCard>
   );

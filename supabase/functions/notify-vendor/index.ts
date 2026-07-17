@@ -57,11 +57,34 @@ serve(async (req) => {
     const record = (payload.record ?? payload) as Record<string, unknown>;
     const vendorId = record?.vendor_id as string | undefined;
     const message = String(record?.message ?? "").substring(0, 100);
+    const skipInbox =
+      payload?.skip_inbox === true ||
+      payload?.p_skip_inbox === true ||
+      record?.skip_inbox === true ||
+      record?.p_skip_inbox === true;
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    if (typeof vendorId === "string" && vendorId.trim()) {
+      const { data: allowed, error: rlError } = await supabase.rpc("check_and_log_rate_limit", {
+        p_function_name: "notify-vendor",
+        p_identifier_type: "vendor_id",
+        p_identifier: vendorId.trim(),
+        p_max_requests: 40,
+        p_window_seconds: 300,
+      });
+      if (rlError) {
+        console.error("notify-vendor rate limit check failed", rlError);
+      } else if (allowed === false) {
+        return new Response(JSON.stringify({ error: "rate_limited", ok: false }), {
+          status: 429,
+          headers: CORS_HEADERS,
+        });
+      }
+    }
 
     const requestId =
       typeof record?.request_id === "string" ? record.request_id.trim() : "";
@@ -128,7 +151,7 @@ serve(async (req) => {
       }
     }
 
-    if (vendorPhone && (notificationTitle.trim() || message.trim())) {
+    if (!skipInbox && vendorPhone && (notificationTitle.trim() || message.trim())) {
       try {
         const { error: inboxError } = await supabase.from("user_notifications").insert({
           user_phone: vendorPhone,

@@ -59,3 +59,34 @@ test('FCM-03: deleteStaleToken does not remove other tokens for same user', asyn
 
   expect(data?.map((r) => r.fcm_token)).toEqual([]);
 });
+
+test('FCM-04: deleteStaleToken clears matching vendors.fcm_token', async () => {
+  const vendorPhone = uniqueTestPhone('99071');
+  const token = `vendor_fcm_${TEST_SESSION}`;
+  const { data: vendor, error } = await supabaseAdmin
+    .from('vendors')
+    .insert({
+      name: 'FCM Vendor',
+      shop_name: `!FCM-${TEST_SESSION}`,
+      phone: vendorPhone,
+      category: 'General Store',
+      service_mode: 'delivery',
+      fcm_token: token,
+      is_active: false,
+      profile_status: 'complete',
+    })
+    .select('id')
+    .single();
+  expect(error, error?.message).toBeNull();
+
+  await deleteStaleToken(token);
+
+  const { data: after } = await supabaseAdmin
+    .from('vendors')
+    .select('fcm_token')
+    .eq('id', vendor!.id)
+    .single();
+  expect(after?.fcm_token == null || after?.fcm_token === '').toBe(true);
+
+  await supabaseAdmin.from('vendors').delete().eq('id', vendor!.id);
+});

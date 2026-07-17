@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 import { buildFcmData } from "../_shared/notification-routes.ts";
-import { FEED_PUSH_TITLES } from "./constants.ts";
+import { feedPushTitle } from "./constants.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -87,10 +87,8 @@ function notificationType(postType: string): string {
   return "feed_recommendation";
 }
 
-function defaultPushTitle(postType: string): string {
-  if (postType === "announcement") return FEED_PUSH_TITLES.announcement;
-  if (postType === "offer") return FEED_PUSH_TITLES.offer;
-  return FEED_PUSH_TITLES.recommendation;
+function defaultPushTitle(postType: string, lang = "en"): string {
+  return feedPushTitle(postType, lang);
 }
 
 async function maybeNotifyAdminVendorLead(
@@ -250,8 +248,9 @@ serve(async (req) => {
   const lng = Number(parsed.lng);
   const authorPhone = String(parsed.author_phone ?? "").trim();
   const postType = String(parsed.post_type ?? "").trim();
-  const title = (
-    String(parsed.title ?? "").trim() || defaultPushTitle(postType)
+  const explicitTitle = String(parsed.title ?? "").trim();
+  const titleFallback = (
+    explicitTitle || defaultPushTitle(postType, "en")
   ).substring(0, 100);
 
   if (
@@ -259,7 +258,7 @@ serve(async (req) => {
     !Number.isFinite(lng) ||
     !authorPhone ||
     !postType ||
-    !title
+    !titleFallback
   ) {
     return jsonResponse({ error: "missing_required_fields" }, 400);
   }
@@ -346,10 +345,28 @@ serve(async (req) => {
     const postId = String(parsed.post_id ?? "").trim() || undefined;
     const uniquePhones = [...new Set(rows.map((r) => r.user_phone))];
 
+    const langByPhone = new Map<string, string>();
+    if (uniquePhones.length > 0) {
+      const { data: langRows } = await supabase
+        .from("app_users")
+        .select("phone, lang")
+        .in("phone", uniquePhones);
+      for (const row of langRows ?? []) {
+        if (typeof row.phone === "string") {
+          langByPhone.set(row.phone, typeof row.lang === "string" ? row.lang : "en");
+        }
+      }
+    }
+
+    const titleForPhone = (phone: string): string => {
+      if (explicitTitle) return explicitTitle.substring(0, 100);
+      return defaultPushTitle(postType, langByPhone.get(phone) ?? "en").substring(0, 100);
+    };
+
     const inboxRows = uniquePhones.map((user_phone) => ({
       user_phone,
       type: notifType,
-      title,
+      title: titleForPhone(user_phone),
       body,
       route: "feed",
       route_params: postId ? { post_id: postId } : null,
@@ -375,7 +392,7 @@ serve(async (req) => {
           accessToken,
           projectId,
           row.fcm_token.trim(),
-          title,
+          titleForPhone(row.user_phone),
           body,
           postId,
           notifType,

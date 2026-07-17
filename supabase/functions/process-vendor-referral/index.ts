@@ -97,6 +97,7 @@ async function notifyReferrer(
           notification_title: title,
           message: body,
           type: "referral_credit",
+          skip_inbox: true,
         },
       }),
     });

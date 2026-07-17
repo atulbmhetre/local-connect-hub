@@ -119,6 +119,7 @@ serve(async (req) => {
             body: payload.body,
             type: payload.type,
             order_id: payload.orderIds[0],
+            skip_inbox: true,
           }),
         });
         if (!res.ok) {
