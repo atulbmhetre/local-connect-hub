@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { getDeviceId } from "@/lib/deviceId";
 import { notifyVendorIdChanged, VENDOR_ACTIVE_CHANGED_EVENT } from "@/lib/vendorSessionSync";
 
 // Phase D: get phone from real Supabase session, strips 91 prefix
@@ -48,9 +49,28 @@ export async function getUserPhoneAsync(): Promise<string | null> {
 }
 
 /**
+ * Best-effort phone↔device row in user_devices (no FCM / push permission needed).
+ * Safe on web and native. Does not clear an existing fcm_token.
+ */
+export async function ensureUserDeviceLink(phone: string): Promise<void> {
+  const trimmed = phone.trim();
+  if (!trimmed) return;
+  try {
+    const { error } = await supabase.rpc("ensure_user_device_link", {
+      p_user_phone: trimmed,
+      p_device_id: getDeviceId(),
+    });
+    if (error) console.warn("[ensureUserDeviceLink]", error.message);
+  } catch (err) {
+    console.warn("[ensureUserDeviceLink]", err);
+  }
+}
+
+/**
  * Save user phone number to localStorage.
  * Normalise to 10-digit format (strip +91 / 91 prefix).
  * Returns the new normalized value and the previous stored value (if any).
+ * Also best-effort links this device to the phone for delete-account ownership.
  */
 export function saveUserPhone(raw: string): { normalized: string; previous: string | null } {
   const previous = getUserPhone();
@@ -66,6 +86,7 @@ export function saveUserPhone(raw: string): { normalized: string; previous: stri
   } catch {
     /* ignore */
   }
+  void ensureUserDeviceLink(normalized);
   return { normalized, previous };
 }
 

@@ -239,10 +239,11 @@ export type DeleteAccountResult =
 export async function invokeDeleteAccount(
   phone: string,
   type: "customer" | "vendor",
+  deviceId: string,
 ): Promise<DeleteAccountResult> {
   try {
     const { data, error } = await supabase.functions.invoke("delete-account", {
-      body: { phone, type },
+      body: { phone, type, device_id: deviceId },
     });
     if (error) {
       console.error("invokeDeleteAccount", error);
@@ -259,10 +260,13 @@ export async function invokeDeleteAccount(
   }
 }
 
-export async function invokeCancelDeletion(phone: string): Promise<DeleteAccountResult> {
+export async function invokeCancelDeletion(
+  phone: string,
+  deviceId: string,
+): Promise<DeleteAccountResult> {
   try {
     const { data, error } = await supabase.functions.invoke("delete-account", {
-      body: { phone, action: "cancel" },
+      body: { phone, action: "cancel", device_id: deviceId },
     });
     if (error) {
       console.error("invokeCancelDeletion", error);

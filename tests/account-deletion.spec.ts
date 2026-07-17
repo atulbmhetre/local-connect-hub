@@ -80,6 +80,7 @@ test('DEL-01: customer deletion anonymises users.phone to deleted_*', async () =
   const { status, body } = await postDeleteAccount({
     phone: CUSTOMER_PHONE,
     type: 'customer',
+    device_id: DEVICE_ID,
   });
 
   expect(status).toBe(200);
@@ -106,7 +107,7 @@ test('DEL-01: customer deletion anonymises users.phone to deleted_*', async () =
 test('DEL-02: customer deletion removes user_devices rows', async () => {
   await seedCustomerWithData();
 
-  await postDeleteAccount({ phone: CUSTOMER_PHONE, type: 'customer' });
+  await postDeleteAccount({ phone: CUSTOMER_PHONE, type: 'customer', device_id: DEVICE_ID });
 
   const { data } = await supabaseAdmin
     .from('user_devices')
@@ -118,7 +119,7 @@ test('DEL-02: customer deletion removes user_devices rows', async () => {
 test('DEL-03: customer deletion removes user_addresses rows', async () => {
   await seedCustomerWithData();
 
-  await postDeleteAccount({ phone: CUSTOMER_PHONE, type: 'customer' });
+  await postDeleteAccount({ phone: CUSTOMER_PHONE, type: 'customer', device_id: DEVICE_ID });
 
   const { data } = await supabaseAdmin
     .from('user_addresses')
@@ -130,7 +131,7 @@ test('DEL-03: customer deletion removes user_addresses rows', async () => {
 test('DEL-04: customer deletion anonymises requests.user_phone', async () => {
   await seedCustomerWithData();
 
-  await postDeleteAccount({ phone: CUSTOMER_PHONE, type: 'customer' });
+  await postDeleteAccount({ phone: CUSTOMER_PHONE, type: 'customer', device_id: DEVICE_ID });
 
   const { data: originalRequests } = await supabaseAdmin
     .from('requests')
@@ -151,9 +152,16 @@ test('DEL-05: vendor deletion schedules but does not anonymise immediately', asy
   await supabaseAdmin.from('users').insert({ phone: VENDOR_PHONE, total_orders: 0 });
   await seedModeVendor('delivery', VENDOR_PHONE);
 
+  await supabaseAdmin.from('user_devices').insert({
+    user_phone: VENDOR_PHONE,
+    device_id: DEVICE_ID,
+    fcm_token: `fcm_${VENDOR_PHONE}`,
+  });
+
   const { status, body } = await postDeleteAccount({
     phone: VENDOR_PHONE,
     type: 'vendor',
+    device_id: DEVICE_ID,
   });
 
   expect(status).toBe(200);
@@ -196,9 +204,16 @@ test('DEL-06: cancel clears deletion_requested_at on users and vendors', async (
     deletion_requested_at: new Date().toISOString(),
   });
 
+  await supabaseAdmin.from('user_devices').insert({
+    user_phone: VENDOR_PHONE,
+    device_id: DEVICE_ID,
+    fcm_token: `fcm_cancel_${VENDOR_PHONE}`,
+  });
+
   const { status, body } = await postDeleteAccount({
     phone: VENDOR_PHONE,
     action: 'cancel',
+    device_id: DEVICE_ID,
   });
 
   expect(status).toBe(200);
@@ -222,14 +237,25 @@ test('DEL-06: cancel clears deletion_requested_at on users and vendors', async (
   expect(vendor!.deletion_requested_at).toBeNull();
 });
 
-test('DEL-07: unknown customer phone returns 404 account_not_found', async () => {
+test('DEL-07: bare phone without device_id is rejected before account lookup', async () => {
   const { status, body } = await postDeleteAccount({
     phone: UNKNOWN_PHONE,
     type: 'customer',
   });
 
-  expect(status).toBe(404);
-  expect(body.error).toBe('account_not_found');
+  expect(status).toBe(400);
+  expect(body.error).toBe('device_id_required');
+});
+
+test('DEL-07b: unknown phone with unassociated device_id is rejected', async () => {
+  const { status, body } = await postDeleteAccount({
+    phone: UNKNOWN_PHONE,
+    type: 'customer',
+    device_id: `device_orphan_${TEST_SESSION}`,
+  });
+
+  expect(status).toBe(403);
+  expect(body.error).toBe('device_not_associated');
 });
 
 test('DEL-08: anonymise_deleted_accounts is idempotent for already-anonymised phone', async () => {

@@ -13,13 +13,107 @@ type DeleteAccountBody = {
   phone?: string;
   type?: string;
   action?: string;
+  device_id?: string;
 };
+
+type SupabaseClient = ReturnType<typeof createClient>;
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
     headers: CORS_HEADERS,
   });
+}
+
+/**
+ * Require prior association: this device_id must already be tied to this phone
+ * via user_devices, app_users, requests, or user_addresses (not a bare phone guess).
+ */
+async function deviceOwnsPhone(
+  supabase: SupabaseClient,
+  phone: string,
+  deviceId: string,
+): Promise<boolean> {
+  const { data: deviceRow, error: deviceError } = await supabase
+    .from("user_devices")
+    .select("id")
+    .eq("device_id", deviceId)
+    .eq("user_phone", phone)
+    .limit(1)
+    .maybeSingle();
+
+  if (deviceError) {
+    console.error("delete-account user_devices lookup failed", deviceError);
+    throw deviceError;
+  }
+  if (deviceRow) return true;
+
+  const { data: appUser, error: appError } = await supabase
+    .from("app_users")
+    .select("phone")
+    .eq("device_id", deviceId)
+    .eq("phone", phone)
+    .limit(1)
+    .maybeSingle();
+
+  if (appError) {
+    console.error("delete-account app_users lookup failed", appError);
+    throw appError;
+  }
+  if (appUser) return true;
+
+  const { data: requestRow, error: requestError } = await supabase
+    .from("requests")
+    .select("id")
+    .eq("device_id", deviceId)
+    .eq("user_phone", phone)
+    .limit(1)
+    .maybeSingle();
+
+  if (requestError) {
+    console.error("delete-account requests lookup failed", requestError);
+    throw requestError;
+  }
+  if (requestRow) return true;
+
+  const { data: addressRow, error: addressError } = await supabase
+    .from("user_addresses")
+    .select("id")
+    .eq("device_id", deviceId)
+    .eq("user_phone", phone)
+    .limit(1)
+    .maybeSingle();
+
+  if (addressError) {
+    console.error("delete-account user_addresses lookup failed", addressError);
+    throw addressError;
+  }
+  return Boolean(addressRow);
+}
+
+async function enforceRateLimit(
+  supabase: SupabaseClient,
+  phone: string,
+): Promise<Response | null> {
+  const { data: allowed, error: rlError } = await supabase.rpc(
+    "check_and_log_rate_limit",
+    {
+      p_function_name: "delete-account",
+      p_identifier_type: "phone",
+      p_identifier: phone,
+      p_max_requests: 5,
+      p_window_seconds: 600,
+    },
+  );
+  if (rlError) {
+    console.error("delete-account rate limit RPC failed", rlError);
+    // fail open on infra error — still require device association
+    return null;
+  }
+  if (allowed === false) {
+    return jsonResponse({ error: "rate_limited" }, 429);
+  }
+  return null;
 }
 
 serve(async (req) => {
@@ -45,6 +139,7 @@ serve(async (req) => {
     const phone = body.phone?.trim() ?? "";
     const action = body.action?.trim() ?? "";
     const type = body.type?.trim() ?? "";
+    const deviceId = body.device_id?.trim() ?? "";
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -56,11 +151,30 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    if (action === "cancel") {
-      if (!phone) {
-        return jsonResponse({ error: "phone_required" }, 400);
-      }
+    if (!phone) {
+      return jsonResponse({ error: "phone_required" }, 400);
+    }
+    if (!deviceId) {
+      return jsonResponse({ error: "device_id_required" }, 400);
+    }
 
+    const rateLimited = await enforceRateLimit(supabase, phone);
+    if (rateLimited) return rateLimited;
+
+    let ownsPhone = false;
+    try {
+      ownsPhone = await deviceOwnsPhone(supabase, phone, deviceId);
+    } catch (err) {
+      return jsonResponse(
+        { error: err instanceof Error ? err.message : "identity_check_failed" },
+        500,
+      );
+    }
+    if (!ownsPhone) {
+      return jsonResponse({ error: "device_not_associated" }, 403);
+    }
+
+    if (action === "cancel") {
       const { error: vendorError } = await supabase
         .from("vendors")
         .update({ deletion_requested_at: null })
@@ -82,10 +196,6 @@ serve(async (req) => {
       }
 
       return jsonResponse({ ok: true, message: "Deletion cancelled" });
-    }
-
-    if (!phone) {
-      return jsonResponse({ error: "phone_required" }, 400);
     }
 
     if (type !== "customer" && type !== "vendor") {

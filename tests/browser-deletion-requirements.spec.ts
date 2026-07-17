@@ -69,6 +69,13 @@ async function seedCustomer(phone: string, fields: Record<string, unknown> = {})
     { onConflict: 'phone' },
   );
   if (error) throw error;
+  await supabaseAdmin.from('user_devices').delete().eq('user_phone', phone);
+  const { error: deviceError } = await supabaseAdmin.from('user_devices').insert({
+    user_phone: phone,
+    device_id: DEVICE_ID,
+    fcm_token: `fcm_${phone}`,
+  });
+  if (deviceError) throw deviceError;
   createdPhones.push(phone);
 }
 
@@ -99,6 +106,12 @@ async function createVendor(
   await seedVendorCategory(vendor.id, category);
   createdVendorIds.push(vendor.id);
   createdPhones.push(phone);
+  await supabaseAdmin.from('user_devices').delete().eq('user_phone', phone).eq('device_id', DEVICE_ID);
+  await supabaseAdmin.from('user_devices').insert({
+    user_phone: phone,
+    device_id: DEVICE_ID,
+    fcm_token: `fcm_v_${phone}`,
+  });
   return vendor;
 }
 
@@ -186,7 +199,11 @@ test('DEL-REQ-03 — Customer deletion clears localStorage and shows fresh state
   await seedCustomer(phone, { total_orders: 1 });
   await loginAsCustomer(page, phone, DEVICE_ID);
 
-  const { status, body } = await postDeleteAccount({ phone, type: 'customer' });
+  const { status, body } = await postDeleteAccount({
+    phone,
+    type: 'customer',
+    device_id: DEVICE_ID,
+  });
   expect(status).toBe(200);
   expect(body.ok).toBe(true);
 
@@ -412,7 +429,11 @@ test('DEL-REQ-10 — Customer-linked data cleaned on customer delete', async () 
     fcm_token: `fcm_${phone}`,
   });
 
-  const { status, body } = await postDeleteAccount({ phone, type: 'customer' });
+  const { status, body } = await postDeleteAccount({
+    phone,
+    type: 'customer',
+    device_id: DEVICE_ID,
+  });
   expect(status).toBe(200);
   expect(body.ok).toBe(true);
 

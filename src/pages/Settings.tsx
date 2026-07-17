@@ -49,7 +49,7 @@ import {
 } from "@/lib/withNetworkRetry";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { stopAllVendorLocationTracking } from "@/lib/vendorBackgroundLocation";
-import { getUserPhone, clearUserPhone } from "@/lib/userIdentity";
+import { getUserPhone, clearUserPhone, ensureUserDeviceLink, saveUserPhone } from "@/lib/userIdentity";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { logAdminAction } from "@/lib/adminAudit";
 import { warnFlaggedUser as runWarnFlaggedUser } from "@/lib/warnFlaggedUser";
@@ -2308,7 +2308,13 @@ const Settings = () => {
     if (!phone) return;
 
     setDeleteAccountLoading(true);
-    const result = await invokeDeleteAccount(phone, isVendor ? "vendor" : "customer");
+    // Catch phones saved before ensure_user_device_link existed (web / no-push).
+    await ensureUserDeviceLink(phone);
+    const result = await invokeDeleteAccount(
+      phone,
+      isVendor ? "vendor" : "customer",
+      deviceId,
+    );
     setDeleteAccountLoading(false);
     setDeleteConfirmOpen(false);
 
@@ -2350,7 +2356,7 @@ const Settings = () => {
     if (!phone) return;
 
     setDeleteAccountLoading(true);
-    const result = await invokeCancelDeletion(phone);
+    const result = await invokeCancelDeletion(phone, deviceId);
     setDeleteAccountLoading(false);
 
     if (result.ok === false) {
@@ -2949,7 +2955,7 @@ const Settings = () => {
               <button
                 type="button"
                 onClick={() => {
-                  localStorage.setItem('aaspaas:user_phone', devPhone);
+                  saveUserPhone(devPhone);
                   window.location.reload();
                 }}
                 className="rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground"

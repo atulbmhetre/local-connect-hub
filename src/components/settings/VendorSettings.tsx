@@ -874,19 +874,9 @@ export function VendorSettings({
         name: "Aaspaas Pro",
         description: "Vendor Subscription — ₹" + price + "/month",
         recurring: 1,
-        handler: async (response: Record<string, string>) => {
-          // Payment success — update subscription_status to active
-          const vendorPhone = getUserPhone()?.trim();
-          if (!vendorPhone) return;
-          await supabase.rpc("vendor_update_own", {
-            p_vendor_id: vendor?.id,
-            p_vendor_phone: vendorPhone,
-            p_patch: {
-              subscription_status: "active",
-              subscription_id: response.razorpay_subscription_id ?? response.razorpay_payment_id,
-              grace_ends_at: null,
-            },
-          });
+        handler: async (_response: Record<string, string>) => {
+          // Subscription activation is server-side only (razorpay-webhook /
+          // check-vendor-subscriptions). Client must not patch subscription_*.
           toast.success(s.vendor_sub_active);
         },
         prefill: {
@@ -901,7 +891,7 @@ export function VendorSettings({
     };
     script.onerror = () => toast.error("Failed to load payment gateway. Please try again.");
     document.body.appendChild(script);
-  }, [appConfig, vendor, s, supabase]);
+  }, [appConfig, vendor, s]);
 
   const handleCancelSubscription = () => {
     const adminPhone =
