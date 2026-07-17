@@ -49,7 +49,7 @@ import { ledgerCycleStartInputValue } from "@/lib/khataDisplay";
 import { referralCodeFromPhone } from "@/lib/referral";
 import { getUserPhone } from "@/lib/userIdentity";
 import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
-import { uploadFeedImage } from "@/lib/imageUpload";
+import { withOptionalFeedImageUpload } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
 import { FeedReachChips } from "@/components/FeedReachChips";
 import { DEFAULT_FEED_REACH_KM, normalizeFeedReachKm, VENDOR_FEED_REACH_CHIP_OPTIONS } from "@/lib/feedReach";
@@ -284,18 +284,6 @@ export function VendorSettingsOffers({
       toast.error(s.vendor_offer_phone_required);
       return;
     }
-    setOfferLoading(true);
-    let imageUrl: string | null = null;
-    if (offerImageFile) {
-      try {
-        imageUrl = await uploadFeedImage(offerImageFile, "offers");
-      } catch (err) {
-        console.error("postOffer upload", err);
-        toast.error(s.vendor_offer_image_upload_failed);
-        setOfferLoading(false);
-        return;
-      }
-    }
     const lat = vendorLatitude;
     const lng = vendorLongitude;
     if (
@@ -305,27 +293,51 @@ export function VendorSettingsOffers({
       !Number.isFinite(lng)
     ) {
       toast.error(s.vendor_offer_location_required);
+      return;
+    }
+    setOfferLoading(true);
+    let submitResult: { error: unknown | null };
+    try {
+      submitResult = await withOptionalFeedImageUpload(
+        offerImageFile,
+        "offers",
+        async (imageUrl) => {
+          const { error } = await supabase.rpc("vendor_post_offer", {
+            p_vendor_id: vendorId,
+            p_vendor_phone: phone,
+            p_content: content,
+            p_starts_at: offerDateToStartIso(offerStartsAt),
+            p_expires_at: offerDateToEndIso(offerEndsAt),
+            p_image_url: imageUrl,
+            p_lat: lat,
+            p_lng: lng,
+            p_reach_radius_km: normalizeFeedReachKm(offerReachKm),
+            p_target_audience: offerAudience,
+            p_target_category_id:
+              offerAudience === "customers" ? null : offerTargetCategoryId,
+          });
+          return { error };
+        },
+      );
+    } catch (err) {
+      console.error("postOffer upload", err);
+      toast.error(s.vendor_offer_image_upload_failed);
       setOfferLoading(false);
       return;
     }
-    const { error } = await supabase.rpc("vendor_post_offer", {
-      p_vendor_id: vendorId,
-      p_vendor_phone: phone,
-      p_content: content,
-      p_starts_at: offerDateToStartIso(offerStartsAt),
-      p_expires_at: offerDateToEndIso(offerEndsAt),
-      p_image_url: imageUrl,
-      p_lat: lat,
-      p_lng: lng,
-      p_reach_radius_km: normalizeFeedReachKm(offerReachKm),
-      p_target_audience: offerAudience,
-      p_target_category_id:
-        offerAudience === "customers" ? null : offerTargetCategoryId,
-    });
     setOfferLoading(false);
-    if (error) {
-      console.error("postOffer", error);
-      toast.error(error.message);
+    if (submitResult.error) {
+      console.error("postOffer", submitResult.error);
+      const message =
+        submitResult.error instanceof Error
+          ? submitResult.error.message
+          : typeof submitResult.error === "object" &&
+              submitResult.error !== null &&
+              "message" in submitResult.error &&
+              typeof (submitResult.error as { message: unknown }).message === "string"
+            ? (submitResult.error as { message: string }).message
+            : String(submitResult.error);
+      toast.error(message);
       return;
     }
     setOfferText("");

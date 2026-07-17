@@ -20,7 +20,7 @@ import { getUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { cn } from "@/lib/utils";
 import { feedAuthorLabel } from "@/lib/khataDisplay";
-import { uploadFeedImage } from "@/lib/imageUpload";
+import { withOptionalFeedImageUpload } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
 import { FeedReachChips } from "@/components/FeedReachChips";
 import { SettingsSectionLabel, SettingsCard } from "@/components/settings/SettingsSection";
@@ -790,18 +790,6 @@ export default function LocalFeed() {
 
     setSubmitting(true);
 
-    let imageUrl: string | null = null;
-    if (composeType === "announcement" && imageFile) {
-      try {
-        imageUrl = await uploadFeedImage(imageFile, "announcements");
-      } catch (err) {
-        console.error("uploadFeedImage", err);
-        toast.error(s.feed_errImageUpload);
-        setSubmitting(false);
-        return;
-      }
-    }
-
     const expiresAt =
       composeType === "announcement" || composeType === "recommendation"
         ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
@@ -828,24 +816,39 @@ export default function LocalFeed() {
               }
         : {};
 
-    const { error } = await supabase.rpc("submit_customer_feed_post", {
-      p_user_phone: phone,
-      p_type: composeType,
-      p_content: content,
-      p_expires_at: expiresAt,
-      p_image_url: imageUrl,
-      p_lat: lat,
-      p_lng: lng,
-      p_recommended_vendor_id: recommendationFields.recommended_vendor_id ?? null,
-      p_recommended_vendor_name: recommendationFields.recommended_vendor_name ?? null,
-      p_recommended_vendor_phone: recommendationFields.recommended_vendor_phone ?? null,
-      p_reach_radius_km: clampCustomerFeedReachKm(composeReachKm),
-    });
+    let submitResult: { error: unknown | null };
+    try {
+      submitResult = await withOptionalFeedImageUpload(
+        composeType === "announcement" ? imageFile : null,
+        "announcements",
+        async (imageUrl) => {
+          const { error } = await supabase.rpc("submit_customer_feed_post", {
+            p_user_phone: phone,
+            p_type: composeType,
+            p_content: content,
+            p_expires_at: expiresAt,
+            p_image_url: imageUrl,
+            p_lat: lat,
+            p_lng: lng,
+            p_recommended_vendor_id: recommendationFields.recommended_vendor_id ?? null,
+            p_recommended_vendor_name: recommendationFields.recommended_vendor_name ?? null,
+            p_recommended_vendor_phone: recommendationFields.recommended_vendor_phone ?? null,
+            p_reach_radius_km: clampCustomerFeedReachKm(composeReachKm),
+          });
+          return { error };
+        },
+      );
+    } catch (err) {
+      console.error("uploadFeedImage", err);
+      toast.error(s.feed_errImageUpload);
+      setSubmitting(false);
+      return;
+    }
 
     setSubmitting(false);
 
-    if (error) {
-      console.error("submitPost", error);
+    if (submitResult.error) {
+      console.error("submitPost", submitResult.error);
       toast.error(s.feed_errPost);
       return;
     }

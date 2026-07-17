@@ -26,21 +26,6 @@ type NotifyFeedPostBody = {
 
 type SupabaseClient = ReturnType<typeof createClient>;
 
-function haversineKm(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number,
-): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 async function resolveNotifyBody(
   supabase: SupabaseClient,
   postId: string | undefined,
@@ -277,6 +262,17 @@ serve(async (req) => {
       String(parsed.vendor_id ?? "").trim() || undefined,
     );
 
+    const postIdForDevices = String(parsed.post_id ?? "").trim();
+    if (!postIdForDevices) {
+      console.error("notify-feed-post missing post_id for audience filter");
+      await maybeNotifyAdminVendorLead(
+        supabase,
+        undefined,
+        postType,
+      );
+      return jsonResponse({ notified: 0, error: "post_id_required" });
+    }
+
     const { data: radiusRow } = await supabase
       .from("app_config")
       .select("value")
@@ -284,25 +280,21 @@ serve(async (req) => {
       .maybeSingle();
     const radiusKm = Number(radiusRow?.value) || 5;
 
-    const thirtyDaysAgo = new Date(
-      Date.now() - 30 * 24 * 60 * 60 * 1000,
-    ).toISOString();
-
-    const { data: devices, error: devicesError } = await supabase
-      .from("user_devices")
-      .select("user_phone, fcm_token, last_lat, last_lng")
-      .eq("feed_notifications_enabled", true)
-      .gt("last_location_at", thirtyDaysAgo)
-      .neq("user_phone", authorPhone)
-      .not("fcm_token", "is", null)
-      .not("last_lat", "is", null)
-      .not("last_lng", "is", null);
+    // Same audience/category rules as get_local_feed_posts via feed_post_matches_reader_audience.
+    const { data: devices, error: devicesError } = await supabase.rpc(
+      "get_feed_post_notify_devices",
+      {
+        p_post_id: postIdForDevices,
+        p_radius_km: radiusKm,
+        p_author_phone: authorPhone,
+      },
+    );
 
     if (devicesError) {
-      console.error("notify-feed-post user_devices query failed", devicesError);
+      console.error("notify-feed-post get_feed_post_notify_devices failed", devicesError);
       await maybeNotifyAdminVendorLead(
         supabase,
-        String(parsed.post_id ?? "").trim() || undefined,
+        postIdForDevices,
         postType,
       );
       return jsonResponse({ notified: 0 });
@@ -325,10 +317,7 @@ serve(async (req) => {
         }
         const deviceLat = Number(row.last_lat);
         const deviceLng = Number(row.last_lng);
-        if (!Number.isFinite(deviceLat) || !Number.isFinite(deviceLng)) {
-          return false;
-        }
-        return haversineKm(lat, lng, deviceLat, deviceLng) <= radiusKm;
+        return Number.isFinite(deviceLat) && Number.isFinite(deviceLng);
       },
     );
 
