@@ -59,7 +59,9 @@ import {
   isPanIndiaServiceRadius,
   mergeRadarTracks,
   passesTrackARadiusFilter,
+  trackQueryHitCap,
 } from "@/lib/radarVendorFilter";
+import { isVendorSubscriptionVisibleOnRadar } from "@/lib/radarSubscription";
 import {
   resolveCategoryBrandName,
   resolveCategoryReach,
@@ -76,6 +78,9 @@ import {
   showGovHelpAlongsideRadiusExpand,
   termForGovEmergencyHelp,
 } from "@/lib/categories";
+
+const RADAR_SUBSCRIPTION_OR =
+  "subscription_status.is.null,subscription_status.in.(trial,active,grace)";
 
 export type RadarMenuItem = {
   name: string;
@@ -433,6 +438,7 @@ const RadarSearch = () => {
   const [results, setResults] = useState<Ranked[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [networkSearchFailed, setNetworkSearchFailed] = useState(false);
+  const [resultsTruncated, setResultsTruncated] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   /**
    * Search must not run before the categories lookup resolves: with an empty
@@ -612,6 +618,7 @@ const RadarSearch = () => {
         setScanning(true);
         setError(null);
         setNetworkSearchFailed(false);
+        setResultsTruncated(false);
       }
       try {
         let vendorIdFilter: string[] | null = null;
@@ -745,6 +752,7 @@ const RadarSearch = () => {
               .select("*, verification_status")
               .eq("is_banned", false)
               .eq("profile_status", "complete")
+              .or(RADAR_SUBSCRIPTION_OR)
               .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
               .gte("latitude", coords.lat - bboxDeltaDeg)
               .lte("latitude", coords.lat + bboxDeltaDeg)
@@ -760,6 +768,7 @@ const RadarSearch = () => {
                 .select("*, verification_status")
                 .eq("is_banned", false)
                 .eq("profile_status", "complete")
+                .or(RADAR_SUBSCRIPTION_OR)
                 .gte("service_radius_km", userBracket)
                 .lt("service_radius_km", PAN_INDIA_RADIUS_KM);
 
@@ -772,6 +781,7 @@ const RadarSearch = () => {
                 .select("*, verification_status")
                 .eq("is_banned", false)
                 .eq("profile_status", "complete")
+                .or(RADAR_SUBSCRIPTION_OR)
                 .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
                 .gte("latitude", coords.lat - bboxDeltaDeg)
                 .lte("latitude", coords.lat + bboxDeltaDeg)
@@ -787,6 +797,7 @@ const RadarSearch = () => {
                 .select("*, verification_status")
                 .eq("is_banned", false)
                 .eq("profile_status", "complete")
+                .or(RADAR_SUBSCRIPTION_OR)
                 .gte("service_radius_km", userBracket)
                 .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
                 .in("id", multiModeVendorIds!);
@@ -836,6 +847,7 @@ const RadarSearch = () => {
           .select("*, verification_status")
           .eq("is_banned", false)
           .eq("profile_status", "complete")
+          .or(RADAR_SUBSCRIPTION_OR)
           .eq("service_radius_km", PAN_INDIA_RADIUS_KM);
 
         if (!categoryModeSearch) {
@@ -856,6 +868,7 @@ const RadarSearch = () => {
               .select("*, verification_status")
               .eq("is_banned", false)
               .eq("profile_status", "complete")
+              .or(RADAR_SUBSCRIPTION_OR)
               .eq("service_radius_km", PAN_INDIA_RADIUS_KM)
               .in("id", multiModeVendorIds!)
           : null;
@@ -900,6 +913,15 @@ const RadarSearch = () => {
         if (trackBResult.error) throw trackBResult.error;
         if (trackBMultiModeResult.error) throw trackBMultiModeResult.error;
 
+        const trackAHitCap =
+          trackQueryHitCap(trackAResult.data?.length ?? 0, TRACK_A_LIMIT) ||
+          trackQueryHitCap(trackAWideResult.data?.length ?? 0, TRACK_A_LIMIT) ||
+          trackQueryHitCap(trackAMultiModeResult.data?.length ?? 0, TRACK_A_LIMIT) ||
+          trackQueryHitCap(trackAWideMultiModeResult.data?.length ?? 0, TRACK_A_LIMIT);
+        const trackBHitCap =
+          trackQueryHitCap(trackBResult.data?.length ?? 0, TRACK_B_LIMIT) ||
+          trackQueryHitCap(trackBMultiModeResult.data?.length ?? 0, TRACK_B_LIMIT);
+
         const trackAVendorById = new Map<string, Vendor>();
         for (const row of [
           ...(trackAResult.data ?? []),
@@ -929,6 +951,8 @@ const RadarSearch = () => {
 
         trackAVendors = excludeOfflineHelpVendors(trackAVendors, selectedMode);
         trackBVendors = excludeOfflineHelpVendors(trackBVendors, selectedMode);
+        trackAVendors = trackAVendors.filter(isVendorSubscriptionVisibleOnRadar);
+        trackBVendors = trackBVendors.filter(isVendorSubscriptionVisibleOnRadar);
 
         const vendorIds = [
           ...new Set([
@@ -1144,7 +1168,15 @@ const RadarSearch = () => {
 
         const scoped = mergeRadarTracks(trackARanked, trackBRanked, panIndiaOnly);
 
-        if (isCurrent()) setResults(scoped);
+        if (isCurrent()) {
+          setResultsTruncated(trackAHitCap || trackBHitCap);
+          setResults(scoped);
+          void supabase.rpc("log_radar_search", {
+            p_device_id: getDeviceId(),
+            p_result_count: scoped.length,
+            p_categories_loaded: categoriesLoaded,
+          });
+        }
       } catch (e: unknown) {
         if (!opts.silent && isCurrent()) {
           if (isNetworkFailure(e)) {
@@ -1546,6 +1578,14 @@ const RadarSearch = () => {
               </div>
             ))}
           </div>
+          {resultsTruncated && (
+            <p
+              className="mx-4 mt-3 text-center text-xs text-muted-foreground leading-relaxed"
+              data-testid="radar-results-truncated"
+            >
+              {s.radar_results_truncated}
+            </p>
+          )}
           {isPharmacyMedicalSearch(term) && (
             <a
               href="tel:104"

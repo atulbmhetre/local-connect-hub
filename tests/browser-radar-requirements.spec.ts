@@ -76,6 +76,7 @@ async function createNearbyVendor(
       longitude: PUNE.longitude,
       is_active: true,
       profile_status: 'complete',
+      discoverable: true,
       service_radius_km: 9999,
       is_manual_verified: false,
       // Empty delivery browse uses account-level reach when no category match context.

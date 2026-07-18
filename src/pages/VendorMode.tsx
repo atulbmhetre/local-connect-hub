@@ -29,6 +29,8 @@ import {
   type CategorySuggestionResult,
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
+import { fetchVendorByPhoneLogin, fetchVendorOwn } from "@/lib/vendorRead";
+import { getUserPhone } from "@/lib/userIdentity";
 import {
   startHelpLiveTracking,
   stopHelpLiveTracking,
@@ -415,16 +417,23 @@ const VendorMode = () => {
       setLoading(true);
       setNetworkLoadStatus(null);
       try {
+        const vendorPhone = getUserPhone()?.trim();
         const { data, error: fetchError } = await withNetworkRetry(
-          async () =>
-            throwOnSupabaseNetworkError(
+          async () => {
+            if (vendorPhone) {
+              const own = await fetchVendorOwn(vendorId, vendorPhone);
+              if (own.error) throw own.error;
+              return { data: own.data, error: null };
+            }
+            return throwOnSupabaseNetworkError(
               await supabase
                 .from("vendors")
                 .select("*")
                 .eq("id", vendorId)
                 .maybeSingle()
                 .retry(false),
-            ),
+            );
+          },
           {
             onRetrying: () => {
               if (!cancelled) setNetworkLoadStatus("retrying");
@@ -866,12 +875,11 @@ const VendorMode = () => {
     setUpiQrUploading(false);
   };
 
-  const handleWizardRegistered = async (newVendorId: string) => {
-    const { data: vendorRow, error: vendorFetchError } = await supabase
-      .from("vendors")
-      .select("*")
-      .eq("id", newVendorId)
-      .single();
+  const handleWizardRegistered = async (newVendorId: string, vendorPhone: string) => {
+    const { data: vendorRow, error: vendorFetchError } = await fetchVendorOwn(
+      newVendorId,
+      vendorPhone,
+    );
     if (vendorFetchError || !vendorRow) {
       setError(vendorFetchError?.message ?? "Could not load registered vendor");
       return;
@@ -908,21 +916,10 @@ const VendorMode = () => {
     setLookupError(null);
     setLookupLoading(true);
     try {
-      const variants = [digits, `+91${digits}`, `91${digits}`, `+91 ${digits}`];
-      let found: Vendor | null = null;
-      for (const v of variants) {
-        const { data, error } = await supabase
-          .from("vendors")
-          .select("*")
-          .eq("phone", v)
-          .eq("is_banned", false)
-          .is("deletion_requested_at", null)
-          .maybeSingle();
-        if (error) continue;
-        if (data) {
-          found = data as Vendor;
-          break;
-        }
+      const { data: found, error } = await fetchVendorByPhoneLogin(digits);
+      if (error) {
+        setLookupError(s.vendor_not_found);
+        return;
       }
       if (found) {
         if (found.phone.startsWith("deleted_")) {
@@ -1143,7 +1140,7 @@ const VendorMode = () => {
       {!vendorId && !alreadyRegistered && (
         <>
           <VendorRegistrationWizard
-            onRegistered={(id) => void handleWizardRegistered(id)}
+            onRegistered={(id, phone) => void handleWizardRegistered(id, phone)}
             onDuplicatePhone={handleDuplicateRegistrationPhone}
             setParentError={setError}
           />

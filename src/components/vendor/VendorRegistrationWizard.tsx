@@ -59,7 +59,7 @@ type RegCategoryRow = {
 };
 
 type Props = {
-  onRegistered: (vendorId: string) => void;
+  onRegistered: (vendorId: string, vendorPhone: string) => void;
   onDuplicatePhone: () => void;
   setParentError: (msg: string | null) => void;
 };
@@ -761,7 +761,7 @@ export function VendorRegistrationWizard({
 
     setLoading(false);
     toast.success(s.vendor_welcome_title, { description: s.vendor_welcome_body });
-    onRegistered(newVendorId);
+    onRegistered(newVendorId, phone.trim());
   };
 
   const upiFormatError =

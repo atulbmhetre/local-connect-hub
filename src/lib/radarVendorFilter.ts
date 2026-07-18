@@ -41,3 +41,8 @@ export function isPanIndiaServiceRadius(
 export function mergeRadarTracks<T>(trackA: T[], trackB: T[], panIndiaOnly: boolean): T[] {
   return panIndiaOnly ? trackB : [...trackA, ...trackB];
 }
+
+/** True when a track query returned rows at the configured cap (results may be truncated). */
+export function trackQueryHitCap(rowCount: number, cap: number): boolean {
+  return rowCount >= cap;
+}

@@ -50,6 +50,7 @@ import {
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { stopAllVendorLocationTracking } from "@/lib/vendorBackgroundLocation";
 import { getUserPhone, clearUserPhone, ensureUserDeviceLink, saveUserPhone } from "@/lib/userIdentity";
+import { fetchVendorOwn } from "@/lib/vendorRead";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { logAdminAction } from "@/lib/adminAudit";
 import { warnFlaggedUser as runWarnFlaggedUser } from "@/lib/warnFlaggedUser";
@@ -1085,16 +1086,17 @@ const Settings = () => {
   useEffect(() => {
     if (!vendorId) return;
     const load = async () => {
-      const { data, error } = await supabase
-        .from("vendors")
-        .select("*")
-        .eq("id", vendorId)
-        .single();
+      const phone = getUserPhone()?.trim();
+      if (!phone) {
+        console.error("Failed to load vendor: phone required");
+        return;
+      }
+      const { data, error } = await fetchVendorOwn(vendorId, phone);
       if (error) {
         console.error("Failed to load vendor:", error.message);
         return;
       }
-      if (data) setVendor(data as Vendor);
+      if (data) setVendor(data);
     };
     void load();
   }, [vendorId]);

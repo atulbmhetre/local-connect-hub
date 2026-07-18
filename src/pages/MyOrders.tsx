@@ -13,6 +13,7 @@ import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getVoiceLang } from "@/lib/voiceUtils";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
+import { fetchVendorsVisibleToCustomer } from "@/lib/vendorRead";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { RatingSheet } from "@/components/RatingSheet";
 import { PaymentSheet } from "@/components/PaymentSheet";
@@ -762,11 +763,11 @@ const MyOrders = () => {
     }
 
     void (async () => {
-      const { data } = await supabase
-        .from("vendors")
-        .select("id, latitude, longitude, last_updated")
-        .in("id", acceptedHelpVendorIds);
-      if (cancelled || !data) return;
+      const { data } = await fetchVendorsVisibleToCustomer(acceptedHelpVendorIds, {
+        userPhone: getUserPhone(),
+        deviceId: getDeviceId(),
+      });
+      if (cancelled || !data.length) return;
       for (const row of data) {
         applyVendorLocationUpdate(
           row.id,

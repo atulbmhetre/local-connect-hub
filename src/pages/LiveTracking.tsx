@@ -21,6 +21,9 @@ import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { supabase, invokeInitiateCall, useCategoryLabel, type Vendor, distanceKm } from "@/lib/supabase";
+import { fetchVendorsVisibleToCustomer } from "@/lib/vendorRead";
+import { getDeviceId } from "@/lib/deviceId";
+import { getUserPhone } from "@/lib/userIdentity";
 import { VerificationBadge, vendorTier } from "@/components/VerificationBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import {
@@ -35,7 +38,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
-import { getUserPhone } from "@/lib/userIdentity";
 import { toast } from "sonner";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import {
@@ -126,11 +128,16 @@ const LiveTracking = () => {
     setNetworkLoadStatus(null);
     setError(null);
     try {
-      const { data, error: fetchError } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await supabase.from("vendors").select("*").eq("id", vendorId).maybeSingle(),
-          ),
+      const { data: rows, error: fetchError } = await withNetworkRetry(
+        async () => {
+          const visible = await fetchVendorsVisibleToCustomer([vendorId], {
+            userPhone: getUserPhone(),
+            deviceId: getDeviceId(),
+          });
+          if (visible.error) throw visible.error;
+          const row = visible.data[0] ?? null;
+          return { data: row, error: null };
+        },
         {
           onRetrying: () => setNetworkLoadStatus("retrying"),
           shouldRetry: () => getNavigatorOnline(),
@@ -140,11 +147,11 @@ const LiveTracking = () => {
         setError(fetchError.message);
         return;
       }
-      if (!data) {
+      if (!rows) {
         setError("Responder no longer available.");
         return;
       }
-      const v = data as Vendor;
+      const v = rows as Vendor;
       setVendor(v);
       if (v.latitude != null && v.longitude != null) {
         const h = { lat: v.latitude, lng: v.longitude };

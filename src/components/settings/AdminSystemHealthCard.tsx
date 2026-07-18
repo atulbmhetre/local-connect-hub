@@ -21,6 +21,14 @@ type FcmFailureRow = {
   success_events: number | string;
 };
 
+type RadarHealthStats = {
+  total_searches: number;
+  zero_result_searches: number;
+  zero_result_rate_pct: number;
+  active_categories_count: number;
+  categories_ok: boolean;
+};
+
 function formatRelativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "just now";
@@ -42,6 +50,8 @@ export function AdminSystemHealthCard() {
   const [openAlerts, setOpenAlerts] = useState<Map<string, OpenAlert>>(new Map());
   const [fcmRows, setFcmRows] = useState<FcmFailureRow[]>([]);
   const [fcmLoadError, setFcmLoadError] = useState(false);
+  const [radarHealth, setRadarHealth] = useState<RadarHealthStats | null>(null);
+  const [radarLoadError, setRadarLoadError] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -73,6 +83,19 @@ export function AdminSystemHealthCard() {
       }
       setFcmLoadError(false);
       setFcmRows((Array.isArray(fcmData) ? fcmData : []) as FcmFailureRow[]);
+
+      const { data: radarData, error: radarError } = await supabase.rpc(
+        "get_admin_radar_health_stats",
+        { p_hours: 24 },
+      );
+      if (radarError) {
+        console.error("get_admin_radar_health_stats failed", radarError);
+        setRadarLoadError(true);
+        setRadarHealth(null);
+        return;
+      }
+      setRadarLoadError(false);
+      setRadarHealth((radarData ?? null) as RadarHealthStats | null);
     };
 
     void load();
@@ -85,6 +108,9 @@ export function AdminSystemHealthCard() {
 
   const totalFcmFailures = fcmRows.reduce((sum, r) => sum + toCount(r.failure_events), 0);
   const failingTypes = fcmRows.filter((r) => toCount(r.failure_events) > 0);
+  const radarZeroRate = radarHealth?.zero_result_rate_pct ?? 0;
+  const radarCategoriesOk = radarHealth?.categories_ok ?? false;
+  const radarUnhealthy = radarLoadError || !radarCategoriesOk || radarZeroRate >= 80;
 
   return (
     <SettingsCard className="border-brand/20" data-testid="admin-system-health">
@@ -150,6 +176,38 @@ export function AdminSystemHealthCard() {
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 py-3 border-t border-surface-border" data-testid="admin-radar-health">
+        <p className="text-sm font-medium text-foreground">Radar search (24h)</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Zero-result rate from logged searches + active categories
+        </p>
+        <div className="flex items-start gap-2.5 py-2.5">
+          <span
+            className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
+              radarUnhealthy ? "bg-destructive" : "bg-green-500"
+            }`}
+            aria-hidden
+          />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground" data-testid="admin-radar-health-summary">
+              {radarLoadError
+                ? "Unable to load Radar stats"
+                : !radarCategoriesOk
+                  ? "No active categories loaded"
+                  : radarZeroRate >= 80
+                    ? `High zero-result rate (${radarZeroRate}%)`
+                    : "Radar categories OK"}
+            </p>
+            {!radarLoadError && radarHealth && (
+              <p className="text-xs text-muted-foreground mt-0.5" data-testid="admin-radar-health-detail">
+                {radarHealth.total_searches} searches · {radarHealth.zero_result_searches} zero results ·{" "}
+                {radarHealth.active_categories_count} active categories
+              </p>
             )}
           </div>
         </div>

@@ -20,15 +20,50 @@ describe("AdminSystemHealthCard FCM signal", () => {
         is: () => Promise.resolve({ data: [], error: null }),
       }),
     });
+    rpc.mockImplementation((name: string) => {
+      if (name === "get_admin_fcm_failure_stats") {
+        return Promise.resolve({ data: [], error: null });
+      }
+      if (name === "get_admin_radar_health_stats") {
+        return Promise.resolve({
+          data: {
+            total_searches: 10,
+            zero_result_searches: 1,
+            zero_result_rate_pct: 10,
+            active_categories_count: 5,
+            categories_ok: true,
+          },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
   });
 
   it("shows FCM failure total and breakdown from get_admin_fcm_failure_stats", async () => {
-    rpc.mockResolvedValue({
-      data: [
-        { notification_type: "user-order_update", failure_events: 3, success_events: 10 },
-        { notification_type: "vendor-new-order", failure_events: 1, success_events: 5 },
-      ],
-      error: null,
+    rpc.mockImplementation((name: string) => {
+      if (name === "get_admin_fcm_failure_stats") {
+        return Promise.resolve({
+          data: [
+            { notification_type: "user-order_update", failure_events: 3, success_events: 10 },
+            { notification_type: "vendor-new-order", failure_events: 1, success_events: 5 },
+          ],
+          error: null,
+        });
+      }
+      if (name === "get_admin_radar_health_stats") {
+        return Promise.resolve({
+          data: {
+            total_searches: 4,
+            zero_result_searches: 0,
+            zero_result_rate_pct: 0,
+            active_categories_count: 3,
+            categories_ok: true,
+          },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
     });
 
     render(<AdminSystemHealthCard />);
@@ -40,5 +75,17 @@ describe("AdminSystemHealthCard FCM signal", () => {
       "user-order_update: 3 failed",
     );
     expect(rpc).toHaveBeenCalledWith("get_admin_fcm_failure_stats", { p_hours: 24 });
+  });
+
+  it("shows radar health summary from get_admin_radar_health_stats", async () => {
+    render(<AdminSystemHealthCard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("admin-radar-health-summary")).toHaveTextContent(
+        "Radar categories OK",
+      );
+    });
+    expect(screen.getByTestId("admin-radar-health-detail")).toHaveTextContent("10 searches");
+    expect(rpc).toHaveBeenCalledWith("get_admin_radar_health_stats", { p_hours: 24 });
   });
 });

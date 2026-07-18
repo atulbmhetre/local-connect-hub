@@ -4,6 +4,7 @@ import {
   excludeOfflineHelpVendors,
   mergeRadarTracks,
   passesTrackARadiusFilter,
+  trackQueryHitCap,
 } from "@/lib/radarVendorFilter";
 
 function vendorSlice(
@@ -83,6 +84,17 @@ describe("mergeRadarTracks (Pan-India Track B)", () => {
   it("merges local Track A and pan-India Track B for standard brackets", () => {
     const merged = mergeRadarTracks([local], [panIndia], false);
     expect(merged).toEqual([local, panIndia]);
+  });
+});
+
+describe("trackQueryHitCap", () => {
+  it("returns true when row count reaches cap", () => {
+    expect(trackQueryHitCap(80, 80)).toBe(true);
+    expect(trackQueryHitCap(81, 80)).toBe(true);
+  });
+
+  it("returns false below cap", () => {
+    expect(trackQueryHitCap(79, 80)).toBe(false);
   });
 });
 
