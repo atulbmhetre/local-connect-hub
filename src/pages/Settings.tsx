@@ -160,14 +160,25 @@ const TRUST_BADGE_CLASS: Record<Exclude<TrustLevel, "Unverified">, string> = {
   Bronze: "bg-surface-raised text-foreground border border-warning/40",
 };
 
-const VERIFICATION_CHECK_META: { check_type: string; label: string; icon: string }[] = [
-  { check_type: "upi_format", label: "UPI Format", icon: "💳" },
-  { check_type: "upi_pennydrop", label: "UPI Penny-drop", icon: "🏦" },
-  { check_type: "photo_shop", label: "Shop Photo", icon: "🏪" },
-  { check_type: "photo_selfie", label: "Selfie Photo", icon: "🤳" },
-  { check_type: "gps", label: "GPS", icon: "📍" },
-  { check_type: "admin_check", label: "Admin Check", icon: "✅" },
-  { check_type: "aadhaar_digilocker", label: "Aadhaar/DigiLocker", icon: "🪪" },
+const VERIFICATION_CHECK_META: {
+  check_type: string;
+  labelKey:
+    | "admin_check_label_upi_format"
+    | "admin_check_label_upi_pennydrop"
+    | "admin_check_label_photo_shop"
+    | "admin_check_label_photo_selfie"
+    | "admin_check_label_gps"
+    | "admin_check_label_admin_check"
+    | "admin_check_label_aadhaar_digilocker";
+  icon: string;
+}[] = [
+  { check_type: "upi_format", labelKey: "admin_check_label_upi_format", icon: "💳" },
+  { check_type: "upi_pennydrop", labelKey: "admin_check_label_upi_pennydrop", icon: "🏦" },
+  { check_type: "photo_shop", labelKey: "admin_check_label_photo_shop", icon: "🏪" },
+  { check_type: "photo_selfie", labelKey: "admin_check_label_photo_selfie", icon: "🤳" },
+  { check_type: "gps", labelKey: "admin_check_label_gps", icon: "📍" },
+  { check_type: "admin_check", labelKey: "admin_check_label_admin_check", icon: "✅" },
+  { check_type: "aadhaar_digilocker", labelKey: "admin_check_label_aadhaar_digilocker", icon: "🪪" },
 ];
 
 function buildAdminVendorCategoriesMap(
@@ -2108,7 +2119,7 @@ const Settings = () => {
     if (error) {
       console.error("setAdminCheckStatus", error);
       setAdminCheckUpdating(false);
-      toast.error("Failed to update admin check");
+      toast.error(s.admin_check_update_failed_toast);
       return;
     }
     const refreshed = await loadVendorList();
@@ -2125,7 +2136,7 @@ const Settings = () => {
       "admin_check",
       adminAuditLabel(),
     );
-    toast.success(status === "passed" ? "Admin check marked passed" : "Admin check marked failed");
+    toast.success(status === "passed" ? s.admin_check_passed_toast : s.admin_check_failed_toast);
   };
 
   const filteredVendors = useMemo(() => {
@@ -4098,7 +4109,7 @@ const Settings = () => {
 
             <div className="rounded-2xl border border-border bg-muted/20 p-4 mb-5 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Verification checks
+                {s.admin_verification_checks_heading}
               </p>
               {VERIFICATION_CHECK_META.map((meta) => {
                 const row = verifySheet.vendor?.verifications.find(
@@ -4114,7 +4125,7 @@ const Settings = () => {
                       <span className="text-base shrink-0" aria-hidden>
                         {meta.icon}
                       </span>
-                      <span className="text-sm text-foreground truncate">{meta.label}</span>
+                      <span className="text-sm text-foreground truncate">{s[meta.labelKey]}</span>
                     </div>
                     <span
                       className={cn(
@@ -4134,7 +4145,7 @@ const Settings = () => {
                   onClick={() => void setAdminCheckStatus(verifySheet.vendor.id, "passed")}
                   className="flex-1 rounded-xl bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                 >
-                  Mark Admin Check Passed
+                  {s.admin_mark_check_passed}
                 </button>
                 <button
                   type="button"
@@ -4142,7 +4153,7 @@ const Settings = () => {
                   onClick={() => void setAdminCheckStatus(verifySheet.vendor.id, "failed")}
                   className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                 >
-                  Mark Admin Check Failed
+                  {s.admin_mark_check_failed}
                 </button>
               </div>
             </div>

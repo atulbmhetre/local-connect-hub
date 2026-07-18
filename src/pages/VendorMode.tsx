@@ -69,7 +69,7 @@ import {
   X,
 } from "lucide-react";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
-import { VerificationBadge } from "@/components/VerificationBadge";
+import { TrustBadge } from "@/components/TrustBadge";
 import { IncomingOrdersSection } from "@/components/IncomingOrdersSection";
 import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
 import {
@@ -1313,7 +1313,11 @@ const VendorMode = () => {
               </>
             )}
             <div className="mt-4 flex justify-center">
-              <VerificationBadge vendor={vendor} showLabel />
+              <TrustBadge
+                vendorId={vendor.id}
+                isManualVerified={vendor.is_manual_verified}
+                showLabel
+              />
             </div>
 
             {!vendor.is_manual_verified && (

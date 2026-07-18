@@ -24,7 +24,8 @@ import { supabase, invokeInitiateCall, useCategoryLabel, type Vendor, distanceKm
 import { fetchVendorsVisibleToCustomer } from "@/lib/vendorRead";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
-import { VerificationBadge, vendorTier } from "@/components/VerificationBadge";
+import { vendorTier } from "@/components/VerificationBadge";
+import { TrustBadge } from "@/components/TrustBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import {
   AlertDialog,
@@ -622,7 +623,7 @@ const LiveTracking = () => {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <p className="font-display font-bold truncate">{vendor.name}</p>
-            <VerificationBadge vendor={vendor} />
+            <TrustBadge vendorId={vendor.id} isManualVerified={vendor.is_manual_verified} />
           </div>
           <p className="text-xs text-gray-400 truncate">
             {vendor.shop_name} · {getLabel(vendor.category)}

@@ -39,6 +39,10 @@ vi.mock("@/components/VerificationBadge", () => ({
   }),
 }));
 
+vi.mock("@/components/TrustBadge", () => ({
+  TrustBadge: () => null,
+}));
+
 vi.mock("@/components/TrustWarningBanner", () => ({
   TrustWarningBanner: () => null,
 }));

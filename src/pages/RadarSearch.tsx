@@ -1029,10 +1029,14 @@ const RadarSearch = () => {
               savedQuery,
             ]);
 
-          if (verResult.error) throw verResult.error;
           if (vcResult.error) throw vcResult.error;
           // Menu/order/saved data only enrich the cards; tolerate failures.
-
+          // Trust-tier verification also only affects sort weighting and an
+          // (unrendered) tier badge, so a failure here must not blank the whole
+          // search — degrade to "no tier data" (every vendor Unverified) instead.
+          if (verResult.error) {
+            console.error("radar/vendor_verification", verResult.error);
+          }
           verificationRows = (verResult.data ?? []) as VendorVerificationRow[];
           categoriesByVendor = buildVendorCategoriesMap(
             (vcResult.data ?? []) as Parameters<typeof buildVendorCategoriesMap>[0],

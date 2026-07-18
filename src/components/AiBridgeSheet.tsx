@@ -18,11 +18,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  VerificationBadge,
-  vendorTier,
-  getVerificationCopy,
-} from "@/components/VerificationBadge";
+import { vendorTier, getVerificationCopy } from "@/components/VerificationBadge";
+import { TrustBadge } from "@/components/TrustBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import {
   emojiForVendorCategory,
@@ -252,7 +249,11 @@ export function AiBridgeSheet({
               {categoryEmoji} {categoryLabel}
             </p>
             <div className="flex items-center gap-2 pt-1">
-              <VerificationBadge vendor={vendorRow} showLabel />
+              <TrustBadge
+                vendorId={vendorRow.id}
+                isManualVerified={vendorRow.is_manual_verified}
+                showLabel
+              />
               <span className="text-[10px] text-gray-500">
                 {verificationCopy[tier].label}
               </span>

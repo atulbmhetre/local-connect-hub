@@ -104,39 +104,5 @@ export function BusinessVerificationBadge({
   );
 }
 
-/**
- * @deprecated Prefer BusinessVerificationBadge with category context.
- * Falls back to account-level is_manual_verified as a single-business proxy.
- */
-export const VerificationBadge = ({
-  vendor,
-  size = "sm",
-  showLabel = false,
-  className,
-  business,
-}: {
-  vendor: Vendor;
-  size?: "sm" | "md";
-  showLabel?: boolean;
-  className?: string;
-  business?: BusinessTrustSignals | null;
-}) => {
-  return (
-    <BusinessVerificationBadge
-      account={vendor}
-      business={
-        business ?? {
-          is_manual_verified: vendor.is_manual_verified,
-          shop_photo_url: vendor.shop_photo_url,
-          verification_status: vendor.verification_status,
-        }
-      }
-      size={size}
-      showLabel={showLabel}
-      className={className}
-    />
-  );
-};
-
 /** @deprecated Use getVerificationCopy(s) with useLanguage() instead. */
 export const verificationCopy = getVerificationCopy(strings.en);

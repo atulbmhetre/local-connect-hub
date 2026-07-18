@@ -66,6 +66,8 @@ vi.mock("@/lib/supabase", () => ({
         }),
       }),
     }),
+    // LiveTracking loads the vendor via get_vendors_visible_to_customer.
+    rpc: async () => ({ data: [vendorRow], error: null }),
     channel: () => ({
       on() {
         return this;
@@ -111,6 +113,10 @@ vi.mock("sonner", () => {
 vi.mock("@/components/VerificationBadge", () => ({
   VerificationBadge: () => null,
   vendorTier: () => "yellow" as const,
+}));
+
+vi.mock("@/components/TrustBadge", () => ({
+  TrustBadge: () => null,
 }));
 
 vi.mock("@/components/TrustWarningBanner", () => ({

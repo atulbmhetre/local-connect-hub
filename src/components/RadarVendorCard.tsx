@@ -15,7 +15,7 @@ import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { VerificationBadge, BusinessVerificationBadge } from "@/components/VerificationBadge";
+import { TrustBadge } from "@/components/TrustBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -192,48 +192,6 @@ const VendorReputationLine = ({
   }
 
   return null;
-};
-
-const TRUST_BADGE_CLASS: Record<
-  Exclude<TrustLevel, "Unverified">,
-  string
-> = {
-  Diamond: "bg-sidebar-primary text-sidebar-primary-foreground",
-  Gold: "bg-warning text-primary-foreground",
-  Silver: "bg-muted text-foreground border border-surface-border",
-  Bronze: "bg-surface-raised text-foreground border border-warning/40",
-};
-
-function trustBadgeLabel(level: TrustLevel, s: ReturnType<typeof useLanguage>["s"]): string | null {
-  switch (level) {
-    case "Diamond":
-      return s.radar_trust_badge_diamond;
-    case "Gold":
-      return s.radar_trust_badge_gold;
-    case "Silver":
-      return s.radar_trust_badge_silver;
-    case "Bronze":
-      return s.radar_trust_badge_bronze;
-    default:
-      return null;
-  }
-}
-
-const TrustLevelBadge = ({ level }: { level: TrustLevel | undefined }) => {
-  const { s } = useLanguage();
-  if (!level || level === "Unverified") return null;
-  const label = trustBadgeLabel(level, s);
-  if (!label) return null;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none whitespace-nowrap shrink-0",
-        TRUST_BADGE_CLASS[level],
-      )}
-    >
-      {label}
-    </span>
-  );
 };
 
 const VendorCategoryChips = ({
@@ -851,9 +809,10 @@ export function RadarVendorCard({
               )}
             </div>
             <span className="inline-flex items-center gap-1 shrink-0 flex-wrap justify-end">
-              <BusinessVerificationBadge
-                account={vendor}
-                business={businessTrust}
+              <TrustBadge
+                vendorId={vendor.id}
+                isManualVerified={businessTrust.is_manual_verified}
+                trustLevel={trustLevel}
                 showLabel
               />
             </span>
