@@ -177,11 +177,12 @@ export async function restoreVendorLocationTracking(): Promise<void> {
   }
   if (!vendorId || !phone) return;
 
-  const { data: vendor, error: vendorError } = await supabase
-    .from("vendors")
-    .select("id, phone, is_active, service_mode")
-    .eq("id", vendorId)
-    .maybeSingle();
+  // get_vendor_own works for hidden/offline/draft vendors too (public
+  // discoverability RLS would hide them from a direct vendors read).
+  const { data: vendor, error: vendorError } = await supabase.rpc("get_vendor_own", {
+    p_vendor_id: vendorId,
+    p_vendor_phone: phone.trim(),
+  });
   if (vendorError || !vendor?.phone) return;
 
   const { data: modeRows } = await supabase
@@ -204,11 +205,10 @@ export async function restoreVendorLocationTracking(): Promise<void> {
     await stopHelpLiveTracking();
   }
 
-  const { data: orders } = await supabase
-    .from("requests")
-    .select("id, status, created_at, delivery_slot, appointment_time, appointment_status")
-    .eq("vendor_id", vendorId)
-    .eq("status", "accepted");
+  const { data: orders } = await supabase.rpc("get_vendor_accepted_orders", {
+    p_vendor_id: vendorId,
+    p_vendor_phone: vendor.phone,
+  });
 
   const activeOrderIds = new Set<string>();
   for (const row of (orders ?? []) as OrderTrackingSlice[]) {

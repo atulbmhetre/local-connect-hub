@@ -1110,6 +1110,7 @@ const Settings = () => {
     }
     let cancelled = false;
     void (async () => {
+      const vendorPhoneForCredits = getUserPhone()?.trim();
       const [offerRes, creditsRes, menuRes] = await Promise.all([
         supabase
           .from("feed_posts")
@@ -1120,10 +1121,12 @@ const Settings = () => {
           .gt("expires_at", new Date().toISOString())
           .or("starts_at.is.null,starts_at.lte.now()")
           .maybeSingle(),
-        supabase
-          .from("vendor_credits")
-          .select("amount, disbursed")
-          .eq("vendor_id", vendorId),
+        vendorPhoneForCredits
+          ? supabase.rpc("get_vendor_credits", {
+              p_vendor_id: vendorId,
+              p_vendor_phone: vendorPhoneForCredits,
+            })
+          : Promise.resolve({ data: [], error: null }),
         supabase
           .from("vendor_menu_items")
           .select("*")
@@ -1166,16 +1169,15 @@ const Settings = () => {
       return;
     }
     void (async () => {
-      const { data, error } = await supabase
-        .from("vendors")
-        .select("deletion_requested_at")
-        .eq("phone", phone)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc("get_vendor_deletion_status", {
+        p_phone: phone,
+      });
       if (error) {
         console.error("loadVendorDeletionRequestedAt", error);
         return;
       }
-      setVendorDeletionRequestedAt(data?.deletion_requested_at ?? null);
+      const row = Array.isArray(data) ? data[0] : null;
+      setVendorDeletionRequestedAt(row?.deletion_requested_at ?? null);
     })();
   }, [userPhone, isVendor]);
 
@@ -2296,12 +2298,16 @@ const Settings = () => {
       return;
     }
 
-    const [{ data: vendorRow }, { data: userRow }] = await Promise.all([
-      supabase.from("vendors").select("id").eq("phone", phone).maybeSingle(),
-      supabase.from("users").select("phone").eq("phone", phone).maybeSingle(),
+    // OTP-off: both vendors (hidden/draft rows) and users are unreadable
+    // directly under RLS; use the phone-identity RPCs instead.
+    const [{ data: vendorRows }, { data: userRows }] = await Promise.all([
+      supabase.rpc("get_vendor_deletion_status", { p_phone: phone }),
+      supabase.rpc("lookup_user_by_phone", { p_phone: phone }),
     ]);
 
-    setDualRoleDelete(Boolean(vendorRow?.id && userRow?.phone));
+    const vendorExists = Array.isArray(vendorRows) && vendorRows.length > 0;
+    const userExists = Array.isArray(userRows) && userRows.length > 0;
+    setDualRoleDelete(vendorExists && userExists);
     setDeleteConfirmOpen(true);
   };
 
@@ -2326,13 +2332,12 @@ const Settings = () => {
     }
 
     if (isVendor) {
-      const { data } = await supabase
-        .from("vendors")
-        .select("deletion_requested_at")
-        .eq("phone", phone)
-        .maybeSingle();
+      const { data } = await supabase.rpc("get_vendor_deletion_status", {
+        p_phone: phone,
+      });
+      const row = Array.isArray(data) ? data[0] : null;
       setVendorDeletionRequestedAt(
-        data?.deletion_requested_at ?? new Date().toISOString(),
+        row?.deletion_requested_at ?? new Date().toISOString(),
       );
       toast.success(s.delete_account_success_vendor);
       return;

@@ -229,13 +229,15 @@ type BlockingOfflineOrder = {
 
 async function fetchBlockingActiveOrders(
   vendorId: string,
+  vendorPhone: string | null | undefined,
   serviceMode: string | null | undefined,
 ): Promise<BlockingOfflineOrder[]> {
-  const { data, error } = await supabase
-    .from("requests")
-    .select("id, status, appointment_status, user_phone, delivery_slot, appointment_time")
-    .eq("vendor_id", vendorId)
-    .in("status", ["sent", "seen", "accepted"]);
+  const phone = vendorPhone?.trim();
+  if (!phone) return [];
+  const { data, error } = await supabase.rpc("get_vendor_blocking_active_orders", {
+    p_vendor_id: vendorId,
+    p_vendor_phone: phone,
+  });
   if (error || !data?.length) return [];
   return (data as BlockingOfflineOrder[]).filter((row) =>
     orderBlocksGoingOffline(row, serviceMode),
@@ -511,15 +513,15 @@ const VendorMode = () => {
 
   useEffect(() => {
     if (!vendor?.id) return;
+    const vendorPhoneForStats = vendor.phone?.trim();
+    if (!vendorPhoneForStats) return;
     let cancelled = false;
 
     void (async () => {
-      const { data } = await supabase
-        .from("requests")
-        .select(
-          "status, appointment_status, created_at, category_id, delivery_slot_deadline, fulfilled_at",
-        )
-        .eq("vendor_id", vendor.id);
+      const { data } = await supabase.rpc("get_vendor_order_stats_rows", {
+        p_vendor_id: vendor.id,
+        p_vendor_phone: vendorPhoneForStats,
+      });
 
       if (cancelled) return;
 
@@ -574,7 +576,7 @@ const VendorMode = () => {
     return () => {
       cancelled = true;
     };
-  }, [vendor?.id]);
+  }, [vendor?.id, vendor?.phone]);
 
   useEffect(() => {
     if (!vendorId || vendor?.id !== vendorId) return;
@@ -1078,6 +1080,7 @@ const VendorMode = () => {
       setCheckingOffline(true);
       const blockingOrders = await fetchBlockingActiveOrders(
         vendor.id,
+        vendor.phone,
         vendor.service_mode,
       );
       setCheckingOffline(false);

@@ -366,13 +366,28 @@ export default function LocalFeed() {
   useEffect(() => {
     const vendorId = localStorage.getItem("aaspaas:vendor_id");
     if (!vendorId?.trim()) return;
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setVendor(null);
+      return;
+    }
+    // get_vendor_own works for hidden/offline/draft vendors (a direct vendors
+    // read only returns discoverable rows under the public RLS policy).
     void supabase
-      .from("vendors")
-      .select("phone, latitude, longitude")
-      .eq("id", vendorId)
-      .maybeSingle()
+      .rpc("get_vendor_own", {
+        p_vendor_id: vendorId,
+        p_vendor_phone: vendorPhone,
+      })
       .then(({ data }) => {
-        setVendor(data ?? null);
+        setVendor(
+          data
+            ? {
+                phone: data.phone ?? null,
+                latitude: data.latitude ?? null,
+                longitude: data.longitude ?? null,
+              }
+            : null,
+        );
       });
   }, []);
 

@@ -1158,18 +1158,24 @@ export function VendorSettings({
       return;
     }
 
-    const { data, error } = await supabase
-      .from("khata_ledger")
-      .select("id")
-      .eq("vendor_id", vendor.id)
-      .gt("total_outstanding", 0)
-      .limit(1);
+    const phoneForKhataCheck = vendorPhone?.trim() || getUserPhone()?.trim();
+    if (!phoneForKhataCheck) {
+      toast.error(s.khata_disableBlocked);
+      return;
+    }
+    const { data: hasOutstanding, error } = await supabase.rpc(
+      "get_vendor_khata_has_outstanding",
+      {
+        p_vendor_id: vendor.id,
+        p_vendor_phone: phoneForKhataCheck,
+      },
+    );
 
     if (error) {
       toast.error(error.message);
       return;
     }
-    if (data?.length) {
+    if (hasOutstanding === true) {
       toast.error(s.khata_disableBlocked);
       return;
     }
