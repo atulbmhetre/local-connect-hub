@@ -156,7 +156,7 @@ const Index = () => {
       /* ignore */
     }
     void loadSavedNeighbours();
-  }, [location.pathname, location.key, loadSavedNeighbours]);
+  }, [location.pathname, location.key, userPhone, loadSavedNeighbours]);
 
   const loadRemovalNotices = useCallback(async () => {
     const phone = getUserPhone();
@@ -307,7 +307,7 @@ const Index = () => {
   useEffect(() => {
     if (location.pathname !== "/") return;
     void loadActiveOrderCount();
-  }, [location.pathname, location.key, loadActiveOrderCount]);
+  }, [location.pathname, location.key, userPhone, loadActiveOrderCount]);
 
   useEffect(() => {
     if (!neighbourSheetOpen || !neighbourSheetVendor) {
@@ -446,6 +446,10 @@ const Index = () => {
     markWelcomed();
     setWelcomed(true);
     setUserPhone(getUserPhone());
+    // Same-tab restore does not fire `storage`; explicitly refresh Home surfaces.
+    void loadSavedNeighbours();
+    void loadActiveOrderCount();
+    void loadRemovalNotices();
   };
 
   const startVoice = async () => {

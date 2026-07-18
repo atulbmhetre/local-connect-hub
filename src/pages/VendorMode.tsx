@@ -30,7 +30,7 @@ import {
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import { fetchVendorByPhoneLogin, fetchVendorOwn } from "@/lib/vendorRead";
-import { getUserPhone } from "@/lib/userIdentity";
+import { getUserPhone, saveUserPhone } from "@/lib/userIdentity";
 import {
   startHelpLiveTracking,
   stopHelpLiveTracking,
@@ -884,6 +884,7 @@ const VendorMode = () => {
       setError(vendorFetchError?.message ?? "Could not load registered vendor");
       return;
     }
+    saveUserPhone(vendorPhone);
     localStorage.setItem(STORAGE_KEY, newVendorId);
     notifyVendorIdChanged();
     setVendorId(newVendorId);
@@ -926,6 +927,7 @@ const VendorMode = () => {
           toast.error(s.vendor_phone_register_blocked);
           return;
         }
+        saveUserPhone(digits);
         localStorage.setItem(STORAGE_KEY, found.id);
         notifyVendorIdChanged();
         setVendorId(found.id);

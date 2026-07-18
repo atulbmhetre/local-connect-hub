@@ -23,9 +23,10 @@ export const strings = {
     firstopen_restore_body:
       'Installed before? Enter your number to restore your orders and history.',
     firstopen_restore_cta: 'Restore my account',
-    firstopen_restore_skip: 'Skip, start fresh',
     firstopen_restore_back: 'Back',
     firstopen_restore_found: 'Welcome back! Your account has been restored.',
+    firstopen_restore_partial:
+      'Account restored, but some of your saved data could not be linked. Pull to refresh or try again later.',
     firstopen_no_account: 'No account found. Starting fresh.',
     firstopen_restore_error: 'Something went wrong. Please try again.',
     firstopen_notif_title: 'Stay updated on your orders',
@@ -1451,9 +1452,10 @@ export const strings = {
     firstopen_restore_body:
       'पहले इंस्टॉल किया था? अपने ऑर्डर और इतिहास को पुनर्स्थापित करने के लिए अपना नंबर दर्ज करें।',
     firstopen_restore_cta: 'मेरा खाता पुनर्स्थापित करें',
-    firstopen_restore_skip: 'छोड़ें, नए सिरे से शुरू करें',
     firstopen_restore_back: 'वापस',
     firstopen_restore_found: 'वापसी पर स्वागत है! आपका खाता पुनर्स्थापित हो गया है।',
+    firstopen_restore_partial:
+      'खाता पुनर्स्थापित हो गया, लेकिन कुछ सहेजा डेटा लिंक नहीं हो सका। बाद में पुनः प्रयास करें।',
     firstopen_no_account: 'कोई खाता नहीं मिला। नए सिरे से शुरू कर रहे हैं।',
     firstopen_restore_error: 'कुछ गलत हो गया। कृपया पुनः प्रयास करें।',
     firstopen_notif_title: 'अपने ऑर्डर पर अपडेट रहें',
@@ -2876,9 +2878,10 @@ export const strings = {
     firstopen_restore_body:
       'आधी इंस्टॉल केले होते? तुमचे ऑर्डर आणि इतिहास पुनर्स्थापित करण्यासाठी तुमचा नंबर टाका.',
     firstopen_restore_cta: 'माझे खाते पुनर्स्थापित करा',
-    firstopen_restore_skip: 'वगळा, नव्याने सुरू करा',
     firstopen_restore_back: 'मागे',
     firstopen_restore_found: 'परत स्वागत आहे! तुमचे खाते पुनर्स्थापित झाले आहे.',
+    firstopen_restore_partial:
+      'खाते पुनर्स्थापित झाले, पण काही जतन केलेला डेटा लिंक होऊ शकला नाही. नंतर पुन्हा प्रयत्न करा.',
     firstopen_no_account: 'खाते सापडले नाही. नव्याने सुरू करत आहोत.',
     firstopen_restore_error: 'काहीतरी चुकले. कृपया पुन्हा प्रयत्न करा.',
     firstopen_notif_title: 'तुमच्या ऑर्डरवर अपडेट राहा',

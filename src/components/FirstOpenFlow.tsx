@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { PushNotifications } from "@capacitor/push-notifications";
 import { Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/language";
 import {
@@ -8,9 +7,11 @@ import {
   requestPhoneOtp,
   restoreVendorSession,
   saveUserPhone,
+  getUserPhone,
   verifyPhoneOtp,
 } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
+import { registerUserPushToken } from "@/lib/pushNotifications";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
@@ -29,11 +30,45 @@ type Props = {
   onVendorRegister?: () => void;
 };
 
+type VendorRestoreStatus = {
+  found: boolean;
+  vendor_id: string | null;
+  is_banned: boolean;
+  is_active: boolean;
+  discoverable: boolean;
+  profile_status: string | null;
+  deletion_requested_at: string | null;
+  restore_allowed: boolean;
+  deny_reason: string | null;
+};
+
 function normalizePhoneDigits(raw: string): string {
   const cleaned = raw.replace(/\D/g, "");
   return cleaned.length === 12 && cleaned.startsWith("91")
     ? cleaned.slice(2)
     : cleaned;
+}
+
+function classifyVendorRestoreOutcome(status: VendorRestoreStatus): string {
+  if (!status.found || status.deny_reason === "not_found") return "not_found";
+  if (status.deny_reason === "banned" || status.is_banned) return "denied_banned";
+  if (status.deny_reason === "deleted" || status.deletion_requested_at) {
+    return "denied_deleted";
+  }
+  if (!status.restore_allowed) return "denied_banned";
+  if (!status.discoverable) return "success_vendor_hidden";
+  if (status.profile_status && status.profile_status !== "complete") {
+    return "success_vendor_incomplete";
+  }
+  if (!status.is_active) return "success_vendor_offline";
+  return "success_vendor";
+}
+
+function logRestoreOutcome(outcome: string) {
+  void supabase.rpc("log_firstopen_restore", {
+    p_outcome: outcome,
+    p_device_id: getDeviceId(),
+  });
 }
 
 export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
@@ -43,7 +78,9 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [notifLoading, setNotifLoading] = useState(false);
   const [inlineMessage, setInlineMessage] = useState<string | null>(null);
-  const [inlineTone, setInlineTone] = useState<"success" | "error" | "muted">("muted");
+  const [inlineTone, setInlineTone] = useState<"success" | "error" | "muted" | "warning">(
+    "muted",
+  );
   const [otpValue, setOtpValue] = useState("");
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
@@ -74,73 +111,97 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
     setInlineMessage(null);
 
     try {
-      const [usersResult, vendorsResult] = await Promise.all([
+      const [usersResult, vendorStatusResult] = await Promise.all([
         supabase.rpc("lookup_user_by_phone", { p_phone: digits }),
-        supabase
-          .from("vendors")
-          .select("id, is_active, deletion_requested_at")
-          .eq("phone", digits)
-          .maybeSingle(),
+        supabase.rpc("get_vendor_restore_status", { p_phone: digits }),
       ]);
 
-      if (usersResult.error || vendorsResult.error) {
+      if (usersResult.error || vendorStatusResult.error) {
+        const rateLimited =
+          usersResult.error?.message?.includes("rate_limit") ||
+          vendorStatusResult.error?.message?.includes("rate_limit");
+        logRestoreOutcome(rateLimited ? "rate_limited" : "error");
         setInlineMessage(s.firstopen_restore_error);
         setInlineTone("error");
         setRestoreLoading(false);
         return;
       }
 
-      const hasAccount = (usersResult.data?.[0] != null) || vendorsResult.data != null;
+      const vendorStatus = (vendorStatusResult.data ?? null) as VendorRestoreStatus | null;
+      const hasCustomer = usersResult.data?.[0] != null;
+      const vendorFound = vendorStatus?.found === true;
+      const vendorRestorable = vendorFound && vendorStatus?.restore_allowed === true;
+      const hasAccount = hasCustomer || vendorFound;
 
       if (hasAccount) {
-        setInlineMessage(s.firstopen_restore_found);
-        setInlineTone("success");
         saveUserPhone(digits);
-        await migrateUserPhone(digits, getDeviceId());
+        const migration = await migrateUserPhone(digits, getDeviceId());
 
-        const vendorRow = vendorsResult.data;
-        if (
-          vendorRow &&
-          vendorRow.is_active === true &&
-          vendorRow.deletion_requested_at == null
-        ) {
-          restoreVendorSession(vendorRow.id);
+        if (vendorRestorable && vendorStatus?.vendor_id) {
+          restoreVendorSession(vendorStatus.vendor_id);
+        }
+
+        if (!migration.ok) {
+          setInlineMessage(s.firstopen_restore_partial);
+          setInlineTone("warning");
+        } else {
+          setInlineMessage(s.firstopen_restore_found);
+          setInlineTone("success");
+        }
+
+        if (vendorRestorable && vendorStatus) {
+          logRestoreOutcome(classifyVendorRestoreOutcome(vendorStatus));
+        } else if (vendorFound && vendorStatus) {
+          logRestoreOutcome(classifyVendorRestoreOutcome(vendorStatus));
+        } else {
+          logRestoreOutcome("success_customer");
         }
 
         setRestoreLoading(false);
-        if (OTP_ENABLED) {
-          const otpResult = await requestPhoneOtp(digits);
-          if (otpResult.success) {
-            setOtpPhone(digits);
-            setStep("otp_pending");
+        window.setTimeout(() => {
+          if (OTP_ENABLED) {
+            void (async () => {
+              const otpResult = await requestPhoneOtp(digits);
+              if (otpResult.success) {
+                setOtpPhone(digits);
+                setStep("otp_pending");
+              } else {
+                console.warn('[Phase D] OTP fallback to localStorage path — no Supabase session established');
+                console.warn("[Phase B] OTP request failed, falling back:", otpResult.error);
+                goToNotificationStep();
+              }
+            })();
           } else {
-            console.warn('[Phase D] OTP fallback to localStorage path — no Supabase session established');
-            console.warn("[Phase B] OTP request failed, falling back:", otpResult.error);
             goToNotificationStep();
           }
-        } else {
-          goToNotificationStep();
-        }
+        }, 1200);
         return;
       }
 
+      logRestoreOutcome("not_found");
       setInlineMessage(s.firstopen_no_account);
       setInlineTone("muted");
       setRestoreLoading(false);
-      if (OTP_ENABLED) {
-        const otpResult = await requestPhoneOtp(digits);
-        if (otpResult.success) {
-          setOtpPhone(digits);
-          setStep("otp_pending");
+      window.setTimeout(() => {
+        if (OTP_ENABLED) {
+          void (async () => {
+            const otpResult = await requestPhoneOtp(digits);
+            if (otpResult.success) {
+              setOtpPhone(digits);
+              setStep("otp_pending");
+            } else {
+              console.warn('[Phase D] OTP fallback to localStorage path — no Supabase session established');
+              console.warn("[Phase B] OTP request failed, falling back:", otpResult.error);
+              goToNotificationStep();
+            }
+          })();
         } else {
-          console.warn('[Phase D] OTP fallback to localStorage path — no Supabase session established');
-          console.warn("[Phase B] OTP request failed, falling back:", otpResult.error);
           goToNotificationStep();
         }
-      } else {
-        goToNotificationStep();
-      }
+      }, 800);
+      return;
     } catch {
+      logRestoreOutcome("error");
       setInlineMessage(s.firstopen_restore_error);
       setInlineTone("error");
       setRestoreLoading(false);
@@ -180,9 +241,9 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
     setNotifLoading(true);
     try {
-      const permission = await PushNotifications.requestPermissions();
-      if (permission.receive === "granted") {
-        void PushNotifications.register();
+      const phone = getUserPhone();
+      if (phone) {
+        await registerUserPushToken(phone);
       }
     } catch {
       /* proceed regardless */
@@ -259,11 +320,13 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
           {inlineMessage && (
             <p
+              data-testid="firstopen-restore-message"
               className={cn(
                 "mt-3 text-sm leading-relaxed",
                 inlineTone === "success" && "text-brand font-medium",
                 inlineTone === "error" && "text-destructive",
                 inlineTone === "muted" && "text-muted-foreground",
+                inlineTone === "warning" && "text-amber-700 dark:text-amber-400 font-medium",
               )}
             >
               {inlineMessage}

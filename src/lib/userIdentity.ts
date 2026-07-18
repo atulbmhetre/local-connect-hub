@@ -16,6 +16,9 @@ const VENDOR_ID_KEY = "aaspaas:vendor_id";
 const ROLE_KEY = "aaspaas:role";
 const VENDOR_ACTIVE_KEY = "aaspaas:vendor_active";
 
+/** localStorage does not fire the `storage` event in the same tab; Home surfaces listen for this. */
+export const USER_PHONE_CHANGED_EVENT = "aaspaas:user_phone_changed";
+
 export function hasBeenWelcomed(): boolean {
   try {
     return localStorage.getItem(WELCOMED_KEY) === "true";
@@ -87,6 +90,11 @@ export function saveUserPhone(raw: string): { normalized: string; previous: stri
     /* ignore */
   }
   void ensureUserDeviceLink(normalized);
+  try {
+    window.dispatchEvent(new CustomEvent(USER_PHONE_CHANGED_EVENT, { detail: normalized }));
+  } catch {
+    /* ignore (SSR / non-browser) */
+  }
   return { normalized, previous };
 }
 
@@ -108,10 +116,19 @@ export function clearUserPhone(): void {
   }
 }
 
+export type MigrateUserPhoneResult = {
+  ok: boolean;
+  savedOk: boolean;
+  requestsOk: boolean;
+};
+
 /**
  * Point saved_vendors and requests for this device to the canonical phone (best-effort).
  */
-export async function migrateUserPhone(newPhone: string, deviceId: string): Promise<void> {
+export async function migrateUserPhone(
+  newPhone: string,
+  deviceId: string,
+): Promise<MigrateUserPhoneResult> {
   const { error: savedErr } = await supabase.rpc("migrate_saved_vendors_phone", {
     p_device_id: deviceId,
     p_user_phone: newPhone,
@@ -126,6 +143,9 @@ export async function migrateUserPhone(newPhone: string, deviceId: string): Prom
   if (reqErr) {
     console.warn("[migrateUserPhone] requests", reqErr.message);
   }
+  const savedOk = !savedErr;
+  const requestsOk = !reqErr;
+  return { ok: savedOk && requestsOk, savedOk, requestsOk };
 }
 
 /**

@@ -29,6 +29,17 @@ type RadarHealthStats = {
   categories_ok: boolean;
 };
 
+type RestoreHealthStats = {
+  attempts: number;
+  successes: number;
+  denied_banned: number;
+  denied_deleted: number;
+  not_found: number;
+  offline_now_restorable: number;
+  hidden_now_restorable: number;
+  success_rate_pct: number;
+};
+
 function formatRelativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "just now";
@@ -52,6 +63,8 @@ export function AdminSystemHealthCard() {
   const [fcmLoadError, setFcmLoadError] = useState(false);
   const [radarHealth, setRadarHealth] = useState<RadarHealthStats | null>(null);
   const [radarLoadError, setRadarLoadError] = useState(false);
+  const [restoreHealth, setRestoreHealth] = useState<RestoreHealthStats | null>(null);
+  const [restoreLoadError, setRestoreLoadError] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -96,6 +109,19 @@ export function AdminSystemHealthCard() {
       }
       setRadarLoadError(false);
       setRadarHealth((radarData ?? null) as RadarHealthStats | null);
+
+      const { data: restoreData, error: restoreError } = await supabase.rpc(
+        "get_admin_restore_health_stats",
+        { p_hours: 24 },
+      );
+      if (restoreError) {
+        console.error("get_admin_restore_health_stats failed", restoreError);
+        setRestoreLoadError(true);
+        setRestoreHealth(null);
+        return;
+      }
+      setRestoreLoadError(false);
+      setRestoreHealth((restoreData ?? null) as RestoreHealthStats | null);
     };
 
     void load();
@@ -111,6 +137,14 @@ export function AdminSystemHealthCard() {
   const radarZeroRate = radarHealth?.zero_result_rate_pct ?? 0;
   const radarCategoriesOk = radarHealth?.categories_ok ?? false;
   const radarUnhealthy = radarLoadError || !radarCategoriesOk || radarZeroRate >= 80;
+  const restoreAttempts = restoreHealth?.attempts ?? 0;
+  const restoreSuccesses = restoreHealth?.successes ?? 0;
+  const restoreDenied =
+    (restoreHealth?.denied_banned ?? 0) + (restoreHealth?.denied_deleted ?? 0);
+  const restoreUnhealthy =
+    restoreLoadError ||
+    (restoreAttempts >= 5 && restoreSuccesses === 0) ||
+    (restoreAttempts >= 10 && (restoreHealth?.success_rate_pct ?? 0) < 20);
 
   return (
     <SettingsCard className="border-brand/20" data-testid="admin-system-health">
@@ -207,6 +241,44 @@ export function AdminSystemHealthCard() {
               <p className="text-xs text-muted-foreground mt-0.5" data-testid="admin-radar-health-detail">
                 {radarHealth.total_searches} searches · {radarHealth.zero_result_searches} zero results ·{" "}
                 {radarHealth.active_categories_count} active categories
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 py-3 border-t border-surface-border" data-testid="admin-restore-health">
+        <p className="text-sm font-medium text-foreground">Account restore (24h)</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          FirstOpen restore attempts, successes, and denial reasons
+        </p>
+        <div className="flex items-start gap-2.5 py-2.5">
+          <span
+            className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
+              restoreUnhealthy ? "bg-destructive" : "bg-green-500"
+            }`}
+            aria-hidden
+          />
+          <div className="flex-1 min-w-0">
+            <p
+              className="text-sm font-medium text-foreground"
+              data-testid="admin-restore-health-summary"
+            >
+              {restoreLoadError
+                ? "Unable to load restore stats"
+                : restoreAttempts === 0
+                  ? "No restore attempts yet"
+                  : `${restoreSuccesses}/${restoreAttempts} restored (${restoreHealth?.success_rate_pct ?? 0}%)`}
+            </p>
+            {!restoreLoadError && restoreHealth && restoreAttempts > 0 && (
+              <p
+                className="text-xs text-muted-foreground mt-0.5"
+                data-testid="admin-restore-health-detail"
+              >
+                {restoreDenied} denied (banned {restoreHealth.denied_banned} · deleted{" "}
+                {restoreHealth.denied_deleted}) · not found {restoreHealth.not_found} · offline
+                restored {restoreHealth.offline_now_restorable} · hidden restored{" "}
+                {restoreHealth.hidden_now_restorable}
               </p>
             )}
           </div>

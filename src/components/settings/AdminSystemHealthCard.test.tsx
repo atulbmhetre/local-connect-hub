@@ -36,6 +36,21 @@ describe("AdminSystemHealthCard FCM signal", () => {
           error: null,
         });
       }
+      if (name === "get_admin_restore_health_stats") {
+        return Promise.resolve({
+          data: {
+            attempts: 8,
+            successes: 5,
+            denied_banned: 1,
+            denied_deleted: 1,
+            not_found: 1,
+            offline_now_restorable: 1,
+            hidden_now_restorable: 1,
+            success_rate_pct: 62.5,
+          },
+          error: null,
+        });
+      }
       return Promise.resolve({ data: null, error: null });
     });
   });
@@ -59,6 +74,21 @@ describe("AdminSystemHealthCard FCM signal", () => {
             zero_result_rate_pct: 0,
             active_categories_count: 3,
             categories_ok: true,
+          },
+          error: null,
+        });
+      }
+      if (name === "get_admin_restore_health_stats") {
+        return Promise.resolve({
+          data: {
+            attempts: 0,
+            successes: 0,
+            denied_banned: 0,
+            denied_deleted: 0,
+            not_found: 0,
+            offline_now_restorable: 0,
+            hidden_now_restorable: 0,
+            success_rate_pct: 0,
           },
           error: null,
         });
@@ -87,5 +117,19 @@ describe("AdminSystemHealthCard FCM signal", () => {
     });
     expect(screen.getByTestId("admin-radar-health-detail")).toHaveTextContent("10 searches");
     expect(rpc).toHaveBeenCalledWith("get_admin_radar_health_stats", { p_hours: 24 });
+  });
+
+  it("shows restore health summary from get_admin_restore_health_stats", async () => {
+    render(<AdminSystemHealthCard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("admin-restore-health-summary")).toHaveTextContent(
+        "5/8 restored (62.5%)",
+      );
+    });
+    expect(screen.getByTestId("admin-restore-health-detail")).toHaveTextContent(
+      "offline restored 1",
+    );
+    expect(rpc).toHaveBeenCalledWith("get_admin_restore_health_stats", { p_hours: 24 });
   });
 });

@@ -213,6 +213,42 @@ test('FO-REQ-04 — Banned/deleted vendor — customer identity restored, vendor
   await expect(page.getByTestId('nav-vendor')).not.toBeVisible({ timeout: 3000 });
 });
 
+test('FO-REQ-04b — Offline vendor restores session (is_active=false)', async ({ page }) => {
+  const phone = nextVendorPhone();
+  const vendor = await createVendor(phone, 'fo04b', { is_active: false });
+
+  await loginAsFreshUser(page);
+  await openRestoreFlow(page);
+  await enterPhone(page, phone);
+  await tapRestore(page);
+
+  await expect(page.getByText(EN.firstopen_restore_found)).toBeVisible({ timeout: 15000 });
+  await waitForFlowComplete(page);
+
+  expect(await lsGet(page, 'aaspaas:user_phone')).toBe(phone);
+  expect(await lsGet(page, 'aaspaas:vendor_id')).toBe(vendor.id);
+  expect(await lsGet(page, 'aaspaas:role')).toBe('vendor');
+});
+
+test('FO-REQ-04c — Hidden vendor restores session (discoverable=false)', async ({ page }) => {
+  const phone = nextVendorPhone();
+  const vendor = await createVendor(phone, 'fo04c', {
+    discoverable: false,
+    is_active: true,
+  });
+
+  await loginAsFreshUser(page);
+  await openRestoreFlow(page);
+  await enterPhone(page, phone);
+  await tapRestore(page);
+
+  await expect(page.getByText(EN.firstopen_restore_found)).toBeVisible({ timeout: 15000 });
+  await waitForFlowComplete(page);
+
+  expect(await lsGet(page, 'aaspaas:vendor_id')).toBe(vendor.id);
+  expect(await lsGet(page, 'aaspaas:role')).toBe('vendor');
+});
+
 // ─── RESTORE — DUAL-ROLE & ADMIN ───────────────────────────────────────────
 
 test('FO-REQ-05 — Dual-role restore — both customer and vendor identity from one phone', async ({

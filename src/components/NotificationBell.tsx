@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { getUserPhone } from "@/lib/userIdentity";
+import { getUserPhone, USER_PHONE_CHANGED_EVENT } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { formatTimeAgo } from "@/lib/orders";
 import { cn } from "@/lib/utils";
@@ -167,7 +167,11 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     const syncPhone = () => setPhone(getUserPhone());
     syncPhone();
     window.addEventListener("storage", syncPhone);
-    return () => window.removeEventListener("storage", syncPhone);
+    window.addEventListener(USER_PHONE_CHANGED_EVENT, syncPhone);
+    return () => {
+      window.removeEventListener("storage", syncPhone);
+      window.removeEventListener(USER_PHONE_CHANGED_EVENT, syncPhone);
+    };
   }, []);
 
   useEffect(() => {
