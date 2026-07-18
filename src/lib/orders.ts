@@ -20,6 +20,8 @@ export type OrderRequestRow = {
   previous_message?: string | null;
   is_edited?: boolean;
   category_id?: string | null;
+  /** Immutable effective mode for this order (help/delivery/appointment). */
+  service_mode?: "help" | "delivery" | "appointment" | null;
   categories?: { label: string; emoji: string | null } | { label: string; emoji: string | null }[] | null;
 };
 

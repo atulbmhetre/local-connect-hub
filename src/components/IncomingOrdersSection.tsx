@@ -193,14 +193,36 @@ function maskPhoneLast4(phone: string): string {
   return `••••${digits.slice(-4)}`;
 }
 
+function orderEffectiveMode(
+  order: Pick<OrderRequestRow, "service_mode" | "delivery_slot" | "appointment_time">,
+  fallback: "help" | "delivery" | "appointment" | "booking" | null | undefined,
+): "help" | "delivery" | "appointment" | "booking" {
+  if (
+    order.service_mode === "help" ||
+    order.service_mode === "delivery" ||
+    order.service_mode === "appointment"
+  ) {
+    return order.service_mode;
+  }
+  if (order.delivery_slot) return "delivery";
+  if (order.appointment_time) return "appointment";
+  if (fallback === "delivery" || fallback === "appointment" || fallback === "booking") {
+    return fallback === "booking" ? "appointment" : fallback;
+  }
+  return "help";
+}
+
 function countUnreadIncomingOrders(
-  orderList: Pick<OrderRequestRow, "status">[],
+  orderList: Pick<OrderRequestRow, "status" | "service_mode" | "delivery_slot" | "appointment_time">[],
   serviceMode: "help" | "delivery" | "appointment" | "booking" | null | undefined,
 ): number {
-  if (serviceMode === "delivery" || serviceMode === "appointment") {
-    return orderList.filter((r) => r.status === "sent" || r.status === "seen").length;
-  }
-  return orderList.filter((r) => r.status === "sent").length;
+  return orderList.filter((r) => {
+    const mode = orderEffectiveMode(r, serviceMode);
+    if (mode === "delivery" || mode === "appointment" || mode === "booking") {
+      return r.status === "sent" || r.status === "seen";
+    }
+    return r.status === "sent";
+  }).length;
 }
 
 type LocationHighlightState = { highlightOrderId?: string };
@@ -426,6 +448,7 @@ export function IncomingOrdersSection({
       category_id: string | null;
       category_label: string | null;
       category_emoji: string | null;
+      service_mode?: string | null;
     }): IncomingOrderRow => ({
       id: row.id,
       device_id: row.device_id,
@@ -445,6 +468,12 @@ export function IncomingOrdersSection({
       customer_latitude: row.customer_latitude,
       customer_longitude: row.customer_longitude,
       category_id: row.category_id,
+      service_mode:
+        row.service_mode === "help" ||
+        row.service_mode === "delivery" ||
+        row.service_mode === "appointment"
+          ? row.service_mode
+          : null,
       categories: row.category_label
         ? { label: row.category_label, emoji: row.category_emoji }
         : null,
@@ -1872,7 +1901,12 @@ export function IncomingOrdersSection({
         </div>
       ) : (
         <ul className="space-y-3">
-          {filteredRows.map((r) => (
+          {filteredRows.map((r) => {
+            const orderMode = orderEffectiveMode(r, serviceMode);
+            const orderIsHelp = orderMode === "help";
+            const orderCanAddToLedger =
+              orderMode === "appointment" || orderMode === "delivery" || orderMode === "booking";
+            return (
             <li
               key={r.id}
               id={`order-card-${r.id}`}
@@ -1967,7 +2001,7 @@ export function IncomingOrdersSection({
               )}
 
               {(() => {
-                const mapsUrl = resolveVendorNavigateToCustomerUrl(serviceMode, r);
+                const mapsUrl = resolveVendorNavigateToCustomerUrl(orderMode, r);
                 if (!mapsUrl) return null;
                 return (
                   <button
@@ -2109,7 +2143,7 @@ export function IncomingOrdersSection({
                           <button
                             type="button"
                             onClick={() =>
-                              handleCallCustomer(r.user_phone!, serviceMode ?? "appointment")
+                              handleCallCustomer(r.user_phone!, orderMode)
                             }
                             className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
                             aria-label={s.incoming_callCustomer}
@@ -2148,7 +2182,7 @@ export function IncomingOrdersSection({
                 </button>
               )}
 
-              {!r.appointment_time && isHelpMode && r.status === "sent" && (
+              {!r.appointment_time && orderIsHelp && r.status === "sent" && (
                   <button
                     type="button"
                     data-testid="incoming-accept-btn"
@@ -2160,7 +2194,7 @@ export function IncomingOrdersSection({
                   </button>
                 )}
 
-              {!r.appointment_time && !isHelpMode && r.status === "seen" && (
+              {!r.appointment_time && !orderIsHelp && r.status === "seen" && (
                 <button
                   type="button"
                   data-testid="incoming-accept-btn"
@@ -2210,7 +2244,7 @@ export function IncomingOrdersSection({
                         <button
                           type="button"
                           onClick={() =>
-                            handleCallCustomer(r.user_phone!, serviceMode ?? "help")
+                            handleCallCustomer(r.user_phone!, orderMode)
                           }
                           className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
                           aria-label={s.incoming_callCustomer}
@@ -2363,7 +2397,7 @@ export function IncomingOrdersSection({
 
               {(r.status === "fulfilled" || r.status === "done") && (
                 <div className="space-y-2">
-                  {canAddToLedger &&
+                  {orderCanAddToLedger &&
                     r.user_phone &&
                     !requestIdsWithLedger.has(r.id) &&
                     !billsByRequestId[r.id] && (
@@ -2441,7 +2475,8 @@ export function IncomingOrdersSection({
                 </div>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

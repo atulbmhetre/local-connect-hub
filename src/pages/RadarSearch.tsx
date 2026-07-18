@@ -170,28 +170,27 @@ function radarModeDisplayLabel(
   return s.radar_mode_help;
 }
 
+type RadarCategoryModeMatch = { vendor_id: string; category_id: string };
+
+function buildMatchedCategoryIdsByVendor(
+  rows: RadarCategoryModeMatch[],
+): Map<string, Set<string>> {
+  const matched = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (!matched.has(row.vendor_id)) {
+      matched.set(row.vendor_id, new Set());
+    }
+    matched.get(row.vendor_id)!.add(row.category_id);
+  }
+  return matched;
+}
+
 function resolveCategoryIdsForTerm(
   term: string,
   categories: Category[],
-  serviceMode: RadarMode,
+  _serviceMode: RadarMode,
 ): string[] {
-  const modeCategories = categories.filter((c) => c.service_mode === serviceMode);
-  const resolvedLabel = resolveCanonicalTerm(term);
-  if (resolvedLabel) {
-    const exact = modeCategories.find(
-      (c) => c.label.toLowerCase() === resolvedLabel.toLowerCase(),
-    );
-    if (exact) return [exact.id];
-  }
-  const t = term.trim().toLowerCase();
-  if (!t) return [];
-  return modeCategories
-    .filter(
-      (c) =>
-        c.label.toLowerCase().includes(t) ||
-        t.includes(c.label.toLowerCase()),
-    )
-    .map((c) => c.id);
+  return resolveAllCategoryIdsForTerm(term, categories);
 }
 
 function RadarModeSelector({
@@ -643,7 +642,7 @@ const RadarSearch = () => {
           if (
             categoryIds.length === 0 &&
             forcedCategoryId &&
-            categories.find((c) => c.id === forcedCategoryId)?.service_mode === selectedMode
+            categories.some((c) => c.id === forcedCategoryId)
           ) {
             categoryIds = [forcedCategoryId];
             aiSuggestedName =
@@ -702,46 +701,41 @@ const RadarSearch = () => {
           if (forcedCategoryId && categoryIds.includes(forcedCategoryId) && isCurrent()) {
             setForcedCategoryId(null);
           }
-          const { data: vcRows, error: vcError } = await supabase
-            .from("vendor_categories")
-            .select("vendor_id, category_id")
-            .in("category_id", categoryIds)
-            .eq("status", "approved")
-            .eq("service_mode", selectedMode);
-          if (vcError) throw vcError;
-          matchedCategoryIdsByVendor = new Map<string, Set<string>>();
-          for (const row of vcRows ?? []) {
-            if (!matchedCategoryIdsByVendor.has(row.vendor_id)) {
-              matchedCategoryIdsByVendor.set(row.vendor_id, new Set());
-            }
-            matchedCategoryIdsByVendor.get(row.vendor_id)!.add(row.category_id);
-          }
+          const { data: modeMatchRows, error: modeMatchError } = await supabase.rpc(
+            "get_radar_category_mode_matches",
+            { p_mode: selectedMode, p_category_ids: categoryIds },
+          );
+          if (modeMatchError) throw modeMatchError;
+          const modeMatches = (modeMatchRows ?? []) as RadarCategoryModeMatch[];
+          matchedCategoryIdsByVendor = buildMatchedCategoryIdsByVendor(modeMatches);
           vendorIdFilter = [...matchedCategoryIdsByVendor.keys()];
           if (vendorIdFilter.length === 0) {
             if (isCurrent()) setResults([]);
             return;
           }
-        } else if (isCurrent()) {
-          setAmbulanceEmergencyOnly(false);
-          setUnknownTermBrowse(false);
-          setSuggestedCategoryName(null);
+        } else {
+          if (isCurrent()) {
+            setAmbulanceEmergencyOnly(false);
+            setUnknownTermBrowse(false);
+            setSuggestedCategoryName(null);
+          }
+          const { data: modeMatchRows, error: modeMatchError } = await supabase.rpc(
+            "get_radar_category_mode_matches",
+            { p_mode: selectedMode, p_category_ids: null },
+          );
+          if (modeMatchError) throw modeMatchError;
+          vendorIdFilter = [
+            ...new Set(
+              ((modeMatchRows ?? []) as RadarCategoryModeMatch[]).map((row) => row.vendor_id),
+            ),
+          ];
+          if (vendorIdFilter.length === 0) {
+            if (isCurrent()) setResults([]);
+            return;
+          }
         }
 
-        /** Empty browse: include vendors with an approved category row for this tab's mode. */
-        let multiModeVendorIds: string[] | null = null;
-        if (!term) {
-          const { data: vcModeRows, error: vcModeError } = await supabase
-            .from("vendor_categories")
-            .select("vendor_id")
-            .eq("status", "approved")
-            .eq("service_mode", selectedMode);
-          if (vcModeError) throw vcModeError;
-          const ids = [...new Set((vcModeRows ?? []).map((row) => row.vendor_id))];
-          if (ids.length > 0) multiModeVendorIds = ids;
-        }
-
-        const categoryModeSearch = vendorIdFilter !== null;
-        const emptyBrowseMultiMode = !term && multiModeVendorIds !== null;
+        const categoryModeSearch = term !== "" && matchedCategoryIdsByVendor !== undefined;
 
         const bboxDeltaDeg = Math.max(BBOX_DELTA_DEG, userBracket / KM_PER_DEG_LAT);
 
@@ -757,7 +751,8 @@ const RadarSearch = () => {
               .gte("latitude", coords.lat - bboxDeltaDeg)
               .lte("latitude", coords.lat + bboxDeltaDeg)
               .gte("longitude", coords.lng - bboxDeltaDeg)
-              .lte("longitude", coords.lng + bboxDeltaDeg);
+              .lte("longitude", coords.lng + bboxDeltaDeg)
+              .in("id", vendorIdFilter);
 
         /** Wide-radius vendors may sit outside the customer bbox but still cover the customer. */
         let qTrackAWide =
@@ -770,45 +765,8 @@ const RadarSearch = () => {
                 .eq("profile_status", "complete")
                 .or(RADAR_SUBSCRIPTION_OR)
                 .gte("service_radius_km", userBracket)
-                .lt("service_radius_km", PAN_INDIA_RADIUS_KM);
-
-        /** Empty browse: vendors whose primary service_mode differs but have a category row for this tab. */
-        let qTrackAMultiMode =
-          panIndiaOnly || !coords || !emptyBrowseMultiMode
-            ? null
-            : supabase
-                .from("vendors")
-                .select("*, verification_status")
-                .eq("is_banned", false)
-                .eq("profile_status", "complete")
-                .or(RADAR_SUBSCRIPTION_OR)
                 .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
-                .gte("latitude", coords.lat - bboxDeltaDeg)
-                .lte("latitude", coords.lat + bboxDeltaDeg)
-                .gte("longitude", coords.lng - bboxDeltaDeg)
-                .lte("longitude", coords.lng + bboxDeltaDeg)
-                .in("id", multiModeVendorIds!);
-
-        let qTrackAWideMultiMode =
-          panIndiaOnly || !coords || !emptyBrowseMultiMode
-            ? null
-            : supabase
-                .from("vendors")
-                .select("*, verification_status")
-                .eq("is_banned", false)
-                .eq("profile_status", "complete")
-                .or(RADAR_SUBSCRIPTION_OR)
-                .gte("service_radius_km", userBracket)
-                .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
-                .in("id", multiModeVendorIds!);
-
-        if (qTrackA && !categoryModeSearch) {
-          qTrackA = qTrackA.eq("service_mode", selectedMode);
-        }
-
-        if (qTrackAWide && !categoryModeSearch) {
-          qTrackAWide = qTrackAWide.eq("service_mode", selectedMode);
-        }
+                .in("id", vendorIdFilter);
 
         if (qTrackA && selectedMode === "help") {
           qTrackA = qTrackA.eq("is_active", true);
@@ -818,116 +776,44 @@ const RadarSearch = () => {
           qTrackAWide = qTrackAWide.eq("is_active", true);
         }
 
-        if (qTrackAMultiMode && selectedMode === "help") {
-          qTrackAMultiMode = qTrackAMultiMode.eq("is_active", true);
-        }
-
-        if (qTrackAWideMultiMode && selectedMode === "help") {
-          qTrackAWideMultiMode = qTrackAWideMultiMode.eq("is_active", true);
-        }
-
-        if (qTrackA && vendorIdFilter) {
-          qTrackA = qTrackA.in("id", vendorIdFilter);
-        }
-
-        if (qTrackAWide && vendorIdFilter) {
-          qTrackAWide = qTrackAWide.in("id", vendorIdFilter);
-        }
-
-        if (qTrackAMultiMode && vendorIdFilter) {
-          qTrackAMultiMode = qTrackAMultiMode.in("id", vendorIdFilter);
-        }
-
-        if (qTrackAWideMultiMode && vendorIdFilter) {
-          qTrackAWideMultiMode = qTrackAWideMultiMode.in("id", vendorIdFilter);
-        }
-
         let qTrackB = supabase
           .from("vendors")
           .select("*, verification_status")
           .eq("is_banned", false)
           .eq("profile_status", "complete")
           .or(RADAR_SUBSCRIPTION_OR)
-          .eq("service_radius_km", PAN_INDIA_RADIUS_KM);
-
-        if (!categoryModeSearch) {
-          qTrackB = qTrackB.eq("service_mode", selectedMode);
-        }
+          .eq("service_radius_km", PAN_INDIA_RADIUS_KM)
+          .in("id", vendorIdFilter);
 
         if (selectedMode === "help") {
           qTrackB = qTrackB.eq("is_active", true);
         }
 
-        if (vendorIdFilter) {
-          qTrackB = qTrackB.in("id", vendorIdFilter);
-        }
-
-        let qTrackBMultiMode = emptyBrowseMultiMode
-          ? supabase
-              .from("vendors")
-              .select("*, verification_status")
-              .eq("is_banned", false)
-              .eq("profile_status", "complete")
-              .or(RADAR_SUBSCRIPTION_OR)
-              .eq("service_radius_km", PAN_INDIA_RADIUS_KM)
-              .in("id", multiModeVendorIds!)
-          : null;
-
-        if (qTrackBMultiMode && selectedMode === "help") {
-          qTrackBMultiMode = qTrackBMultiMode.eq("is_active", true);
-        }
-
-        if (qTrackBMultiMode && vendorIdFilter) {
-          qTrackBMultiMode = qTrackBMultiMode.in("id", vendorIdFilter);
-        }
-
         if (qTrackA) qTrackA = qTrackA.eq("discoverable", true);
         if (qTrackAWide) qTrackAWide = qTrackAWide.eq("discoverable", true);
-        if (qTrackAMultiMode) qTrackAMultiMode = qTrackAMultiMode.eq("discoverable", true);
-        if (qTrackAWideMultiMode) qTrackAWideMultiMode = qTrackAWideMultiMode.eq("discoverable", true);
         qTrackB = qTrackB.eq("discoverable", true);
-        if (qTrackBMultiMode) qTrackBMultiMode = qTrackBMultiMode.eq("discoverable", true);
 
-        const [trackAResult, trackAWideResult, trackAMultiModeResult, trackAWideMultiModeResult, trackBResult, trackBMultiModeResult] =
-          await Promise.all([
+        const [trackAResult, trackAWideResult, trackBResult] = await Promise.all([
           qTrackA ? qTrackA.limit(TRACK_A_LIMIT) : Promise.resolve({ data: [], error: null }),
           qTrackAWide
             ? qTrackAWide.limit(TRACK_A_LIMIT)
             : Promise.resolve({ data: [], error: null }),
-          qTrackAMultiMode
-            ? qTrackAMultiMode.limit(TRACK_A_LIMIT)
-            : Promise.resolve({ data: [], error: null }),
-          qTrackAWideMultiMode
-            ? qTrackAWideMultiMode.limit(TRACK_A_LIMIT)
-            : Promise.resolve({ data: [], error: null }),
           qTrackB.limit(TRACK_B_LIMIT),
-          qTrackBMultiMode
-            ? qTrackBMultiMode.limit(TRACK_B_LIMIT)
-            : Promise.resolve({ data: [], error: null }),
         ]);
 
         if (trackAResult.error) throw trackAResult.error;
         if (trackAWideResult.error) throw trackAWideResult.error;
-        if (trackAMultiModeResult.error) throw trackAMultiModeResult.error;
-        if (trackAWideMultiModeResult.error) throw trackAWideMultiModeResult.error;
         if (trackBResult.error) throw trackBResult.error;
-        if (trackBMultiModeResult.error) throw trackBMultiModeResult.error;
 
         const trackAHitCap =
           trackQueryHitCap(trackAResult.data?.length ?? 0, TRACK_A_LIMIT) ||
-          trackQueryHitCap(trackAWideResult.data?.length ?? 0, TRACK_A_LIMIT) ||
-          trackQueryHitCap(trackAMultiModeResult.data?.length ?? 0, TRACK_A_LIMIT) ||
-          trackQueryHitCap(trackAWideMultiModeResult.data?.length ?? 0, TRACK_A_LIMIT);
-        const trackBHitCap =
-          trackQueryHitCap(trackBResult.data?.length ?? 0, TRACK_B_LIMIT) ||
-          trackQueryHitCap(trackBMultiModeResult.data?.length ?? 0, TRACK_B_LIMIT);
+          trackQueryHitCap(trackAWideResult.data?.length ?? 0, TRACK_A_LIMIT);
+        const trackBHitCap = trackQueryHitCap(trackBResult.data?.length ?? 0, TRACK_B_LIMIT);
 
         const trackAVendorById = new Map<string, Vendor>();
         for (const row of [
           ...(trackAResult.data ?? []),
           ...(trackAWideResult.data ?? []),
-          ...(trackAMultiModeResult.data ?? []),
-          ...(trackAWideMultiModeResult.data ?? []),
         ]) {
           trackAVendorById.set(row.id, row as Vendor);
         }
@@ -941,13 +827,6 @@ const RadarSearch = () => {
         ) as Vendor[];
 
         let trackBVendors = (trackBResult.data ?? []) as Vendor[];
-        if (trackBMultiModeResult.data?.length) {
-          const trackBById = new Map(trackBVendors.map((v) => [v.id, v]));
-          for (const row of trackBMultiModeResult.data) {
-            trackBById.set(row.id, row as Vendor);
-          }
-          trackBVendors = [...trackBById.values()];
-        }
 
         trackAVendors = excludeOfflineHelpVendors(trackAVendors, selectedMode);
         trackBVendors = excludeOfflineHelpVendors(trackBVendors, selectedMode);

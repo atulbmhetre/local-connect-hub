@@ -83,6 +83,9 @@ test('SVR-01 — category removal deletes matching saved_vendors and creates not
     p_vendor_phone: vendorPhone,
     p_category_ids: [electrician.id],
     p_category_service_modes: [electrician.service_mode],
+    p_category_modes: {
+      [electrician.id]: [electrician.service_mode],
+    },
   });
   expect(rpcErr, rpcErr?.message).toBeNull();
 

@@ -18,6 +18,26 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   realtime: { params: { eventsPerSecond: 5 } },
 });
 
+// Built-preview Playwright runs cannot import Vite source paths such as
+// /src/lib/supabase.ts. Expose the minimum auth hook only in TEST builds so
+// browser helpers can establish the same persisted auth-js session.
+if (import.meta.env.MODE === "test" && typeof window !== "undefined") {
+  (
+    window as typeof window & {
+      __AASPAAS_TEST_AUTH__?: {
+        supabaseUrl: string;
+        signInWithPassword: (email: string, password: string) => Promise<void>;
+      };
+    }
+  ).__AASPAAS_TEST_AUTH__ = {
+    supabaseUrl: SUPABASE_URL,
+    signInWithPassword: async (email, password) => {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw new Error(error.message);
+    },
+  };
+}
+
 const AI_GATEWAY_URL = `${SUPABASE_URL}/functions/v1/ai-gateway`;
 export const INITIATE_CALL_URL = `${SUPABASE_URL}/functions/v1/initiate-call`;
 
@@ -675,13 +695,16 @@ export type RegisterVendorParams = {
   profile_status: "draft" | "complete";
   category_ids: string[];
   category_service_modes: string[];
+  /** Authoritative per-category mode sets: { [categoryId]: ["help","delivery"] }. */
+  category_modes: Record<string, Array<"help" | "delivery" | "appointment">>;
   upi_qr_url?: string | null;
   upi_qr_payee_id?: string | null;
   base_type: "shop" | "home" | "none";
   serves_at_vendor_place: boolean;
   serves_at_customer_place: boolean;
   service_radius_km: number;
-  availability_modes: Array<"help" | "delivery" | "appointment">;
+  /** Derived compatibility aggregate; server ignores for per-category stamping. */
+  availability_modes?: Array<"help" | "delivery" | "appointment">;
 };
 
 export type RegisterVendorResult =
@@ -708,13 +731,14 @@ export async function invokeRegisterVendor(
       p_profile_status: params.profile_status,
       p_category_ids: params.category_ids,
       p_category_service_modes: params.category_service_modes,
+      p_category_modes: params.category_modes,
       p_upi_qr_url: params.upi_qr_url ?? null,
       p_upi_qr_payee_id: params.upi_qr_payee_id ?? null,
       p_base_type: params.base_type,
       p_serves_at_vendor_place: params.serves_at_vendor_place,
       p_serves_at_customer_place: params.serves_at_customer_place,
       p_service_radius_km: params.service_radius_km,
-      p_availability_modes: params.availability_modes,
+      p_availability_modes: params.availability_modes ?? undefined,
     });
     if (error) {
       return { ok: false, error: error.message, code: error.code };
@@ -740,12 +764,14 @@ export async function invokeAttachPendingCategory(params: {
   vendorId: string;
   categoryId: string;
   serviceMode: string;
+  modes?: Array<"help" | "delivery" | "appointment">;
 }): Promise<AttachPendingCategoryResult> {
   try {
     const { error } = await supabase.rpc("attach_pending_category", {
       p_vendor_id: params.vendorId,
       p_category_id: params.categoryId,
       p_service_mode: params.serviceMode,
+      p_modes: params.modes ?? [params.serviceMode as "help" | "delivery" | "appointment"],
     });
     if (error) {
       return { ok: false, error: error.message, code: error.code };

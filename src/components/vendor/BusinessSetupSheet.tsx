@@ -27,11 +27,18 @@ import {
   reachFlagsFromChoice,
   MAX_REG_CATEGORIES,
 } from "@/lib/vendorRegistration";
+import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAvailabilityModeSelector";
+import {
+  buildCategoryModesPayload,
+  normalizeAvailabilityModes,
+  pickPrimaryAvailabilityMode,
+} from "@/lib/categoryAvailabilityModes";
 
 export type BusinessSetupExistingSettings = {
   brand_name: string;
   reachChoice: ReachChoiceValue;
   service_radius_km: number | null;
+  availability_modes: AvailabilityMode[];
 };
 
 type RegCategoryRow = Pick<Category, "id" | "label" | "emoji"> & {
@@ -44,7 +51,6 @@ type Props = {
   vendor: Vendor;
   existingCategoryIds: string[];
   existingSettings: Record<string, BusinessSetupExistingSettings>;
-  availabilityModes: AvailabilityMode[];
   onAdded: () => void;
 };
 
@@ -77,7 +83,6 @@ export function BusinessSetupSheet({
   vendor,
   existingCategoryIds,
   existingSettings,
-  availabilityModes,
   onAdded,
 }: Props) {
   const { s } = useLanguage();
@@ -90,6 +95,7 @@ export function BusinessSetupSheet({
   const [brandName, setBrandName] = useState("");
   const [reachChoice, setReachChoice] = useState<ReachChoiceValue>("");
   const [serviceRadiusKm, setServiceRadiusKm] = useState<number | null>(null);
+  const [availabilityModes, setAvailabilityModes] = useState<AvailabilityMode[]>([]);
   const [vendorNote, setVendorNote] = useState("");
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
   const [shopPhotoBlob, setShopPhotoBlob] = useState<Blob | null>(null);
@@ -107,6 +113,7 @@ export function BusinessSetupSheet({
     setBrandName("");
     setReachChoice("");
     setServiceRadiusKm(null);
+    setAvailabilityModes([]);
     setVendorNote("");
     setCancelReasons(["", "", "", ""]);
     setShopPhotoBlob(null);
@@ -141,6 +148,7 @@ export function BusinessSetupSheet({
     brandOk &&
     reachChoice !== "" &&
     radiusOk &&
+    availabilityModes.length > 0 &&
     shopPhotoBlob != null &&
     !atMax;
 
@@ -170,11 +178,23 @@ export function BusinessSetupSheet({
 
   const submit = async () => {
     if (!ready || !selectedCategoryId || !reachFlags || !shopPhotoBlob) return;
-    const primaryServiceMode = (availabilityModes[0] ?? "help") as AvailabilityMode;
+
+    const modesById: Record<string, AvailabilityMode[]> = {};
+    for (const id of existingCategoryIds) {
+      const modes = normalizeAvailabilityModes(existingSettings[id]?.availability_modes);
+      if (modes.length === 0) {
+        toast.error(s.vendor_update_failed);
+        return;
+      }
+      modesById[id] = modes;
+    }
+    modesById[selectedCategoryId] = normalizeAvailabilityModes(availabilityModes);
+
     const nextIds = [...existingCategoryIds, selectedCategoryId];
+    const categoryModesPayload = buildCategoryModesPayload(nextIds, modesById);
     const categoryServiceModes = nextIds.map((id) => {
       const cat = categories.find((c) => c.id === id);
-      return cat?.service_mode ?? primaryServiceMode;
+      return pickPrimaryAvailabilityMode(modesById[id], cat?.service_mode);
     });
     const brandNames = nextIds.map((id) => {
       if (id === selectedCategoryId) return brandName.trim();
@@ -203,6 +223,7 @@ export function BusinessSetupSheet({
       p_vendor_phone: vendorPhone,
       p_category_ids: nextIds,
       p_category_service_modes: categoryServiceModes,
+      p_category_modes: categoryModesPayload,
       p_brand_names: brandNames,
       p_serves_at_vendor_place: servesVendorPlace,
       p_serves_at_customer_place: servesCustomerPlace,
@@ -408,6 +429,15 @@ export function BusinessSetupSheet({
                     </div>
                   </div>
                 )}
+
+                <CategoryAvailabilityModeSelector
+                  variant="pills"
+                  label={s.my_business_category_availability}
+                  required
+                  testIdPrefix="add-business-avail"
+                  value={availabilityModes}
+                  onChange={setAvailabilityModes}
+                />
 
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

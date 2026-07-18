@@ -160,6 +160,10 @@ test('CMA-03 — new category inherits account-level cancel reasons', async () =
     p_vendor_phone: phone,
     p_category_ids: [electrician.id, plumber.id],
     p_category_service_modes: [electrician.service_mode, plumber.service_mode],
+    p_category_modes: {
+      [electrician.id]: [electrician.service_mode],
+      [plumber.id]: [plumber.service_mode],
+    },
   });
   expect(rpcErr, rpcErr?.message).toBeNull();
 

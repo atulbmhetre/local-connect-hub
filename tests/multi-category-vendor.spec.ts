@@ -11,26 +11,37 @@ import {
   TEST_SESSION,
 } from './helpers/setup';
 
+let phoneSeq = Math.floor(Math.random() * 100);
 function uniqueVendorPhone(): string {
-  return `99006${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 10)}`;
+  // 10-digit phone: 99006 + 3 time digits + 2 monotonic-sequence digits.
+  // The per-process sequence guarantees uniqueness for back-to-back calls in the
+  // same millisecond (e.g. two vendors registered in one test).
+  phoneSeq = (phoneSeq + 1) % 100;
+  const timePart = Date.now().toString().slice(-3);
+  const seqPart = phoneSeq.toString().padStart(2, '0');
+  return `99006${timePart}${seqPart}`;
 }
 
-/** Mirrors RadarSearch.tsx vendor_categories → vendor_id filter (category + mode search path). */
+/** Mirrors RadarSearch.tsx membership RPC (category + mode search path). */
 async function radarVendorIdsForCategories(
   categoryIds: string[],
   selectedMode?: string,
 ): Promise<string[]> {
-  let q = supabase
-    .from('vendor_categories')
-    .select('vendor_id')
-    .in('category_id', categoryIds)
-    .eq('status', 'approved');
-  if (selectedMode) {
-    q = q.eq('service_mode', selectedMode);
+  if (!selectedMode) {
+    const { data, error } = await supabase
+      .from('vendor_categories')
+      .select('vendor_id')
+      .in('category_id', categoryIds)
+      .eq('status', 'approved');
+    if (error) throw error;
+    return [...new Set((data ?? []).map((row) => row.vendor_id))];
   }
-  const { data, error } = await q;
+  const { data, error } = await supabase.rpc('get_radar_category_mode_matches', {
+    p_mode: selectedMode,
+    p_category_ids: categoryIds,
+  });
   if (error) throw error;
-  return [...new Set((data ?? []).map((row) => row.vendor_id))];
+  return [...new Set((data ?? []).map((row: { vendor_id: string }) => row.vendor_id))];
 }
 
 /** Mirrors RadarSearch.tsx vendors query (track B / pan-India path, no GPS bbox). */
@@ -93,48 +104,32 @@ async function vendorVisibleInRadarCategorySearch(
   categoryId: string,
   selectedMode: string,
 ): Promise<boolean> {
-  const { data: vcRow, error: vcError } = await supabase
-    .from('vendor_categories')
-    .select('vendor_id')
-    .eq('vendor_id', vendorId)
-    .eq('category_id', categoryId)
-    .eq('status', 'approved')
-    .eq('service_mode', selectedMode)
-    .maybeSingle();
-  if (vcError) throw vcError;
-  if (!vcRow) return false;
+  const { data, error } = await supabase.rpc('get_radar_category_mode_matches', {
+    p_mode: selectedMode,
+    p_category_ids: [categoryId],
+  });
+  if (error) throw error;
+  const matched = (data ?? []).some(
+    (row: { vendor_id: string }) => row.vendor_id === vendorId,
+  );
+  if (!matched) return false;
   return vendorMatchesRadarPanIndiaFilters(vendorId, selectedMode, true);
 }
 
-/** Mirrors RadarSearch.tsx empty-browse path for one vendor (primary mode or approved vc row). */
+/** Mirrors RadarSearch.tsx empty-browse path via category-mode membership RPC. */
 async function vendorVisibleInRadarEmptyBrowse(
   vendorId: string,
   selectedMode: string,
 ): Promise<boolean> {
-  const { data: vendor, error: vendorError } = await supabase
-    .from('vendors')
-    .select('id, service_mode')
-    .eq('id', vendorId)
-    .eq('is_banned', false)
-    .eq('profile_status', 'complete')
-    .eq('service_radius_km', 9999)
-    .maybeSingle();
-  if (vendorError) throw vendorError;
-  if (!vendor) return false;
-
-  if (vendor.service_mode === selectedMode) {
-    return vendorMatchesRadarPanIndiaFilters(vendorId, selectedMode, false);
-  }
-
-  const { data: vcRow, error: vcError } = await supabase
-    .from('vendor_categories')
-    .select('vendor_id')
-    .eq('vendor_id', vendorId)
-    .eq('status', 'approved')
-    .eq('service_mode', selectedMode)
-    .maybeSingle();
-  if (vcError) throw vcError;
-  if (!vcRow) return false;
+  const { data, error } = await supabase.rpc('get_radar_category_mode_matches', {
+    p_mode: selectedMode,
+    p_category_ids: null,
+  });
+  if (error) throw error;
+  const matched = (data ?? []).some(
+    (row: { vendor_id: string }) => row.vendor_id === vendorId,
+  );
+  if (!matched) return false;
   return vendorMatchesRadarPanIndiaFilters(vendorId, selectedMode, true);
 }
 
@@ -387,6 +382,7 @@ test('MCV-07: attach_pending_category replaces all vendor_categories rows', asyn
       p_vendor_id: vendorId,
       p_category_id: pendingCategory!.id,
       p_service_mode: 'help',
+      p_modes: ['help', 'delivery'],
     });
     expect(rpcError).toBeNull();
 
@@ -656,20 +652,339 @@ test('MCV-13: create_customer_request stores searched category_id on request', a
       p_user_phone: customerPhone,
       p_device_id_log: customerDevice,
       p_category_id: electrician.id,
+      p_service_mode: electrician.service_mode,
     });
     expect(error, `create_customer_request: ${error?.message}`).toBeNull();
     expect(requestId).toBeTruthy();
 
     const { data: row, error: fetchErr } = await supabaseAdmin
       .from('requests')
-      .select('id, category_id, vendor_id')
+      .select('id, category_id, vendor_id, service_mode')
       .eq('id', requestId as string)
       .single();
     expect(fetchErr).toBeNull();
     expect(row?.category_id).toBe(electrician.id);
     expect(row?.category_id).not.toBe(plumber.id);
+    expect(row?.service_mode).toBe(electrician.service_mode);
 
     await supabaseAdmin.from('requests').delete().eq('id', requestId as string);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+    await supabaseAdmin.from('users').delete().eq('phone', customerPhone);
+  }
+});
+
+test('MCV-14: one category with help+delivery child modes is discoverable in both modes', async () => {
+  const category = await getActiveCategoryByLabel('Cook');
+  const phone = uniqueVendorPhone();
+  const result = await invokeRegisterVendorRpc({
+    phone,
+    category: category.label,
+    service_mode: 'help',
+    category_ids: [category.id],
+    category_service_modes: ['help'],
+    category_modes: { [category.id]: ['help', 'delivery'] },
+    availability_modes: ['help', 'delivery'],
+    service_radius_km: 9999,
+    profile_status: 'complete',
+  });
+  expect(result.error).toBeUndefined();
+  const vendorId = result.vendorId!;
+  await supabaseAdmin.from('vendors').update({ is_active: true, discoverable: true }).eq('id', vendorId);
+
+  try {
+    const { data: modes } = await supabaseAdmin
+      .from('vendor_category_modes')
+      .select('mode')
+      .eq('vendor_category_id', (
+        await supabaseAdmin
+          .from('vendor_categories')
+          .select('id')
+          .eq('vendor_id', vendorId)
+          .eq('category_id', category.id)
+          .single()
+      ).data!.id);
+    expect((modes ?? []).map((m) => m.mode).sort()).toEqual(['delivery', 'help']);
+
+    expect(await vendorVisibleInRadarCategorySearch(vendorId, category.id, 'help')).toBe(true);
+    expect(await vendorVisibleInRadarCategorySearch(vendorId, category.id, 'delivery')).toBe(true);
+    expect(await vendorVisibleInRadarCategorySearch(vendorId, category.id, 'appointment')).toBe(false);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+  }
+});
+
+test('MCV-15: category mode lookup never leaks a different vendor', async () => {
+  const category = await getActiveCategoryByServiceMode('help');
+  const phoneA = uniqueVendorPhone();
+  const phoneB = uniqueVendorPhone();
+  const a = await invokeRegisterVendorRpc({
+    phone: phoneA,
+    category: category.label,
+    category_ids: [category.id],
+    category_service_modes: ['help'],
+    category_modes: { [category.id]: ['help', 'delivery'] },
+    service_radius_km: 9999,
+  });
+  const b = await invokeRegisterVendorRpc({
+    phone: phoneB,
+    category: category.label,
+    category_ids: [category.id],
+    category_service_modes: ['help'],
+    category_modes: { [category.id]: ['help'] },
+    service_radius_km: 9999,
+  });
+  expect(a.error).toBeUndefined();
+  expect(b.error).toBeUndefined();
+  await supabaseAdmin
+    .from('vendors')
+    .update({ is_active: true, discoverable: true })
+    .in('id', [a.vendorId!, b.vendorId!]);
+
+  try {
+    const ids = await radarVendorIdsForCategories([category.id], 'delivery');
+    expect(ids).toContain(a.vendorId!);
+    expect(ids).not.toContain(b.vendorId!);
+  } finally {
+    await deleteVendorRegistrationArtifacts(a.vendorId!);
+    await deleteVendorRegistrationArtifacts(b.vendorId!);
+  }
+});
+
+test('MCV-16: vendor_update_categories preserves child modes for retained rows', async () => {
+  const cats = await getActiveCategories(2);
+  const phone = uniqueVendorPhone();
+  const reg = await invokeRegisterVendorRpc({
+    phone,
+    category: cats[0].label,
+    category_ids: [cats[0].id],
+    category_service_modes: ['help'],
+    category_modes: { [cats[0].id]: ['help', 'appointment'] },
+  });
+  expect(reg.error).toBeUndefined();
+  const vendorId = reg.vendorId!;
+
+  try {
+    const { data: beforeVc } = await supabaseAdmin
+      .from('vendor_categories')
+      .select('id')
+      .eq('vendor_id', vendorId)
+      .eq('category_id', cats[0].id)
+      .single();
+    const beforeId = beforeVc!.id;
+
+    const { error } = await supabaseAdmin.rpc('vendor_update_categories', {
+      p_vendor_id: vendorId,
+      p_vendor_phone: phone,
+      p_category_ids: [cats[0].id, cats[1].id],
+      p_category_service_modes: ['help', cats[1].service_mode],
+      p_category_modes: {
+        [cats[0].id]: ['help', 'appointment'],
+        [cats[1].id]: [cats[1].service_mode],
+      },
+    });
+    expect(error, error?.message).toBeNull();
+
+    const { data: afterVc } = await supabaseAdmin
+      .from('vendor_categories')
+      .select('id')
+      .eq('vendor_id', vendorId)
+      .eq('category_id', cats[0].id)
+      .single();
+    expect(afterVc?.id).toBe(beforeId);
+
+    const { data: modes } = await supabaseAdmin
+      .from('vendor_category_modes')
+      .select('mode')
+      .eq('vendor_category_id', beforeId);
+    expect((modes ?? []).map((m) => m.mode).sort()).toEqual(['appointment', 'help']);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+  }
+});
+
+test('MCV-17: vendor_sync_category_modes jsonb never flattens other categories', async () => {
+  const cats = await getActiveCategories(2);
+  const phone = uniqueVendorPhone();
+  const reg = await invokeRegisterVendorRpc({
+    phone,
+    category: cats[0].label,
+    category_ids: [cats[0].id, cats[1].id],
+    category_service_modes: ['help', 'delivery'],
+    category_modes: {
+      [cats[0].id]: ['help', 'appointment'],
+      [cats[1].id]: ['delivery'],
+    },
+  });
+  expect(reg.error).toBeUndefined();
+  const vendorId = reg.vendorId!;
+
+  try {
+    const { error } = await supabaseAdmin.rpc('vendor_sync_category_modes', {
+      p_vendor_id: vendorId,
+      p_vendor_phone: phone,
+      p_category_modes: {
+        [cats[0].id]: ['help'],
+      },
+    });
+    expect(error, error?.message).toBeNull();
+
+    const { data: vcRows } = await supabaseAdmin
+      .from('vendor_categories')
+      .select('id, category_id')
+      .eq('vendor_id', vendorId);
+    const vc0 = vcRows!.find((r) => r.category_id === cats[0].id)!;
+    const vc1 = vcRows!.find((r) => r.category_id === cats[1].id)!;
+
+    const { data: m0 } = await supabaseAdmin
+      .from('vendor_category_modes')
+      .select('mode')
+      .eq('vendor_category_id', vc0.id);
+    const { data: m1 } = await supabaseAdmin
+      .from('vendor_category_modes')
+      .select('mode')
+      .eq('vendor_category_id', vc1.id);
+    expect((m0 ?? []).map((m) => m.mode)).toEqual(['help']);
+    expect((m1 ?? []).map((m) => m.mode)).toEqual(['delivery']);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+  }
+});
+
+test('MCV-18: register_vendor rejects missing/empty/mismatched category_modes', async () => {
+  const cats = await getActiveCategories(2);
+  const phone = uniqueVendorPhone();
+
+  const missing = await supabaseAdmin.rpc('register_vendor', {
+    p_name: 'Reject Modes',
+    p_shop_name: 'Reject Shop',
+    p_category: cats[0].label,
+    p_phone: phone,
+    p_upi_id: 'reject@upi',
+    p_service_mode: 'help',
+    p_vendor_type: 'shop',
+    p_vendor_note: `test_session:${TEST_SESSION}`,
+    p_latitude: 18.52,
+    p_longitude: 73.85,
+    p_referral_code: `R${Date.now().toString(36).slice(-6)}`.toUpperCase(),
+    p_profile_status: 'complete',
+    p_category_ids: [cats[0].id],
+    p_category_service_modes: ['help'],
+    p_category_modes: {},
+    p_base_type: 'shop',
+    p_serves_at_vendor_place: true,
+    p_serves_at_customer_place: false,
+    p_service_radius_km: 15,
+  });
+  expect(missing.error?.message ?? '').toMatch(/category_modes_required|category_modes_missing/i);
+
+  const emptyArr = await supabaseAdmin.rpc('register_vendor', {
+    p_name: 'Reject Modes',
+    p_shop_name: 'Reject Shop',
+    p_category: cats[0].label,
+    p_phone: uniqueVendorPhone(),
+    p_upi_id: 'reject@upi',
+    p_service_mode: 'help',
+    p_vendor_type: 'shop',
+    p_vendor_note: `test_session:${TEST_SESSION}`,
+    p_latitude: 18.52,
+    p_longitude: 73.85,
+    p_referral_code: `R${Date.now().toString(36).slice(-6)}`.toUpperCase(),
+    p_profile_status: 'complete',
+    p_category_ids: [cats[0].id],
+    p_category_service_modes: ['help'],
+    p_category_modes: { [cats[0].id]: [] },
+    p_base_type: 'shop',
+    p_serves_at_vendor_place: true,
+    p_serves_at_customer_place: false,
+    p_service_radius_km: 15,
+  });
+  expect(emptyArr.error?.message ?? '').toMatch(/category_modes_empty/i);
+
+  const extra = await supabaseAdmin.rpc('register_vendor', {
+    p_name: 'Reject Modes',
+    p_shop_name: 'Reject Shop',
+    p_category: cats[0].label,
+    p_phone: uniqueVendorPhone(),
+    p_upi_id: 'reject@upi',
+    p_service_mode: 'help',
+    p_vendor_type: 'shop',
+    p_vendor_note: `test_session:${TEST_SESSION}`,
+    p_latitude: 18.52,
+    p_longitude: 73.85,
+    p_referral_code: `R${Date.now().toString(36).slice(-6)}`.toUpperCase(),
+    p_profile_status: 'complete',
+    p_category_ids: [cats[0].id],
+    p_category_service_modes: ['help'],
+    p_category_modes: {
+      [cats[0].id]: ['help'],
+      [cats[1].id]: ['delivery'],
+    },
+    p_base_type: 'shop',
+    p_serves_at_vendor_place: true,
+    p_serves_at_customer_place: false,
+    p_service_radius_km: 15,
+  });
+  expect(extra.error?.message ?? '').toMatch(/category_modes_extra/i);
+});
+
+test('MCV-19: create_customer_request stores effective service_mode', async () => {
+  const category = await getActiveCategoryByLabel('Cook');
+  const phone = uniqueVendorPhone();
+  const customerPhone = `880${Date.now().toString().slice(-7)}`;
+  const customerDevice = `mcv18-${Date.now()}`;
+  const reg = await invokeRegisterVendorRpc({
+    phone,
+    category: category.label,
+    category_ids: [category.id],
+    category_service_modes: ['help'],
+    category_modes: { [category.id]: ['help', 'delivery'] },
+  });
+  expect(reg.error).toBeUndefined();
+  const vendorId = reg.vendorId!;
+  // asap delivery requires the vendor to be live and the category approved.
+  await supabaseAdmin
+    .from('vendors')
+    .update({ is_active: true, discoverable: true })
+    .eq('id', vendorId);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ status: 'approved', needs_review: false })
+    .eq('vendor_id', vendorId);
+  await supabaseAdmin.from('users').upsert({ phone: customerPhone, trust_score: 80 }, { onConflict: 'phone' });
+
+  try {
+    const { data: requestId, error } = await supabaseAdmin.rpc('create_customer_request', {
+      p_device_id: customerDevice,
+      p_vendor_id: vendorId,
+      p_message: 'MCV-18 delivery via multi-mode',
+      p_user_phone: customerPhone,
+      p_device_id_log: customerDevice,
+      p_category_id: category.id,
+      p_service_mode: 'delivery',
+      p_delivery_slot: 'asap',
+    });
+    expect(error, error?.message).toBeNull();
+
+    const { data: row } = await supabaseAdmin
+      .from('requests')
+      .select('service_mode, category_id')
+      .eq('id', requestId as string)
+      .single();
+    expect(row?.service_mode).toBe('delivery');
+    expect(row?.category_id).toBe(category.id);
+
+    const { error: badMode } = await supabaseAdmin.rpc('create_customer_request', {
+      p_device_id: customerDevice,
+      p_vendor_id: vendorId,
+      p_message: 'MCV-18 unsupported mode',
+      p_user_phone: customerPhone,
+      p_category_id: category.id,
+      p_service_mode: 'appointment',
+    });
+    expect(badMode?.message ?? '').toMatch(/service_mode_not_available_for_category/);
+
+    await supabaseAdmin.from('requests').delete().eq('vendor_id', vendorId);
   } finally {
     await deleteVendorRegistrationArtifacts(vendorId);
     await supabaseAdmin.from('users').delete().eq('phone', customerPhone);

@@ -49,6 +49,13 @@ import {
 import {
   inheritCategorySettingsFromAccount,
 } from "@/lib/categoryScopedVendor";
+import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAvailabilityModeSelector";
+import {
+  allCategoriesHaveModes,
+  buildCategoryModesPayload,
+  normalizeAvailabilityModes,
+  pickPrimaryAvailabilityMode,
+} from "@/lib/categoryAvailabilityModes";
 import { BusinessSetupSheet } from "@/components/vendor/BusinessSetupSheet";
 
 type RegCategoryRow = Pick<Category, "id" | "label" | "emoji"> & {
@@ -69,6 +76,7 @@ type CategoryEditSettings = {
   gps_match_distance: number | null;
   verification_status: string | null;
   is_manual_verified: boolean;
+  availability_modes: AvailabilityMode[];
 };
 
 type Props = {
@@ -97,6 +105,7 @@ function settingsFromAccount(account: {
     gps_match_distance: null,
     verification_status: null,
     is_manual_verified: false,
+    availability_modes: [],
   };
 }
 
@@ -130,6 +139,7 @@ function settingsFromCategoryRow(
       row.gps_match_distance != null ? Number(row.gps_match_distance) : null,
     verification_status: row.verification_status ?? null,
     is_manual_verified: row.is_manual_verified === true,
+    availability_modes: [],
   };
 }
 
@@ -254,7 +264,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const [shopName, setShopName] = useState(vendor.shop_name ?? "");
   const [baseType, setBaseType] = useState<BaseTypeValue>("");
   const [reachChoice, setReachChoice] = useState<ReachChoiceValue>("");
-  const [availabilityModes, setAvailabilityModes] = useState<AvailabilityMode[]>([]);
   const [serviceRadiusKm, setServiceRadiusKm] = useState<number | null>(null);
   const [phone, setPhone] = useState(vendor.phone ?? "");
   const [upiId, setUpiId] = useState(vendor.upi_id ?? "");
@@ -301,7 +310,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     const loadSeq = ++loadSeqRef.current;
     setCategoriesLoading(true);
     void (async () => {
-      const [availResult, vcResult, modesResult] = await Promise.all([
+      const [availResult, vcResult] = await Promise.all([
         supabase
           .from("categories")
           .select("id, label, emoji, service_mode")
@@ -310,15 +319,11 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         supabase
           .from("vendor_categories")
           .select(
-            "category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, categories(id, label, emoji, service_mode)",
+            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, categories(id, label, emoji, service_mode)",
           )
           .eq("vendor_id", vendor.id)
           .eq("status", "approved")
           .order("is_primary", { ascending: false }),
-        supabase
-          .from("vendor_availability_modes")
-          .select("mode")
-          .eq("vendor_id", vendor.id),
       ]);
 
       if (loadSeq !== loadSeqRef.current) return;
@@ -334,11 +339,13 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         service_radius_km: vendor.service_radius_km,
       });
       const nextSettings: Record<string, CategoryEditSettings> = {};
+      const vcIdToCategoryId: Record<string, string> = {};
       if (!vcResult.error && vcResult.data?.length) {
         for (const row of vcResult.data) {
           const joined = row.categories;
           const cat = Array.isArray(joined) ? joined[0] : joined;
           if (!cat) continue;
+          vcIdToCategoryId[row.id] = cat.id;
           selected.push({
             id: cat.id,
             label: cat.label,
@@ -357,7 +364,39 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         const legacy = available.find((c) => c.label === vendor.category);
         if (legacy) {
           selected = [legacy];
-          nextSettings[legacy.id] = accountDefaults;
+          nextSettings[legacy.id] = {
+            ...accountDefaults,
+            availability_modes: normalizeAvailabilityModes([
+              vendor.service_mode ?? legacy.service_mode ?? "help",
+            ]),
+          };
+        }
+      }
+
+      const vcIds = Object.keys(vcIdToCategoryId);
+      if (vcIds.length > 0) {
+        const modesResult = await supabase
+          .from("vendor_category_modes")
+          .select("mode, vendor_category_id")
+          .in("vendor_category_id", vcIds);
+        if (loadSeq !== loadSeqRef.current) return;
+        const modesByCategoryId: Record<string, AvailabilityMode[]> = {};
+        for (const modeRow of modesResult.data ?? []) {
+          const catId = vcIdToCategoryId[modeRow.vendor_category_id];
+          if (!catId) continue;
+          if (!modesByCategoryId[catId]) modesByCategoryId[catId] = [];
+          const mode = String(modeRow.mode ?? "").trim().toLowerCase();
+          if (mode === "help" || mode === "delivery" || mode === "appointment") {
+            modesByCategoryId[catId].push(mode);
+          }
+        }
+        for (const catId of Object.keys(modesByCategoryId)) {
+          if (nextSettings[catId]) {
+            nextSettings[catId] = {
+              ...nextSettings[catId],
+              availability_modes: normalizeAvailabilityModes(modesByCategoryId[catId]),
+            };
+          }
         }
       }
 
@@ -371,12 +410,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         prev && selectedIds.includes(prev) ? prev : selectedIds[0] ?? null,
       );
 
-      const modes = (modesResult.data ?? [])
-        .map((row) => row.mode as AvailabilityMode)
-        .filter((m) => m === "help" || m === "delivery" || m === "appointment");
-      setAvailabilityModes(
-        modes.length > 0 ? modes : [(vendor.service_mode ?? "help") as AvailabilityMode],
-      );
       setCategoriesLoading(false);
     })();
   }, [
@@ -423,7 +456,10 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         const nextSettings = { ...prevSettings };
         for (const id of next) {
           if (!nextSettings[id]) {
-            nextSettings[id] = accountDefaultsForInherit();
+            nextSettings[id] = {
+              ...accountDefaultsForInherit(),
+              availability_modes: [],
+            };
           }
         }
         for (const id of Object.keys(nextSettings)) {
@@ -469,6 +505,11 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     return true;
   });
 
+  const modesByCategoryId = Object.fromEntries(
+    selectedCategoryIds.map((id) => [id, categorySettingsById[id]?.availability_modes]),
+  );
+  const allCategoryModesOk = allCategoriesHaveModes(selectedCategoryIds, modesByCategoryId);
+
   const saveReady =
     ownerOk &&
     baseType !== "" &&
@@ -476,7 +517,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     selectedCategoryIds.length > 0 &&
     phone.trim().length > 0 &&
     (isMultiCategory ? multiCategorySettingsOk : reachChoice !== "" && radiusOk) &&
-    availabilityModes.length > 0;
+    allCategoryModesOk;
 
   const saveProfile = async () => {
     if (!saveReady) return;
@@ -519,10 +560,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       selectedCategories.find((c) => c.id === categoryIdsToSave[0]) ??
       null;
     const primaryLabel = primaryCategory?.label ?? "";
-    const primaryServiceMode = (availabilityModes[0] ??
-      primaryCategory?.service_mode ??
-      vendor.service_mode ??
-      "") as "help" | "delivery" | "appointment" | "booking";
+    const primaryCatModes =
+      categorySettingsById[categoryIdsToSave[0]]?.availability_modes ?? [];
+    const primaryServiceMode = pickPrimaryAvailabilityMode(
+      primaryCatModes,
+      primaryCategory?.service_mode ?? vendor.service_mode,
+    );
 
     const multi = categoryIdsToSave.length > 1;
     const primaryCatSettings =
@@ -623,44 +666,30 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       const cat =
         availableCategories.find((c) => c.id === categoryId) ??
         selectedCategories.find((c) => c.id === categoryId);
-      return cat?.service_mode ?? primaryServiceMode;
+      const modes = categorySettingsById[categoryId]?.availability_modes ?? [];
+      return pickPrimaryAvailabilityMode(modes, cat?.service_mode);
     });
+    const categoryModesPayload = buildCategoryModesPayload(
+      categoryIdsToSave,
+      Object.fromEntries(
+        categoryIdsToSave.map((id) => [id, categorySettingsById[id]?.availability_modes]),
+      ),
+    );
 
     const { error: vcError } = await supabase.rpc("vendor_update_categories", {
       p_vendor_id: vendor.id,
       p_vendor_phone: phone.trim(),
       p_category_ids: categoryIdsToSave,
       p_category_service_modes: categoryServiceModes,
+      p_category_modes: categoryModesPayload,
       p_brand_names: brandNames,
       p_serves_at_vendor_place: servesVendorPlace,
       p_serves_at_customer_place: servesCustomerPlace,
       p_service_radius_km: radii,
     });
-    if (vcError) {
-      setSaving(false);
-      toast.error(s.vendor_categories_partial_save);
-      return;
-    }
-
-    const { error: modesError } = await supabase.rpc("vendor_update_availability_modes", {
-      p_vendor_id: vendor.id,
-      p_vendor_phone: phone.trim(),
-      p_modes: availabilityModes,
-    });
-    if (modesError) {
-      setSaving(false);
-      toast.error(s.vendor_update_failed);
-      return;
-    }
-
-    const { error: syncError } = await supabase.rpc("vendor_sync_category_modes", {
-      p_vendor_id: vendor.id,
-      p_vendor_phone: phone.trim(),
-      p_modes: availabilityModes,
-    });
     setSaving(false);
-    if (syncError) {
-      toast.error(s.vendor_update_failed);
+    if (vcError) {
+      toast.error(s.vendor_categories_partial_save);
       return;
     }
 
@@ -1248,6 +1277,16 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                       </div>
                     </div>
                   )}
+                  <CategoryAvailabilityModeSelector
+                    variant="pills"
+                    label={s.my_business_category_availability}
+                    required
+                    testIdPrefix={`my-business-cat-avail-${cat.id}`}
+                    value={cfg.availability_modes}
+                    onChange={(modes) =>
+                      updateCategorySettings(cat.id, { availability_modes: modes })
+                    }
+                  />
                 </div>
               );
             })}
@@ -1312,42 +1351,22 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
             </>
           )}
 
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {s.reg_edit_availability_label}
-            </label>
-            <div className="mt-2 flex flex-wrap gap-2" data-testid="my-business-availability">
-              {(
-                [
-                  { mode: "help" as const, label: s.reg_avail_help },
-                  { mode: "delivery" as const, label: s.reg_avail_delivery },
-                  { mode: "appointment" as const, label: s.reg_avail_appointment },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.mode}
-                  type="button"
-                  onClick={() =>
-                    setAvailabilityModes((prev) =>
-                      prev.includes(opt.mode)
-                        ? prev.length <= 1
-                          ? prev
-                          : prev.filter((m) => m !== opt.mode)
-                        : [...prev, opt.mode],
-                    )
-                  }
-                  className={cn(
-                    "rounded-full border px-3 py-1.5 text-sm font-medium",
-                    availabilityModes.includes(opt.mode)
-                      ? "border-primary bg-primary/20"
-                      : "border-border",
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          {!isMultiCategory && selectedCategoryIds[0] && (
+            <CategoryAvailabilityModeSelector
+              variant="pills"
+              label={s.my_business_category_availability}
+              required
+              testIdPrefix="my-business-avail"
+              value={
+                categorySettingsById[selectedCategoryIds[0]]?.availability_modes ?? []
+              }
+              onChange={(modes) =>
+                updateCategorySettings(selectedCategoryIds[0], {
+                  availability_modes: modes,
+                })
+              }
+            />
+          )}
 
           <Field
             label={s.vendor_phone_label}
@@ -1504,7 +1523,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         vendor={vendor}
         existingCategoryIds={selectedCategoryIds}
         existingSettings={categorySettingsById}
-        availabilityModes={availabilityModes}
         onAdded={() => setCategoriesReloadKey((k) => k + 1)}
       />
 

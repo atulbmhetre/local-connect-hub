@@ -49,6 +49,8 @@ export type RegisterVendorRpcOptions = {
   serves_at_customer_place?: boolean;
   service_radius_km?: number;
   availability_modes?: string[];
+  /** Authoritative per-category modes. When omitted, each category gets [category_service_modes[i]]. */
+  category_modes?: Record<string, string[]>;
   /** Preserved from legacy factory; register_vendor always inserts is_active=false. */
   is_active?: boolean;
 };
@@ -58,11 +60,19 @@ export async function invokeRegisterVendorRpc(
 ): Promise<{ vendorId?: string; error?: { code?: string; message: string } }> {
   const categoryRow = await getFirstActiveCategory();
   const categoryIds = opts.category_ids ?? [categoryRow.id];
-  const serviceModes = opts.category_service_modes ?? [categoryRow.service_mode];
+  const serviceModes = opts.category_service_modes ?? categoryIds.map(() => categoryRow.service_mode);
   const phone = opts.phone ?? generateUniqueVendorPhone();
   const availabilityModes = opts.availability_modes ?? [opts.service_mode ?? categoryRow.service_mode];
   const baseType = opts.base_type ?? 'shop';
   const vendorType = opts.vendor_type ?? (baseType === 'none' ? 'visiting' : baseType);
+
+  const categoryModes: Record<string, string[]> = opts.category_modes ?? {};
+  for (let i = 0; i < categoryIds.length; i++) {
+    const id = categoryIds[i];
+    if (!categoryModes[id] || categoryModes[id].length === 0) {
+      categoryModes[id] = [serviceModes[i] ?? availabilityModes[0] ?? 'help'];
+    }
+  }
 
   const { data, error } = await supabase.rpc('register_vendor', {
     p_name: opts.name ?? `Test Vendor ${TEST_SESSION}`,
@@ -81,6 +91,7 @@ export async function invokeRegisterVendorRpc(
     p_profile_status: opts.profile_status ?? 'complete',
     p_category_ids: categoryIds,
     p_category_service_modes: serviceModes,
+    p_category_modes: categoryModes,
     p_base_type: baseType,
     p_serves_at_vendor_place: opts.serves_at_vendor_place ?? true,
     p_serves_at_customer_place: opts.serves_at_customer_place ?? false,
@@ -259,26 +270,44 @@ export async function seedVendorCategory(
     is_manual_verified?: boolean;
     serves_at_vendor_place?: boolean;
     serves_at_customer_place?: boolean;
+    /** Child modes for vendor_category_modes. Defaults to [category.service_mode]. */
+    modes?: string[];
   } = {},
 ) {
-  const { error } = await supabaseAdmin.from('vendor_categories').insert({
-    vendor_id: vendorId,
-    category_id: category.id,
-    is_primary: opts.is_primary ?? true,
-    status: 'approved',
-    needs_review: opts.needs_review ?? false,
-    service_mode: category.service_mode,
-    ...(opts.is_manual_verified !== undefined
-      ? { is_manual_verified: opts.is_manual_verified }
-      : {}),
-    ...(opts.serves_at_vendor_place !== undefined
-      ? { serves_at_vendor_place: opts.serves_at_vendor_place }
-      : {}),
-    ...(opts.serves_at_customer_place !== undefined
-      ? { serves_at_customer_place: opts.serves_at_customer_place }
-      : {}),
-  });
+  const { data, error } = await supabaseAdmin
+    .from('vendor_categories')
+    .insert({
+      vendor_id: vendorId,
+      category_id: category.id,
+      is_primary: opts.is_primary ?? true,
+      status: 'approved',
+      needs_review: opts.needs_review ?? false,
+      service_mode: category.service_mode,
+      ...(opts.is_manual_verified !== undefined
+        ? { is_manual_verified: opts.is_manual_verified }
+        : {}),
+      ...(opts.serves_at_vendor_place !== undefined
+        ? { serves_at_vendor_place: opts.serves_at_vendor_place }
+        : {}),
+      ...(opts.serves_at_customer_place !== undefined
+        ? { serves_at_customer_place: opts.serves_at_customer_place }
+        : {}),
+    })
+    .select('id')
+    .single();
   if (error) throw error;
+
+  const modes = (opts.modes ?? [category.service_mode])
+    .map((m) => String(m).toLowerCase().trim())
+    .filter((m) => m === 'help' || m === 'delivery' || m === 'appointment');
+  const uniqueModes = [...new Set(modes.length > 0 ? modes : [category.service_mode])];
+  const { error: modesError } = await supabaseAdmin.from('vendor_category_modes').insert(
+    uniqueModes.map((mode) => ({
+      vendor_category_id: data.id,
+      mode,
+    })),
+  );
+  if (modesError) throw modesError;
 }
 
 export async function seedDefaultVendorVerification(vendorId: string) {
@@ -516,6 +545,26 @@ async function signInTestUserInBrowser(
   try {
     await page.evaluate(
       async ({ email, password, expectedUrl }) => {
+        const testAuth = (
+          window as typeof window & {
+            __AASPAAS_TEST_AUTH__?: {
+              supabaseUrl: string;
+              signInWithPassword: (email: string, password: string) => Promise<void>;
+            };
+          }
+        ).__AASPAAS_TEST_AUTH__;
+        if (testAuth) {
+          if (expectedUrl && testAuth.supabaseUrl !== expectedUrl) {
+            throw new Error(
+              `Supabase URL mismatch: app uses ${testAuth.supabaseUrl}, tests expect ${expectedUrl}. ` +
+                'Rebuild the TEST preview with VITE_SUPABASE_URL from .env.test.',
+            );
+          }
+          await testAuth.signInWithPassword(email, password);
+          return;
+        }
+
+        // Dev-server fallback: Vite can serve source modules directly.
         const { supabase, SUPABASE_URL } = await import('/src/lib/supabase.ts');
         if (expectedUrl && SUPABASE_URL !== expectedUrl) {
           throw new Error(

@@ -118,6 +118,7 @@ async function addBusinessViaSetupSheet(
     categoryLabel: string;
     brandName: string;
     reach?: 'customer' | 'vendor' | 'both';
+    modes?: Array<'help' | 'delivery' | 'appointment'>;
   },
 ) {
   await page.getByTestId('my-business-add-business').click();
@@ -142,6 +143,11 @@ async function addBusinessViaSetupSheet(
   }
   if (reach === 'customer' || reach === 'both') {
     await page.getByRole('button', { name: '15 km' }).click();
+  }
+
+  const modes = opts.modes ?? ['help'];
+  for (const mode of modes) {
+    await page.getByTestId(`add-business-avail-${mode}`).click();
   }
 
   await page.getByTestId('add-business-shop-photo').click();
@@ -322,6 +328,7 @@ test('VR-MULTI-01: register one business then add second via My Business sheet',
     categoryLabel: plumber.label,
     brandName: `Plumber Brand ${phone.slice(-4)}`,
     reach: 'vendor',
+    modes: ['help', 'appointment'],
   });
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
@@ -347,7 +354,7 @@ test('VR-MULTI-01: register one business then add second via My Business sheet',
 
   const { data: categoryRows, error: categoryError } = await supabaseAdmin
     .from('vendor_categories')
-    .select('category_id, is_primary, categories(label)')
+    .select('id, category_id, is_primary, categories(label)')
     .eq('vendor_id', vendorId)
     .order('is_primary', { ascending: false });
   expect(categoryError).toBeNull();
@@ -362,9 +369,85 @@ test('VR-MULTI-01: register one business then add second via My Business sheet',
   expect(categoryRows?.[0]?.is_primary).toBe(true);
   expect(categoryRows?.[1]?.is_primary).toBe(false);
 
+  const plumberVc = categoryRows!.find((r) => r.category_id === plumber.id)!;
+  const { data: plumberModes } = await supabaseAdmin
+    .from('vendor_category_modes')
+    .select('mode')
+    .eq('vendor_category_id', plumberVc.id);
+  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment', 'help']);
+
   await deleteVendorRegistrationArtifacts(vendorId);
 });
 
+test('VR-MULTI-02: register two categories with distinct per-category modes', async ({ page }) => {
+  const electrician = await getActiveCategoryByLabel('Electrician');
+  const plumber = await getActiveCategoryByLabel('Plumber');
+  const phone = `99015${Date.now().toString().slice(-5)}`;
+  const ownerName = 'Dual Mode Owner';
+  const shopName = `Dual Mode Shop ${phone.slice(-4)}`;
+
+  await mockVendorGeolocation(page);
+  await enableE2eCameraMock(page);
+  await page.goto(APP_URL);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${APP_URL}/vendor`);
+
+  await completeWizardStepA(page, {
+    ownerName,
+    phone,
+    upi: 'dualmode@upi',
+  });
+
+  await page.getByRole('button', { name: 'Browse all categories' }).click();
+  const elecChip = page.getByRole('button').filter({ hasText: electrician.label }).first();
+  const plumberChip = page.getByRole('button').filter({ hasText: plumber.label }).first();
+  await expect(elecChip).toBeVisible({ timeout: 15000 });
+  await elecChip.click();
+  await plumberChip.click();
+
+  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
+  await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
+
+  // Per-category selectors use category-id prefixes when multiple are selected.
+  await page.getByTestId(`reg-avail-${electrician.id}-help`).click();
+  await page.getByTestId(`reg-avail-${electrician.id}-delivery`).click();
+  await page.getByTestId(`reg-avail-${plumber.id}-appointment`).click();
+
+  await page.getByTestId('reg-shop-photo-capture').click();
+  await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
+    timeout: 15000,
+  });
+  await page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी करा/i }).click();
+  await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
+
+  const { data: vendor } = await supabaseAdmin
+    .from('vendors')
+    .select('id')
+    .eq('phone', phone)
+    .single();
+  const vendorId = vendor!.id;
+
+  const { data: vcRows } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('id, category_id')
+    .eq('vendor_id', vendorId);
+  expect(vcRows?.length).toBe(2);
+
+  const elecVc = vcRows!.find((r) => r.category_id === electrician.id)!;
+  const plumberVc = vcRows!.find((r) => r.category_id === plumber.id)!;
+  const { data: elecModes } = await supabaseAdmin
+    .from('vendor_category_modes')
+    .select('mode')
+    .eq('vendor_category_id', elecVc.id);
+  const { data: plumberModes } = await supabaseAdmin
+    .from('vendor_category_modes')
+    .select('mode')
+    .eq('vendor_category_id', plumberVc.id);
+  expect((elecModes ?? []).map((m) => m.mode).sort()).toEqual(['delivery', 'help']);
+  expect((plumberModes ?? []).map((m) => m.mode)).toEqual(['appointment']);
+
+  await deleteVendorRegistrationArtifacts(vendorId);
+});
 test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode category', async ({
   page,
 }) => {

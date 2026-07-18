@@ -3,6 +3,7 @@ import { Camera, CheckCircle2, ChevronLeft, Loader2, MapPin } from "lucide-react
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
+import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAvailabilityModeSelector";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
@@ -39,9 +40,16 @@ import {
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
 import {
+  allCategoriesHaveModes,
+  buildCategoryModesPayload,
+  pickPrimaryAvailabilityMode,
+  unionAvailabilityModes,
+} from "@/lib/categoryAvailabilityModes";
+import {
   type AvailabilityMode,
   type BaseTypeValue,
   type ReachChoiceValue,
+  MAX_REG_CATEGORIES,
   baseTypeToVendorType,
   looksLikeGibberish,
   reachFlagsFromChoice,
@@ -187,7 +195,7 @@ export function VendorRegistrationWizard({
   const [name, setName] = useState("");
   const [shopName, setShopName] = useState("");
   const [businessDescription, setBusinessDescription] = useState("");
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [regCategories, setRegCategories] = useState<RegCategoryRow[]>([]);
   const [regCategoriesLoading, setRegCategoriesLoading] = useState(true);
   const [extraRegCategories, setExtraRegCategories] = useState<RegCategoryRow[]>([]);
@@ -204,7 +212,10 @@ export function VendorRegistrationWizard({
 
   const [reachChoice, setReachChoice] = useState<ReachChoiceValue | "">("");
   const [serviceRadiusKm, setServiceRadiusKm] = useState<number | null>(null);
-  const [availabilityModes, setAvailabilityModes] = useState<AvailabilityMode[]>([]);
+  const [categoryModesById, setCategoryModesById] = useState<
+    Record<string, AvailabilityMode[]>
+  >({});
+  const [pendingCategoryModes, setPendingCategoryModes] = useState<AvailabilityMode[]>([]);
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
 
   const [phone, setPhone] = useState("");
@@ -273,8 +284,8 @@ export function VendorRegistrationWizard({
   }, [regCategories, extraRegCategories]);
 
   const primaryCategory =
-    selectedCategoryId != null
-      ? allRegCategories.find((c) => c.id === selectedCategoryId) ?? null
+    selectedCategoryIds.length > 0
+      ? allRegCategories.find((c) => c.id === selectedCategoryIds[0]) ?? null
       : null;
   const effectiveCategory =
     primaryCategory?.label ?? pendingNewCategoryCreate?.category_name ?? "";
@@ -288,8 +299,11 @@ export function VendorRegistrationWizard({
   const shopFieldOk =
     baseType === "shop" ? shopOk : baseType === "home" ? !homeShopInvalid : true;
   const categoryOk =
-    (selectedCategoryId != null && effectiveCategory.length > 1) ||
+    (selectedCategoryIds.length > 0 && effectiveCategory.length > 1) ||
     pendingNewCategoryCreate != null;
+  const modesOk = pendingNewCategoryCreate
+    ? pendingCategoryModes.length > 0
+    : allCategoriesHaveModes(selectedCategoryIds, categoryModesById);
   const gpsOk = coords != null;
   const selfieCaptured = selfieBlob != null;
   const shopPhotoCaptured = shopPhotoBlob != null;
@@ -307,7 +321,7 @@ export function VendorRegistrationWizard({
     shopFieldOk &&
     reachChoice !== "" &&
     radiusOk &&
-    availabilityModes.length > 0 &&
+    modesOk &&
     shopPhotoCaptured;
 
   const detectLocation = (opts?: { silent?: boolean }): Promise<{ lat: number; lng: number } | null> => {
@@ -352,10 +366,8 @@ export function VendorRegistrationWizard({
     void detectLocation({ silent: true });
   }, [baseType]);
 
-  const toggleAvailability = (mode: AvailabilityMode) => {
-    setAvailabilityModes((prev) =>
-      prev.includes(mode) ? prev.filter((m) => m !== mode) : [...prev, mode],
-    );
+  const setCategoryModes = (categoryId: string, modes: AvailabilityMode[]) => {
+    setCategoryModesById((prev) => ({ ...prev, [categoryId]: modes }));
   };
 
   const tryStepANext = () => {
@@ -399,9 +411,14 @@ export function VendorRegistrationWizard({
         { id, label, emoji: emoji ?? "✨", service_mode: serviceModeValue },
       ];
     });
-    setSelectedCategoryId(id);
+    setSelectedCategoryIds((prev) => {
+      if (prev.includes(id)) return prev;
+      if (prev.length >= MAX_REG_CATEGORIES) return prev;
+      return [...prev, id];
+    });
     setCategorySuggestion(null);
     setPendingNewCategoryCreate(null);
+    setPendingCategoryModes([]);
     setShowManualCategories(false);
   };
 
@@ -442,7 +459,8 @@ export function VendorRegistrationWizard({
           category_name: result.category_name ?? desc,
           service_mode: result.service_mode ?? "help",
         });
-        setSelectedCategoryId(null);
+        setSelectedCategoryIds([]);
+        setPendingCategoryModes([]);
       }
     } catch {
       dismissNetworkRetryingToast();
@@ -457,14 +475,27 @@ export function VendorRegistrationWizard({
       category_name: categorySuggestion.category_name,
       service_mode: categorySuggestion.service_mode ?? "help",
     });
-    setSelectedCategoryId(null);
+    setSelectedCategoryIds([]);
+    setPendingCategoryModes([]);
     setCategorySuggestion(null);
     toast.success(s.category_suggest_new(categorySuggestion.category_name));
   };
 
-  const selectRegCategory = (categoryId: string) => {
+  const toggleRegCategory = (categoryId: string) => {
     setPendingNewCategoryCreate(null);
-    setSelectedCategoryId((prev) => (prev === categoryId ? null : categoryId));
+    setPendingCategoryModes([]);
+    setSelectedCategoryIds((prev) => {
+      if (prev.includes(categoryId)) {
+        setCategoryModesById((m) => {
+          const next = { ...m };
+          delete next[categoryId];
+          return next;
+        });
+        return prev.filter((id) => id !== categoryId);
+      }
+      if (prev.length >= MAX_REG_CATEGORIES) return prev;
+      return [...prev, categoryId];
+    });
   };
 
   const handleUpiQrFile = async (file: File) => {
@@ -530,7 +561,7 @@ export function VendorRegistrationWizard({
       showRegistrationGuidanceToast(s.reg_toast_missing_radius);
       return;
     }
-    if (availabilityModes.length === 0) {
+    if (!modesOk) {
       showRegistrationGuidanceToast(s.reg_toast_missing_availability);
       return;
     }
@@ -538,7 +569,6 @@ export function VendorRegistrationWizard({
     setLoading(true);
     setParentError(null);
 
-    const primaryServiceMode = availabilityModes[0];
     const vendorType = baseTypeToVendorType(baseType);
     if (!vendorType) {
       setLoading(false);
@@ -547,17 +577,33 @@ export function VendorRegistrationWizard({
 
     const resolvedShopName = resolveRegistrationShopName(baseType, name, shopName);
     // Pending-only flow needs a temporary category row; attach_pending replaces it after create.
-    const categoryIdsForRpc = selectedCategoryId
-      ? [selectedCategoryId]
-      : pendingNewCategoryCreate && regCategories[0]
-        ? [regCategories[0].id]
-        : [];
+    const categoryIdsForRpc =
+      selectedCategoryIds.length > 0
+        ? selectedCategoryIds
+        : pendingNewCategoryCreate && regCategories[0]
+          ? [regCategories[0].id]
+          : [];
     if (categoryIdsForRpc.length === 0) {
       setLoading(false);
       showRegistrationGuidanceToast(s.reg_toast_missing_categories);
       return;
     }
-    const categoryServiceModes = categoryIdsForRpc.map(() => primaryServiceMode);
+
+    const modesByIdForRpc = pendingNewCategoryCreate
+      ? { [categoryIdsForRpc[0]]: pendingCategoryModes }
+      : buildCategoryModesPayload(selectedCategoryIds, categoryModesById);
+
+    const categoryServiceModes = categoryIdsForRpc.map((id) => {
+      const cat = allRegCategories.find((c) => c.id === id);
+      const modes = modesByIdForRpc[id] ?? [];
+      return pickPrimaryAvailabilityMode(modes, cat?.service_mode);
+    });
+
+    const primaryServiceMode = pickPrimaryAvailabilityMode(
+      modesByIdForRpc[categoryIdsForRpc[0]],
+      allRegCategories.find((c) => c.id === categoryIdsForRpc[0])?.service_mode,
+    );
+    const availabilityModesUnion = unionAvailabilityModes(modesByIdForRpc);
 
     const registerResult = await invokeRegisterVendor({
       name: name.trim(),
@@ -576,11 +622,12 @@ export function VendorRegistrationWizard({
       profile_status: "complete",
       category_ids: categoryIdsForRpc,
       category_service_modes: categoryServiceModes,
+      category_modes: modesByIdForRpc,
       base_type: baseType,
       serves_at_vendor_place: reachFlags.serves_at_vendor_place,
       serves_at_customer_place: reachFlags.serves_at_customer_place,
       service_radius_km: serviceRadiusKm ?? 15,
-      availability_modes: availabilityModes,
+      availability_modes: availabilityModesUnion,
     });
 
     if (registerResult.ok === false) {
@@ -601,7 +648,8 @@ export function VendorRegistrationWizard({
     const newVendorId = registerResult.vendorId;
     let resolvedPrimaryServiceMode = primaryServiceMode;
     let resolvedCategoryLabel = effectiveCategory;
-    let resolvedCategoryId = selectedCategoryId;
+    let resolvedCategoryId =
+      selectedCategoryIds.length > 0 ? selectedCategoryIds[0] : null;
 
     if (pendingNewCategoryCreate) {
       const created = await invokeSuggestCategory({
@@ -610,8 +658,10 @@ export function VendorRegistrationWizard({
         create_pending: true,
       });
       if (created.success && created.category_id) {
-        resolvedPrimaryServiceMode = (created.service_mode ??
-          pendingNewCategoryCreate.service_mode) as AvailabilityMode;
+        resolvedPrimaryServiceMode = pickPrimaryAvailabilityMode(
+          pendingCategoryModes,
+          created.service_mode ?? pendingNewCategoryCreate.service_mode,
+        );
         resolvedCategoryLabel =
           created.category_name ?? pendingNewCategoryCreate.category_name;
         resolvedCategoryId = created.category_id;
@@ -620,6 +670,7 @@ export function VendorRegistrationWizard({
           vendorId: newVendorId,
           categoryId: created.category_id,
           serviceMode: resolvedPrimaryServiceMode,
+          modes: pendingCategoryModes,
         });
         if (attachResult.ok === false) {
           console.error("attach_pending_category failed", attachResult.error);
@@ -964,13 +1015,16 @@ export function VendorRegistrationWizard({
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {s.vendor_categories_label} *
               </label>
-              {selectedCategoryId && (
+              {selectedCategoryIds.length > 0 && (
                 <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
                   <CheckCircle2 className="h-3.5 w-3.5 text-brand" />
-                  {getLabel(primaryCategory?.label ?? "")}
+                  {selectedCategoryIds
+                    .map((id) => getLabel(allRegCategories.find((c) => c.id === id)?.label ?? ""))
+                    .filter(Boolean)
+                    .join(", ")}
                 </span>
               )}
-              {pendingNewCategoryCreate && !selectedCategoryId && (
+              {pendingNewCategoryCreate && selectedCategoryIds.length === 0 && (
                 <span className="text-xs text-muted-foreground">
                   {pendingNewCategoryCreate.category_name}
                 </span>
@@ -1043,17 +1097,21 @@ export function VendorRegistrationWizard({
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   allRegCategories.map((cat) => {
-                    const selected = selectedCategoryId === cat.id;
+                    const selected = selectedCategoryIds.includes(cat.id);
+                    const atMax =
+                      !selected && selectedCategoryIds.length >= MAX_REG_CATEGORIES;
                     return (
                       <button
                         key={cat.id}
                         type="button"
-                        onClick={() => selectRegCategory(cat.id)}
+                        disabled={atMax}
+                        onClick={() => toggleRegCategory(cat.id)}
                         className={cn(
                           "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium",
                           selected
                             ? "border-primary bg-primary/20 ring-1 ring-primary/30"
                             : "border-border bg-card",
+                          atMax && "opacity-40 cursor-not-allowed",
                         )}
                       >
                         {cat.emoji} {getLabel(cat.label)}
@@ -1131,38 +1189,53 @@ export function VendorRegistrationWizard({
             </div>
           )}
 
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {s.reg_when_available} *
-            </label>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {(
-                [
-                  { mode: "help" as const, emoji: "⚡", title: s.reg_avail_help, desc: s.reg_avail_help_desc },
-                  { mode: "delivery" as const, emoji: "🛒", title: s.reg_avail_delivery, desc: s.reg_avail_delivery_desc },
-                  { mode: "appointment" as const, emoji: "📅", title: s.reg_avail_appointment, desc: s.reg_avail_appointment_desc },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.mode}
-                  type="button"
-                  data-testid={`reg-avail-${opt.mode}`}
-                  onClick={() => toggleAvailability(opt.mode)}
-                  className={cn(
-                    "rounded-2xl border-2 p-3 text-left min-w-[140px] flex-1",
-                    availabilityModes.includes(opt.mode)
-                      ? "border-primary bg-primary/15 ring-1 ring-primary/30"
-                      : "border-surface-border bg-surface",
-                  )}
-                >
-                  <p className="font-semibold text-sm">
-                    {opt.emoji} {opt.title}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{opt.desc}</p>
-                </button>
-              ))}
-            </div>
-          </div>
+          {(pendingNewCategoryCreate && selectedCategoryIds.length === 0) ||
+          selectedCategoryIds.length > 0 ? (
+            pendingNewCategoryCreate && selectedCategoryIds.length === 0 ? (
+              <CategoryAvailabilityModeSelector
+                variant="cards"
+                label={s.reg_when_available}
+                required
+                testIdPrefix="reg-avail"
+                value={pendingCategoryModes}
+                onChange={setPendingCategoryModes}
+              />
+            ) : selectedCategoryIds.length === 1 ? (
+              <CategoryAvailabilityModeSelector
+                variant="cards"
+                label={s.reg_when_available}
+                required
+                testIdPrefix="reg-avail"
+                value={categoryModesById[selectedCategoryIds[0]] ?? []}
+                onChange={(modes) => setCategoryModes(selectedCategoryIds[0], modes)}
+              />
+            ) : (
+              <div className="space-y-3">
+                {selectedCategoryIds.map((catId) => {
+                  const cat = allRegCategories.find((c) => c.id === catId);
+                  if (!cat) return null;
+                  return (
+                    <div
+                      key={catId}
+                      className="rounded-2xl border border-surface-border bg-muted/20 p-3"
+                    >
+                      <p className="text-sm font-semibold text-foreground mb-2">
+                        {cat.emoji} {getLabel(cat.label)}
+                      </p>
+                      <CategoryAvailabilityModeSelector
+                        variant="cards"
+                        label={s.reg_category_when_available}
+                        required
+                        testIdPrefix={`reg-avail-${cat.id}`}
+                        value={categoryModesById[catId] ?? []}
+                        onChange={(modes) => setCategoryModes(catId, modes)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : null}
 
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

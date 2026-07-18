@@ -598,6 +598,7 @@ export function ParchiSheet({
                 p_customer_longitude: customerLng ?? null,
                 p_appointment_instant: isInstantAppointment,
                 p_category_id: orderCategoryId ?? null,
+                p_service_mode: resolvedServiceMode,
               }),
             ),
           {
