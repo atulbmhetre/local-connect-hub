@@ -1,4 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { clientIp } from "../_shared/rateLimitUtils.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -29,6 +31,8 @@ type RequestBody = {
   image_base64?: string;
   media_type?: string;
   healthCheck?: boolean;
+  phone?: string;
+  vendor_id?: string;
 };
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -36,6 +40,26 @@ function jsonResponse(payload: unknown, status = 200) {
     status,
     headers: CORS_HEADERS,
   });
+}
+
+async function checkRateLimit(
+  supabase: ReturnType<typeof createClient>,
+  identifierType: "phone" | "ip",
+  identifier: string,
+  maxRequests: number,
+): Promise<boolean | null> {
+  const { data, error } = await supabase.rpc("check_and_log_rate_limit", {
+    p_function_name: "parse-image-bill",
+    p_identifier_type: identifierType,
+    p_identifier: identifier,
+    p_max_requests: maxRequests,
+    p_window_seconds: 60,
+  });
+  if (error) {
+    console.error("parse-image-bill rate limit RPC failed", identifierType, error);
+    return null; // fail open — never block real billing on infra error
+  }
+  return data === true;
 }
 
 function extractJson<T>(text: string): T | null {
@@ -109,6 +133,35 @@ serve(async (req) => {
 
     if (body.healthCheck === true) {
       return jsonResponse({ status: "ok" });
+    }
+
+    // Rate limit before validation/AI: this endpoint is anon-reachable and
+    // calls a paid AI API, so it must be metered (phone when supplied + IP).
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (supabaseUrl && serviceRoleKey) {
+      const supabase = createClient(supabaseUrl, serviceRoleKey);
+      const phone = body.phone?.trim() || undefined;
+
+      if (phone) {
+        const phoneAllowed = await checkRateLimit(supabase, "phone", phone, 10);
+        if (phoneAllowed === false) {
+          return jsonResponse({
+            success: false,
+            error: "Too many requests, please wait a moment and try again.",
+          }, 429);
+        }
+      }
+
+      const ipAllowed = await checkRateLimit(supabase, "ip", clientIp(req), 20);
+      if (ipAllowed === false) {
+        return jsonResponse({
+          success: false,
+          error: "Too many requests, please wait a moment and try again.",
+        }, 429);
+      }
+    } else {
+      console.error("parse-image-bill missing SUPABASE_URL/SERVICE_ROLE_KEY for rate limiting");
     }
 
     const image_base64 = body.image_base64?.trim();

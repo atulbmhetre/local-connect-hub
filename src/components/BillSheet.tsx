@@ -200,7 +200,11 @@ export function BillSheet({
           "Content-Type": "application/json",
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          phone: getUserPhone()?.trim() || undefined,
+          vendor_id: vendorId,
+        }),
       });
       const result = await resp.json();
       if (result.success && result.items?.length) {
@@ -256,7 +260,12 @@ export function BillSheet({
               "Content-Type": "application/json",
               Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
             },
-            body: JSON.stringify({ image_base64: base64, media_type: file.type }),
+            body: JSON.stringify({
+              image_base64: base64,
+              media_type: file.type,
+              phone: getUserPhone()?.trim() || undefined,
+              vendor_id: vendorId,
+            }),
           });
           const result = await resp.json();
           if (result.success && result.items?.length) {

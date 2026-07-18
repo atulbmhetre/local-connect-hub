@@ -1265,7 +1265,7 @@ export function VendorSettings({
       toast.error(s.menu_pick_category);
       return;
     }
-    await supabase.rpc("vendor_insert_menu_items", {
+    const { error } = await supabase.rpc("vendor_insert_menu_items", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
       p_items: [
@@ -1279,6 +1279,10 @@ export function VendorSettings({
         },
       ],
     });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     setNewItem({ name: "", price: "", unit: "", description: "", category_id: "" });
     setAddingItem(false);
     void loadMenu();
@@ -1293,7 +1297,7 @@ export function VendorSettings({
       toast.error(s.menu_pick_category);
       return;
     }
-    await supabase.rpc("vendor_update_menu_item", {
+    const { error } = await supabase.rpc("vendor_update_menu_item", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
       p_item_id: editingMenuItem.id,
@@ -1303,27 +1307,39 @@ export function VendorSettings({
       p_description: editDraft.description.trim() || null,
       p_category_id: categoryId,
     });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     setEditingMenuItem(null);
     void loadMenu();
   };
 
   const toggleAvailability = async (item: MenuItem) => {
     if (!vendorPhone) return;
-    await supabase.rpc("vendor_toggle_menu_item_availability", {
+    const { error } = await supabase.rpc("vendor_toggle_menu_item_availability", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
       p_item_id: item.id,
     });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     void loadMenu();
   };
 
   const deleteMenuItem = async (id: string) => {
     if (!vendorPhone) return;
-    await supabase.rpc("vendor_delete_menu_item", {
+    const { error } = await supabase.rpc("vendor_delete_menu_item", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
       p_item_id: id,
     });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     void loadMenu();
   };
 
@@ -1351,7 +1367,7 @@ export function VendorSettings({
           "Content-Type": "application/json",
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, phone: vendorPhone, vendor_id: vendor.id }),
       });
       const result = await resp.json();
       if (result.success && result.items?.length && vendorPhone) {
@@ -1360,7 +1376,7 @@ export function VendorSettings({
           return;
         }
         const categoryId = isMultiCategory ? newItem.category_id.trim() : soleCategoryId;
-        await supabase.rpc("vendor_insert_menu_items", {
+        const { error: insertError } = await supabase.rpc("vendor_insert_menu_items", {
           p_vendor_id: vendor.id,
           p_vendor_phone: vendorPhone,
           p_items: result.items.map(
@@ -1376,6 +1392,10 @@ export function VendorSettings({
             }),
           ),
         });
+        if (insertError) {
+          toast.error(insertError.message);
+          return;
+        }
         void loadMenu();
         toast.success(s.menu_voiceAdded);
       } else {
@@ -1410,7 +1430,12 @@ export function VendorSettings({
             "Content-Type": "application/json",
             Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
           },
-          body: JSON.stringify({ image_base64: base64, media_type: file.type }),
+          body: JSON.stringify({
+            image_base64: base64,
+            media_type: file.type,
+            phone: vendorPhone,
+            vendor_id: vendor.id,
+          }),
         });
         const result = await resp.json();
         if (result.success && result.items?.length && vendorPhone) {
@@ -1420,7 +1445,7 @@ export function VendorSettings({
             return;
           }
           const categoryId = isMultiCategory ? newItem.category_id.trim() : soleCategoryId;
-          await supabase.rpc("vendor_insert_menu_items", {
+          const { error: insertError } = await supabase.rpc("vendor_insert_menu_items", {
             p_vendor_id: vendor.id,
             p_vendor_phone: vendorPhone,
             p_items: result.items.map(
@@ -1436,6 +1461,11 @@ export function VendorSettings({
               }),
             ),
           });
+          if (insertError) {
+            toast.error(insertError.message);
+            setIsProcessingImageMenu(false);
+            return;
+          }
           void loadMenu();
           toast.success(s.menu_imageAdded);
         } else {
