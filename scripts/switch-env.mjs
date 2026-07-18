@@ -3,6 +3,9 @@
  * Usage: node scripts/switch-env.mjs test|prod
  *
  * Anon keys only — never put service role keys here.
+ * Publishable keys are read from the shell at runtime (never hardcoded):
+ *   TEST → TEST_SUPABASE_ANON_KEY
+ *   PROD → PROD_SUPABASE_ANON_KEY
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,19 +15,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const envPath = path.join(projectRoot, '.env.development');
 
-const ENVS = {
-  test: {
-    VITE_ENVIRONMENT: 'test',
-    VITE_SUPABASE_URL: 'https://hhdylnhqdzfabsolwxdz.supabase.co',
-    VITE_SUPABASE_ANON_KEY:
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoZHlsbmhxZHpmYWJzb2x3eGR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NDQ0ODEsImV4cCI6MjA5NjAyMDQ4MX0.CWGB3IcOmFK7NsHIy6bgPulRfVGRuDxXDzdEZ7V777s',
-  },
-  prod: {
-    VITE_ENVIRONMENT: 'prod',
-    VITE_SUPABASE_URL: 'https://rpxsyeqskvhjmbkxnpmd.supabase.co',
-    VITE_SUPABASE_ANON_KEY:
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJweHN5ZXFza3Zoam1ia3hucG1kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0ODQ3MDEsImV4cCI6MjA5MjA2MDcwMX0.HXZF2uGxkUbBrYMWfvOQyx8_7Syrx4BY3pdt0z1dNF0',
-  },
+const PROJECT_URLS = {
+  test: 'https://hhdylnhqdzfabsolwxdz.supabase.co',
+  prod: 'https://rpxsyeqskvhjmbkxnpmd.supabase.co',
+};
+
+const ANON_KEY_ENV = {
+  test: 'TEST_SUPABASE_ANON_KEY',
+  prod: 'PROD_SUPABASE_ANON_KEY',
 };
 
 const target = (process.argv[2] ?? '').trim().toLowerCase();
@@ -41,7 +39,21 @@ if (!fs.existsSync(envPath)) {
   process.exit(1);
 }
 
-const values = ENVS[target];
+const anonKeyEnvName = ANON_KEY_ENV[target];
+const anonKey = (process.env[anonKeyEnvName] ?? '').trim();
+if (!anonKey) {
+  console.error(
+    `Set ${anonKeyEnvName} in your shell before running this script for ${target}.`,
+  );
+  process.exit(1);
+}
+
+const values = {
+  VITE_ENVIRONMENT: target,
+  VITE_SUPABASE_URL: PROJECT_URLS[target],
+  VITE_SUPABASE_ANON_KEY: anonKey,
+};
+
 const original = fs.readFileSync(envPath, 'utf8');
 
 const KEYS = new Set([
@@ -67,6 +79,7 @@ const updated = original
 
 console.log(`Switching env: development → ${target}`);
 console.log(`VITE_SUPABASE_URL=${values.VITE_SUPABASE_URL}`);
+console.log(`VITE_SUPABASE_ANON_KEY source: ${anonKeyEnvName}`);
 
 fs.writeFileSync(envPath, updated, 'utf8');
 

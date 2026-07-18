@@ -8,7 +8,9 @@ const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 function loadEnvAndResolveBrowsersPath(): void {
   dotenv.config({ path: path.join(projectRoot, '.env.local'), override: true });
   const env = process.env.TEST_ENV || 'test';
-  dotenv.config({ path: path.join(projectRoot, `.env.${env}`) });
+  // Load the selected test env before defineConfig builds webServer.env.
+  // It is authoritative, so stale inherited shell values cannot win.
+  dotenv.config({ path: path.join(projectRoot, `.env.${env}`), override: true });
 
   const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH?.trim();
   if (browsersPath?.startsWith('.')) {
@@ -45,9 +47,8 @@ export default defineConfig({
     reuseExistingServer: process.env.PW_REUSE_DEV_SERVER === 'true',
     timeout: 60000,
     env: {
-      VITE_SUPABASE_URL: 'https://hhdylnhqdzfabsolwxdz.supabase.co',
-      VITE_SUPABASE_ANON_KEY:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoZHlsbmhxZHpmYWJzb2x3eGR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NDQ0ODEsImV4cCI6MjA5NjAyMDQ4MX0.CWGB3IcOmFK7NsHIy6bgPulRfVGRuDxXDzdEZ7V777s',
+      VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL!,
+      VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY!,
     },
   },
 });

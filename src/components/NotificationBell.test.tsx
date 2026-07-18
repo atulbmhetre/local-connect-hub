@@ -92,6 +92,7 @@ vi.mock("@/lib/supabase", () => {
 
 vi.mock("@/lib/userIdentity", () => ({
   getUserPhone: () => "9876543210",
+  USER_PHONE_CHANGED_EVENT: "aaspaas:user_phone_changed",
 }));
 
 vi.mock("@/lib/deviceId", () => ({
