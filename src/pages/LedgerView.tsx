@@ -13,6 +13,7 @@ import {
 import { supabase, invokeNotifyUser, invokeInitiateCall } from "@/lib/supabase";
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
 import {
   NetworkExhaustedError,
@@ -147,11 +148,11 @@ const LedgerView = () => {
       const { data, error } = await withNetworkRetry(
         async () =>
           throwOnSupabaseNetworkError(
-            await supabase
-              .from("khata_ledger")
-              .select("user_phone, total_outstanding, last_updated")
-              .eq("vendor_id", id)
-              .order("last_updated", { ascending: false }),
+            await supabase.rpc("get_vendor_khata_ledger", {
+              p_vendor_id: id,
+              p_vendor_phone: vendorPhoneForNames,
+              p_user_phones: null,
+            }),
           ),
         {
           onRetrying: () => setEntriesNetworkStatus("retrying"),
@@ -204,20 +205,26 @@ const LedgerView = () => {
     }
   }, []);
 
-  const loadTransactions = useCallback(async (id: string, userPhone: string) => {
+  const loadTransactions = useCallback(async (id: string, userPhone: string, phoneForRpc?: string) => {
+    const vendorPhoneForRpc = (phoneForRpc ?? getUserPhone() ?? "").trim();
     loadTransactionsRetryRef.current = { id, userPhone };
     setTxLoading(true);
     setTxNetworkStatus(null);
+    if (!vendorPhoneForRpc) {
+      setTransactions([]);
+      setTxLoading(false);
+      return;
+    }
     try {
       const { data, error } = await withNetworkRetry(
         async () =>
           throwOnSupabaseNetworkError(
-            await supabase
-              .from("khata_transactions")
-              .select("id, amount, note, payment_mode, created_at")
-              .eq("vendor_id", id)
-              .eq("user_phone", userPhone)
-              .order("created_at", { ascending: true }),
+            await supabase.rpc("get_vendor_khata_transactions", {
+              p_vendor_id: id,
+              p_vendor_phone: vendorPhoneForRpc,
+              p_user_phone: userPhone,
+              p_since: null,
+            }),
           ),
         {
           onRetrying: () => setTxNetworkStatus("retrying"),
@@ -252,41 +259,52 @@ const LedgerView = () => {
     }
     setVendorId(id);
     void (async () => {
-      const { data: vendor } = await supabase
-        .from("vendors")
-        .select(
-          "shop_name, ledger_cycle_start, khata_amber_limit, khata_red_limit, phone, service_mode",
-        )
-        .eq("id", id)
-        .maybeSingle();
-      setShopName(vendor?.shop_name ?? "");
-      setLedgerCycleStart(vendor?.ledger_cycle_start ?? null);
-      setKhataAmberLimit(Number(vendor?.khata_amber_limit) || 0);
-      setKhataRedLimit(Number(vendor?.khata_red_limit) || 0);
-      const phone = (vendor?.phone ?? "").replace(/[\s\-+]/g, "").trim();
+      const phoneFromStorage = (getUserPhone() ?? "").replace(/[\s\-+]/g, "").trim();
+      if (!phoneFromStorage) {
+        navigate("/vendor", { replace: true });
+        return;
+      }
+      const { data: vendor, error: vendorError } = await supabase.rpc("get_vendor_own", {
+        p_vendor_id: id,
+        p_vendor_phone: phoneFromStorage,
+      });
+      if (vendorError || !vendor) {
+        navigate("/vendor", { replace: true });
+        return;
+      }
+      setShopName(vendor.shop_name ?? "");
+      setLedgerCycleStart(vendor.ledger_cycle_start ?? null);
+      setKhataAmberLimit(Number(vendor.khata_amber_limit) || 0);
+      setKhataRedLimit(Number(vendor.khata_red_limit) || 0);
+      const phone = (vendor.phone ?? phoneFromStorage).replace(/[\s\-+]/g, "").trim();
       setVendorPhone(phone);
-      setVendorServiceMode(vendor?.service_mode ?? "help");
+      setVendorServiceMode(vendor.service_mode ?? "help");
       await loadEntries(id, phone);
     })();
   }, [navigate, loadEntries]);
 
   const loadFullHistory = useCallback(
-    async (id: string, userPhone: string, cycleStart: string | null) => {
+    async (id: string, userPhone: string, cycleStart: string | null, phoneForRpc?: string) => {
+      const vendorPhoneForRpc = (phoneForRpc ?? getUserPhone() ?? "").trim();
       loadFullHistoryRetryRef.current = { id, userPhone, cycleStart };
       setFullHistoryLoading(true);
       setFullHistoryNetworkStatus(null);
       const since = ledgerCycleStartIso(cycleStart);
+      if (!vendorPhoneForRpc) {
+        setFullHistoryTransactions([]);
+        setFullHistoryLoading(false);
+        return;
+      }
       try {
         const { data, error } = await withNetworkRetry(
           async () =>
             throwOnSupabaseNetworkError(
-              await supabase
-                .from("khata_transactions")
-                .select("id, amount, note, payment_mode, created_at")
-                .eq("vendor_id", id)
-                .eq("user_phone", userPhone)
-                .gte("created_at", since)
-                .order("created_at", { ascending: false }),
+              await supabase.rpc("get_vendor_khata_transactions", {
+                p_vendor_id: id,
+                p_vendor_phone: vendorPhoneForRpc,
+                p_user_phone: userPhone,
+                p_since: since,
+              }),
             ),
           {
             onRetrying: () => setFullHistoryNetworkStatus("retrying"),
@@ -482,20 +500,17 @@ const LedgerView = () => {
       ),
     );
 
-    const { data: linkedKhataTx } =
-      newOutstanding === 0
-        ? await supabase
-            .from("khata_transactions")
-            .select("request_id")
-            .eq("vendor_id", vendorId)
-            .eq("user_phone", selectedPhone)
-            .not("request_id", "is", null)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle()
-        : { data: null };
-
+    let linkedRequestId: string | null = null;
     if (newOutstanding === 0) {
+      const phoneForRpc = (vendorPhone || getUserPhone() || "").trim();
+      if (phoneForRpc) {
+        const { data: linkedId } = await supabase.rpc("get_vendor_khata_linked_request", {
+          p_vendor_id: vendorId,
+          p_vendor_phone: phoneForRpc,
+          p_user_phone: selectedPhone,
+        });
+        linkedRequestId = typeof linkedId === "string" ? linkedId : null;
+      }
       const paidTitle = s.khata_paidNotifTitle;
       const paidBody = s.khata_paidNotifBody;
       void invokeNotifyUser({
@@ -503,7 +518,7 @@ const LedgerView = () => {
         title: paidTitle,
         body: paidBody,
         type: "bill",
-        ...(linkedKhataTx?.request_id ? { order_id: linkedKhataTx.request_id } : {}),
+        ...(linkedRequestId ? { order_id: linkedRequestId } : {}),
       });
     }
 

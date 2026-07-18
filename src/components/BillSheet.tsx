@@ -109,19 +109,24 @@ export function BillSheet({
       setCurrentOutstanding(null);
       return;
     }
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setCurrentOutstanding(0);
+      return;
+    }
     setLoadingOutstanding(true);
-    const { data, error } = await supabase
-      .from("khata_ledger")
-      .select("total_outstanding")
-      .eq("vendor_id", vendorId)
-      .eq("user_phone", userPhone)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc("get_vendor_khata_ledger", {
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_user_phones: [userPhone],
+    });
     setLoadingOutstanding(false);
     if (error) {
       setCurrentOutstanding(0);
       return;
     }
-    setCurrentOutstanding(Number(data?.total_outstanding) || 0);
+    const row = Array.isArray(data) ? data[0] : null;
+    setCurrentOutstanding(Number(row?.total_outstanding) || 0);
   }, [vendorId, userPhone, khataAmberLimit]);
 
   const selectPaymentMode = (mode: "cash" | "upi" | "khata") => {
@@ -358,12 +363,20 @@ export function BillSheet({
   const sendBill = async () => {
     if (!validItems.length) return;
 
-    const { data: existingBills, error: checkError } = await supabase
-      .from("order_bills")
-      .select("id")
-      .eq("request_id", requestId)
-      .neq("payment_status", "void")
-      .limit(1);
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.bill_sendFailed);
+      return;
+    }
+
+    const { data: existingBills, error: checkError } = await supabase.rpc(
+      "get_vendor_order_bills",
+      {
+        p_vendor_id: vendorId,
+        p_vendor_phone: vendorPhone,
+        p_request_ids: [requestId],
+      },
+    );
 
     if (checkError) {
       toast.error(s.bill_sendFailed);

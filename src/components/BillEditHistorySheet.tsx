@@ -12,15 +12,27 @@ import {
   formatBillEditAuditDate,
   type BillEditAuditRow,
 } from "@/lib/billEdit";
+import { supabase } from "@/lib/supabase";
+import { getDeviceId } from "@/lib/deviceId";
+import { getUserPhone } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
 
 type Props = {
   billId: string | null;
   isOpen: boolean;
   onClose: () => void;
+  /** When set, loads via vendor OTP-off RPC (IncomingOrders). */
+  vendorId?: string;
+  vendorPhone?: string;
 };
 
-export function BillEditHistorySheet({ billId, isOpen, onClose }: Props) {
+export function BillEditHistorySheet({
+  billId,
+  isOpen,
+  onClose,
+  vendorId,
+  vendorPhone,
+}: Props) {
   const { s } = useLanguage();
   const [rows, setRows] = useState<BillEditAuditRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -32,7 +44,21 @@ export function BillEditHistorySheet({ billId, isOpen, onClose }: Props) {
     }
     let cancelled = false;
     setLoading(true);
-    void fetchBillEditAudit(billId).then((data) => {
+
+    const load = async () => {
+      if (vendorId && vendorPhone?.trim()) {
+        return fetchBillEditAudit(billId, vendorId, vendorPhone);
+      }
+      const { data, error } = await supabase.rpc("get_my_bill_edit_audit", {
+        p_user_phone: getUserPhone(),
+        p_device_id: getDeviceId(),
+        p_bill_id: billId,
+      });
+      if (error || !data) return [];
+      return data as BillEditAuditRow[];
+    };
+
+    void load().then((data) => {
       if (cancelled) return;
       setRows(data);
       setLoading(false);
@@ -40,7 +66,7 @@ export function BillEditHistorySheet({ billId, isOpen, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [isOpen, billId]);
+  }, [isOpen, billId, vendorId, vendorPhone]);
 
   return (
     <Sheet

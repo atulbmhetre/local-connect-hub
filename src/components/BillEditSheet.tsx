@@ -109,7 +109,8 @@ export function BillEditSheet({
     if (!isOpen) return;
     let cancelled = false;
     setLoadingItems(true);
-    void fetchBillLineItems(requestId).then((loaded) => {
+    const vendorPhone = getUserPhone()?.trim() ?? "";
+    void fetchBillLineItems(requestId, vendorId, vendorPhone).then((loaded) => {
       if (cancelled) return;
       setItems(loaded);
       setLoadingItems(false);
@@ -117,7 +118,7 @@ export function BillEditSheet({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, requestId]);
+  }, [isOpen, requestId, vendorId]);
 
   const updateItem = (id: string, patch: Partial<BillEditLineItem>) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
@@ -133,15 +134,16 @@ export function BillEditSheet({
 
   const fetchKhataOutstanding = async (): Promise<number> => {
     const phone = userPhone?.trim();
-    if (!phone) return 0;
-    const { data, error } = await supabase
-      .from("khata_ledger")
-      .select("total_outstanding")
-      .eq("vendor_id", vendorId)
-      .eq("user_phone", phone)
-      .maybeSingle();
+    const vendorPhone = getUserPhone()?.trim();
+    if (!phone || !vendorPhone) return 0;
+    const { data, error } = await supabase.rpc("get_vendor_khata_ledger", {
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_user_phones: [phone],
+    });
     if (error) return 0;
-    return Number(data?.total_outstanding) || 0;
+    const row = Array.isArray(data) ? data[0] : null;
+    return Number(row?.total_outstanding) || 0;
   };
 
   const executeSave = async (opts: {

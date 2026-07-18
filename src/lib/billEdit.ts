@@ -65,16 +65,28 @@ export function newBillEditLineItem(): BillEditLineItem {
   };
 }
 
-export async function fetchBillLineItems(requestId: string): Promise<BillEditLineItem[]> {
-  const { data, error } = await supabase
-    .from("order_items")
-    .select("description, quantity, unit, unit_price")
-    .eq("request_id", requestId)
-    .order("created_at", { ascending: true });
+export async function fetchBillLineItems(
+  requestId: string,
+  vendorId: string,
+  vendorPhone: string,
+): Promise<BillEditLineItem[]> {
+  const phone = vendorPhone.trim();
+  if (!phone) return [newBillEditLineItem()];
+
+  const { data, error } = await supabase.rpc("get_vendor_bill_line_items", {
+    p_vendor_id: vendorId,
+    p_vendor_phone: phone,
+    p_request_id: requestId,
+  });
 
   if (error || !data?.length) return [newBillEditLineItem()];
 
-  return data.map((row) => ({
+  return data.map((row: {
+    description: string | null;
+    quantity: number | null;
+    unit: string | null;
+    unit_price: number | null;
+  }) => ({
     id: crypto.randomUUID(),
     description: row.description ?? "",
     quantity: Number(row.quantity) || 1,
@@ -83,21 +95,36 @@ export async function fetchBillLineItems(requestId: string): Promise<BillEditLin
   }));
 }
 
-export async function fetchEditedBillIds(billIds: string[]): Promise<Set<string>> {
+export async function fetchEditedBillIds(
+  billIds: string[],
+  vendorId: string,
+  vendorPhone: string,
+): Promise<Set<string>> {
   if (billIds.length === 0) return new Set();
-  const { data } = await supabase
-    .from("bill_edit_audit")
-    .select("bill_id")
-    .in("bill_id", billIds);
-  return new Set((data ?? []).map((row) => row.bill_id));
+  const phone = vendorPhone.trim();
+  if (!phone) return new Set();
+
+  const { data } = await supabase.rpc("get_vendor_edited_bill_ids", {
+    p_vendor_id: vendorId,
+    p_vendor_phone: phone,
+    p_bill_ids: billIds,
+  });
+  return new Set((data ?? []).map((row: { bill_id: string }) => row.bill_id));
 }
 
-export async function fetchBillEditAudit(billId: string): Promise<BillEditAuditRow[]> {
-  const { data, error } = await supabase
-    .from("bill_edit_audit")
-    .select("id, bill_id, edited_at, reason, old_total, new_total")
-    .eq("bill_id", billId)
-    .order("edited_at", { ascending: false });
+export async function fetchBillEditAudit(
+  billId: string,
+  vendorId: string,
+  vendorPhone: string,
+): Promise<BillEditAuditRow[]> {
+  const phone = vendorPhone.trim();
+  if (!phone) return [];
+
+  const { data, error } = await supabase.rpc("get_vendor_bill_edit_audit", {
+    p_vendor_id: vendorId,
+    p_vendor_phone: phone,
+    p_bill_id: billId,
+  });
 
   if (error || !data) return [];
   return data as BillEditAuditRow[];

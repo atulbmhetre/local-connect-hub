@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { supabase, invokecalculateTrustScore, invokeNotifyUser, useCategoryLabel } from "@/lib/supabase";
-import { formatTimeAgo, buildRequestsActiveWindowOrFilter, type OrderRequestRow } from "@/lib/orders";
+import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
@@ -357,10 +357,16 @@ export function IncomingOrdersSection({
       setTrustByPhone({});
       return;
     }
-    const { data, error } = await supabase
-      .from("users")
-      .select("phone, trust_score, total_orders, is_banned, ban_reason")
-      .in("phone", phones);
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setTrustByPhone({});
+      return;
+    }
+    const { data, error } = await supabase.rpc("get_vendor_customer_trust", {
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_phones: phones,
+    });
     if (error) {
       console.error("loadTrustForOrders", error);
       return;
@@ -377,7 +383,7 @@ export function IncomingOrdersSection({
       };
     }
     setTrustByPhone(map);
-  }, []);
+  }, [vendorId]);
 
   const clearOrderEditedFlag = useCallback(async (orderId: string) => {
     const vendorPhone = getUserPhone()?.trim();
@@ -396,10 +402,55 @@ export function IncomingOrdersSection({
     );
   }, [vendorId]);
 
-  const selectFields =
-    "id, device_id, vendor_id, message, status, created_at, user_phone, delivery_address, delivery_slot, appointment_time, appointment_status, cancel_reason, is_edited, payment_status, payment_utr, customer_latitude, customer_longitude, category_id, categories(label, emoji)";
-
   const FULFILLED_STALE_MS = 60 * 60 * 1000;
+
+  const mapIncomingOrderRow = useCallback(
+    (row: {
+      id: string;
+      device_id: string;
+      vendor_id: string;
+      message: string;
+      status: string;
+      created_at: string;
+      user_phone: string | null;
+      delivery_address: string | null;
+      delivery_slot: string | null;
+      appointment_time: string | null;
+      appointment_status: string | null;
+      cancel_reason: string | null;
+      is_edited: boolean | null;
+      payment_status: string | null;
+      payment_utr: string | null;
+      customer_latitude: number | null;
+      customer_longitude: number | null;
+      category_id: string | null;
+      category_label: string | null;
+      category_emoji: string | null;
+    }): IncomingOrderRow => ({
+      id: row.id,
+      device_id: row.device_id,
+      vendor_id: row.vendor_id,
+      message: row.message,
+      status: row.status,
+      created_at: row.created_at,
+      user_phone: row.user_phone,
+      delivery_address: row.delivery_address,
+      delivery_slot: row.delivery_slot,
+      appointment_time: row.appointment_time,
+      appointment_status: row.appointment_status,
+      cancel_reason: row.cancel_reason,
+      is_edited: row.is_edited ?? false,
+      payment_status: row.payment_status ?? undefined,
+      payment_utr: row.payment_utr,
+      customer_latitude: row.customer_latitude,
+      customer_longitude: row.customer_longitude,
+      category_id: row.category_id,
+      categories: row.category_label
+        ? { label: row.category_label, emoji: row.category_emoji }
+        : null,
+    }),
+    [],
+  );
 
   const loadBillsForOrders = useCallback(async (requestIds: string[]) => {
     if (requestIds.length === 0) {
@@ -407,11 +458,17 @@ export function IncomingOrdersSection({
       setEditedBillIds(new Set());
       return;
     }
-    const { data } = await supabase
-      .from("order_bills")
-      .select("id, request_id, total_amount, payment_mode, payment_status")
-      .in("request_id", requestIds)
-      .neq("payment_status", "void");
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      setBillsByRequestId({});
+      setEditedBillIds(new Set());
+      return;
+    }
+    const { data } = await supabase.rpc("get_vendor_order_bills", {
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+      p_request_ids: requestIds,
+    });
 
     if (!data?.length) {
       setBillsByRequestId({});
@@ -432,22 +489,27 @@ export function IncomingOrdersSection({
       }
     }
     setBillsByRequestId(billMap);
-    const edited = await fetchEditedBillIds(Object.values(billMap).map((b) => b.id));
+    const edited = await fetchEditedBillIds(
+      Object.values(billMap).map((b) => b.id),
+      vendorId,
+      vendorPhone,
+    );
     setEditedBillIds(edited);
-  }, []);
+  }, [vendorId]);
 
   const fetchKhataOutstanding = useCallback(
     async (userPhone: string): Promise<number> => {
       const phone = userPhone.trim();
-      if (!phone) return 0;
-      const { data, error } = await supabase
-        .from("khata_ledger")
-        .select("total_outstanding")
-        .eq("vendor_id", vendorId)
-        .eq("user_phone", phone)
-        .maybeSingle();
+      const vendorPhone = getUserPhone()?.trim();
+      if (!phone || !vendorPhone) return 0;
+      const { data, error } = await supabase.rpc("get_vendor_khata_ledger", {
+        p_vendor_id: vendorId,
+        p_vendor_phone: vendorPhone,
+        p_user_phones: [phone],
+      });
       if (error) return 0;
-      return Number(data?.total_outstanding) || 0;
+      const row = Array.isArray(data) ? data[0] : null;
+      return Number(row?.total_outstanding) || 0;
     },
     [vendorId],
   );
@@ -584,14 +646,20 @@ export function IncomingOrdersSection({
         ),
       ];
 
+      const vendorPhone = getUserPhone()?.trim();
+      if (!vendorPhone) {
+        setRequestIdsDismissBlockedByKhata(new Set());
+        setKhataOutstandingByPhone(new Map());
+        return;
+      }
+
       let khataTxs: { request_id: string | null; user_phone: string | null }[] = [];
       if (terminalIds.length > 0) {
-        const { data } = await supabase
-          .from("khata_transactions")
-          .select("request_id, user_phone")
-          .eq("vendor_id", vendorId)
-          .eq("payment_mode", "khata")
-          .in("request_id", terminalIds);
+        const { data } = await supabase.rpc("get_vendor_khata_dismiss_txs", {
+          p_vendor_id: vendorId,
+          p_vendor_phone: vendorPhone,
+          p_request_ids: terminalIds,
+        });
         khataTxs = data ?? [];
       }
 
@@ -606,11 +674,11 @@ export function IncomingOrdersSection({
         return;
       }
 
-      const { data: ledgerRows } = await supabase
-        .from("khata_ledger")
-        .select("user_phone, total_outstanding")
-        .eq("vendor_id", vendorId)
-        .in("user_phone", phones);
+      const { data: ledgerRows } = await supabase.rpc("get_vendor_khata_ledger", {
+        p_vendor_id: vendorId,
+        p_vendor_phone: vendorPhone,
+        p_user_phones: phones,
+      });
 
       const outstandingMap = new Map<string, number>();
       for (const row of ledgerRows ?? []) {
@@ -685,30 +753,37 @@ export function IncomingOrdersSection({
       const limit = opts?.limit ?? fetchLimitRef.current;
       fetchLimitRef.current = limit;
       if (!opts?.silent) setLoading(true);
-      const windowOr = `${buildRequestsActiveWindowOrFilter("vendor")},status.eq.fulfilled`;
-      const [{ data, error }, { count: totalMatching }] = await Promise.all([
-        supabase
-          .from("requests")
-          .select(selectFields)
-          .eq("vendor_id", vendorId)
-          .or(windowOr)
-          .order("created_at", { ascending: false })
-          .limit(limit),
-        supabase
-          .from("requests")
-          .select("id", { count: "exact", head: true })
-          .eq("vendor_id", vendorId)
-          .or(windowOr),
-      ]);
-      if (!mounted.current) return;
-      if (error) {
+
+      const vendorPhone = getUserPhone()?.trim();
+      if (!vendorPhone) {
+        if (!mounted.current) return;
         setRows([]);
         setTruncatedRemaining(0);
         onUnreadCount?.(0);
         setLoading(false);
         return;
       }
-      const list = (data ?? []) as IncomingOrderRow[];
+
+      const [{ data, error }, { data: totalMatching, error: countError }] = await Promise.all([
+        supabase.rpc("get_vendor_incoming_orders", {
+          p_vendor_id: vendorId,
+          p_vendor_phone: vendorPhone,
+          p_limit: limit,
+        }),
+        supabase.rpc("get_vendor_incoming_orders_count", {
+          p_vendor_id: vendorId,
+          p_vendor_phone: vendorPhone,
+        }),
+      ]);
+      if (!mounted.current) return;
+      if (error || countError) {
+        setRows([]);
+        setTruncatedRemaining(0);
+        onUnreadCount?.(0);
+        setLoading(false);
+        return;
+      }
+      const list = (data ?? []).map(mapIncomingOrderRow);
       const total = typeof totalMatching === "number" ? totalMatching : list.length;
       setTruncatedRemaining(Math.max(0, total - list.length));
 
@@ -717,14 +792,14 @@ export function IncomingOrdersSection({
         .map((r) => r.id);
       let withLedger = new Set<string>();
       if (terminalIds.length > 0) {
-        const { data: ledgerRows } = await supabase
-          .from("khata_transactions")
-          .select("request_id")
-          .eq("vendor_id", vendorId)
-          .in("request_id", terminalIds);
+        const { data: ledgerRows } = await supabase.rpc("get_vendor_khata_request_ids", {
+          p_vendor_id: vendorId,
+          p_vendor_phone: vendorPhone,
+          p_request_ids: terminalIds,
+        });
         withLedger = new Set(
           (ledgerRows ?? [])
-            .map((row) => row.request_id)
+            .map((row: { request_id: string | null }) => row.request_id)
             .filter((id): id is string => typeof id === "string" && id.length > 0),
         );
       }
@@ -745,32 +820,25 @@ export function IncomingOrdersSection({
 
       const hadSent = !isHelpMode && activeList.some((r) => r.status === "sent");
       if (hadSent) {
-        const vendorPhone = getUserPhone()?.trim();
-        if (vendorPhone) {
-          const { error: upErr } = await supabase.rpc("vendor_mark_sent_seen", {
+        const { error: upErr } = await supabase.rpc("vendor_mark_sent_seen", {
+          p_vendor_id: vendorId,
+          p_vendor_phone: vendorPhone,
+        });
+        if (upErr || !mounted.current) return;
+        const [{ data: refreshed }, { data: refreshedTotal }] = await Promise.all([
+          supabase.rpc("get_vendor_incoming_orders", {
             p_vendor_id: vendorId,
             p_vendor_phone: vendorPhone,
-          });
-          if (upErr || !mounted.current) return;
-        } else if (!mounted.current) {
-          return;
-        }
-        const [{ data: refreshed }, { count: refreshedTotal }] = await Promise.all([
-          supabase
-            .from("requests")
-            .select(selectFields)
-            .eq("vendor_id", vendorId)
-            .or(windowOr)
-            .order("created_at", { ascending: false })
-            .limit(fetchLimitRef.current),
-          supabase
-            .from("requests")
-            .select("id", { count: "exact", head: true })
-            .eq("vendor_id", vendorId)
-            .or(windowOr),
+            p_limit: fetchLimitRef.current,
+          }),
+          supabase.rpc("get_vendor_incoming_orders_count", {
+            p_vendor_id: vendorId,
+            p_vendor_phone: vendorPhone,
+          }),
         ]);
         if (!mounted.current) return;
-        const refreshedList = ((refreshed ?? []) as IncomingOrderRow[]) ?? activeList;
+        const mappedRefreshed = (refreshed ?? []).map(mapIncomingOrderRow);
+        const refreshedList = mappedRefreshed.length > 0 ? mappedRefreshed : activeList;
         const refreshedTotalN =
           typeof refreshedTotal === "number" ? refreshedTotal : refreshedList.length;
         setTruncatedRemaining(Math.max(0, refreshedTotalN - refreshedList.length));
@@ -778,14 +846,14 @@ export function IncomingOrdersSection({
           .filter((r) => r.status === "fulfilled" || r.status === "done")
           .map((r) => r.id);
         if (refreshedTerminalIds.length > 0) {
-          const { data: ledgerRows } = await supabase
-            .from("khata_transactions")
-            .select("request_id")
-            .eq("vendor_id", vendorId)
-            .in("request_id", refreshedTerminalIds);
+          const { data: ledgerRows } = await supabase.rpc("get_vendor_khata_request_ids", {
+            p_vendor_id: vendorId,
+            p_vendor_phone: vendorPhone,
+            p_request_ids: refreshedTerminalIds,
+          });
           withLedger = new Set(
             (ledgerRows ?? [])
-              .map((row) => row.request_id)
+              .map((row: { request_id: string | null }) => row.request_id)
               .filter((id): id is string => typeof id === "string" && id.length > 0),
           );
           setRequestIdsWithLedger(withLedger);
@@ -809,6 +877,7 @@ export function IncomingOrdersSection({
       onUnreadCount,
       serviceMode,
       isHelpMode,
+      mapIncomingOrderRow,
       autoDismissStaleFulfilledOnLoad,
       refreshUnpaidKhataDismissBlocks,
       loadBillsForOrders,
@@ -2696,6 +2765,8 @@ export function IncomingOrdersSection({
         billId={historyBillId}
         isOpen={historyBillId !== null}
         onClose={() => setHistoryBillId(null)}
+        vendorId={vendorId}
+        vendorPhone={getUserPhone()?.trim() ?? ""}
       />
 
       {billRequestId && (
