@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
 import {
+  supabase,
   supabaseAdmin,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
@@ -291,24 +292,32 @@ test('RF-REQ-06 — Referral code prefilled in vendor registration form', async 
 
 // ─── SELF-REFERRAL BLOCK ──────────────────────────────────────────────────────
 
-test('RF-REQ-07 — Vendor cannot use own referral code at registration', async ({ page }) => {
+test('RF-REQ-07 — Vendor cannot use own referral code at registration', async () => {
   const phone = uniqueBrowserPhone('9000');
   const referralCode = referralCodeFromPhone(phone);
   const vendor = await createVendor('req07', { phone, referral_code: referralCode });
   const deviceId = `${DEVICE_ID}_07`;
 
-  await page.goto(APP_URL);
-
-  const applied = await page.evaluate(
-    async ({ phone, deviceId, code }) => {
-      localStorage.setItem('aaspaas:referral_code', code);
-      const { recordUserReferral } = await import('/src/lib/referral.ts');
-      return await recordUserReferral(phone, deviceId);
-    },
-    { phone, deviceId, code: referralCode },
-  );
-
+  // Registration referral path ends at the create_referred_user RPC, which
+  // enforces the self-referral block server-side. Call that surface directly
+  // with the anon client — importing src/lib/referral.ts into the page breaks
+  // under static-preview runs (source modules aren't served).
+  const { data: applied, error } = await supabase.rpc('create_referred_user', {
+    p_phone: phone,
+    p_device_id: deviceId,
+    p_referral_code: referralCode,
+    p_referred_by_vendor_id: vendor.id,
+  });
+  expect(error).toBeNull();
   expect(applied).toBe(false);
+
+  // Server refused: no referred-user row was created for the vendor's own phone.
+  const { data: appUser } = await supabaseAdmin
+    .from('app_users')
+    .select('phone')
+    .eq('phone', phone)
+    .maybeSingle();
+  expect(appUser).toBeNull();
 
   const { data: referrals } = await supabaseAdmin
     .from('referrals')

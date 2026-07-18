@@ -57,12 +57,10 @@ const ALLOWED_ANON_TRUE_POLICIES = [
     command: 'SELECT' as const,
     reason: 'Public review list on vendor profile.',
   },
-  {
-    table: 'vendors',
-    policy: 'vendors_public_read',
-    command: 'SELECT' as const,
-    reason: 'Active vendor discovery / map pins for anonymous users.',
-  },
+  // vendors is intentionally absent: the old wide-open vendors_public_read
+  // (USING true) was replaced by vendors_public_discoverable_read, which has a
+  // real predicate (discoverable AND NOT banned AND profile complete) and so
+  // no longer qualifies as an open anon true-expression policy.
 ] as const;
 
 type AuditPolicyRow = {

@@ -63,25 +63,22 @@ export async function installAbortRoute(
   };
 }
 
-export function isVendorByIdFetch(url: string, method: string, vendorId: string): boolean {
-  if (method !== 'GET' || !url.includes('/rest/v1/vendors')) return false;
-  return (
-    url.includes(vendorId) ||
-    url.includes(`id=eq.${vendorId}`) ||
-    url.includes(`id=eq.${encodeURIComponent(vendorId)}`)
-  );
+/**
+ * VendorMode mount fetch — since the OTP-off read hardening it loads the own
+ * vendor row via the get_vendor_own SECURITY DEFINER RPC (POST), not a direct
+ * vendors table GET.
+ */
+export function isGetVendorOwnRpc(url: string, method: string): boolean {
+  return method === 'POST' && /\/rest\/v1\/rpc\/get_vendor_own(\?|$)/.test(url);
 }
 
-/** Primary MyOrders.load() list query (non-done orders with vendor join). */
-export function isMyOrdersListFetch(url: string, method: string): boolean {
-  if (method !== 'GET' || !url.includes('/rest/v1/requests')) return false;
-  const hasVendorJoin =
-    url.includes('vendors%28shop_name') || url.includes('vendors(shop_name');
-  const hasIdentityFilter =
-    url.includes('user_phone=eq.') || url.includes('device_id=eq.');
-  const hasOpenStatusFilter =
-    url.includes('status=neq.done') || url.includes('status=not.eq.done');
-  return hasVendorJoin && hasIdentityFilter && hasOpenStatusFilter;
+/**
+ * MyOrders.load() list fetch — since the OTP-off read hardening it loads via
+ * the get_my_orders SECURITY DEFINER RPC (POST), not a direct requests GET.
+ * Boundary regex so get_my_order_bills etc. don't match.
+ */
+export function isGetMyOrdersRpc(url: string, method: string): boolean {
+  return method === 'POST' && /\/rest\/v1\/rpc\/get_my_orders(\?|$)/.test(url);
 }
 
 export function isVendorUpdateOwnRpc(url: string, method: string): boolean {

@@ -8,8 +8,8 @@ import {
 } from './helpers/setup';
 import {
   installAbortRoute,
-  isMyOrdersListFetch,
-  isVendorByIdFetch,
+  isGetMyOrdersRpc,
+  isGetVendorOwnRpc,
   isVendorUpdateOwnRpc,
 } from './helpers/network-retry-routes';
 
@@ -111,40 +111,32 @@ async function hardNavigate(page: Page, path: string) {
   await page.goto(`${APP_URL}${path}`, { waitUntil: 'domcontentloaded' });
 }
 
-function vendorFetchUrl(vendorId: string): string {
-  return `${SUPABASE_URL}/rest/v1/vendors?select=*&id=eq.${vendorId}`;
-}
-
-/** Probe whether raw fetch rejects or resolves when Playwright aborts a Supabase REST call. */
-async function probeSupabaseFetchOnAbort(
-  page: Page,
-  targetUrl: string,
-): Promise<'throws' | 'resolves'> {
-  const pattern = `${SUPABASE_URL}/rest/v1/vendors*`;
-  await page.route(pattern, (route) => {
-    if (route.request().url().includes(targetUrl.split('?')[1] ?? '')) {
-      void route.abort('failed');
-      return;
-    }
-    void route.continue();
-  });
+/** Probe whether raw fetch rejects or resolves when Playwright aborts a Supabase RPC POST. */
+async function probeSupabaseRpcOnAbort(page: Page): Promise<'throws' | 'resolves'> {
+  const pattern = `${SUPABASE_URL}/rest/v1/rpc/get_vendor_own*`;
+  await page.route(pattern, (route) => void route.abort('failed'));
 
   const outcome = await page.evaluate(
-    async ({ url, apikey }) => {
+    async ({ baseUrl, apikey }) => {
       try {
-        await fetch(url, {
+        await fetch(`${baseUrl}/rest/v1/rpc/get_vendor_own`, {
+          method: 'POST',
           headers: {
             apikey,
             Authorization: `Bearer ${apikey}`,
-            Accept: 'application/vnd.pgrst.object+json',
+            'Content-Type': 'application/json',
           },
+          body: JSON.stringify({
+            p_vendor_id: '00000000-0000-0000-0000-000000000000',
+            p_vendor_phone: '0000000000',
+          }),
         });
         return 'resolves' as const;
       } catch {
         return 'throws' as const;
       }
     },
-    { url: targetUrl, apikey: SUPABASE_ANON_KEY },
+    { baseUrl: SUPABASE_URL, apikey: SUPABASE_ANON_KEY },
   );
 
   await page.unroute(pattern);
@@ -210,20 +202,23 @@ test.afterAll(async () => {
 });
 
 test.describe('TEST 1 — VendorMode mount fetch retries', () => {
-  test('retries and recovers after aborted vendors fetch', async ({ page }) => {
+  test('retries and recovers after aborted get_vendor_own RPC', async ({ page }) => {
     const vendor = await createVendor('vm-recover');
     await warmVendorMode(page, vendor);
 
     const fetchAbortBehavior = await probeFetchAbortBehavior(page);
     expect(fetchAbortBehavior).toBe('throws');
 
-    const supabaseAbortBehavior = await probeSupabaseFetchOnAbort(page, vendorFetchUrl(vendor.id));
+    const supabaseAbortBehavior = await probeSupabaseRpcOnAbort(page);
     expect(supabaseAbortBehavior).toBe('throws');
 
+    // Note: restoreVendorLocationTracking (main.tsx) also calls get_vendor_own
+    // once on page load, so it may consume some of the aborts — VendorMode's
+    // withNetworkRetry still has to retry and recover for the UI to render.
     const route = await installAbortRoute(
       page,
-      `${SUPABASE_URL}/rest/v1/vendors*`,
-      (url, method) => isVendorByIdFetch(url, method, vendor.id),
+      `${SUPABASE_URL}/rest/v1/rpc/get_vendor_own*`,
+      isGetVendorOwnRpc,
       { mode: 'fail-then-succeed', failCount: 2 },
     );
 
@@ -242,14 +237,14 @@ test.describe('TEST 1 — VendorMode mount fetch retries', () => {
     await route.unroute();
   });
 
-  test('shows exhausted state when vendors fetch never succeeds', async ({ page }) => {
+  test('shows exhausted state when get_vendor_own RPC never succeeds', async ({ page }) => {
     const vendor = await createVendor('vm-exhaust');
     await warmVendorMode(page, vendor);
 
     const route = await installAbortRoute(
       page,
-      `${SUPABASE_URL}/rest/v1/vendors*`,
-      (url, method) => isVendorByIdFetch(url, method, vendor.id),
+      `${SUPABASE_URL}/rest/v1/rpc/get_vendor_own*`,
+      isGetVendorOwnRpc,
       { mode: 'always-fail' },
     );
 
@@ -266,15 +261,15 @@ test.describe('TEST 1 — VendorMode mount fetch retries', () => {
 });
 
 test.describe('TEST 2 — MyOrders load retries', () => {
-  test('retries and recovers after aborted requests fetch', async ({ page }) => {
+  test('retries and recovers after aborted get_my_orders RPC', async ({ page }) => {
     const orderMessage = `NR order recover ${T}`;
     const vendor = await createVendor('mo-recover');
     await warmMyOrders(page, vendor.id, orderMessage);
 
     const route = await installAbortRoute(
       page,
-      `${SUPABASE_URL}/rest/v1/requests*`,
-      isMyOrdersListFetch,
+      `${SUPABASE_URL}/rest/v1/rpc/get_my_orders*`,
+      isGetMyOrdersRpc,
       { mode: 'fail-then-succeed', failCount: 2 },
     );
 
@@ -294,15 +289,15 @@ test.describe('TEST 2 — MyOrders load retries', () => {
     await route.unroute();
   });
 
-  test('shows exhausted state when requests fetch never succeeds', async ({ page }) => {
+  test('shows exhausted state when get_my_orders RPC never succeeds', async ({ page }) => {
     const orderMessage = `NR order exhaust ${T}`;
     const vendor = await createVendor('mo-exhaust');
     await warmMyOrders(page, vendor.id, orderMessage);
 
     const route = await installAbortRoute(
       page,
-      `${SUPABASE_URL}/rest/v1/requests*`,
-      isMyOrdersListFetch,
+      `${SUPABASE_URL}/rest/v1/rpc/get_my_orders*`,
+      isGetMyOrdersRpc,
       { mode: 'always-fail' },
     );
 

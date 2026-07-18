@@ -298,28 +298,57 @@ test('AD-01: ban vendor — is_banned = true, ban_reason saved, audit logged', a
   });
 });
 
-test('AD-02: banned vendor cannot go live — is_active blocked', async () => {
-  // Banned vendor tries to set is_active = true
-  const { data: vendor } = await supabaseAdmin
+test('AD-02: banned vendor go-live rejected server-side (vendor_update_own + trigger)', async () => {
+  // Self-sufficient state: ensure the vendor is banned even if AD-01 didn't run first.
+  const { error: seedError } = await supabaseAdmin
     .from('vendors')
-    .select('is_banned')
-    .eq('id', testVendorId)
-    .single();
+    .update({ is_banned: true, ban_reason: 'Fraud detected' })
+    .eq('id', testVendorId);
+  expect(seedError).toBeNull();
 
-  // App checks is_banned before allowing go-live
-  const canGoLive = !vendor?.is_banned;
-  expect(canGoLive).toBe(false);
+  // Real go-live surface: VendorMode's toggle patches is_active via vendor_update_own.
+  const { error } = await supabase.rpc('vendor_update_own', {
+    p_vendor_id: testVendorId,
+    p_vendor_phone: TEST_VENDOR_PHONE,
+    p_patch: { is_active: true },
+  });
+  expect(error).not.toBeNull();
+  expect(error?.message).toContain('vendor_banned');
+
+  // Backend state untouched: still banned, still offline (trigger enforces too).
+  await assertVendorField(testVendorId, 'is_banned', true);
+  await assertVendorField(testVendorId, 'is_active', false);
 });
 
-test('AD-03: banned vendor excluded from radar query', async () => {
-  const { data } = await supabaseAdmin
+test('AD-03: banning a vendor removes it from anon radar reads (RLS)', async () => {
+  // Make the vendor discoverable/complete so visibility hinges only on the ban.
+  const { error: seedError } = await supabaseAdmin
     .from('vendors')
-    .select('id, is_banned')
-    .eq('is_banned', false)
-    .eq('is_active', true);
+    .update({ is_banned: false, discoverable: true, profile_status: 'complete' })
+    .eq('id', testVendorId);
+  expect(seedError).toBeNull();
 
-  const found = data?.find(v => v.id === testVendorId);
-  expect(found).toBeUndefined();
+  // Control: unbanned discoverable vendor IS visible to the anon radar read path.
+  const { data: visibleBefore } = await supabase
+    .from('vendors')
+    .select('id')
+    .eq('id', testVendorId)
+    .maybeSingle();
+  expect(visibleBefore?.id).toBe(testVendorId);
+
+  // Ban it — vendors_public_discoverable_read requires is_banned = false.
+  const { error: banError } = await supabaseAdmin
+    .from('vendors')
+    .update({ is_banned: true })
+    .eq('id', testVendorId);
+  expect(banError).toBeNull();
+
+  const { data: visibleAfter } = await supabase
+    .from('vendors')
+    .select('id')
+    .eq('id', testVendorId)
+    .maybeSingle();
+  expect(visibleAfter).toBeNull();
 });
 
 test('AD-04: unban vendor — is_banned = false, notification created', async () => {

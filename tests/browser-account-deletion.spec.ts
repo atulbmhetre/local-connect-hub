@@ -1,7 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
-  supabase,
   createTestVendor,
   cleanupTestData, cleanupTestVendors,
   TEST_SESSION,
@@ -29,7 +28,23 @@ async function openSettingsDeleteSection(page: Page) {
 
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
-  await supabase.from('vendors').update({ phone: VENDOR_PHONE }).eq('id', testVendor.id);
+  // Service-role client: the anon client's vendors UPDATE is silently blocked
+  // by RLS (0 rows), leaving the vendor on its random registration phone while
+  // the tests log in as VENDOR_PHONE — phone-based deletion checks then miss.
+  const { error } = await supabaseAdmin
+    .from('vendors')
+    .update({ phone: VENDOR_PHONE })
+    .eq('id', testVendor.id);
+  if (error) throw new Error(`DEL seed: failed to set vendor phone: ${error.message}`);
+
+  const { data: seeded } = await supabaseAdmin
+    .from('vendors')
+    .select('phone')
+    .eq('id', testVendor.id)
+    .single();
+  if (seeded?.phone !== VENDOR_PHONE) {
+    throw new Error(`DEL seed: vendor phone is '${seeded?.phone}', expected '${VENDOR_PHONE}'`);
+  }
   testVendor = { ...testVendor, phone: VENDOR_PHONE };
 });
 
@@ -165,6 +180,16 @@ test('DEL-06: vendor Cancel Deletion restores normal Delete Account button', asy
     .from('vendors')
     .update({ deletion_requested_at: new Date().toISOString() })
     .eq('id', testVendor.id);
+  // The delete-account edge function's cancel action verifies device-phone
+  // ownership (deviceOwnsPhone). The real delete flow creates this link via
+  // ensureUserDeviceLink; since we seed deletion_requested_at directly, seed
+  // the link too or the cancel is rejected with device_not_associated.
+  const { error: linkError } = await supabaseAdmin.from('user_devices').insert({
+    user_phone: VENDOR_PHONE,
+    device_id: TEST_DEVICE_ID,
+    fcm_token: `fcm_${VENDOR_PHONE}`,
+  });
+  if (linkError) throw new Error(`DEL-06 seed: user_devices link failed: ${linkError.message}`);
 
   await loginAsVendor(page, VENDOR_PHONE, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);

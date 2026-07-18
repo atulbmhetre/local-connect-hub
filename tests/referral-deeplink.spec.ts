@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsCustomer, loginAsFreshUser, APP_URL } from './helpers/browser-setup';
 import { dismissWelcomeIfVisible, submitPhoneNumber } from './helpers/browser-recovery';
 import {
+  supabase,
   supabaseAdmin,
   createTestVendor,
   cleanupTestData,
@@ -163,7 +164,7 @@ test('REF-LINK-04: existing user visiting /r/CODE triggers recordUserReferral', 
   await cleanupUserReferralArtifacts(customerPhone, testVendor.phone);
 });
 
-test('REF-LINK-05: self-referral — vendor visiting own code does not create referral', async ({ page }) => {
+test('REF-LINK-05: self-referral — vendor visiting own code does not create referral', async () => {
   const vendorDigits = testVendor.phone.replace(/\D/g, '').slice(-10);
   const deviceId = `device_selfref_${TEST_SESSION}`;
 
@@ -175,18 +176,26 @@ test('REF-LINK-05: self-referral — vendor visiting own code does not create re
     .select('id', { count: 'exact', head: true })
     .eq('vendor_id', testVendor.id);
 
-  await page.goto(`${APP_URL}/`);
-
-  const applied = await page.evaluate(
-    async ({ phone, deviceId, code }) => {
-      localStorage.setItem('aaspaas:referral_code', code);
-      const { recordUserReferral } = await import('/src/lib/referral.ts');
-      return await recordUserReferral(phone, deviceId);
-    },
-    { phone: vendorDigits, deviceId, code: TEST_REFERRAL_CODE },
-  );
-
+  // The deep-link flow stores the code, then recordUserReferral() calls the
+  // create_referred_user RPC, which enforces the self-referral block
+  // server-side. Call that surface directly with the anon client — importing
+  // src/lib/referral.ts into the page breaks under static-preview runs.
+  const { data: applied, error } = await supabase.rpc('create_referred_user', {
+    p_phone: vendorDigits,
+    p_device_id: deviceId,
+    p_referral_code: TEST_REFERRAL_CODE,
+    p_referred_by_vendor_id: testVendor.id,
+  });
+  expect(error).toBeNull();
   expect(applied).toBe(false);
+
+  // Server refused: no referred-user row was created for the vendor's own phone.
+  const { data: appUser } = await supabaseAdmin
+    .from('app_users')
+    .select('phone')
+    .eq('phone', vendorDigits)
+    .maybeSingle();
+  expect(appUser).toBeNull();
 
   const { data: referrals } = await supabaseAdmin
     .from('referrals')
