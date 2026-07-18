@@ -2197,10 +2197,12 @@ const Settings = () => {
     await stopAllVendorLocationTracking();
     const phone = localStorage.getItem("aaspaas:user_phone");
     if (phone) {
-      const { data: addressRows } = await supabase
-        .from("user_addresses")
-        .select("id")
-        .eq("user_phone", phone);
+      // Phone-scoped only (p_device_id null) to mirror the old direct read;
+      // delete_user_address rejects rows not owned by this phone.
+      const { data: addressRows } = await supabase.rpc("get_my_addresses", {
+        p_user_phone: phone,
+        p_device_id: null,
+      });
       for (const row of addressRows ?? []) {
         await supabase.rpc("delete_user_address", {
           p_user_phone: phone,

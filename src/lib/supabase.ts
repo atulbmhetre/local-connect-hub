@@ -92,19 +92,25 @@ export async function fetchUserTrust(phone: string): Promise<{
   trust_score: number;
   total_orders: number;
   is_banned: boolean;
-  ban_reason: string | null;
 } | null> {
   try {
-    const { data, error } = await supabase
-      .from("users")
-      .select("trust_score, total_orders, is_banned, ban_reason")
-      .eq("phone", phone)
-      .maybeSingle();
+    // Direct users reads are RLS-blocked for OTP-off callers (auth_user_phone()
+    // NULL), so the pre-order trust/ban gate silently never fired. Reuse the
+    // existing rate-limited identity RPC instead of a direct table read.
+    const { data, error } = await supabase.rpc("lookup_user_by_phone", {
+      p_phone: phone,
+    });
     if (error) {
       console.error("fetchUserTrust", error);
       return null;
     }
-    return data;
+    const row = data?.[0];
+    if (!row) return null;
+    return {
+      trust_score: row.trust_score,
+      total_orders: row.total_orders,
+      is_banned: row.is_banned,
+    };
   } catch (err) {
     console.error("fetchUserTrust", err);
     return null;

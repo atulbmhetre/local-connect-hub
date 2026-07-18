@@ -983,34 +983,26 @@ const RadarSearch = () => {
         if (vendorIds.length > 0) {
           const deviceId = getDeviceId();
           const userPhone = getUserPhone();
-          let savedQuery = supabase
-            .from("saved_vendors")
-            .select("vendor_id")
-            .in("vendor_id", vendorIds);
-          savedQuery =
-            userPhone != null
-              ? savedQuery.eq("user_phone", userPhone)
-              : savedQuery.eq("device_id", deviceId);
+          // Direct saved_vendors/requests reads return zero rows for OTP-off
+          // callers (auth_user_phone() NULL in RLS); use the identity RPCs.
+          // get_saved_vendors mirrors the old scoping (phone when present,
+          // else device); the vendor_id filter moves client-side.
+          const savedQuery = supabase.rpc("get_saved_vendors", {
+            p_user_phone: userPhone,
+            p_device_id: deviceId,
+          });
 
-          let activeQuery = supabase
-            .from("requests")
-            .select("vendor_id")
-            .in("vendor_id", vendorIds)
-            .in("status", ["sent", "seen"]);
-          activeQuery =
-            userPhone != null
-              ? activeQuery.or(`user_phone.eq.${userPhone},device_id.eq.${deviceId}`)
-              : activeQuery.eq("device_id", deviceId);
+          const activeQuery = supabase.rpc("get_my_active_request_vendor_ids", {
+            p_user_phone: userPhone,
+            p_device_id: deviceId,
+            p_vendor_ids: vendorIds,
+          });
 
-          let fulfilledQuery = supabase
-            .from("requests")
-            .select("id, vendor_id")
-            .in("vendor_id", vendorIds)
-            .eq("status", "fulfilled");
-          fulfilledQuery =
-            userPhone != null
-              ? fulfilledQuery.or(`user_phone.eq.${userPhone},device_id.eq.${deviceId}`)
-              : fulfilledQuery.eq("device_id", deviceId);
+          const fulfilledQuery = supabase.rpc("get_my_fulfilled_request_ids", {
+            p_user_phone: userPhone,
+            p_device_id: deviceId,
+            p_vendor_ids: vendorIds,
+          });
 
           const [verResult, vcResult, menuResult, activeResult, fulfilledResult, savedResult] =
             await Promise.all([
@@ -1074,7 +1066,12 @@ const RadarSearch = () => {
               fulfilledRequestByVendor.set(row.vendor_id, row.id);
             }
           }
-          savedVendorIds = new Set((savedResult.data ?? []).map((r) => r.vendor_id));
+          const vendorIdSet = new Set(vendorIds);
+          savedVendorIds = new Set(
+            ((savedResult.data ?? []) as { vendor_id: string }[])
+              .map((r) => r.vendor_id)
+              .filter((id) => vendorIdSet.has(id)),
+          );
         }
 
         const trustByVendor = computeTrustLevelsByVendor(vendorIds, verificationRows);

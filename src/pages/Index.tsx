@@ -24,7 +24,6 @@ import {
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, hasBeenWelcomed, markWelcomed } from "@/lib/userIdentity";
 import { registerUserPushToken } from "@/lib/pushNotifications";
-import { buildRequestsActiveWindowOrFilter } from "@/lib/orders";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/SettingsSection";
@@ -51,8 +50,6 @@ type SavedVendorRemovalNotice = {
   category_label: string | null;
   reason: "category_removed" | "account_deleted";
 };
-
-const HELP_ORDER_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 function isVendorLocationStale(
   lastUpdated: string | null | undefined,
@@ -214,14 +211,11 @@ const Index = () => {
       setHelpOrderBanner(null);
       return;
     }
-    const since48h = new Date(Date.now() - HELP_ORDER_WINDOW_MS).toISOString();
-    const { data, error } = await supabase
-      .from("requests")
-      .select("id, status, updated_at, vendors(shop_name, service_mode, last_updated)")
-      .eq("user_phone", phone)
-      .eq("status", "accepted")
-      .gt("updated_at", since48h)
-      .order("updated_at", { ascending: false });
+    // Direct requests reads return zero rows under OTP-off (auth_user_phone()
+    // NULL in RLS); read via the identity-scoped RPC instead.
+    const { data, error } = await supabase.rpc("get_my_help_banner_orders", {
+      p_user_phone: phone,
+    });
     if (error) {
       setHelpOrderBanner(null);
       return;
@@ -230,10 +224,12 @@ const Index = () => {
       id: string;
       status: string;
       updated_at: string;
-      vendors: { shop_name: string; service_mode: string | null; last_updated: string | null } | null;
+      vendor_shop_name: string | null;
+      vendor_service_mode: string | null;
+      vendor_last_updated: string | null;
     };
-    const match = ((data ?? []) as unknown as HelpRow[]).find(
-      (row) => String(row.vendors?.service_mode ?? "").trim().toLowerCase() === "help",
+    const match = ((data ?? []) as HelpRow[]).find(
+      (row) => String(row.vendor_service_mode ?? "").trim().toLowerCase() === "help",
     );
     if (!match) {
       setHelpOrderBanner(null);
@@ -241,8 +237,8 @@ const Index = () => {
     }
     setHelpOrderBanner({
       orderId: match.id,
-      shopName: match.vendors?.shop_name?.trim() || s.myOrders_shopFallback,
-      vendorLastUpdated: match.vendors?.last_updated ?? null,
+      shopName: match.vendor_shop_name?.trim() || s.myOrders_shopFallback,
+      vendorLastUpdated: match.vendor_last_updated ?? null,
     });
   }, [s.myOrders_shopFallback]);
 
@@ -289,19 +285,17 @@ const Index = () => {
   const loadActiveOrderCount = useCallback(async () => {
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    const windowOr = buildRequestsActiveWindowOrFilter("user");
-    let countQuery = supabase
-      .from("requests")
-      .select("id", { count: "exact", head: true })
-      .or(windowOr);
-    countQuery =
-      userPhone != null ? countQuery.eq("user_phone", userPhone) : countQuery.eq("device_id", device_id);
-    const { count, error } = await countQuery;
+    // Same user-role active window as buildRequestsActiveWindowOrFilter("user"),
+    // evaluated server-side (OTP-off callers get zero rows from direct reads).
+    const { data, error } = await supabase.rpc("get_my_active_order_count", {
+      p_user_phone: userPhone,
+      p_device_id: device_id,
+    });
     if (error) {
       setActiveOrderCount(0);
       return;
     }
-    setActiveOrderCount(count ?? 0);
+    setActiveOrderCount(typeof data === "number" ? data : 0);
   }, []);
 
   useEffect(() => {
@@ -321,14 +315,13 @@ const Index = () => {
     }
     let cancelled = false;
     const run = async () => {
-      const device_id = getDeviceId();
-      const { data } = await supabase
-        .from("requests")
-        .select("id")
-        .eq("device_id", device_id)
-        .eq("vendor_id", neighbourSheetVendor.id)
-        .in("status", ["sent", "seen"])
-        .limit(1);
+      // Device-scoped (matches the old direct read); RPC because direct
+      // requests reads are RLS-blocked for OTP-off callers.
+      const { data } = await supabase.rpc("get_my_active_request_vendor_ids", {
+        p_user_phone: null,
+        p_device_id: getDeviceId(),
+        p_vendor_ids: [neighbourSheetVendor.id],
+      });
       if (!cancelled) setNeighbourDeliveryActiveOrder(!!data?.length);
     };
     void run();
@@ -349,14 +342,13 @@ const Index = () => {
     }
     let cancelled = false;
     const run = async () => {
-      const device_id = getDeviceId();
-      const { data } = await supabase
-        .from("requests")
-        .select("id")
-        .eq("device_id", device_id)
-        .eq("vendor_id", neighbourSheetVendor.id)
-        .in("status", ["sent", "seen"])
-        .limit(1);
+      // Device-scoped (matches the old direct read); RPC because direct
+      // requests reads are RLS-blocked for OTP-off callers.
+      const { data } = await supabase.rpc("get_my_active_request_vendor_ids", {
+        p_user_phone: null,
+        p_device_id: getDeviceId(),
+        p_vendor_ids: [neighbourSheetVendor.id],
+      });
       if (!cancelled) setAppointmentActiveFromDb(!!data?.length);
     };
     void run();

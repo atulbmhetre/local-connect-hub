@@ -16,17 +16,12 @@ export function useUserAddresses() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const deviceId = getDeviceId();
-    const userPhone = getUserPhone();
-    let query = supabase
-      .from("user_addresses")
-      .select("id, label, address_text, is_default");
-    if (userPhone != null) {
-      query = query.or(`device_id.eq.${deviceId},user_phone.eq.${userPhone}`);
-    } else {
-      query = query.eq("device_id", deviceId);
-    }
-    const { data, error } = await query;
+    // Direct user_addresses reads are RLS-blocked for OTP-off callers; the RPC
+    // mirrors the old scoping (device OR phone when phone present, else device).
+    const { data, error } = await supabase.rpc("get_my_addresses", {
+      p_user_phone: getUserPhone(),
+      p_device_id: getDeviceId(),
+    });
     if (error) {
       setAddresses([]);
     } else {

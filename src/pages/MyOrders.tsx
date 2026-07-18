@@ -1282,18 +1282,21 @@ const MyOrders = () => {
           ? `${customerName} changed their order — check details now`
           : `${customerName} updated their order details`;
 
-      const vendorPhone = editOrder.vendors?.phone?.trim();
+      // Push dedup: the old direct user_notifications read queried the VENDOR's
+      // rows from the customer's client — wrong owner, always blocked by RLS, so
+      // dedup never fired. The RPC verifies the caller owns this request and
+      // checks the vendor's recent order_update notifications server-side.
       let skipPush = false;
-      if (vendorPhone) {
-        const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-        const { data: recentNotif } = await supabase
-          .from("user_notifications")
-          .select("id")
-          .eq("user_phone", vendorPhone)
-          .eq("type", "order_update")
-          .gt("created_at", twoMinAgo)
-          .limit(1);
-        skipPush = (recentNotif?.length ?? 0) > 0;
+      const { data: shouldNotify, error: dedupError } = await supabase.rpc(
+        "should_notify_vendor_order_edit",
+        {
+          p_request_id: editOrder.id,
+          p_user_phone: getUserPhone(),
+          p_device_id: getDeviceId(),
+        },
+      );
+      if (!dedupError && shouldNotify === false) {
+        skipPush = true;
       }
 
       if (!skipPush) {

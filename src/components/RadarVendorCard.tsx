@@ -106,17 +106,14 @@ function clearSessionSaved(vendorId: string) {
 }
 
 async function countSavedNeighbours(): Promise<number> {
-  const device_id = getDeviceId();
-  const userPhone = getUserPhone();
-  let q = supabase.from("saved_vendors").select("id", { count: "exact", head: true });
-  if (userPhone != null) {
-    q = q.or(`user_phone.eq.${userPhone},device_id.eq.${device_id}`);
-  } else {
-    q = q.eq("device_id", device_id);
-  }
-  const { count, error } = await q;
+  // Direct saved_vendors reads return zero rows for OTP-off callers
+  // (auth_user_phone() NULL in RLS); count via the identity RPC instead.
+  const { data, error } = await supabase.rpc("get_saved_vendors_count", {
+    p_user_phone: getUserPhone(),
+    p_device_id: getDeviceId(),
+  });
   if (error) return 0;
-  return count ?? 0;
+  return typeof data === "number" ? data : 0;
 }
 
 function readIsOwnVendorCard(vendorId: string, vendorPhone: string | null | undefined): boolean {
@@ -456,22 +453,14 @@ export function RadarVendorCard({
       setDeliveryActiveFromDb(false);
       return;
     }
-    const device_id = getDeviceId();
-    const userPhone = getUserPhone();
-    let activeQuery = supabase
-      .from("requests")
-      .select("id, status")
-      .eq("vendor_id", vendor.id)
-      .in("status", ["sent", "seen"])
-      .limit(1);
-    activeQuery =
-      userPhone != null
-        ? activeQuery.or(`user_phone.eq.${userPhone},device_id.eq.${device_id}`)
-        : activeQuery.eq("device_id", device_id);
-    const { data } = await activeQuery;
-    const active =
-      !!data?.length && data.every((row) => row.status === "sent" || row.status === "seen");
-    setDeliveryActiveFromDb(active);
+    // Identity RPC: direct requests reads are RLS-blocked for OTP-off callers.
+    // Returned rows are sent/seen by definition, so presence = active.
+    const { data } = await supabase.rpc("get_my_active_request_vendor_ids", {
+      p_user_phone: getUserPhone(),
+      p_device_id: getDeviceId(),
+      p_vendor_ids: [vendor.id],
+    });
+    setDeliveryActiveFromDb(!!data?.length);
   }, [vendor.id, serviceMode, isOwnVendor]);
 
   const handleOrderCancelled = useCallback(() => {
@@ -485,36 +474,27 @@ export function RadarVendorCard({
       setServiceFulfilledRequestId(null);
       return;
     }
-    const device_id = getDeviceId();
-    const userPhone = getUserPhone();
-    let fulfilledQuery = supabase
-      .from("requests")
-      .select("id")
-      .eq("vendor_id", vendor.id)
-      .eq("status", "fulfilled")
-      .limit(1);
-    fulfilledQuery =
-      userPhone != null
-        ? fulfilledQuery.or(`user_phone.eq.${userPhone},device_id.eq.${device_id}`)
-        : fulfilledQuery.eq("device_id", device_id);
-    const { data } = await fulfilledQuery;
-    const row = data?.[0];
+    const { data } = await supabase.rpc("get_my_fulfilled_request_ids", {
+      p_user_phone: getUserPhone(),
+      p_device_id: getDeviceId(),
+      p_vendor_ids: [vendor.id],
+    });
+    const row = (data as { id: string; vendor_id: string }[] | null)?.[0];
     setServiceFulfilledFromDb(!!row);
     setServiceFulfilledRequestId(row?.id ?? null);
   }, [vendor.id, isOwnVendor]);
 
   const refreshSavedNeighbourFromDb = useCallback(async () => {
     if (isOwnVendor) return;
-    const deviceId = getDeviceId();
-    const userPhone = getUserPhone();
-    let savedQuery = supabase
-      .from("saved_vendors")
-      .select("id")
-      .eq("vendor_id", vendor.id)
-      .limit(1);
-    savedQuery =
-      userPhone != null ? savedQuery.eq("user_phone", userPhone) : savedQuery.eq("device_id", deviceId);
-    const { data } = await savedQuery;
+    // get_saved_vendors mirrors the old scoping (phone when present, else
+    // device); check membership for this card's vendor client-side.
+    const { data: savedRows } = await supabase.rpc("get_saved_vendors", {
+      p_user_phone: getUserPhone(),
+      p_device_id: getDeviceId(),
+    });
+    const data = ((savedRows ?? []) as { vendor_id: string }[]).filter(
+      (r) => r.vendor_id === vendor.id,
+    );
     if (data?.length) {
       writeSessionSaved(vendor.id);
       setSavedVendorLocked(true);

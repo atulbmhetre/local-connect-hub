@@ -508,14 +508,12 @@ export default function LocalFeed() {
     }
     let cancelled = false;
     void (async () => {
-      const { data, error } = await supabase
-        .from("feed_flags")
-        .select("post_id")
-        .eq("flagged_by_phone", viewerPhone)
-        .in(
-          "post_id",
-          posts.map((p) => p.id),
-        );
+      // Direct feed_flags reads return zero rows for OTP-off callers
+      // (auth_user_phone() NULL in RLS); use the identity RPC instead.
+      const { data, error } = await supabase.rpc("get_my_feed_flags", {
+        p_user_phone: viewerPhone,
+        p_post_ids: posts.map((p) => p.id),
+      });
       if (cancelled) return;
       if (error) {
         console.error("loadUserFeedFlags", error);
