@@ -692,6 +692,7 @@ export const strings = {
     myOrders_orderDismissedNotifyTitle: 'Customer marked order as done',
     myOrders_orderDismissedNotifyBody: 'The customer has marked this order as done on their end',
     myOrders_vendorCancelledDefault: 'Vendor cancelled this order',
+    myOrders_youCancelledDefault: 'You cancelled this order',
     vendor_stopped_warning:
       'Your helper seems to have stopped. Are they okay? Try calling them.',
     vendor_distance: 'Vendor is away',
@@ -2118,6 +2119,7 @@ export const strings = {
     myOrders_orderDismissedNotifyTitle: 'ग्राहक ने ऑर्डर पूर्ण चिह्नित किया',
     myOrders_orderDismissedNotifyBody: 'ग्राहक ने अपनी ओर से इस ऑर्डर को पूर्ण चिह्नित कर दिया है',
     myOrders_vendorCancelledDefault: 'विक्रेता ने यह ऑर्डर रद्द कर दिया',
+    myOrders_youCancelledDefault: 'आपने यह ऑर्डर रद्द कर दिया',
     vendor_stopped_warning:
       'आपका सहायक रुक गया लगता है। क्या वे ठीक हैं? उन्हें कॉल करें।',
     vendor_distance: 'विक्रेता दूर है',
@@ -3544,6 +3546,7 @@ export const strings = {
     myOrders_orderDismissedNotifyTitle: 'ग्राहकाने ऑर्डर पूर्ण म्हणून चिन्हांकित केले',
     myOrders_orderDismissedNotifyBody: 'ग्राहकाने त्यांच्या बाजूने हा ऑर्डर पूर्ण म्हणून चिन्हांकित केला आहे',
     myOrders_vendorCancelledDefault: 'विक्रेत्याने हा ऑर्डर रद्द केला',
+    myOrders_youCancelledDefault: 'तुम्ही हा ऑर्डर रद्द केला',
     vendor_stopped_warning:
       'तुमचा मदतनीस थांबला असल्यासारखे वाटते. ते ठीक आहेत का? कॉल करा.',
     vendor_distance: 'विक्रेता दूर आहे',

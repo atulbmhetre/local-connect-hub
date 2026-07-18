@@ -60,8 +60,6 @@ import {
 } from "@/lib/networkToast";
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
-import { fetchEditedBillIds } from "@/lib/billEdit";
-
 const MAX_LEN = 200;
 
 function fulfilledOrderCtaLabel(
@@ -442,22 +440,38 @@ const MyOrders = () => {
   }, [highlightOrderId, loading, rows.length]);
 
   const loadBills = async (requestIds: string[]) => {
-    if (!requestIds.length) return;
-    const { data } = await supabase
-      .from("order_bills")
-      .select("id, request_id, total_amount, payment_mode, payment_status, notes")
-      .in("request_id", requestIds)
-      .neq("payment_status", "void");
+    if (!requestIds.length) {
+      setBillsByRequestId({});
+      setEditedBillIds(new Set());
+      return;
+    }
+    // OTP-off: order_bills / order_items / bill_edit_audit direct reads are
+    // RLS-blocked without an auth session — one RPC returns all three.
+    const { data, error } = await supabase.rpc("get_my_order_bills", {
+      p_user_phone: getUserPhone() ?? null,
+      p_device_id: getDeviceId() ?? null,
+      p_request_ids: requestIds,
+    });
+    // Keep the current map on transport errors, but ALWAYS replace it on a
+    // successful (even empty) result — otherwise a just-voided bill stays
+    // visible with an active Pay Now button until a full reload.
+    if (error) return;
 
-    if (!data?.length) return;
-
-    const { data: items } = await supabase
-      .from("order_items")
-      .select("request_id, description, quantity, unit, unit_price, total_price")
-      .in("request_id", requestIds);
+    type BillRpcRow = {
+      id: string;
+      request_id: string;
+      total_amount: number;
+      payment_mode: OrderBill["payment_mode"];
+      payment_status: OrderBill["payment_status"];
+      notes: string | null;
+      items: OrderBill["items"];
+      is_edited: boolean;
+    };
+    const bills = (data ?? []) as BillRpcRow[];
 
     const billMap: Record<string, OrderBill> = {};
-    const sortedBills = [...data].sort((a, b) => String(b.id).localeCompare(String(a.id)));
+    const edited = new Set<string>();
+    const sortedBills = [...bills].sort((a, b) => String(b.id).localeCompare(String(a.id)));
     for (const bill of sortedBills) {
       if (billMap[bill.request_id]) continue;
       billMap[bill.request_id] = {
@@ -466,11 +480,11 @@ const MyOrders = () => {
         payment_mode: bill.payment_mode,
         payment_status: bill.payment_status,
         notes: bill.notes,
-        items: (items ?? []).filter((i) => i.request_id === bill.request_id),
+        items: bill.items ?? [],
       };
+      if (bill.is_edited) edited.add(bill.id);
     }
     setBillsByRequestId(billMap);
-    const edited = await fetchEditedBillIds(Object.values(billMap).map((b) => b.id));
     setEditedBillIds(edited);
   };
 
@@ -499,23 +513,24 @@ const MyOrders = () => {
   const loadMyKhata = async () => {
     const userPhone = getUserPhone();
     if (!userPhone) return;
-    const { data } = await supabase
-      .from("khata_ledger")
-      .select("vendor_id, total_outstanding, last_updated, vendors(shop_name)")
-      .eq("user_phone", userPhone)
-      .order("last_updated", { ascending: false });
+    // OTP-off: khata_ledger direct read is RLS-blocked without an auth session.
+    const { data, error } = await supabase.rpc("get_my_khata_ledger", {
+      p_user_phone: userPhone,
+    });
+    if (error) return;
 
     setMyKhata(
       filterKhataLedgerByOutstanding(
-        (data ?? []).map((k) => {
-          const vendors = k.vendors as { shop_name: string } | { shop_name: string }[] | null;
-          const vendor = Array.isArray(vendors) ? vendors[0] : vendors;
-          return {
-            vendor_id: k.vendor_id,
-            shop_name: vendor?.shop_name ?? "Unknown",
-            total_outstanding: k.total_outstanding,
-          };
-        }),
+        ((data ?? []) as {
+          vendor_id: string;
+          total_outstanding: number;
+          last_updated: string;
+          shop_name: string | null;
+        }[]).map((k) => ({
+          vendor_id: k.vendor_id,
+          shop_name: k.shop_name ?? "Unknown",
+          total_outstanding: k.total_outstanding,
+        })),
         false,
       ),
     );
@@ -536,12 +551,11 @@ const MyOrders = () => {
       const { data, error } = await withNetworkRetry(
         async () =>
           throwOnSupabaseNetworkError(
-            await supabase
-              .from("khata_transactions")
-              .select("id, amount, note, payment_mode, created_at")
-              .eq("vendor_id", entry.vendor_id)
-              .eq("user_phone", userPhone)
-              .order("created_at", { ascending: true }),
+            // OTP-off: khata_transactions direct read is RLS-blocked without a session.
+            await supabase.rpc("get_my_khata_transactions", {
+              p_user_phone: userPhone,
+              p_vendor_id: entry.vendor_id,
+            }),
           ),
         {
           onRetrying: () => setKhataTxNetworkStatus("retrying"),
@@ -582,19 +596,17 @@ const MyOrders = () => {
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     try {
+      // OTP-off: direct requests reads return zero rows without an auth session
+      // (RLS auth_user_phone() is NULL), so read via SECURITY DEFINER RPC.
       const { data, error } = await withNetworkRetry(async () => {
-        let listQuery = supabase
-          .from("requests")
-          .select(
-            "id, device_id, vendor_id, message, status, payment_status, created_at, updated_at, user_phone, appointment_time, appointment_status, cancel_reason, delivery_slot, delivery_slot_deadline, delivery_address, customer_latitude, customer_longitude, is_edited, vendors(shop_name, service_mode, phone, latitude, longitude)",
-          )
-          .neq("status", "done")
-          .order("created_at", { ascending: false });
-        listQuery =
-          userPhone != null
-            ? listQuery.eq("user_phone", userPhone)
-            : listQuery.eq("device_id", device_id);
-        return throwOnSupabaseNetworkError(await listQuery.retry(false));
+        return throwOnSupabaseNetworkError(
+          await supabase
+            .rpc("get_my_orders", {
+              p_user_phone: userPhone ?? null,
+              p_device_id: device_id ?? null,
+            })
+            .retry(false),
+        );
       }, {
         onRetrying: () => {
           if (!opts?.silent && mounted.current) setNetworkLoadStatus("retrying");
@@ -603,11 +615,36 @@ const MyOrders = () => {
       });
       if (!mounted.current) return;
       if (error) {
-        setRows([]);
-        if (!opts?.silent) setLoading(false);
+        // Don't blank the visible list on a failed silent refresh (e.g. rate limit).
+        if (!opts?.silent) {
+          setRows([]);
+          setLoading(false);
+        }
         return;
       }
-      const list = (data ?? []) as unknown as RowWithShop[];
+      type MyOrdersRpcRow = OrderRequestRow & {
+        payment_status?: string | null;
+        vendor_shop_name: string | null;
+        vendor_service_mode: string | null;
+        vendor_phone: string | null;
+        vendor_latitude: number | null;
+        vendor_longitude: number | null;
+      };
+      const list: RowWithShop[] = ((data ?? []) as MyOrdersRpcRow[]).map(
+        ({ vendor_shop_name, vendor_service_mode, vendor_phone, vendor_latitude, vendor_longitude, ...r }) => ({
+          ...(r as unknown as RowWithShop),
+          vendors:
+            vendor_shop_name !== null || vendor_phone !== null
+              ? {
+                  shop_name: vendor_shop_name ?? "",
+                  service_mode: vendor_service_mode,
+                  phone: vendor_phone,
+                  latitude: vendor_latitude,
+                  longitude: vendor_longitude,
+                }
+              : null,
+        }),
+      );
       setRows([...list]);
       setNetworkLoadStatus(null);
       void loadBills(list.map((r) => r.id));
@@ -881,6 +918,12 @@ const MyOrders = () => {
           const updated = payload.new as { id: string; status?: string };
           if (updated.status === "done") {
             setRows((prev) => prev.filter((r) => r.id !== updated.id));
+            setBillsByRequestId((prev) => {
+              if (!(updated.id in prev)) return prev;
+              const next = { ...prev };
+              delete next[updated.id];
+              return next;
+            });
             return;
           }
           setRows((prev) =>
@@ -888,6 +931,16 @@ const MyOrders = () => {
               r.id === updated.id ? { ...r, ...payload.new } : r,
             ),
           );
+          // Cancel voids unpaid bills server-side — drop the stale bill map
+          // entry immediately so Pay Now cannot linger until the next poll.
+          if (updated.status === "cancelled") {
+            setBillsByRequestId((prev) => {
+              if (!(updated.id in prev)) return prev;
+              const next = { ...prev };
+              delete next[updated.id];
+              return next;
+            });
+          }
         },
       )
       .subscribe();
@@ -1160,36 +1213,8 @@ const MyOrders = () => {
     const userPhone = getUserPhone();
 
     try {
-      const { data: statusRow, error: statusError } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await supabase
-              .from("requests")
-              .select("status")
-              .eq("id", editOrder.id)
-              .maybeSingle(),
-          ),
-        {
-          onRetrying: () => {
-            showNetworkRetryingToast({ retrying: s.network_retrying });
-          },
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-
-      if (statusError) {
-        toast.error(s.myOrders_errCouldNotUpdate, { description: statusError.message });
-        return;
-      }
-
-      const currentStatus = statusRow?.status;
-      if (currentStatus !== "sent" && currentStatus !== "seen") {
-        toast.error(s.order_no_longer_editable);
-        closeEditSheet();
-        return;
-      }
-
+      // No status pre-read: direct requests reads are RLS-blocked OTP-off, and
+      // edit_customer_order already enforces status IN ('sent','seen') server-side.
       const { error } = await withNetworkRetry(
         async () =>
           throwOnSupabaseNetworkError(
@@ -1211,7 +1236,12 @@ const MyOrders = () => {
       dismissNetworkRetryingToast();
 
       if (error) {
-        toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
+        if (error.message.includes("not_editable_or_unauthorized")) {
+          toast.error(s.order_no_longer_editable);
+          closeEditSheet();
+        } else {
+          toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
+        }
         return;
       }
 
@@ -1765,7 +1795,10 @@ const MyOrders = () => {
               {r.status === "cancelled" && (
                 <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5">
                   <p className="text-sm font-semibold text-foreground leading-snug">
-                    {r.cancel_reason?.trim() || s.myOrders_vendorCancelledDefault}
+                    {/* cancel_reason is only recorded by vendor_cancel_order;
+                        customer cancels (cancel_customer_order) never set it —
+                        same origin discriminator as the status pill above. */}
+                    {r.cancel_reason?.trim() || s.myOrders_youCancelledDefault}
                   </p>
                 </div>
               )}
