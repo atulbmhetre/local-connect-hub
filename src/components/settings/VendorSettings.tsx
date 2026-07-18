@@ -1041,7 +1041,9 @@ export function VendorSettings({
 
   const loadCategoryCancelReasons = useCallback(
     async (categoryId: string | null) => {
-      if (!categoryId || approvedCategories.length <= 1) {
+      // No approved category (or categories not loaded yet): account columns
+      // are the only storage, so show those.
+      if (!categoryId) {
         setCancelReasons([
           vendor.cancel_reason_1 ?? "",
           vendor.cancel_reason_2 ?? "",
@@ -1077,7 +1079,6 @@ export function VendorSettings({
       setCancelReasonsChanged(false);
     },
     [
-      approvedCategories.length,
       vendor.id,
       vendor.cancel_reason_1,
       vendor.cancel_reason_2,
@@ -1107,8 +1108,12 @@ export function VendorSettings({
     setMenuItems(initialMenuItems);
   }, [initialMenuItems]);
 
+  // Zero approved categories: account columns are the storage, keep in sync.
+  // Vendors with an approved category load/save category-level rows instead
+  // (the cancellation flow resolves those first, so account edits would be
+  // shadowed by stale category rows).
   useEffect(() => {
-    if (approvedCategories.length <= 1) {
+    if (approvedCategories.length === 0) {
       setCancelReasons([
         vendor.cancel_reason_1 ?? "",
         vendor.cancel_reason_2 ?? "",
@@ -1223,7 +1228,10 @@ export function VendorSettings({
 
   const saveCancelReasons = async () => {
     setSavingReasons(true);
-    if (isMultiCategory && cancelReasonCategoryId) {
+    // Any approved category (single or multi): write category-level rows —
+    // resolveCancelReasonsForCategory reads those first, so account-column
+    // writes would be silently shadowed by stale category rows.
+    if (cancelReasonCategoryId) {
       const { error } = await supabase.rpc("vendor_upsert_category_cancel_reasons", {
         p_vendor_id: vendor.id,
         p_vendor_phone: vendorPhone,
@@ -1239,6 +1247,8 @@ export function VendorSettings({
       toast.success(s.vendor_settings_saved);
       return;
     }
+    // Zero-approved-categories fallback only: account columns are the sole
+    // storage the cancellation flow can resolve for such a vendor.
     const updates = {
       cancel_reason_1: cancelReasons[0].trim() || null,
       cancel_reason_2: cancelReasons[1].trim() || null,

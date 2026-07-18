@@ -420,21 +420,35 @@ const VendorMode = () => {
       setNetworkLoadStatus(null);
       try {
         const vendorPhone = getUserPhone()?.trim();
-        const { data, error: fetchError } = await withNetworkRetry(
+        const { data, error: fetchError, phoneUnknown } = await withNetworkRetry(
           async () => {
-            if (vendorPhone) {
-              const own = await fetchVendorOwn(vendorId, vendorPhone);
-              if (own.error) throw own.error;
-              return { data: own.data, error: null };
+            let ownPhone = vendorPhone ?? "";
+            if (!ownPhone) {
+              // Legacy state: vendor_id stored without a phone. Recover the
+              // phone via the public discoverable read, then still load the
+              // row through the hardened get_vendor_own RPC. Hidden/offline
+              // vendors are invisible to this read — that must NOT be
+              // treated as "account gone".
+              const pub = throwOnSupabaseNetworkError(
+                await supabase
+                  .from("vendors")
+                  .select("phone")
+                  .eq("id", vendorId)
+                  .maybeSingle()
+                  .retry(false),
+              );
+              if (pub.error) {
+                return { data: null, error: pub.error, phoneUnknown: false };
+              }
+              ownPhone = (pub.data?.phone ?? "").trim();
+              if (ownPhone) saveUserPhone(ownPhone);
             }
-            return throwOnSupabaseNetworkError(
-              await supabase
-                .from("vendors")
-                .select("*")
-                .eq("id", vendorId)
-                .maybeSingle()
-                .retry(false),
-            );
+            if (!ownPhone) {
+              return { data: null, error: null, phoneUnknown: true };
+            }
+            const own = await fetchVendorOwn(vendorId, ownPhone);
+            if (own.error) throw own.error;
+            return { data: own.data, error: null, phoneUnknown: false };
           },
           {
             onRetrying: () => {
@@ -448,9 +462,18 @@ const VendorMode = () => {
           setError(s.vendor_load_registered_failed);
           setNetworkLoadStatus(null);
         } else if (!data) {
-          localStorage.removeItem(STORAGE_KEY);
-          setVendorId(null);
-          setNetworkLoadStatus(null);
+          if (phoneUnknown) {
+            // Identity can't be verified without a phone. Keep the stored
+            // vendor_id (the account may simply be hidden/offline) and send
+            // the vendor to the find-account form to log back in.
+            setVendorId(null);
+            setAlreadyRegistered(true);
+            setNetworkLoadStatus(null);
+          } else {
+            localStorage.removeItem(STORAGE_KEY);
+            setVendorId(null);
+            setNetworkLoadStatus(null);
+          }
         } else {
           setVendor(data as Vendor);
           setNetworkLoadStatus(null);
