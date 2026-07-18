@@ -99,13 +99,10 @@ const Index = () => {
   const loadSavedNeighbours = useCallback(async () => {
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
-    let savedQuery = supabase
-      .from("saved_vendors")
-      .select("id, vendor_id, nickname, category, saved_at")
-      .order("saved_at", { ascending: false });
-    savedQuery =
-      userPhone != null ? savedQuery.eq("user_phone", userPhone) : savedQuery.eq("device_id", device_id);
-    const { data: saved, error } = await savedQuery;
+    const { data: saved, error } = await supabase.rpc("get_saved_vendors", {
+      p_user_phone: userPhone,
+      p_device_id: device_id,
+    });
     if (error || !saved?.length) {
       setSavedNeighbours([]);
       return;
@@ -167,12 +164,9 @@ const Index = () => {
       setRemovalNotices([]);
       return;
     }
-    const { data, error } = await supabase
-      .from("saved_vendor_removal_notices")
-      .select("id, shop_name, category_label, reason")
-      .eq("user_phone", phone)
-      .is("shown_at", null)
-      .order("created_at", { ascending: true });
+    const { data, error } = await supabase.rpc("get_saved_vendor_removal_notices", {
+      p_user_phone: phone,
+    });
     if (error) {
       console.error("loadRemovalNotices", error);
       setRemovalNotices([]);
