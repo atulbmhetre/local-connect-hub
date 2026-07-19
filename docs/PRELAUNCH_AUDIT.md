@@ -29,7 +29,7 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **18 of ~52 functionality-inventory entries fully closed.** Admin Dashboard & Moderation is CLOSED, with one explicitly deferred dormant-subscription integration. The `~52` figure is the curated functionality inventory; the document currently contains 66 raw `###` headings, which include sub-sections and are not a one-to-one inventory count. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
+| Phase 2 progress | **19 of ~52 functionality-inventory entries fully closed.** Vendor Profile & Lifecycle is CLOSED, with two explicitly deferred integrations blocked on dormant subscriptions and Exotel KYC. The `~52` figure is the curated functionality inventory; the document currently contains 66 raw `###` headings, which include sub-sections and are not a one-to-one inventory count. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
 | Next planned Phase 2 target | TBD |
 
 ## Lessons for future audit passes
@@ -354,3 +354,43 @@ This is a validated example of why unverified explanations for test failures mus
 | Item | Notes |
 |------|-------|
 | Waive-off/subscription-state integration | Deferred until the dormant subscription system is activated; there is no reliable live subscription lifecycle to integrate with yet. |
+
+## Vendor Profile & Lifecycle — CLOSED (TEST + PROD)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD), with two explicitly deferred integrations |
+| Scope | Native onboarding, vendor phone lookup, Go Live/Offline, Edit Shop Details, Vendor Analytics, and the Banned Vendor gate |
+| Review | Vendor profile and lifecycle paths were reviewed across client behavior, server-side authorization/integrity, localization, failure handling, and native browser coverage |
+
+### Headline security regression
+
+`vendor_update_own` had lost its `_assert_vendor_not_banned` call in migration `20260719100001`. The existing trigger silently coerced `is_active = false` instead of rejecting the write, masking the regression. A controlled A/B proof reproduced the silent pre-fix behavior, restored the assertion, and verified that banned-vendor updates now raise as intended.
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| Appointment-path ban enforcement | Added the same banned-vendor assertion used by `vendor_accept_order` to confirm, fulfill, cancel, decline, mark-seen, and dismiss appointment RPCs. |
+| Settings bypass | `Settings → My Business` now applies the same suspended-vendor gate and suspension UI as Vendor Mode. |
+| Customer request creation | `create_customer_request` now enforces vendor not-banned, discoverable, and complete-profile checks server-side, and rejects banned customers; these checks were previously client-only or absent. |
+| Category and green-pending phone ownership | Added phone-ownership verification to `attach_pending_category` and both green-pending promotion RPCs. |
+| Ban-blind feed | `vendor_post_offer` now rejects banned vendors, and `get_local_feed_posts` filters posts from banned authors. |
+| Silent analytics and Go Offline failures | Vendor Analytics now surfaces RPC failures instead of showing misleading zero/empty data; Go Offline no longer proceeds when the blocking-orders check itself fails. |
+| Non-atomic Edit Shop Details save | Added `vendor_update_profile_and_categories`, replacing two separate RPC writes with one transactional profile/category update. |
+| Stale active badge | Ban-triggered forced-offline handling now reconciles the stale `aaspaas:vendor_active` localStorage flag immediately rather than waiting for a later full page load. |
+| Localization gaps | Localized banned-vendor suspension copy, GPS-mismatch feedback, and the Go Live dismiss aria-label in EN/HI/MR; corrected the GPS permission-denied text for already-registered vendors. |
+| Native-onboarding coverage gap | `loginAsVendor` had always forced `vendor_onboarded = true`, masking the real native onboarding path. Added a `skipOnboarding` variant and VL-01–05 coverage for onboarding, GPS denial, banned-as-not-found phone lookup, Settings ban-gating, and shop/category name synchronization. |
+| Shop-name source of truth | Consolidated `brand_name` into `shop_name`: removed the separate brand UI, synchronized `vendor_categories.brand_name` whenever `vendor_update_own` patches `shop_name`, and backfilled existing category rows. `brand_name` belongs to `vendor_categories`, not `vendors`. |
+| Migration | `20260719180001` |
+
+### Test-maintenance note
+
+GP-07 was updated to accept the stronger permission-denied rejection introduced by the previous audit pass's grant tightening on `get_admin_green_pending_stats`. Its old expectation was stale; this was not a new product regression, and restoring anon access would have reopened a closed authorization gap.
+
+### Deliberately deferred
+
+| Item | Notes |
+|------|-------|
+| Radar client-side subscription filter | Deferred because subscriptions are dormant and not yet launched; there is no active subscription lifecycle to integrate with. |
+| Phone-only vendor identity as a credential | Systemic OTP-off architecture remains blocked on Exotel KYC; this is not specific to Vendor Profile & Lifecycle. |
