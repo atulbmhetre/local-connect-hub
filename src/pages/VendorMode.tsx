@@ -24,7 +24,6 @@ import {
   useServiceModeLabel,
   invokeNotifyAdmin,
   invokeRegisterVendor,
-  invokeAttachPendingCategory,
   invokeSuggestCategory,
   type CategorySuggestionResult,
 } from "@/lib/supabase";
@@ -79,7 +78,7 @@ import {
 } from "@/components/vendor/VendorAnalytics";
 import { buildCategoryOrderStats } from "@/lib/categoryScopedVendor";
 import { cn } from "@/lib/utils";
-import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
+import { notifyVendorIdChanged, reconcileVendorActiveFlag } from "@/lib/vendorSessionSync";
 import { useLanguage } from '@/lib/language';
 import { registerPushToken } from "../lib/pushNotifications";
 import { checkAndNotifyAdminGreenReady } from "@/lib/vendorGreenReady";
@@ -227,21 +226,26 @@ type BlockingOfflineOrder = {
   appointment_time: string | null;
 };
 
+type BlockingOrdersResult =
+  | { ok: true; orders: BlockingOfflineOrder[] }
+  | { ok: false; error: string };
+
 async function fetchBlockingActiveOrders(
   vendorId: string,
   vendorPhone: string | null | undefined,
   serviceMode: string | null | undefined,
-): Promise<BlockingOfflineOrder[]> {
+): Promise<BlockingOrdersResult> {
   const phone = vendorPhone?.trim();
-  if (!phone) return [];
+  if (!phone) return { ok: false, error: "identity_required" };
   const { data, error } = await supabase.rpc("get_vendor_blocking_active_orders", {
     p_vendor_id: vendorId,
     p_vendor_phone: phone,
   });
-  if (error || !data?.length) return [];
-  return (data as BlockingOfflineOrder[]).filter((row) =>
+  if (error) return { ok: false, error: error.message };
+  const orders = ((data ?? []) as BlockingOfflineOrder[]).filter((row) =>
     orderBlocksGoingOffline(row, serviceMode),
   );
+  return { ok: true, orders };
 }
 
 // Heuristic gibberish — see vendorRegistration.ts
@@ -329,6 +333,7 @@ const VendorMode = () => {
   const [loading, setLoading] = useState(false);
   const [vendorOrderStats, setVendorOrderStats] = useState<VendorOrderStats | null>(null);
   const [vendorCategoryStats, setVendorCategoryStats] = useState<VendorCategoryStat[]>([]);
+  const [analyticsLoadError, setAnalyticsLoadError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [networkLoadStatus, setNetworkLoadStatus] = useState<"retrying" | "failed" | null>(null);
   const [vendorFetchTick, setVendorFetchTick] = useState(0);
@@ -400,13 +405,7 @@ const VendorMode = () => {
 
   // Broadcast vendor "live" state so the BottomNav can pulse the Vendor tab.
   useEffect(() => {
-    const live = !!vendor?.is_active;
-    if (live) localStorage.setItem("aaspaas:vendor_active", "1");
-    else localStorage.removeItem("aaspaas:vendor_active");
-    window.dispatchEvent(new CustomEvent("aaspaas:vendor_active_changed", { detail: live }));
-    return () => {
-      // On unmount we don't clear — the flag should reflect DB state, not route.
-    };
+    reconcileVendorActiveFlag(!!vendor?.is_active);
   }, [vendor?.is_active]);
 
   useEffect(() => {
@@ -475,6 +474,8 @@ const VendorMode = () => {
             setNetworkLoadStatus(null);
           }
         } else {
+          // Reconcile badge immediately on read (ban force-offline, etc.).
+          reconcileVendorActiveFlag(!!(data as Vendor).is_active);
           setVendor(data as Vendor);
           setNetworkLoadStatus(null);
           setError(null);
@@ -511,7 +512,9 @@ const VendorMode = () => {
         { event: "UPDATE", schema: "public", table: "vendors", filter: `id=eq.${vendorId}` },
         (payload) => {
           if (isTogglingRef.current) return;
-          setVendor(payload.new as Vendor);
+          const next = payload.new as Vendor;
+          reconcileVendorActiveFlag(!!next.is_active);
+          setVendor(next);
         },
       )
       .subscribe();
@@ -541,13 +544,22 @@ const VendorMode = () => {
     let cancelled = false;
 
     void (async () => {
-      const { data } = await supabase.rpc("get_vendor_order_stats_rows", {
+      const { data, error: statsError } = await supabase.rpc("get_vendor_order_stats_rows", {
         p_vendor_id: vendor.id,
         p_vendor_phone: vendorPhoneForStats,
       });
 
       if (cancelled) return;
 
+      if (statsError) {
+        console.error("vendorOrderStats", statsError.message);
+        setAnalyticsLoadError(true);
+        setVendorOrderStats(null);
+        setVendorCategoryStats([]);
+        return;
+      }
+
+      setAnalyticsLoadError(false);
       const orders = data ?? [];
       console.log("vendorOrderStats", vendor.id, orders.length);
 
@@ -1101,14 +1113,21 @@ const VendorMode = () => {
 
     if (!next) {
       setCheckingOffline(true);
-      const blockingOrders = await fetchBlockingActiveOrders(
+      const blockingResult = await fetchBlockingActiveOrders(
         vendor.id,
         vendor.phone,
         vendor.service_mode,
       );
       setCheckingOffline(false);
-      if (blockingOrders.length > 0) {
-        setOfflineBlockingOrders(blockingOrders);
+      if (blockingResult.ok === false) {
+        // Safer default: if the check itself fails, do not silently go offline.
+        toast.error(s.vendor_offline_check_failed, {
+          description: blockingResult.error,
+        });
+        return;
+      }
+      if (blockingResult.orders.length > 0) {
+        setOfflineBlockingOrders(blockingResult.orders);
         setOfflineConfirmOpen(true);
         return;
       }
@@ -1205,7 +1224,11 @@ const VendorMode = () => {
       )}
 
       {!vendorId && alreadyRegistered && (
-        <form onSubmit={lookupVendorByPhone} className="space-y-4 animate-fade-up">
+        <form
+          onSubmit={lookupVendorByPhone}
+          className="space-y-4 animate-fade-up"
+          data-testid="vendor-phone-lookup-form"
+        >
           <div>
             <h2 className="font-display text-xl font-bold text-foreground">{s.vendor_find_account_title}</h2>
             <p className="text-sm text-muted-foreground mt-1">
@@ -1225,6 +1248,7 @@ const VendorMode = () => {
                 maxLength={10}
                 placeholder="98765 43210"
                 value={lookupPhone}
+                data-testid="vendor-phone-lookup-input"
                 onChange={(e) => {
                   setLookupPhone(e.target.value.replace(/\D/g, "").slice(0, 10));
                   setLookupError(null);
@@ -1233,12 +1257,17 @@ const VendorMode = () => {
                 autoComplete="tel-national"
               />
             </div>
-            {lookupError && <p className="mt-1 text-xs text-destructive">{lookupError}</p>}
+            {lookupError && (
+              <p className="mt-1 text-xs text-destructive" data-testid="vendor-phone-lookup-error">
+                {lookupError}
+              </p>
+            )}
           </div>
 
           <button
             type="submit"
             disabled={lookupLoading}
+            data-testid="vendor-phone-lookup-submit"
             className="w-full rounded-2xl bg-primary text-primary-foreground py-3.5 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {lookupLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
@@ -1379,7 +1408,7 @@ const VendorMode = () => {
                   setGoLivePromptVisible(false);
                 }}
                 className="absolute top-3 right-3 h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                aria-label="Dismiss"
+                aria-label={s.vendor_dismiss_aria}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1446,6 +1475,7 @@ const VendorMode = () => {
                 <VendorAnalytics
                   hideHeader
                   loading={loading}
+                  loadError={analyticsLoadError}
                   stats={vendorOrderStats}
                   categoryStats={vendorCategoryStats}
                   onTimeRate={

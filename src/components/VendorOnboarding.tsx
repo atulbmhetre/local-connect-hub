@@ -129,7 +129,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
   const current = steps[step - 1];
 
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col bg-page-bg text-white">
+    <div className="fixed inset-0 z-[200] flex flex-col bg-page-bg text-white" data-testid="vendor-onboarding">
       <div className="px-6 pt-10 pb-4">
         <div className="flex gap-2">
           {Array.from({ length: TOTAL_STEPS }, (_, i) => (
@@ -141,7 +141,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
             />
           ))}
         </div>
-        <p className="text-[11px] text-gray-500 mt-3 tabular-nums">
+        <p className="text-[11px] text-gray-500 mt-3 tabular-nums" data-testid="vendor-onboarding-step">
           {step} / {TOTAL_STEPS}
         </p>
       </div>
@@ -158,6 +158,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
         <button
           type="button"
           disabled={busy}
+          data-testid="vendor-onboarding-action"
           onClick={() => void current.onAction()}
           className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-60"
         >
@@ -167,6 +168,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
           <button
             type="button"
             disabled={busy}
+            data-testid="vendor-onboarding-skip"
             onClick={() => setStep((prev) => Math.min(prev + 1, TOTAL_STEPS))}
             className="w-full text-sm text-gray-500 py-2 hover:text-gray-300 disabled:opacity-50"
           >

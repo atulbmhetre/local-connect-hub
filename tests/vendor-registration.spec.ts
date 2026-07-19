@@ -320,6 +320,64 @@ test('AD-02: banned vendor go-live rejected server-side (vendor_update_own + tri
   await assertVendorField(testVendorId, 'is_active', false);
 });
 
+test('AD-02b: A/B proof — ban assert raises; without it trigger coerces silently; restore raises', async () => {
+  const { error: seedError } = await supabaseAdmin
+    .from('vendors')
+    .update({ is_banned: true, ban_reason: 'A/B ban assert', is_active: false })
+    .eq('id', testVendorId);
+  expect(seedError).toBeNull();
+
+  // (a) With assert enabled: explicit vendor_banned.
+  const { data: enableA, error: enableErrA } = await supabaseAdmin.rpc(
+    '_test_set_vendor_update_own_ban_assert',
+    { p_enabled: true },
+  );
+  expect(enableErrA, enableErrA?.message).toBeNull();
+  expect(['enabled', 'already_enabled']).toContain(enableA);
+
+  const { error: withAssert } = await supabase.rpc('vendor_update_own', {
+    p_vendor_id: testVendorId,
+    p_vendor_phone: TEST_VENDOR_PHONE,
+    p_patch: { is_active: true },
+  });
+  expect(withAssert).not.toBeNull();
+  expect(withAssert?.message).toContain('vendor_banned');
+  await assertVendorField(testVendorId, 'is_active', false);
+
+  // (b) Strip assert: RPC "succeeds" but trigger still forces offline.
+  const { data: disabled, error: disableErr } = await supabaseAdmin.rpc(
+    '_test_set_vendor_update_own_ban_assert',
+    { p_enabled: false },
+  );
+  expect(disableErr, disableErr?.message).toBeNull();
+  expect(disabled).toBe('disabled');
+
+  const { error: withoutAssert } = await supabase.rpc('vendor_update_own', {
+    p_vendor_id: testVendorId,
+    p_vendor_phone: TEST_VENDOR_PHONE,
+    p_patch: { is_active: true },
+  });
+  expect(withoutAssert).toBeNull();
+  await assertVendorField(testVendorId, 'is_active', false);
+
+  // (c) Re-enable assert: raises again.
+  const { data: restored, error: restoreErr } = await supabaseAdmin.rpc(
+    '_test_set_vendor_update_own_ban_assert',
+    { p_enabled: true },
+  );
+  expect(restoreErr, restoreErr?.message).toBeNull();
+  expect(restored).toBe('enabled');
+
+  const { error: withAssertAgain } = await supabase.rpc('vendor_update_own', {
+    p_vendor_id: testVendorId,
+    p_vendor_phone: TEST_VENDOR_PHONE,
+    p_patch: { is_active: true },
+  });
+  expect(withAssertAgain).not.toBeNull();
+  expect(withAssertAgain?.message).toContain('vendor_banned');
+  await assertVendorField(testVendorId, 'is_active', false);
+});
+
 test('AD-03: banning a vendor removes it from anon radar reads (RLS)', async () => {
   // Make the vendor discoverable/complete so visibility hinges only on the ban.
   const { error: seedError } = await supabaseAdmin

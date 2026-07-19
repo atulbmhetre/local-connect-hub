@@ -24,6 +24,8 @@ type Props = {
   categoryStats?: VendorCategoryStat[];
   /** When true, render only the stat grid (parent supplies section chrome/header). */
   hideHeader?: boolean;
+  /** RPC failure — show explicit error instead of silent zeros. */
+  loadError?: boolean;
 };
 
 function StatCell({
@@ -60,8 +62,30 @@ export function VendorAnalytics({
   onTimeRate,
   categoryStats = [],
   hideHeader,
+  loadError,
 }: Props) {
   const { s } = useLanguage();
+
+  if (loadError && !loading) {
+    const err = (
+      <div
+        data-testid="vendor-analytics-load-error"
+        className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-6 text-center text-sm text-foreground"
+      >
+        {s.vendor_analytics_load_failed}
+      </div>
+    );
+    if (hideHeader) return err;
+    return (
+      <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <BarChart2 className="h-5 w-5 text-secondary" />
+          <p className="font-display font-bold">{s.settings_myAnalytics}</p>
+        </div>
+        {err}
+      </section>
+    );
+  }
 
   const onTimeDisplay =
     !loading && onTimeRate !== null && Number.isFinite(onTimeRate)

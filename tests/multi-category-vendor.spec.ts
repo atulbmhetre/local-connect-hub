@@ -380,6 +380,7 @@ test('MCV-07: attach_pending_category replaces all vendor_categories rows', asyn
   try {
     const { error: rpcError } = await supabase.rpc('attach_pending_category', {
       p_vendor_id: vendorId,
+      p_vendor_phone: phone,
       p_category_id: pendingCategory!.id,
       p_service_mode: 'help',
       p_modes: ['help', 'delivery'],

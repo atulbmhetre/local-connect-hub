@@ -2915,7 +2915,18 @@ const Settings = () => {
           {(!vendor || !vendorExtras) && (
             <p className="text-sm text-muted-foreground px-4 mb-5">{s.settings_loading}</p>
           )}
-          {vendor && vendorExtras && (
+          {vendor && vendorExtras && vendor.is_banned && (
+            <div
+              data-testid="settings-vendor-banned"
+              className="min-h-[40vh] flex flex-col items-center justify-center px-6 mb-6 animate-fade-up"
+            >
+              <div className="w-full max-w-md rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-8 text-center space-y-3">
+                <p className="text-lg font-bold text-foreground">{s.admin_vendor_banned_title}</p>
+                <p className="text-sm text-foreground leading-relaxed">{s.admin_vendor_banned_body}</p>
+              </div>
+            </div>
+          )}
+          {vendor && vendorExtras && !vendor.is_banned && (
             <Tabs
               value={vendorPanelTab}
               onValueChange={(v) => setVendorPanelTab(v as "business" | "preferences")}

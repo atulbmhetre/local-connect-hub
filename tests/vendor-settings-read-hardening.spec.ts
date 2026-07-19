@@ -264,6 +264,7 @@ test('VSR-06 — vendor_promote_green_pending enforces criteria server-side', as
   });
   const { data: promoted, error: pErr } = await supabase.rpc('vendor_promote_green_pending', {
     p_vendor_id: ready.id,
+    p_vendor_phone: ready.phone,
   });
   expect(pErr, pErr?.message).toBeNull();
   expect(promoted).toBe(true);
@@ -284,6 +285,7 @@ test('VSR-06 — vendor_promote_green_pending enforces criteria server-side', as
   });
   const { data: notPromoted } = await supabase.rpc('vendor_promote_green_pending', {
     p_vendor_id: notVerified.id,
+    p_vendor_phone: notVerified.phone,
   });
   expect(notPromoted).toBe(false);
   const { data: nvRow } = await supabaseAdmin

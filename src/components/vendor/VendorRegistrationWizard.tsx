@@ -531,7 +531,7 @@ export function VendorRegistrationWizard({
       const meters = distanceMeters(coords, shot.coords);
       if (meters > GPS_MATCH_TOLERANCE_M) {
         toast.error(s.vendor_mismatch_title, {
-          description: `Photo was taken ${Math.round(meters)} m from your shop. Must be within ${GPS_MATCH_TOLERANCE_M} m.`,
+          description: s.vendor_mismatch_distance(Math.round(meters), GPS_MATCH_TOLERANCE_M),
         });
         return;
       }
@@ -668,6 +668,7 @@ export function VendorRegistrationWizard({
 
         const attachResult = await invokeAttachPendingCategory({
           vendorId: newVendorId,
+          vendorPhone: phone.trim(),
           categoryId: created.category_id,
           serviceMode: resolvedPrimaryServiceMode,
           modes: pendingCategoryModes,
@@ -747,18 +748,15 @@ export function VendorRegistrationWizard({
     }
 
     if (resolvedCategoryId) {
-      const brandTrim = shopName.trim();
-      const brandDiffers =
-        brandTrim.length > 0 && brandTrim.toLowerCase() !== resolvedShopName.toLowerCase();
       const noteTrim = vendorNote.trim();
-      if (brandDiffers || noteTrim.length > 0) {
+      if (noteTrim.length > 0) {
         const patch: Record<string, unknown> = {
           serves_at_vendor_place: reachFlags.serves_at_vendor_place,
           serves_at_customer_place: reachFlags.serves_at_customer_place,
           service_radius_km: serviceRadiusKm,
+          vendor_note: noteTrim,
+          // shop_name is the single brand source; brand_name is synced server-side.
         };
-        if (brandTrim.length > 0) patch.brand_name = brandTrim;
-        if (noteTrim.length > 0) patch.vendor_note = noteTrim;
         const { error: profileErr } = await supabase.rpc("vendor_update_category_profile", {
           p_vendor_id: newVendorId,
           p_vendor_phone: phone.trim(),

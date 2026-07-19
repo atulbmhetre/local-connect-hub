@@ -1,0 +1,13 @@
+---
+description: Prefer plain-text audit/handover deliverables; do not use Cursor canvases for them
+alwaysApply: true
+---
+
+# Plain-text audits and handovers
+
+When producing audits, security reviews, architecture reviews, or handover notes for another AI/tool (e.g. Claude):
+
+- Deliver as **plain text** (or markdown in chat / a `.md` file if the user asks to save it).
+- Do **not** create or update Cursor canvases (`.canvas.tsx`) for these deliverables unless the user explicitly asks for a canvas.
+- Keep structure scannable: headings, numbered priorities, file/RPC maps, dimension sections.
+---

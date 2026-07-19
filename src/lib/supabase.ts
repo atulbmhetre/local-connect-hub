@@ -762,6 +762,7 @@ export type AttachPendingCategoryResult =
 
 export async function invokeAttachPendingCategory(params: {
   vendorId: string;
+  vendorPhone: string;
   categoryId: string;
   serviceMode: string;
   modes?: Array<"help" | "delivery" | "appointment">;
@@ -769,6 +770,7 @@ export async function invokeAttachPendingCategory(params: {
   try {
     const { error } = await supabase.rpc("attach_pending_category", {
       p_vendor_id: params.vendorId,
+      p_vendor_phone: params.vendorPhone,
       p_category_id: params.categoryId,
       p_service_mode: params.serviceMode,
       p_modes: params.modes ?? [params.serviceMode as "help" | "delivery" | "appointment"],

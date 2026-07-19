@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import { supabase, invokeNotifyAdmin } from "@/lib/supabase";
+import { getUserPhone } from "@/lib/userIdentity";
 import { strings, type Language } from "@/lib/strings";
 
 function readLang(): Language {
@@ -24,6 +25,12 @@ function notifyAdminGreenReady(vendorId: string, shopName?: string): void {
   );
 }
 
+function resolvePromotePhone(explicit?: string | null): string | null {
+  const fromArg = explicit?.trim() || "";
+  if (fromArg) return fromArg;
+  return getUserPhone()?.trim() || null;
+}
+
 /**
  * After verification-related vendor updates: if green criteria are met but admin
  * has not approved, mark green_pending once (deduped via verification_status).
@@ -32,14 +39,21 @@ function notifyAdminGreenReady(vendorId: string, shopName?: string): void {
  * (business_verified status, photo, selfie, verified UPI, valid phone, not
  * manual verified, not already pending). Promotion failures surface a visible
  * error; a genuine promotion notifies the admin (ready-for-review).
+ *
+ * Requires vendor phone ownership. Customer-initiated callers without the
+ * vendor's phone (e.g. rating sync) skip silently — they cannot prove ownership.
  */
 export async function checkAndNotifyAdminGreenReady(
   vendorId: string,
-  opts?: { shopName?: string },
+  opts?: { shopName?: string; vendorPhone?: string | null },
 ): Promise<boolean> {
+  const phone = resolvePromotePhone(opts?.vendorPhone);
+  if (!phone) return false;
+
   try {
     const { data, error } = await supabase.rpc("vendor_promote_green_pending", {
       p_vendor_id: vendorId,
+      p_vendor_phone: phone,
     });
     if (error) {
       const s = strings[readLang()];
@@ -67,11 +81,15 @@ export async function checkAndNotifyAdminGreenReady(
 export async function checkAndNotifyAdminCategoryGreenReady(
   vendorId: string,
   categoryId: string,
-  opts?: { shopName?: string },
+  opts?: { shopName?: string; vendorPhone?: string | null },
 ): Promise<boolean> {
+  const phone = resolvePromotePhone(opts?.vendorPhone);
+  if (!phone) return false;
+
   try {
     const { data, error } = await supabase.rpc("vendor_promote_category_green_pending", {
       p_vendor_id: vendorId,
+      p_vendor_phone: phone,
       p_category_id: categoryId,
     });
     if (error) {

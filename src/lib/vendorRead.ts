@@ -21,7 +21,10 @@ export async function fetchVendorByPhoneLogin(
     p_phone: phone.trim(),
   });
   if (error) return { data: null, error: new Error(error.message) };
-  return { data: (data as Vendor | null) ?? null, error: null };
+  // PostgREST returns a null-filled composite object when SQL RETURNS NULL for a row type.
+  const row = data as Vendor | null;
+  if (!row?.id) return { data: null, error: null };
+  return { data: row, error: null };
 }
 
 /** Customer reads vendor(s) for tracking/orders or public discovery. */

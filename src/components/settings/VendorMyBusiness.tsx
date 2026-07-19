@@ -71,7 +71,6 @@ type RegCategoryRow = Pick<Category, "id" | "label" | "emoji"> & {
 };
 
 type CategoryEditSettings = {
-  brand_name: string;
   reachChoice: ReachChoiceValue;
   service_radius_km: number | null;
   vendor_note: string;
@@ -96,7 +95,6 @@ function settingsFromAccount(account: {
 }): CategoryEditSettings {
   const inherited = inheritCategorySettingsFromAccount(account);
   return {
-    brand_name: inherited.brand_name ?? "",
     reachChoice:
       reachChoiceFromFlags(
         inherited.serves_at_vendor_place,
@@ -114,7 +112,6 @@ function settingsFromAccount(account: {
 
 function settingsFromCategoryRow(
   row: {
-    brand_name?: string | null;
     serves_at_vendor_place?: boolean | null;
     serves_at_customer_place?: boolean | null;
     service_radius_km?: number | null;
@@ -130,7 +127,6 @@ function settingsFromCategoryRow(
     reachChoiceFromFlags(row.serves_at_vendor_place, row.serves_at_customer_place) ||
     accountFallback.reachChoice;
   return {
-    brand_name: String(row.brand_name ?? "").trim() || accountFallback.brand_name,
     reachChoice: reach,
     service_radius_km:
       row.service_radius_km != null && Number.isFinite(Number(row.service_radius_km))
@@ -177,6 +173,7 @@ function Field({
   required,
   error,
   type = "text",
+  testId,
 }: {
   label: string;
   value: string;
@@ -185,6 +182,7 @@ function Field({
   required?: boolean;
   error?: string;
   type?: string;
+  testId?: string;
 }) {
   return (
     <div>
@@ -197,6 +195,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
+        data-testid={testId}
         className={cn(
           "mt-1 w-full bg-card border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2",
           error ? "border-destructive focus:ring-destructive" : "border-border focus:ring-primary",
@@ -587,11 +586,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         ? effectiveRadiusKm
         : vendor.service_radius_km;
 
-    const brandNames = categoryIdsToSave.map((id) => {
-      if (!multi) return resolvedShopName.trim();
-      const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
-      return String(cfg.brand_name ?? "").trim() || resolvedShopName.trim();
-    });
+    const brandNames = categoryIdsToSave.map(() => resolvedShopName.trim());
     const servesVendorPlace = categoryIdsToSave.map((id) => {
       if (!multi) return reachFlags.serves_at_vendor_place;
       const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
@@ -612,61 +607,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     const upiChanged = upiId.trim() !== (vendor.upi_id ?? "").trim();
     const phoneChanged = phone.trim() !== (vendor.phone ?? "").trim();
 
-    setSaving(true);
-    let patchError: { message: string } | null = null;
-    try {
-      const { error } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await patchVendorOwn(vendor.id, vendorPhone || phone.trim(), {
-              name: ownerName.trim(),
-              shop_name: resolvedShopName.trim(),
-              category: primaryLabel,
-              service_mode: primaryServiceMode,
-              vendor_type: mappedVendorType,
-              base_type: baseType,
-              serves_at_vendor_place: reachFlags.serves_at_vendor_place,
-              serves_at_customer_place: reachFlags.serves_at_customer_place,
-              service_radius_km: radiusKm,
-              phone: phone.trim(),
-              upi_id: upiId.trim() || null,
-              // Phone/UPI change: verification_status downgrade to
-              // identity_linked now happens server-side in vendor_update_own
-              // (the field is field_not_allowed in the generic patch).
-              ...(phoneChanged || upiChanged
-                ? {
-                    is_manual_verified: false,
-                    shop_photo_url: upiChanged ? vendor.shop_photo_url : undefined,
-                  }
-                : {}),
-            }),
-          ),
-        {
-          onRetrying: () => showNetworkRetryingToast({ retrying: s.network_retrying }),
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-      patchError = error;
-    } catch (err) {
-      dismissNetworkRetryingToast();
-      setSaving(false);
-      if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void saveProfile(), {
-          failed: s.network_failed,
-          retryBtn: s.network_retry_btn,
-        });
-        return;
-      }
-      throw err;
-    }
-
-    if (patchError) {
-      setSaving(false);
-      toast.error(s.vendor_update_failed);
-      return;
-    }
-
     const categoryServiceModes = categoryIdsToSave.map((categoryId) => {
       const cat =
         availableCategories.find((c) => c.id === categoryId) ??
@@ -681,20 +621,68 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       ),
     );
 
-    const { error: vcError } = await supabase.rpc("vendor_update_categories", {
-      p_vendor_id: vendor.id,
-      p_vendor_phone: phone.trim(),
-      p_category_ids: categoryIdsToSave,
-      p_category_service_modes: categoryServiceModes,
-      p_category_modes: categoryModesPayload,
-      p_brand_names: brandNames,
-      p_serves_at_vendor_place: servesVendorPlace,
-      p_serves_at_customer_place: servesCustomerPlace,
-      p_service_radius_km: radii,
-    });
+    const patch: Record<string, unknown> = {
+      name: ownerName.trim(),
+      shop_name: resolvedShopName.trim(),
+      category: primaryLabel,
+      service_mode: primaryServiceMode,
+      vendor_type: mappedVendorType,
+      base_type: baseType,
+      serves_at_vendor_place: reachFlags.serves_at_vendor_place,
+      serves_at_customer_place: reachFlags.serves_at_customer_place,
+      service_radius_km: radiusKm,
+      phone: phone.trim(),
+      upi_id: upiId.trim() || null,
+      ...(phoneChanged || upiChanged
+        ? {
+            is_manual_verified: false,
+            shop_photo_url: upiChanged ? vendor.shop_photo_url : undefined,
+          }
+        : {}),
+    };
+
+    setSaving(true);
+    let saveError: { message: string } | null = null;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_update_profile_and_categories", {
+              p_vendor_id: vendor.id,
+              p_vendor_phone: vendorPhone || phone.trim(),
+              p_patch: patch,
+              p_category_ids: categoryIdsToSave,
+              p_category_service_modes: categoryServiceModes,
+              p_category_modes: categoryModesPayload,
+              p_brand_names: brandNames,
+              p_serves_at_vendor_place: servesVendorPlace,
+              p_serves_at_customer_place: servesCustomerPlace,
+              p_service_radius_km: radii,
+            }),
+          ),
+        {
+          onRetrying: () => showNetworkRetryingToast({ retrying: s.network_retrying }),
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      saveError = error;
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      setSaving(false);
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void saveProfile(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+        return;
+      }
+      throw err;
+    }
+
     setSaving(false);
-    if (vcError) {
-      toast.error(s.vendor_categories_partial_save);
+    if (saveError) {
+      toast.error(s.vendor_update_failed);
       return;
     }
 
@@ -763,7 +751,10 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         toast.error(s.vendor_upi_check_failed, { description: error.message });
         return;
       }
-      void checkAndNotifyAdminGreenReady(vendor.id, { shopName: vendor.shop_name });
+      void checkAndNotifyAdminGreenReady(vendor.id, {
+        shopName: vendor.shop_name,
+        vendorPhone: vendorPhone || phone.trim(),
+      });
       onVendorUpdated({ ...vendor, upi_verified: true });
       toast.success(`${s.vendor_upi_verified}${bank.toUpperCase()}`, {
         description: s.vendor_upi_bank_valid,
@@ -799,7 +790,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       );
       if (meters > GPS_MATCH_TOLERANCE_M) {
         toast.error(s.vendor_mismatch_title, {
-          description: `Photo was taken ${Math.round(meters)} m from your shop. Must be within ${GPS_MATCH_TOLERANCE_M} m.`,
+          description: s.vendor_mismatch_distance(Math.round(meters), GPS_MATCH_TOLERANCE_M),
         });
         return;
       }
@@ -852,6 +843,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       }
       void checkAndNotifyAdminCategoryGreenReady(vendor.id, targetCategoryId, {
         shopName: vendor.shop_name,
+        vendorPhone: vendorPhone || phone.trim(),
       });
       setCategorySettingsById((prev) => ({
         ...prev,
@@ -1126,15 +1118,17 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               placeholder={s.vendor_shop_placeholder}
               required
               error={shopName.length > 0 && !shopFieldOk ? s.vendor_specify_hint : undefined}
+              testId="my-business-shop-name"
             />
           )}
           {baseType === "home" && !isMultiCategory && (
             <Field
-              label={s.vendor_brand_name_optional}
+              label={s.vendor_shop_name}
               value={shopName}
               onChange={setShopName}
-              placeholder={s.vendor_brand_placeholder}
+              placeholder={s.vendor_shop_placeholder}
               error={shopNameInvalid ? s.vendor_specify_hint : undefined}
+              testId="my-business-shop-name"
             />
           )}
 
@@ -1235,12 +1229,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                   <p className="text-sm font-semibold text-foreground">
                     {cat.emoji} {getLabel(cat.label)}
                   </p>
-                  <Field
-                    label={s.my_business_category_brand}
-                    value={cfg.brand_name}
-                    onChange={(v) => updateCategorySettings(cat.id, { brand_name: v })}
-                    placeholder={s.vendor_brand_placeholder}
-                  />
                   <div>
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       {s.my_business_category_reach}

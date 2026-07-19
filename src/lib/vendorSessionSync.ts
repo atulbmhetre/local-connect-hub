@@ -28,3 +28,16 @@ export function readIsVendorActive(): boolean {
     return false;
   }
 }
+
+/** Keep aaspaas:vendor_active aligned with server is_active (e.g. ban force-offline). */
+export function reconcileVendorActiveFlag(isActive: boolean): void {
+  try {
+    if (isActive) localStorage.setItem(VENDOR_ACTIVE_KEY, "1");
+    else localStorage.removeItem(VENDOR_ACTIVE_KEY);
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(
+    new CustomEvent(VENDOR_ACTIVE_CHANGED_EVENT, { detail: isActive }),
+  );
+}

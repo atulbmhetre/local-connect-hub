@@ -171,7 +171,7 @@ test('GP-03 — vendor_promote_green_pending requires selfie', async () => {
   });
   const { data: notPromoted, error: nErr } = await supabase.rpc(
     'vendor_promote_green_pending',
-    { p_vendor_id: noSelfie.id },
+    { p_vendor_id: noSelfie.id, p_vendor_phone: noSelfie.phone },
   );
   expect(nErr, nErr?.message).toBeNull();
   expect(notPromoted).toBe(false);
@@ -184,6 +184,7 @@ test('GP-03 — vendor_promote_green_pending requires selfie', async () => {
     .eq('id', noSelfie.id);
   const { data: promoted, error: pErr } = await supabase.rpc('vendor_promote_green_pending', {
     p_vendor_id: noSelfie.id,
+    p_vendor_phone: noSelfie.phone,
   });
   expect(pErr, pErr?.message).toBeNull();
   expect(promoted).toBe(true);
@@ -192,6 +193,7 @@ test('GP-03 — vendor_promote_green_pending requires selfie', async () => {
   // Idempotent: second call is a no-op (already green_pending).
   const { data: again } = await supabase.rpc('vendor_promote_green_pending', {
     p_vendor_id: noSelfie.id,
+    p_vendor_phone: noSelfie.phone,
   });
   expect(again).toBe(false);
 });
@@ -214,7 +216,11 @@ test('GP-04 — vendor_promote_category_green_pending requires selfie; returns p
   // No selfie → not promoted.
   const { data: notPromoted, error: nErr } = await supabase.rpc(
     'vendor_promote_category_green_pending',
-    { p_vendor_id: vendor.id, p_category_id: vendor.categoryId },
+    {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendor.phone,
+      p_category_id: vendor.categoryId,
+    },
   );
   expect(nErr, nErr?.message).toBeNull();
   expect(notPromoted).toBe(false);
@@ -229,7 +235,11 @@ test('GP-04 — vendor_promote_category_green_pending requires selfie; returns p
     .eq('id', vendor.id);
   const { data: promoted, error: pErr } = await supabase.rpc(
     'vendor_promote_category_green_pending',
-    { p_vendor_id: vendor.id, p_category_id: vendor.categoryId },
+    {
+      p_vendor_id: vendor.id,
+      p_vendor_phone: vendor.phone,
+      p_category_id: vendor.categoryId,
+    },
   );
   expect(pErr, pErr?.message).toBeNull();
   expect(promoted).toBe(true);
@@ -318,7 +328,9 @@ test('GP-07 — get_admin_green_pending_stats: anon rejected; admin sees ready-f
   });
 
   const { error: anonErr } = await supabase.rpc('get_admin_green_pending_stats');
-  expect(anonErr?.message ?? '').toContain('not_authorized');
+  // 20260719120001 revoked anon EXECUTE, so rejection may occur at the grant layer before the internal check.
+  expect(anonErr).not.toBeNull();
+  expect(anonErr?.message ?? '').toMatch(/not_authorized|permission denied/i);
 
   const adminClient = await getAdminSessionClient();
   const { data, error } = await adminClient.rpc('get_admin_green_pending_stats');

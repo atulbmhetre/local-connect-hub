@@ -29,7 +29,7 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **17 of ~52 functionality-inventory entries fully closed.** Vendor Configuration is CLOSED — no open items. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
+| Phase 2 progress | **18 of ~52 functionality-inventory entries fully closed.** Admin Dashboard & Moderation is CLOSED, with one explicitly deferred dormant-subscription integration. The `~52` figure is the curated functionality inventory; the document currently contains 66 raw `###` headings, which include sub-sections and are not a one-to-one inventory count. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
 | Next planned Phase 2 target | TBD |
 
 ## Lessons for future audit passes
@@ -324,3 +324,33 @@ This is a validated example of why unverified explanations for test failures mus
 | Item | Notes |
 |------|-------|
 | Proper slow/2G-network handling for Radar | Progressive loading and reduced query fan-out require a real architecture decision, not a quick patch. |
+
+## Admin Dashboard & Moderation — CLOSED (TEST + PROD)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD), with one explicitly deferred dormant-subscription integration |
+| Scope | `Settings.tsx` Admin tab, `AdminSystemHealthCard.tsx`, and the `admin_*` / `get_admin_*` RPC family |
+| Review | Completed across all 10 audit dimensions: Functionality, Security, DB Integrity, Test Coverage, Performance, Reliability, Device, Localization, Observability, and UI/Layout |
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| Flagged Users RLS bug | The Admin tab's direct `.from("users")` query was silently filtered by `users_owner` RLS, so admins could not see flagged users. Added the session-gated `SECURITY DEFINER` RPC `admin_list_flagged_users`; the real ADMIN-08 Warn flow now passes through the rendered UI without an RPC fallback. |
+| `app_config` server whitelist and defaults | Added a server-side whitelist to `admin_update_app_config`, expanded it with seven operational keys, rejected unknown keys with `key_not_allowed`, closed the inherited PUBLIC grant gap on `get_admin_fcm_failure_stats`, and added explicit DB/client fallbacks so every Admin App Config field shows a current or default value rather than an ambiguous blank. |
+| Waive-off defense in depth | Protected `waiveoff_percent` and `waiveoff_months_remaining` with the direct-admin-write guard while allowing the gated admin RPC via `app.via_admin_rpc`; added a confirmation dialog and localized EN/HI/MR vendor notifications. |
+| Audit logging reliability | `log_admin_action` no longer silently skips rows when the caller label is absent; it derives the label from the authenticated admin session and retains explicit fallbacks. Client audit failures now emit a warning instead of disappearing. |
+| Grant consistency | Removed unintended anon/PUBLIC EXECUTE access from session-gated admin and health RPCs; authenticated and service-role access remains where intended. |
+| Recommendation lead queue | Added contacted, dismiss, and restore actions; reversible soft dismissal; auto-resolution when a recommended phone onboards; dismissed-view support; audit events; and localized Admin UI copy. |
+| Moderation safety and feedback | Added explicit confirmation for destructive category rejection and vendor waive-off actions, plus visible success/error feedback for ban and unban operations. |
+| Performance and reliability | Admin list queries retain bounded pagination/caps; recommendation retrieval is bounded and indexed through existing data paths; failed list/config/audit operations surface errors rather than silently succeeding. |
+| Device, localization, observability, and UI/Layout | Admin behavior was verified through the real browser UI; new user-facing waive-off and recommendation copy is localized in EN/HI/MR; `AdminSystemHealthCard.tsx` health signals and admin audit records provide operational visibility; layouts and confirmation flows were exercised at the existing responsive Admin-tab surface. |
+| `PHASE_D_TEST_DEBT` resolved | Removed the six deferred admin-requirement skips, corrected stale assertions/setup, and proved the affected fixes with targeted failure/pass A/B checks where code changes were required. Added dedicated moderation-hardening coverage, including admin/non-admin/anon authorization cases. |
+| Migrations | `20260719120001`, `20260719140001`, `20260719150001` |
+
+### Deliberately deferred
+
+| Item | Notes |
+|------|-------|
+| Waive-off/subscription-state integration | Deferred until the dormant subscription system is activated; there is no reliable live subscription lifecycle to integrate with yet. |

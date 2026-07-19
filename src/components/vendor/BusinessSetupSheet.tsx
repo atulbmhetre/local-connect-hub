@@ -36,7 +36,6 @@ import {
 } from "@/lib/categoryAvailabilityModes";
 
 export type BusinessSetupExistingSettings = {
-  brand_name: string;
   reachChoice: ReachChoiceValue;
   service_radius_km: number | null;
   availability_modes: AvailabilityMode[];
@@ -93,7 +92,6 @@ export function BusinessSetupSheet({
   const [categories, setCategories] = useState<RegCategoryRow[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [brandName, setBrandName] = useState("");
   const [reachChoice, setReachChoice] = useState<ReachChoiceValue>("");
   const [serviceRadiusKm, setServiceRadiusKm] = useState<number | null>(null);
   const [availabilityModes, setAvailabilityModes] = useState<AvailabilityMode[]>([]);
@@ -111,7 +109,6 @@ export function BusinessSetupSheet({
   useEffect(() => {
     if (!open) return;
     setSelectedCategoryId(null);
-    setBrandName("");
     setReachChoice("");
     setServiceRadiusKm(null);
     setAvailabilityModes([]);
@@ -143,10 +140,8 @@ export function BusinessSetupSheet({
   const reachFlags = reachChoice ? reachFlagsFromChoice(reachChoice) : null;
   const needsRadius = reachFlags?.serves_at_customer_place === true;
   const radiusOk = !needsRadius || serviceRadiusKm != null;
-  const brandOk = brandName.trim().length > 1;
   const ready =
     selectedCategoryId != null &&
-    brandOk &&
     reachChoice !== "" &&
     radiusOk &&
     availabilityModes.length > 0 &&
@@ -163,7 +158,7 @@ export function BusinessSetupSheet({
       );
       if (meters > GPS_MATCH_TOLERANCE_M) {
         toast.error(s.vendor_mismatch_title, {
-          description: `Photo was taken ${Math.round(meters)} m from your shop. Must be within ${GPS_MATCH_TOLERANCE_M} m.`,
+          description: s.vendor_mismatch_distance(Math.round(meters), GPS_MATCH_TOLERANCE_M),
         });
         return;
       }
@@ -197,11 +192,8 @@ export function BusinessSetupSheet({
       const cat = categories.find((c) => c.id === id);
       return pickPrimaryAvailabilityMode(modesById[id], cat?.service_mode);
     });
-    const brandNames = nextIds.map((id) => {
-      if (id === selectedCategoryId) return brandName.trim();
-      const cfg = existingSettings[id];
-      return String(cfg?.brand_name ?? "").trim() || (vendor.shop_name ?? "").trim();
-    });
+    const shopName = String(vendor.shop_name ?? "").trim();
+    const brandNames = nextIds.map(() => shopName);
     const servesVendorPlace = nextIds.map((id) => {
       if (id === selectedCategoryId) return reachFlags.serves_at_vendor_place;
       const cfg = existingSettings[id];
@@ -289,6 +281,7 @@ export function BusinessSetupSheet({
 
     void checkAndNotifyAdminCategoryGreenReady(vendor.id, selectedCategoryId, {
       shopName: vendor.shop_name,
+      vendorPhone,
     });
 
     setSubmitting(false);
@@ -359,19 +352,6 @@ export function BusinessSetupSheet({
                       )}
                     </div>
                   )}
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {s.my_business_category_brand} *
-                  </label>
-                  <input
-                    type="text"
-                    value={brandName}
-                    onChange={(e) => setBrandName(e.target.value)}
-                    placeholder={s.vendor_brand_placeholder}
-                    className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
                 </div>
 
                 <div>

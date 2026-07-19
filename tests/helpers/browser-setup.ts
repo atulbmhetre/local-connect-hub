@@ -208,16 +208,30 @@ export async function loginAsAdmin(page: Page, deviceId = `admin_device_${Date.n
 }
 
 // Simulate a logged-in vendor
-export async function loginAsVendor(page: Page, phone: string, vendorId: string, deviceId: string) {
+export async function loginAsVendor(
+  page: Page,
+  phone: string,
+  vendorId: string,
+  deviceId: string,
+  opts?: { skipOnboarding?: boolean },
+) {
+  const markOnboarded = opts?.skipOnboarding !== false;
   await page.goto(APP_URL);
-  await page.evaluate(({ phone, vendorId, deviceId }) => {
-    localStorage.setItem('aaspaas:user_phone', phone);
-    localStorage.setItem('aaspaas:device_id', deviceId);
-    localStorage.setItem('aaspaas:vendor_id', vendorId);
-    localStorage.setItem('aaspaas:role', 'vendor');
-    localStorage.setItem('aaspaas:welcomed', 'true');
-    localStorage.setItem('aaspaas:vendor_onboarded', 'true');
-  }, { phone, vendorId, deviceId });
+  await page.evaluate(
+    ({ phone, vendorId, deviceId, markOnboarded }) => {
+      localStorage.setItem('aaspaas:user_phone', phone);
+      localStorage.setItem('aaspaas:device_id', deviceId);
+      localStorage.setItem('aaspaas:vendor_id', vendorId);
+      localStorage.setItem('aaspaas:role', 'vendor');
+      localStorage.setItem('aaspaas:welcomed', 'true');
+      if (markOnboarded) {
+        localStorage.setItem('aaspaas:vendor_onboarded', 'true');
+      } else {
+        localStorage.removeItem('aaspaas:vendor_onboarded');
+      }
+    },
+    { phone, vendorId, deviceId, markOnboarded },
+  );
 
   // Phase D: mint a real Supabase session so Phase C RLS policies work
   await mintBrowserSupabaseSession(page, phone, 'loginAsVendor');

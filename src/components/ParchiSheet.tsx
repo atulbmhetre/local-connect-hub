@@ -614,6 +614,10 @@ export function ParchiSheet({
           const msg = error.message ?? "";
           if (msg.includes("vendor_not_live_for_asap") || msg.includes("vendor_not_live_for_instant")) {
             toast.error(s.parchi_errVendorNotLiveAsap);
+          } else if (msg.includes("customer_banned")) {
+            setTrustBlock("banned");
+          } else if (msg.includes("vendor_banned") || msg.includes("vendor_not_discoverable")) {
+            toast.error(s.parchi_errCouldNotSend, { description: error.message });
           } else {
             toast.error(s.parchi_errCouldNotSend, { description: error.message });
           }
@@ -963,12 +967,12 @@ export function ParchiSheet({
             )}
             {trustBlock === "banned" && (
               <div className="rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-6 text-sm text-center text-foreground leading-relaxed">
-                🚫 Your account has been suspended. Please contact aaspaaspro.privacy@gmail.com
+                🚫 {s.customer_account_banned}
               </div>
             )}
             {trustBlock === "suspended" && (
               <div className="rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-6 text-sm text-center text-foreground leading-relaxed">
-                ⛔ Orders temporarily unavailable. Please contact aaspaaspro.privacy@gmail.com
+                ⛔ {s.customer_orders_suspended}
               </div>
             )}
             {!trustBlock && (

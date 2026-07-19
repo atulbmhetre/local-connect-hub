@@ -330,6 +330,15 @@ export const strings = {
     vendor_load_registered_failed: 'Could not load registered vendor',
     vendor_shop_photo_location_saved: 'Shop photo saved and location set ✓',
     vendor_dismiss_aria: 'Dismiss',
+    vendor_analytics_load_failed: "Couldn't load analytics. Pull to refresh or try again.",
+    vendor_offline_check_failed:
+      "Couldn't check active orders. Stay online and try again.",
+    vendor_mismatch_distance: (meters: number, tolerance: number) =>
+      `Photo was taken ${meters} m from your shop. Must be within ${tolerance} m.`,
+    customer_account_banned:
+      'Your account has been suspended. Please contact aaspaaspro.privacy@gmail.com',
+    customer_orders_suspended:
+      'Orders temporarily unavailable. Please contact aaspaaspro.privacy@gmail.com',
     vendor_offer_start_required: 'Please set offer start date',
     vendor_offer_end_required: 'Please set offer end date',
     vendor_offer_phone_required: 'Add your phone in Settings first',
@@ -649,7 +658,8 @@ export const strings = {
     vendor_saving: 'Saving…',
     vendor_save_note: 'Save Note',
     vendor_location_set: 'Location set',
-    vendor_location_error_permission_denied: 'Your location is needed to register your shop',
+    vendor_location_error_permission_denied:
+      'Location permission is required. Allow location access in your phone settings and try again.',
     vendor_location_error_unavailable: 'Location unavailable — try again',
     vendor_location_error_timeout: 'Location request timed out — try again',
     vendor_location_help_title: 'How to set your shop location',
@@ -1808,6 +1818,15 @@ export const strings = {
     vendor_load_registered_failed: 'पंजीकृत दुकानदार लोड नहीं हो सका',
     vendor_shop_photo_location_saved: 'दुकान की फोटो सेव और स्थान सेट ✓',
     vendor_dismiss_aria: 'बंद करें',
+    vendor_analytics_load_failed: 'एनालिटिक्स लोड नहीं हो सके। फिर से कोशिश करें।',
+    vendor_offline_check_failed:
+      'सक्रिय ऑर्डर जाँच नहीं हो सकी। ऑनलाइन रहें और फिर कोशिश करें।',
+    vendor_mismatch_distance: (meters: number, tolerance: number) =>
+      `फोटो आपकी दुकान से ${meters} मी दूर ली गई। ${tolerance} मी के अंदर होना चाहिए।`,
+    customer_account_banned:
+      'आपका खाता निलंबित कर दिया गया है। कृपया aaspaaspro.privacy@gmail.com पर संपर्क करें',
+    customer_orders_suspended:
+      'ऑर्डर अस्थायी रूप से उपलब्ध नहीं हैं। कृपया aaspaaspro.privacy@gmail.com पर संपर्क करें',
     vendor_offer_start_required: 'कृपया ऑफर शुरू होने की तारीख चुनें',
     vendor_offer_end_required: 'कृपया ऑफर समाप्ति की तारीख चुनें',
     vendor_offer_phone_required: 'पहले सेटिंग्स में अपना फोन जोड़ें',
@@ -2124,7 +2143,8 @@ export const strings = {
     vendor_saving: 'सेव हो रहा है…',
     vendor_save_note: 'नोट सेव करें',
     vendor_location_set: 'लोकेशन सेट हुई',
-    vendor_location_error_permission_denied: 'दुकान रजिस्टर करने के लिए आपका स्थान चाहिए',
+    vendor_location_error_permission_denied:
+      'लोकेशन की अनुमति ज़रूरी है। फोन की सेटिंग में लोकेशन एक्सेस की अनुमति दें और फिर कोशिश करें।',
     vendor_location_error_unavailable: 'लोकेशन उपलब्ध नहीं — फिर से कोशिश करें',
     vendor_location_error_timeout: 'लोकेशन अनुरोध समय समाप्त — फिर से कोशिश करें',
     vendor_location_help_title: 'दुकान की लोकेशन कैसे सेट करें',
@@ -3283,6 +3303,15 @@ export const strings = {
     vendor_load_registered_failed: 'नोंदणीकृत विक्रेता लोड करता आला नाही',
     vendor_shop_photo_location_saved: 'दुकानाचा फोटो सेव्ह आणि स्थान सेट ✓',
     vendor_dismiss_aria: 'बंद करा',
+    vendor_analytics_load_failed: 'अॅनालिटिक्स लोड होऊ शकले नाहीत. पुन्हा प्रयत्न करा.',
+    vendor_offline_check_failed:
+      'सक्रिय ऑर्डर तपासता आले नाहीत. ऑनलाइन रहा आणि पुन्हा प्रयत्न करा.',
+    vendor_mismatch_distance: (meters: number, tolerance: number) =>
+      `फोटो तुमच्या दुकानापासून ${meters} मी दूर घेतला. ${tolerance} मी मध्ये असावा.`,
+    customer_account_banned:
+      'तुमचे खाते निलंबित केले आहे. कृपया aaspaaspro.privacy@gmail.com वर संपर्क करा',
+    customer_orders_suspended:
+      'ऑर्डर तात्पुरते उपलब्ध नाहीत. कृपया aaspaaspro.privacy@gmail.com वर संपर्क करा',
     vendor_offer_start_required: 'कृपया ऑफर सुरू होण्याची तारीख निवडा',
     vendor_offer_end_required: 'कृपया ऑफर समाप्तीची तारीख निवडा',
     vendor_offer_phone_required: 'प्रथम सेटिंग्जमध्ये तुमचा फोन जोडा',
@@ -3599,7 +3628,8 @@ export const strings = {
     vendor_saving: 'सेव्ह होत आहे…',
     vendor_save_note: 'नोट सेव्ह करा',
     vendor_location_set: 'लोकेशन सेट झाले',
-    vendor_location_error_permission_denied: 'दुकान नोंदणीसाठी तुमचे स्थान आवश्यक आहे',
+    vendor_location_error_permission_denied:
+      'लोकेशनची परवानगी आवश्यक आहे. फोनच्या सेटिंगमध्ये लोकेशन प्रवेशाला परवानगी द्या आणि पुन्हा प्रयत्न करा.',
     vendor_location_error_unavailable: 'लोकेशन उपलब्ध नाही — पुन्हा प्रयत्न करा',
     vendor_location_error_timeout: 'लोकेशन विनंती वेळ संपली — पुन्हा प्रयत्न करा',
     vendor_location_help_title: 'दुकानाचे लोकेशन कसे सेट करावे',
