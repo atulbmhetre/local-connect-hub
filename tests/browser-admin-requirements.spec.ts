@@ -404,6 +404,11 @@ test('ADM-REQ-03 — Admin unverify resets vendor — via RPC', async ({ page })
   await cleanupStaleAdmReqVendors();
   const vendor = await seedVendor('req03');
   await seedDiamondVerification(vendor.id);
+  // admin_verify_vendor_category now requires green_pending/business_verified.
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ verification_status: 'green_pending' })
+    .eq('vendor_id', vendor.id);
 
   await mockAdminVendorListFetch(page, vendor.id);
   await mockAdminVendorVerificationFetch(page, vendor.id);
@@ -669,7 +674,8 @@ test('ADM-REQ-11 — Unban notifies vendor via RPC', async ({ page }) => {
 });
 
 test('ADM-REQ-12 — Admin action creates audit_actions row with full details', async ({ page }) => {
-  const vendor = await seedVendor('req12');
+  // admin_verify_vendor now requires green_pending/business_verified server-side.
+  const vendor = await seedVendor('req12', { verification_status: 'green_pending' });
   const reason = `Audit verify ${T}`;
 
   await openAdminPanel(page);

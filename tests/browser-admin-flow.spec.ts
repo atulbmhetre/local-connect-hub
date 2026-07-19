@@ -120,7 +120,11 @@ test('ADMIN-03: admin sees platform health section', async ({ page }) => {
 // ─── VENDOR VERIFICATION ───────────────────────────────────────────────────
 
 test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', async ({ page }) => {
-  await supabaseAdmin.from('vendors').update({ is_manual_verified: false }).eq('id', testVendor.id);
+  // admin_verify_vendor now requires green_pending/business_verified server-side.
+  await supabaseAdmin
+    .from('vendors')
+    .update({ is_manual_verified: false, verification_status: 'green_pending' })
+    .eq('id', testVendor.id);
   await loginAsAdminViaSession(page, TEST_DEVICE_ID);
   await ensureAdminHealthVisible(page);
 

@@ -901,6 +901,8 @@ export const strings = {
     admin_green_ready_title: 'Vendor ready for verification',
     admin_green_ready_body:
       '{shop} has completed all verification steps. Review and approve.',
+    vendor_green_promote_failed:
+      'Could not submit your profile for verification review. Please try again.',
     settings_btnLoading: '...',
     settings_verified: 'Verified',
     settings_trustSecurity: 'Trust & Security',
@@ -973,6 +975,8 @@ export const strings = {
     admin_vendor_moderation: 'Vendor Moderation',
     admin_show_all_vendors: 'Show all vendors',
     admin_show_flagged_only: 'Unverified & flagged only',
+    admin_show_green_ready: 'Ready for review',
+    admin_stat_green_pending: 'Ready for review',
     admin_load_more: 'Load more',
     settings_dbConnected: 'Database: Connected & Secure',
     settings_tlsNote: 'All data is transmitted over TLS and protected with row-level security.',
@@ -2355,6 +2359,8 @@ export const strings = {
     admin_green_ready_title: 'विक्रेता सत्यापन के लिए तैयार',
     admin_green_ready_body:
       '{shop} ने सभी सत्यापन चरण पूरे कर लिए हैं। समीक्षा करें और स्वीकृत करें।',
+    vendor_green_promote_failed:
+      'आपकी प्रोफ़ाइल सत्यापन समीक्षा के लिए सबमिट नहीं हो सकी। कृपया फिर से प्रयास करें।',
     settings_btnLoading: '...',
     settings_verified: 'सत्यापित',
     settings_trustSecurity: 'विश्वास और सुरक्षा',
@@ -2427,6 +2433,8 @@ export const strings = {
     admin_vendor_moderation: 'विक्रेता मॉडरेशन',
     admin_show_all_vendors: 'सभी विक्रेता दिखाएं',
     admin_show_flagged_only: 'केवल असत्यापित और फ़्लैग किए',
+    admin_show_green_ready: 'समीक्षा के लिए तैयार',
+    admin_stat_green_pending: 'समीक्षा के लिए तैयार',
     admin_load_more: 'और लोड करें',
     settings_dbConnected: 'डेटाबेस: जुड़ा और सुरक्षित',
     settings_tlsNote: 'सभी डेटा TLS से भेजा जाता है और row-level security से सुरक्षित है।',
@@ -3808,6 +3816,8 @@ export const strings = {
     admin_green_ready_title: 'विक्रेता पडताळणीसाठी तयार',
     admin_green_ready_body:
       '{shop} ने सर्व पडताळणी पायऱ्या पूर्ण केल्या आहेत. पुनरावलोकन करा आणि मंजूर करा.',
+    vendor_green_promote_failed:
+      'तुमची प्रोफाइल पडताळणी पुनरावलोकनासाठी सबमिट होऊ शकली नाही. कृपया पुन्हा प्रयत्न करा.',
     settings_btnLoading: '...',
     settings_verified: 'सत्यापित',
     settings_trustSecurity: 'विश्वास आणि सुरक्षा',
@@ -3880,6 +3890,8 @@ export const strings = {
     admin_vendor_moderation: 'विक्रेता मॉडरेशन',
     admin_show_all_vendors: 'सर्व विक्रेते दाखवा',
     admin_show_flagged_only: 'फक्त असत्यापित आणि फ्लॅग केलेले',
+    admin_show_green_ready: 'पुनरावलोकनासाठी तयार',
+    admin_stat_green_pending: 'पुनरावलोकनासाठी तयार',
     admin_load_more: 'अजून लोड करा',
     settings_dbConnected: 'डेटाबेस: जोडलेले आणि सुरक्षित',
     settings_tlsNote: 'सर्व डेटा TLS द्वारे पाठवला जातो आणि row-level security ने सुरक्षित आहे.',

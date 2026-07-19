@@ -252,12 +252,13 @@ test('VSR-05 — get_vendor_deletion_status works for hidden vendors; empty for 
 });
 
 test('VSR-06 — vendor_promote_green_pending enforces criteria server-side', async () => {
-  // Meets everything → promoted (even while hidden, since the old client
-  // pre-read is gone).
+  // Meets everything (incl. selfie, required since 20260719100001) → promoted
+  // (even while hidden, since the old client pre-read is gone).
   const ready = await seedVendor(`!VSR06-ready-${T}`, {
     discoverable: false,
     verification_status: 'business_verified',
     shop_photo_url: 'https://example.com/shop.jpg',
+    photo_selfie: 'https://example.com/selfie.jpg',
     upi_verified: true,
     is_manual_verified: false,
   });
@@ -273,10 +274,11 @@ test('VSR-06 — vendor_promote_green_pending enforces criteria server-side', as
     .single();
   expect(readyRow?.verification_status).toBe('green_pending');
 
-  // Wrong status (not business_verified) → not promoted, even with photo+UPI.
+  // Wrong status (not business_verified) → not promoted, even with photo+selfie+UPI.
   const notVerified = await seedVendor(`!VSR06-notv-${T}`, {
     verification_status: 'unverified',
     shop_photo_url: 'https://example.com/shop.jpg',
+    photo_selfie: 'https://example.com/selfie.jpg',
     upi_verified: true,
     is_manual_verified: false,
   });

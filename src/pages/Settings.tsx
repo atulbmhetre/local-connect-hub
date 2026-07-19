@@ -151,7 +151,9 @@ type AdminVendorListRow = {
 };
 
 const VENDOR_LIST_SELECT =
-  "id, name, shop_name, category, service_mode, vendor_type, phone, is_manual_verified, is_active, is_banned, ban_reason, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified";
+  "id, name, shop_name, category, service_mode, vendor_type, phone, is_manual_verified, is_active, is_banned, ban_reason, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified, verification_status";
+
+type AdminVendorListFilter = "attention" | "green_ready" | "all";
 
 const TRUST_BADGE_CLASS: Record<Exclude<TrustLevel, "Unverified">, string> = {
   Diamond: "bg-sidebar-primary text-sidebar-primary-foreground",
@@ -729,6 +731,7 @@ const Settings = () => {
     activeVendorsToday: 0,
     newVendorsThisWeek: 0,
     unverifiedVendors: 0,
+    greenPendingVendors: 0,
     stuckOrders: 0,
     avgVendorRating: 0,
     riskyUsers: 0,
@@ -737,7 +740,7 @@ const Settings = () => {
 
   const [vendorList, setVendorList] = useState<AdminVendorListRow[]>([]);
   const [vendorSearch, setVendorSearch] = useState("");
-  const [vendorShowAll, setVendorShowAll] = useState(false);
+  const [vendorListFilter, setVendorListFilter] = useState<AdminVendorListFilter>("attention");
   const [vendorListHasMore, setVendorListHasMore] = useState(false);
   const [vendorListLoading, setVendorListLoading] = useState(false);
   const vendorListRef = useRef(vendorList);
@@ -1231,6 +1234,7 @@ const Settings = () => {
         activeVendorsToday: Number(stats.active_vendors_today ?? 0),
         newVendorsThisWeek: Number(stats.new_vendors_this_week ?? 0),
         unverifiedVendors: Number(stats.unverified_vendors ?? 0),
+        greenPendingVendors: Number(stats.green_pending_vendors ?? 0),
         stuckOrders: Number(stats.stuck_orders ?? 0),
         avgVendorRating: Number(stats.avg_vendor_rating ?? 0),
         riskyUsers: Number(stats.risky_users ?? 0),
@@ -1369,7 +1373,24 @@ const Settings = () => {
         query = query.or(
           `shop_name.ilike.${pattern},name.ilike.${pattern},phone.ilike.${pattern}`,
         );
-      } else if (!vendorShowAll) {
+      } else if (vendorListFilter === "green_ready") {
+        // Ready for admin review: account green_pending, or any business
+        // (vendor_categories row) green_pending without admin approval.
+        const { data: catRows } = await supabase
+          .from("vendor_categories")
+          .select("vendor_id")
+          .eq("verification_status", "green_pending")
+          .eq("is_manual_verified", false)
+          .limit(500);
+        const catVendorIds = [
+          ...new Set(((catRows ?? []) as { vendor_id: string }[]).map((r) => r.vendor_id)),
+        ];
+        query = query.or(
+          catVendorIds.length > 0
+            ? `verification_status.eq.green_pending,id.in.(${catVendorIds.join(",")})`
+            : "verification_status.eq.green_pending",
+        );
+      } else if (vendorListFilter === "attention") {
         query = query.or("is_manual_verified.eq.false,is_banned.eq.true");
       }
 
@@ -1413,7 +1434,7 @@ const Settings = () => {
       void loadVendorList();
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [isAdmin, vendorShowAll, vendorSearch]);
+  }, [isAdmin, vendorListFilter, vendorSearch]);
 
   const loadPendingCategories = async () => {
     let rows: Array<{
@@ -3109,6 +3130,17 @@ const Settings = () => {
                 <p className="text-xl font-bold text-destructive">{adminStats.unverifiedVendors}</p>
                 <p className="text-[10px] text-muted-foreground mt-1">{s.settings_unverified}</p>
               </div>
+              <div
+                className="rounded-2xl bg-amber-500/10 p-3 text-center"
+                data-testid="admin-stat-green-pending"
+              >
+                <p className="text-xl font-bold text-amber-600">
+                  {adminStats.greenPendingVendors}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {s.admin_stat_green_pending}
+                </p>
+              </div>
             </div>
 
             <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2 mt-4">
@@ -3154,7 +3186,11 @@ const Settings = () => {
             <div className="px-4 py-3 border-b border-surface-border">
               <p className="text-sm font-medium text-foreground">{s.settings_vendorVerification}</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {vendorShowAll ? s.admin_show_all_vendors : s.admin_show_flagged_only}
+                {vendorListFilter === "all"
+                  ? s.admin_show_all_vendors
+                  : vendorListFilter === "green_ready"
+                    ? s.admin_show_green_ready
+                    : s.admin_show_flagged_only}
               </p>
             </div>
             <div className="px-4 py-3">
@@ -3169,13 +3205,32 @@ const Settings = () => {
                 />
               </div>
 
-              <button
-                type="button"
-                onClick={() => setVendorShowAll((showAll) => !showAll)}
-                className="mb-4 w-full rounded-xl border border-border py-2.5 text-xs font-semibold text-foreground active:scale-[0.98] transition-transform"
-              >
-                {vendorShowAll ? s.admin_show_flagged_only : s.admin_show_all_vendors}
-              </button>
+              <div className="mb-4 grid grid-cols-3 gap-2">
+                {(
+                  [
+                    ["attention", s.admin_show_flagged_only],
+                    ["green_ready", s.admin_show_green_ready],
+                    ["all", s.admin_show_all_vendors],
+                  ] as [AdminVendorListFilter, string][]
+                ).map(([filterKey, label]) => (
+                  <button
+                    key={filterKey}
+                    type="button"
+                    data-testid={`admin-vendor-filter-${filterKey}`}
+                    onClick={() => setVendorListFilter(filterKey)}
+                    className={cn(
+                      "rounded-xl border py-2.5 px-1 text-xs font-semibold active:scale-[0.98] transition-transform",
+                      vendorListFilter === filterKey
+                        ? "border-brand bg-brand/10 text-brand"
+                        : "border-border text-foreground",
+                    )}
+                  >
+                    {filterKey === "green_ready" && adminStats.greenPendingVendors > 0
+                      ? `${label} (${adminStats.greenPendingVendors})`
+                      : label}
+                  </button>
+                ))}
+              </div>
 
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {filteredVendors.length === 0 && (

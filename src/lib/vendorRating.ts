@@ -14,5 +14,5 @@ export async function syncVendorRatingFromReviews(
     console.error("recalculate_vendor_rating_stats", error);
     return;
   }
-  void checkAndNotifyAdminGreenReady(vendorId);
+  void checkAndNotifyAdminGreenReady(vendorId, { shopName: options?.shopName });
 }

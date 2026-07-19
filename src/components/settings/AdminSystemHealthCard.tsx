@@ -40,6 +40,12 @@ type RestoreHealthStats = {
   success_rate_pct: number;
 };
 
+type GreenPendingStats = {
+  account_pending: number;
+  category_pending: number;
+  vendors_ready: number;
+};
+
 function formatRelativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "just now";
@@ -65,6 +71,8 @@ export function AdminSystemHealthCard() {
   const [radarLoadError, setRadarLoadError] = useState(false);
   const [restoreHealth, setRestoreHealth] = useState<RestoreHealthStats | null>(null);
   const [restoreLoadError, setRestoreLoadError] = useState(false);
+  const [greenPending, setGreenPending] = useState<GreenPendingStats | null>(null);
+  const [greenPendingLoadError, setGreenPendingLoadError] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -122,6 +130,18 @@ export function AdminSystemHealthCard() {
       }
       setRestoreLoadError(false);
       setRestoreHealth((restoreData ?? null) as RestoreHealthStats | null);
+
+      const { data: greenData, error: greenError } = await supabase.rpc(
+        "get_admin_green_pending_stats",
+      );
+      if (greenError) {
+        console.error("get_admin_green_pending_stats failed", greenError);
+        setGreenPendingLoadError(true);
+        setGreenPending(null);
+        return;
+      }
+      setGreenPendingLoadError(false);
+      setGreenPending((greenData ?? null) as GreenPendingStats | null);
     };
 
     void load();
@@ -145,6 +165,8 @@ export function AdminSystemHealthCard() {
     restoreLoadError ||
     (restoreAttempts >= 5 && restoreSuccesses === 0) ||
     (restoreAttempts >= 10 && (restoreHealth?.success_rate_pct ?? 0) < 20);
+  const greenVendorsReady = greenPending?.vendors_ready ?? 0;
+  const greenQueueUnhealthy = greenPendingLoadError || greenVendorsReady > 0;
 
   return (
     <SettingsCard className="border-brand/20" data-testid="admin-system-health">
@@ -279,6 +301,45 @@ export function AdminSystemHealthCard() {
                 {restoreHealth.denied_deleted}) · not found {restoreHealth.not_found} · offline
                 restored {restoreHealth.offline_now_restorable} · hidden restored{" "}
                 {restoreHealth.hidden_now_restorable}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="px-4 py-3 border-t border-surface-border"
+        data-testid="admin-green-pending-health"
+      >
+        <p className="text-sm font-medium text-foreground">Verification queue</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Vendors at green_pending awaiting admin review
+        </p>
+        <div className="flex items-start gap-2.5 py-2.5">
+          <span
+            className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
+              greenQueueUnhealthy ? "bg-amber-500" : "bg-green-500"
+            }`}
+            aria-hidden
+          />
+          <div className="flex-1 min-w-0">
+            <p
+              className="text-sm font-medium text-foreground"
+              data-testid="admin-green-pending-summary"
+            >
+              {greenPendingLoadError
+                ? "Unable to load verification queue"
+                : greenVendorsReady === 0
+                  ? "No vendors waiting for review"
+                  : `${greenVendorsReady} vendor${greenVendorsReady === 1 ? "" : "s"} ready for review`}
+            </p>
+            {!greenPendingLoadError && greenPending && greenVendorsReady > 0 && (
+              <p
+                className="text-xs text-muted-foreground mt-0.5"
+                data-testid="admin-green-pending-detail"
+              >
+                account-level {greenPending.account_pending} · business-level{" "}
+                {greenPending.category_pending}
               </p>
             )}
           </div>

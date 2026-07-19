@@ -20,7 +20,10 @@ import {
   invokeNotifyAdmin,
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
-import { checkAndNotifyAdminGreenReady } from "@/lib/vendorGreenReady";
+import {
+  checkAndNotifyAdminGreenReady,
+  checkAndNotifyAdminCategoryGreenReady,
+} from "@/lib/vendorGreenReady";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import {
@@ -627,10 +630,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               service_radius_km: radiusKm,
               phone: phone.trim(),
               upi_id: upiId.trim() || null,
+              // Phone/UPI change: verification_status downgrade to
+              // identity_linked now happens server-side in vendor_update_own
+              // (the field is field_not_allowed in the generic patch).
               ...(phoneChanged || upiChanged
                 ? {
                     is_manual_verified: false,
-                    verification_status: "identity_linked" as VerificationStatus,
                     shop_photo_url: upiChanged ? vendor.shop_photo_url : undefined,
                   }
                 : {}),
@@ -707,6 +712,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       phone: phone.trim(),
       upi_id: upiId.trim() || null,
       ...(upiChanged ? { upi_verified: false } : {}),
+      ...(phoneChanged || upiChanged
+        ? {
+            is_manual_verified: false,
+            verification_status: "identity_linked" as VerificationStatus,
+          }
+        : {}),
     });
 
     savedCategoryIdsRef.current = [...categoryIdsToSave];
@@ -752,7 +763,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         toast.error(s.vendor_upi_check_failed, { description: error.message });
         return;
       }
-      void checkAndNotifyAdminGreenReady(vendor.id);
+      void checkAndNotifyAdminGreenReady(vendor.id, { shopName: vendor.shop_name });
       onVendorUpdated({ ...vendor, upi_verified: true });
       toast.success(`${s.vendor_upi_verified}${bank.toUpperCase()}`, {
         description: s.vendor_upi_bank_valid,
@@ -839,9 +850,8 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         toast.error(s.vendor_save_verification_failed, { description: updErr.message });
         return;
       }
-      void supabase.rpc("vendor_promote_category_green_pending", {
-        p_vendor_id: vendor.id,
-        p_category_id: targetCategoryId,
+      void checkAndNotifyAdminCategoryGreenReady(vendor.id, targetCategoryId, {
+        shopName: vendor.shop_name,
       });
       setCategorySettingsById((prev) => ({
         ...prev,
@@ -971,16 +981,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     }
 
     const downgraded = anyVerifiedBiz;
+    // Location coordinates only; the verification downgrade (account +
+    // categories) happens server-side in vendor_clear_category_photo_verifications
+    // (verification_status is field_not_allowed in the generic patch).
     const patch: Partial<Vendor> = {
       latitude: coords.lat,
       longitude: coords.lng,
-      ...(downgraded
-        ? {
-            verification_status: "identity_linked" as VerificationStatus,
-            shop_photo_url: null,
-            is_manual_verified: false,
-          }
-        : {}),
     };
 
     try {
@@ -998,10 +1004,17 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         return;
       }
       if (downgraded) {
-        await supabase.rpc("vendor_clear_category_photo_verifications", {
-          p_vendor_id: vendor.id,
-          p_vendor_phone: vendor.phone,
-        });
+        const { error: clearErr } = await supabase.rpc(
+          "vendor_clear_category_photo_verifications",
+          {
+            p_vendor_id: vendor.id,
+            p_vendor_phone: vendor.phone,
+          },
+        );
+        if (clearErr) {
+          toast.error(s.vendor_location_update_failed, { description: clearErr.message });
+          return;
+        }
         setCategorySettingsById((prev) => {
           const next = { ...prev };
           for (const id of selectedCategoryIds) {
@@ -1016,7 +1029,17 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           return next;
         });
       }
-      onVendorUpdated({ ...vendor, ...patch });
+      onVendorUpdated({
+        ...vendor,
+        ...patch,
+        ...(downgraded
+          ? {
+              verification_status: "identity_linked" as VerificationStatus,
+              shop_photo_url: null,
+              is_manual_verified: false,
+            }
+          : {}),
+      });
       toast(downgraded ? s.vendor_reverification_required : s.vendor_location_updated, {
         description: downgraded ? s.vendor_reverification_body : s.vendor_location_updated_body,
       });

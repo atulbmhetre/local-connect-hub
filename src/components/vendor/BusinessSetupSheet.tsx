@@ -21,6 +21,7 @@ import {
 } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
+import { checkAndNotifyAdminCategoryGreenReady } from "@/lib/vendorGreenReady";
 import {
   type AvailabilityMode,
   type ReachChoiceValue,
@@ -286,9 +287,8 @@ export function BusinessSetupSheet({
       return;
     }
 
-    void supabase.rpc("vendor_promote_category_green_pending", {
-      p_vendor_id: vendor.id,
-      p_category_id: selectedCategoryId,
+    void checkAndNotifyAdminCategoryGreenReady(vendor.id, selectedCategoryId, {
+      shopName: vendor.shop_name,
     });
 
     setSubmitting(false);
