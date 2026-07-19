@@ -28,8 +28,10 @@ export function logAdminAction(
   reason?: string | null,
   adminLabel?: string | null,
 ): void {
-  const label = adminLabel ?? getUserPhone()?.trim();
-  if (!label) return;
+  // Label is best-effort only: log_admin_action resolves the real identity
+  // server-side from the admin session (auth.uid()) and uses p_admin_phone
+  // purely as a fallback, so a missing local label must not skip the audit row.
+  const label = adminLabel ?? getUserPhone()?.trim() ?? null;
 
   void supabase
     .rpc("log_admin_action", {
@@ -40,6 +42,6 @@ export function logAdminAction(
       p_notes: reason?.trim() || null,
     })
     .then(({ error }) => {
-      if (error) console.error("logAdminAction", error);
+      if (error) console.warn("logAdminAction failed — audit row not written", error);
     });
 }

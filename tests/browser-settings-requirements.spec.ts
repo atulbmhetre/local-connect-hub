@@ -21,8 +21,8 @@ const CUSTOMER_PHONE = `88008${String(T).slice(-5)}`;
 const DEVICE_ID = `device_set_${T}`;
 const VENDOR_DEVICE_ID = `device_set_vendor_${T}`;
 
-/** Whitelist length in Settings.tsx ADMIN_CONFIG_WHITELIST (location_ping_seconds removed in Part M). */
-const ADMIN_CONFIG_ROW_COUNT = 30;
+/** Whitelist length in Settings.tsx ADMIN_CONFIG_WHITELIST (incl. 7 ops keys). */
+const ADMIN_CONFIG_ROW_COUNT = 37;
 
 const L = {
   myAccount: 'My Account',
@@ -436,7 +436,7 @@ test('SET-REQ-15 — Admin sees Admin tab in Settings', async ({ page }) => {
   await expect(page.getByTestId('admin-panel')).toBeVisible();
 });
 
-test('SET-REQ-16 — Admin App Config shows all 24 whitelisted keys', async ({ page }) => {
+test('SET-REQ-16 — Admin App Config shows all 37 whitelisted keys', async ({ page }) => {
   await loginAsAdmin(page, DEVICE_ID);
 
   await page.getByRole('button', { name: L.appConfig }).click();
@@ -447,6 +447,58 @@ test('SET-REQ-16 — Admin App Config shows all 24 whitelisted keys', async ({ p
   await expect(panel.getByText(L.vendorTrialLabel)).toBeVisible();
   await expect(panel.getByText('vendor_trial_days')).not.toBeVisible();
   await expect(panel.getByText('radar_city_radius_km')).not.toBeVisible();
+});
+
+test('SET-REQ-16b — Admin App Config shows defaults for 7 ops keys (never blank)', async ({
+  page,
+}) => {
+  await loginAsAdmin(page, DEVICE_ID);
+  await page.getByRole('button', { name: L.appConfig }).click();
+  const panel = page.getByTestId('admin-panel');
+
+  const opsLabels: Array<{ key: string; label: string; defaultText: RegExp }> = [
+    { key: 'payments_enabled', label: 'Payments Enabled', defaultText: /Default:\s*false/i },
+    { key: 'razorpay_key_id', label: 'Razorpay Key ID', defaultText: /Default:\s*\(empty\)/i },
+    { key: 'razorpay_kyc_date', label: 'Razorpay KYC Date', defaultText: /Default:/i },
+    { key: 'exotel_kyc_date', label: 'Exotel KYC Date', defaultText: /Default:/i },
+    {
+      key: 'exotel_credits_low_threshold_inr',
+      label: 'Exotel Credits Low Threshold (₹)',
+      defaultText: /Default:\s*200/i,
+    },
+    {
+      key: 'vendor_grace_period_days',
+      label: 'Vendor Grace Period (days)',
+      defaultText: /Default:\s*3/i,
+    },
+    {
+      key: 'khata_amber_limit',
+      label: 'Khata Amber Limit Default (₹)',
+      defaultText: /Default:\s*0/i,
+    },
+  ];
+
+  for (const { key, label, defaultText } of opsLabels) {
+    const row = panel.locator('div.rounded-2xl.border.border-border.p-3').filter({ hasText: label });
+    await expect(row, `${key} row visible`).toBeVisible();
+    await expect(row.getByTestId(`admin-config-default-${key}`)).toHaveText(defaultText);
+  }
+
+  // Previously blank: call-limit keys must show Default + a filled input value.
+  for (const { key, label, def } of [
+    { key: 'delivery_call_limit_seconds', label: 'Delivery Call Time Limit (seconds)', def: '120' },
+    {
+      key: 'appointment_call_limit_seconds',
+      label: 'Appointment Call Time Limit (seconds)',
+      def: '180',
+    },
+  ] as const) {
+    const row = panel.locator('div.rounded-2xl.border.border-border.p-3').filter({ hasText: label });
+    await expect(row.getByTestId(`admin-config-default-${key}`)).toHaveText(
+      new RegExp(`Default:\\s*${def}`, 'i'),
+    );
+    await expect(row.locator('input')).toHaveValue(/.+/);
+  }
 });
 
 test('SET-REQ-17 — Admin config UPSERT — saves new key that does not exist in DB', async ({

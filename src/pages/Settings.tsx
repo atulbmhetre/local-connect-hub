@@ -54,6 +54,7 @@ import { fetchVendorOwn } from "@/lib/vendorRead";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { logAdminAction } from "@/lib/adminAudit";
 import { warnFlaggedUser as runWarnFlaggedUser } from "@/lib/warnFlaggedUser";
+import { applyVendorWaiveoff as runApplyVendorWaiveoff } from "@/lib/applyVendorWaiveoff";
 import { getDeviceId } from "@/lib/deviceId";
 import { maskPhoneLast4 } from "@/lib/khataDisplay";
 import {
@@ -416,6 +417,9 @@ const GPS_MATCH_TOLERANCE_M = 75;
 
 const DEV_MENU_PIN_DEFAULT = "1947";
 
+// Client-side mirror of the server whitelist inside admin_update_app_config
+// (supabase/migrations/20260719140001_admin_config_ops_keys_and_fcm_grant.sql;
+//  originally introduced in 20260719120001). Keep BOTH lists in sync when adding a key.
 const ADMIN_CONFIG_WHITELIST = [
   // Referral + order expiry / near-deadline
   "referral_enabled",
@@ -454,11 +458,60 @@ const ADMIN_CONFIG_WHITELIST = [
   "dev_menu_pin",
   "feed_notification_radius_km",
   "app_base_url",
+  // Operational (payments / KYC / alerts / grace / khata)
+  "payments_enabled",
+  "razorpay_key_id",
+  "razorpay_kyc_date",
+  "exotel_kyc_date",
+  "exotel_credits_low_threshold_inr",
+  "vendor_grace_period_days",
+  "khata_amber_limit",
 ] as const;
 
 type AdminConfigKey = (typeof ADMIN_CONFIG_WHITELIST)[number];
 
 type AdminConfigValueType = "boolean" | "number" | "text";
+
+/** Factory defaults when app_config has no row or default_value is null/empty. */
+const ADMIN_CONFIG_FALLBACK_DEFAULTS: Record<AdminConfigKey, string> = {
+  referral_enabled: "true",
+  help_accept_timeout_hours: "2",
+  help_accept_timeout_minutes: "120",
+  help_near_deadline_minutes: "30",
+  delivery_near_deadline_minutes: "30",
+  appointment_near_deadline_minutes: "30",
+  appointment_accept_timeout_hours: "2",
+  vendor_stopped_minutes: "10",
+  vendor_stopped_distance_meters: "200",
+  max_order_message_chars: "200",
+  referral_user_credit: "2.5",
+  referral_vendor_credit_total: "25",
+  referral_vendor_credit_m1: "8.34",
+  referral_vendor_credit_m2: "8.34",
+  referral_vendor_credit_m3: "8.32",
+  referral_veteran_threshold_months: "12",
+  vendor_trial_days: "30",
+  vendor_subscription_price: "99",
+  help_call_limit_seconds: "300",
+  delivery_call_limit_seconds: "120",
+  appointment_call_limit_seconds: "180",
+  vendor_lead_notify_enabled: "true",
+  localization_enabled: "true",
+  lang_hindi_enabled: "true",
+  lang_marathi_enabled: "true",
+  exotel_secure_calling_enabled: "false",
+  ai_category_confidence_threshold: "0.85",
+  dev_menu_pin: DEV_MENU_PIN_DEFAULT,
+  feed_notification_radius_km: "5",
+  app_base_url: "https://aaspaas.in",
+  payments_enabled: "false",
+  razorpay_key_id: "",
+  razorpay_kyc_date: "2026-06-28",
+  exotel_kyc_date: "2026-06-28",
+  exotel_credits_low_threshold_inr: "200",
+  vendor_grace_period_days: "3",
+  khata_amber_limit: "0",
+};
 
 const ADMIN_CONFIG_TYPES: Partial<Record<AdminConfigKey, AdminConfigValueType>> = {
   referral_enabled: "boolean",
@@ -467,6 +520,7 @@ const ADMIN_CONFIG_TYPES: Partial<Record<AdminConfigKey, AdminConfigValueType>> 
   lang_hindi_enabled: "boolean",
   lang_marathi_enabled: "boolean",
   exotel_secure_calling_enabled: "boolean",
+  payments_enabled: "boolean",
   help_accept_timeout_hours: "number",
   help_accept_timeout_minutes: "number",
   help_near_deadline_minutes: "number",
@@ -489,6 +543,9 @@ const ADMIN_CONFIG_TYPES: Partial<Record<AdminConfigKey, AdminConfigValueType>> 
   referral_vendor_credit_m3: "number",
   referral_veteran_threshold_months: "number",
   feed_notification_radius_km: "number",
+  exotel_credits_low_threshold_inr: "number",
+  vendor_grace_period_days: "number",
+  khata_amber_limit: "number",
 };
 
 function getAdminConfigType(key: AdminConfigKey): AdminConfigValueType {
@@ -498,6 +555,10 @@ function getAdminConfigType(key: AdminConfigKey): AdminConfigValueType {
 function parseAdminConfigBoolean(raw: string | undefined): boolean {
   const v = (raw ?? "").trim().toLowerCase();
   return v === "true" || v === "1";
+}
+
+function formatAdminConfigDefaultLabel(value: string): string {
+  return value === "" ? "(empty)" : value;
 }
 
 const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
@@ -531,6 +592,13 @@ const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
   dev_menu_pin: "Developer Menu PIN",
   feed_notification_radius_km: "Feed Notification Radius (km)",
   app_base_url: "App Base URL",
+  payments_enabled: "Payments Enabled",
+  razorpay_key_id: "Razorpay Key ID",
+  razorpay_kyc_date: "Razorpay KYC Date",
+  exotel_kyc_date: "Exotel KYC Date",
+  exotel_credits_low_threshold_inr: "Exotel Credits Low Threshold (₹)",
+  vendor_grace_period_days: "Vendor Grace Period (days)",
+  khata_amber_limit: "Khata Amber Limit Default (₹)",
 };
 
 function buildVerifyAutoChecks(
@@ -953,9 +1021,14 @@ const Settings = () => {
       reach_radius_km: number | null;
       created_at: string;
       expires_at: string | null;
+      admin_contacted_at: string | null;
+      admin_dismissed_at: string | null;
+      vendor_onboarded: boolean;
     }[]
   >([]);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [showRemovedRecs, setShowRemovedRecs] = useState(false);
+  const [recActionId, setRecActionId] = useState<string | null>(null);
   const [lowRatings, setLowRatings] = useState<
     {
       id: string;
@@ -1007,6 +1080,16 @@ const Settings = () => {
   const [waivePercent, setWaivePercent] = useState("");
   const [waiveMonths, setWaiveMonths] = useState("");
   const [waiveSubmitting, setWaiveSubmitting] = useState(false);
+  const [waiveConfirm, setWaiveConfirm] = useState<{
+    open: boolean;
+    vendor: { id: string; shop_name: string; phone: string | null } | null;
+    percent: number;
+    months: number;
+  }>({ open: false, vendor: null, percent: 0, months: 0 });
+  const [rejectCategoryDialog, setRejectCategoryDialog] = useState<{
+    open: boolean;
+    cat: (typeof pendingCategories)[number] | null;
+  }>({ open: false, cat: null });
 
   useEffect(() => {
     void (async () => {
@@ -1257,8 +1340,11 @@ const Settings = () => {
     const defaults: Partial<Record<AdminConfigKey, string>> = {};
     for (const key of ADMIN_CONFIG_WHITELIST) {
       const row = data?.find((r) => r.key === key);
-      const defaultValue =
-        row?.default_value != null ? String(row.default_value) : "";
+      const dbDefault =
+        row?.default_value != null ? String(row.default_value).trim() : "";
+      // Prefer DB default_value; fall back to client map so missing rows never
+      // leave a blank/ambiguous field in the admin UI.
+      const defaultValue = dbDefault || ADMIN_CONFIG_FALLBACK_DEFAULTS[key];
       defaults[key] = defaultValue;
       const liveValue = row?.value != null ? String(row.value).trim() : "";
       values[key] = liveValue || defaultValue;
@@ -1543,10 +1629,11 @@ const Settings = () => {
     void loadLowRatings();
   }, [isAdmin]);
 
-  const loadRecommendations = async () => {
+  const loadRecommendations = async (includeDismissed?: boolean) => {
     setRecommendationsLoading(true);
     const { data, error } = await supabase.rpc("get_recommendations_for_admin", {
       p_admin_phone: adminRpcLabel(),
+      p_include_dismissed: includeDismissed ?? showRemovedRecs,
     });
     setRecommendationsLoading(false);
     if (error) {
@@ -1560,7 +1647,63 @@ const Settings = () => {
   useEffect(() => {
     if (!isAdmin || !recommendationsOpen) return;
     void loadRecommendations();
-  }, [isAdmin, recommendationsOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, recommendationsOpen, showRemovedRecs]);
+
+  const markRecommendationContacted = async (
+    rec: (typeof recommendations)[number],
+    contacted: boolean,
+  ) => {
+    setRecActionId(rec.id);
+    const { error } = await supabase.rpc("admin_mark_recommendation_contacted", {
+      p_admin_phone: adminRpcLabel(),
+      p_post_id: rec.id,
+      p_contacted: contacted,
+    });
+    setRecActionId(null);
+    if (error) {
+      console.error("markRecommendationContacted", error);
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    setRecommendations((prev) =>
+      prev.map((r) =>
+        r.id === rec.id
+          ? { ...r, admin_contacted_at: contacted ? new Date().toISOString() : null }
+          : r,
+      ),
+    );
+  };
+
+  const dismissRecommendation = async (rec: (typeof recommendations)[number]) => {
+    setRecActionId(rec.id);
+    const { error } = await supabase.rpc("admin_dismiss_recommendation", {
+      p_admin_phone: adminRpcLabel(),
+      p_post_id: rec.id,
+    });
+    setRecActionId(null);
+    if (error) {
+      console.error("dismissRecommendation", error);
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    await loadRecommendations();
+  };
+
+  const restoreRecommendation = async (rec: (typeof recommendations)[number]) => {
+    setRecActionId(rec.id);
+    const { error } = await supabase.rpc("admin_restore_recommendation", {
+      p_admin_phone: adminRpcLabel(),
+      p_post_id: rec.id,
+    });
+    setRecActionId(null);
+    if (error) {
+      console.error("restoreRecommendation", error);
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    await loadRecommendations();
+  };
 
   const deleteLowRating = async (row: (typeof lowRatings)[number]) => {
     setLowRatingDeletingId(row.id);
@@ -1590,22 +1733,18 @@ const Settings = () => {
   };
 
   const loadFlaggedUsers = async () => {
-    try {
-      const data = await fetchAllPages("loadFlaggedUsers", (from, to) =>
-        supabase
-          .from("users")
-          .select(
-            "phone, trust_score, noshow_count, fake_count, is_banned, ban_reason, warn_count, last_warned_at",
-          )
-          .or("noshow_count.gt.0,fake_count.gt.0,is_banned.eq.true")
-          .order("trust_score", { ascending: true })
-          .range(from, to),
-      );
-      setFlaggedUsers(data ?? []);
-    } catch (error) {
+    // Direct .from("users") is blocked by users_owner RLS for other phones;
+    // admin_list_flagged_users (SECURITY DEFINER, is_admin_session gate)
+    // returns the flagged set for admin sessions.
+    const { data, error } = await supabase.rpc("admin_list_flagged_users", {
+      p_admin_phone: adminRpcLabel(),
+    });
+    if (error) {
       console.error("loadFlaggedUsers", error);
       setFlaggedUsers([]);
+      return;
     }
+    setFlaggedUsers(data ?? []);
   };
 
   useEffect(() => {
@@ -1865,6 +2004,7 @@ const Settings = () => {
     setFlaggedAction(null);
     if (error) {
       console.error("confirmBanUser", error);
+      toast.error("Failed to ban user: " + error.message);
       return;
     }
     const bannedPhone = banDialog.phone;
@@ -1891,12 +2031,42 @@ const Settings = () => {
     setFlaggedAction(null);
     if (error) {
       console.error("unbanFlaggedUser", error);
+      toast.error("Failed to unban user: " + error.message);
       return;
     }
     notifyAccountRestored(phone, "settings");
     logAdminAction("unban_user", "user", phone, null, adminAuditLabel());
     toast.success("User unbanned");
     await loadFlaggedUsers();
+  };
+
+  const confirmApplyWaiveoff = async () => {
+    const info = waiveConfirm;
+    if (!info.vendor) return;
+    setWaiveConfirm({ open: false, vendor: null, percent: 0, months: 0 });
+    setWaiveSubmitting(true);
+    const result = await runApplyVendorWaiveoff(
+      { id: info.vendor.id, phone: info.vendor.phone },
+      info.percent,
+      info.months,
+      {
+        localizationEnabled: config.localizationEnabled,
+        langHindiEnabled: config.langHindiEnabled,
+        langMarathiEnabled: config.langMarathiEnabled,
+      },
+      adminAuditLabel(),
+    );
+    setWaiveSubmitting(false);
+    if (result.ok === false) {
+      console.error("applyWaiveoff", result.error);
+      toast.error(result.error || "Failed to apply waive-off");
+      return;
+    }
+    toast.success(s.admin_sub_waiveoff_applied);
+    setWaivePhone("");
+    setWaivePercent("");
+    setWaiveMonths("");
+    void loadSubVendors();
   };
 
   const approvePendingCategory = async (cat: (typeof pendingCategories)[number]) => {
@@ -3510,7 +3680,7 @@ const Settings = () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => void rejectPendingCategory(cat)}
+                        onClick={() => setRejectCategoryDialog({ open: true, cat })}
                         disabled={pendingAction === cat.id}
                         className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                       >
@@ -3528,6 +3698,19 @@ const Settings = () => {
             open={recommendationsOpen}
             onToggle={() => setRecommendationsOpen((o) => !o)}
           >
+            <div className="px-4 pt-3">
+              <button
+                type="button"
+                onClick={() => setShowRemovedRecs((v) => !v)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                  showRemovedRecs
+                    ? "bg-primary/10 text-primary border-primary/30"
+                    : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                {s.admin_rec_show_removed}
+              </button>
+            </div>
             {recommendationsLoading ? (
               <p className="text-sm text-muted-foreground px-4 py-3">{s.feed_loadingAria}</p>
             ) : recommendations.length === 0 ? (
@@ -3544,11 +3727,31 @@ const Settings = () => {
                     rec.reach_radius_km != null && rec.reach_radius_km > 0
                       ? `${rec.reach_radius_km} km`
                       : "5 km";
+                  const isLead = rec.recommended_vendor_id == null;
+                  const isDismissed = rec.admin_dismissed_at != null;
+                  const isContacted = rec.admin_contacted_at != null;
                   return (
                     <div
                       key={rec.id}
                       className="rounded-2xl border border-surface-border p-3 space-y-2"
                     >
+                      <div className="flex flex-wrap items-center gap-2">
+                        {isLead && isContacted && (
+                          <span className="inline-flex items-center rounded-full bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 px-2 py-0.5 text-[10px] font-semibold">
+                            ✓ {s.admin_rec_contacted}
+                          </span>
+                        )}
+                        {isLead && showRemovedRecs && isDismissed && (
+                          <span className="inline-flex items-center rounded-full bg-destructive/10 text-destructive border border-destructive/30 px-2 py-0.5 text-[10px] font-semibold">
+                            {s.admin_rec_removed_label}
+                          </span>
+                        )}
+                        {isLead && showRemovedRecs && !isDismissed && rec.vendor_onboarded && (
+                          <span className="inline-flex items-center rounded-full bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 text-[10px] font-semibold">
+                            {s.admin_rec_onboarded_label}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-foreground">{rec.content}</p>
                       <div className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
                         <p>
@@ -3568,6 +3771,42 @@ const Settings = () => {
                         </p>
                         <p>{new Date(rec.created_at).toLocaleString()}</p>
                       </div>
+                      {isLead && (
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => void markRecommendationContacted(rec, !isContacted)}
+                            disabled={recActionId === rec.id}
+                            className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-50 ${
+                              isContacted
+                                ? "bg-green-500/10 text-green-700 border-green-500/30"
+                                : "bg-muted text-foreground border-border"
+                            }`}
+                          >
+                            {isContacted ? "✓ " : ""}
+                            {s.admin_rec_contacted}
+                          </button>
+                          {isDismissed ? (
+                            <button
+                              type="button"
+                              onClick={() => void restoreRecommendation(rec)}
+                              disabled={recActionId === rec.id}
+                              className="flex-1 rounded-xl bg-primary/10 text-primary border border-primary/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                            >
+                              {s.admin_rec_restore}
+                            </button>
+                          ) : rec.vendor_onboarded ? null : (
+                            <button
+                              type="button"
+                              onClick={() => void dismissRecommendation(rec)}
+                              disabled={recActionId === rec.id}
+                              className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                            >
+                              {s.admin_rec_remove}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -3758,56 +3997,26 @@ const Settings = () => {
                       toast.error("Percent 1–100, months 1–12");
                       return;
                     }
-                    setWaiveSubmitting(true);
-                    try {
-                      const { data: vendorRow, error: vErr } = await supabase
-                        .from("vendors")
-                        .select("id, phone")
-                        .eq("phone", phone)
-                        .maybeSingle();
-                      if (vErr || !vendorRow) {
-                        toast.error("Vendor not found for that phone");
-                        setWaiveSubmitting(false);
-                        return;
-                      }
-                      const vendorId = vendorRow.id as string;
-                      const { error: updErr } = await supabase.rpc("admin_apply_vendor_waiveoff", {
-                        p_admin_phone: adminRpcLabel(),
-                        p_vendor_id: vendorId,
-                        p_percent: percent,
-                        p_months: months,
-                      });
-                      if (updErr) {
-                        toast.error(updErr.message);
-                        setWaiveSubmitting(false);
-                        return;
-                      }
-                      const title = "Special offer for you!";
-                      const body = `Aaspaas Pro is offering you ${percent}% off for ${months} months. Offer applied automatically on your next billing.`;
-                      void invokeNotifyVendor({
-                        vendor_id: vendorId,
-                        notification_title: title,
-                        message: body,
-                        type: "subscription_update",
-                      });
-                      logAdminAction(
-                        "update_config",
-                        "vendor",
-                        vendorId,
-                        `waiveoff:${percent}%x${months}months`,
-                        adminAuditLabel(),
-                      );
-                      toast.success(s.admin_sub_waiveoff_applied);
-                      setWaiveSubmitting(false);
-                      setWaivePhone("");
-                      setWaivePercent("");
-                      setWaiveMonths("");
-                      void loadSubVendors();
-                    } catch (err) {
-                      console.error("applyWaiveoff", err);
-                      toast.error("Failed to apply waive-off");
-                      setWaiveSubmitting(false);
+                    const { data: vendorRow, error: vErr } = await supabase
+                      .from("vendors")
+                      .select("id, phone, shop_name")
+                      .eq("phone", phone)
+                      .maybeSingle();
+                    if (vErr || !vendorRow) {
+                      toast.error("Vendor not found for that phone");
+                      return;
                     }
+                    setWaiveConfirm({
+                      open: true,
+                      vendor: {
+                        id: vendorRow.id as string,
+                        shop_name:
+                          (vendorRow.shop_name as string | null)?.trim() || "Vendor",
+                        phone: (vendorRow.phone as string | null) ?? null,
+                      },
+                      percent,
+                      months,
+                    });
                   }}
                   className="w-full rounded-xl bg-brand text-brand-foreground py-2.5 text-sm font-semibold active:scale-[0.99] disabled:opacity-50"
                 >
@@ -3834,11 +4043,16 @@ const Settings = () => {
                     <p className="text-xs font-semibold text-muted-foreground">
                       {ADMIN_CONFIG_LABELS[key]}
                     </p>
-                    {adminConfigDefaults[key] ? (
-                      <p className="text-[11px] text-muted-foreground">
-                        {s.admin_config_default(adminConfigDefaults[key]!)}
-                      </p>
-                    ) : null}
+                    <p
+                      className="text-[11px] text-muted-foreground"
+                      data-testid={`admin-config-default-${key}`}
+                    >
+                      {s.admin_config_default(
+                        formatAdminConfigDefaultLabel(
+                          adminConfigDefaults[key] ?? ADMIN_CONFIG_FALLBACK_DEFAULTS[key],
+                        ),
+                      )}
+                    </p>
                     {configType === "boolean" ? (
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-sm text-muted-foreground">
@@ -3995,6 +4209,68 @@ const Settings = () => {
                   }}
                 >
                   Confirm ban
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={waiveConfirm.open}
+            onOpenChange={(open) => {
+              if (!open) setWaiveConfirm({ open: false, vendor: null, percent: 0, months: 0 });
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Apply this waive-off?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {waiveConfirm.vendor
+                    ? `${waiveConfirm.vendor.shop_name} will get ${waiveConfirm.percent}% off for ${waiveConfirm.months} month${waiveConfirm.months === 1 ? "" : "s"}. The vendor will be notified immediately.`
+                    : null}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={!waiveConfirm.vendor || waiveSubmitting}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmApplyWaiveoff();
+                  }}
+                >
+                  Confirm waive-off
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={rejectCategoryDialog.open}
+            onOpenChange={(open) => {
+              if (!open) setRejectCategoryDialog({ open: false, cat: null });
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reject this category?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {rejectCategoryDialog.cat
+                    ? `"${rejectCategoryDialog.cat.label}" will stay inactive and the suggesting vendor will be notified.`
+                    : null}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={!rejectCategoryDialog.cat || pendingAction != null}
+                  onClick={() => {
+                    const cat = rejectCategoryDialog.cat;
+                    setRejectCategoryDialog({ open: false, cat: null });
+                    if (cat) void rejectPendingCategory(cat);
+                  }}
+                >
+                  Confirm reject
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

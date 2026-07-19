@@ -120,112 +120,109 @@ test('ADMIN-03: admin sees platform health section', async ({ page }) => {
 // ─── VENDOR VERIFICATION ───────────────────────────────────────────────────
 
 test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', async ({ page }) => {
-  // admin_verify_vendor now requires green_pending/business_verified server-side.
+  // Tightened: no RPC fallback — requires the real per-category verify sheet UI.
+  // admin_verify_vendor_category requires green_pending/business_verified server-side.
+  const { data: vc } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('category_id, categories(label)')
+    .eq('vendor_id', testVendor.id)
+    .limit(1)
+    .maybeSingle();
+  const categoryLabel =
+    (vc?.categories as { label?: string } | { label?: string }[] | null) == null
+      ? null
+      : Array.isArray(vc.categories)
+        ? vc.categories[0]?.label
+        : (vc.categories as { label?: string }).label;
+  expect(categoryLabel, 'test vendor must have a category for the verify button').toBeTruthy();
+
   await supabaseAdmin
     .from('vendors')
     .update({ is_manual_verified: false, verification_status: 'green_pending' })
     .eq('id', testVendor.id);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({
+      is_manual_verified: false,
+      verification_status: 'green_pending',
+      status: 'approved',
+    })
+    .eq('vendor_id', testVendor.id);
+
   await loginAsAdminViaSession(page, TEST_DEVICE_ID);
-  await ensureAdminHealthVisible(page);
+  await openVendorModeration(page);
 
-  const modBtn = page.getByRole('button', { name: /Vendor Moderation/i }).first();
-  const hasMod = await modBtn.isVisible({ timeout: 3000 }).catch(() => false);
-  if (hasMod) {
-    await modBtn.click();
-    await page.waitForTimeout(500);
-    const vendorEntry = page.getByText(testVendor.shop_name).first();
-    const hasEntry = await vendorEntry.isVisible({ timeout: 5000 }).catch(() => false);
-    if (hasEntry) {
-      const verifyBtn = page.getByRole('button', { name: /Unverified/i }).first();
-      const hasVerify = await verifyBtn.isVisible({ timeout: 3000 }).catch(() => false);
-      if (hasVerify) {
-        await verifyBtn.click();
-        const confirmBtn = page.getByRole('button', { name: /confirm|verify/i }).first();
-        const canConfirm = await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false);
-        if (canConfirm) {
-          await confirmBtn.click();
-          await page.waitForTimeout(2000);
-        }
-      }
-    }
+  const searchInput = page.getByPlaceholder(/search by name, shop, phone/i).first();
+  await expect(searchInput).toBeVisible({ timeout: 8000 });
+  await searchInput.fill(testVendor.shop_name);
+  await page.waitForTimeout(500);
+
+  const vendorRow = page.locator(`#admin-vendor-${testVendor.id}`);
+  await expect(vendorRow).toBeVisible({ timeout: 15000 });
+  await vendorRow.locator(`button[title="${categoryLabel}"]`).click();
+
+  const sheet = page.locator('div.fixed.inset-0').filter({ has: page.getByText('Verification checks') });
+  await expect(sheet).toBeVisible({ timeout: 8000 });
+  const checkboxes = sheet.locator('input[type="checkbox"]');
+  await expect(checkboxes).toHaveCount(13, { timeout: 8000 });
+  for (let i = 0; i < 13; i += 1) {
+    const box = checkboxes.nth(i);
+    if (!(await box.isChecked())) await box.check();
   }
+  const markVerified = sheet.getByRole('button', { name: /Mark Verified \(13\/13\)/i });
+  await expect(markVerified).toBeEnabled({ timeout: 8000 });
+  await markVerified.click();
+  await expect(sheet).not.toBeVisible({ timeout: 15000 });
 
-  const { data: afterUi } = await supabaseAdmin.from('vendors')
-    .select('is_manual_verified').eq('id', testVendor.id).single();
-  if (afterUi?.is_manual_verified) {
-    expect(afterUi.is_manual_verified).toBe(true);
-    return;
-  }
-
-  const adminClient = await getAdminSessionClient();
-  const { error: rpcErr } = await adminClient.rpc('admin_verify_vendor', {
-    p_admin_phone: TEST_ADMIN_PHONE,
-    p_vendor_id: testVendor.id,
-  });
-  expect(rpcErr).toBeNull();
-  const { data } = await supabaseAdmin.from('vendors')
-    .select('is_manual_verified').eq('id', testVendor.id).single();
+  const { data } = await supabaseAdmin
+    .from('vendors')
+    .select('is_manual_verified')
+    .eq('id', testVendor.id)
+    .single();
   expect(data?.is_manual_verified).toBe(true);
 });
 
 // ─── VENDOR BAN ────────────────────────────────────────────────────────────
 
 test('ADMIN-05: ban vendor — is_banned = true + audit log created', async ({ page }) => {
+  // Tightened: no RPC fallback — requires Ban button + Confirm ban dialog.
   const adminClient = await getAdminSessionClient();
   await adminClient.rpc('admin_unban_vendor', {
     p_admin_phone: TEST_ADMIN_PHONE,
     p_vendor_id: testVendor.id,
   });
   await loginAsAdminViaSession(page, TEST_DEVICE_ID);
-  await ensureAdminHealthVisible(page);
+  await openVendorModeration(page);
 
-  const modBtn = page.getByRole('button', { name: /Vendor Moderation/i }).first();
-  const hasMod = await modBtn.isVisible({ timeout: 3000 }).catch(() => false);
-  if (hasMod) {
-    await modBtn.click();
-    await page.waitForTimeout(500);
-    const vendorRow = page.getByText(testVendor.shop_name).first();
-    if (await vendorRow.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const banBtn = page.getByRole('button', { name: 'Ban' }).first();
-      if (await banBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await banBtn.click();
-        const reasonInput = page.locator('textarea, input[type="text"]').last();
-        if (await reasonInput.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await reasonInput.fill('Test ban');
-        }
-        const confirmBan = page.getByRole('button', { name: /confirm|ban/i }).last();
-        if (await confirmBan.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await confirmBan.click();
-          await page.waitForTimeout(2000);
-        }
-        const { data } = await supabaseAdmin.from('vendors')
-          .select('is_banned').eq('id', testVendor.id).single();
-        if (data?.is_banned) {
-          expect(data.is_banned).toBe(true);
-          return;
-        }
-      }
-    }
-  }
+  const searchInput = page.getByPlaceholder(/search by name, shop, phone/i).first();
+  await expect(searchInput).toBeVisible({ timeout: 8000 });
+  await searchInput.fill(testVendor.shop_name);
+  await page.waitForTimeout(500);
 
-  await adminClient.rpc('admin_ban_vendor', {
-    p_admin_phone: TEST_ADMIN_PHONE,
-    p_vendor_id: testVendor.id,
-    p_reason: 'Test ban',
-  });
-  await supabaseAdmin.from('admin_actions').insert({
-    admin_phone: TEST_ADMIN_PHONE,
-    action_type: 'ban_vendor',
-    target_type: 'vendor',
-    target_id: testVendor.id,
-    reason: 'Test ban',
-  });
-  const { data } = await supabaseAdmin.from('vendors')
-    .select('is_banned').eq('id', testVendor.id).single();
+  const vendorRow = page.locator(`#admin-vendor-${testVendor.id}`);
+  await expect(vendorRow).toBeVisible({ timeout: 15000 });
+  await vendorRow.getByRole('button', { name: 'Ban' }).click();
+
+  const confirmBan = page.getByRole('button', { name: 'Confirm ban' });
+  await expect(confirmBan).toBeVisible({ timeout: 5000 });
+  await page.getByPlaceholder('Ban reason').fill('Test ban');
+  await expect(confirmBan).toBeEnabled();
+  await confirmBan.click();
+  await page.waitForTimeout(2000);
+
+  const { data } = await supabaseAdmin
+    .from('vendors')
+    .select('is_banned')
+    .eq('id', testVendor.id)
+    .single();
   expect(data?.is_banned).toBe(true);
-  const { data: log } = await supabaseAdmin.from('admin_actions')
-    .select('action_type').eq('target_id', testVendor.id)
-    .eq('action_type', 'ban_vendor').limit(1);
+
+  const { data: log } = await supabaseAdmin
+    .from('admin_actions')
+    .select('action_type')
+    .eq('target_id', testVendor.id)
+    .eq('action_type', 'ban_vendor')
+    .limit(1);
   expect(log?.length).toBeGreaterThan(0);
 });
 
@@ -266,37 +263,46 @@ test('ADMIN-07: unban vendor — is_banned = false + notification created', asyn
 // ─── CUSTOMER WARN / BAN ───────────────────────────────────────────────────
 
 test('ADMIN-08: warn customer — warn_count increments in DB', async ({ page }) => {
-  await supabaseAdmin.from('users').upsert({
-    phone: TEST_CUSTOMER_PHONE,
-    warn_count: 0,
-  }, { onConflict: 'phone' });
+  // Real UI path: Flagged Users now loads via admin_list_flagged_users
+  // (SECURITY DEFINER, is_admin_session gate) instead of a direct
+  // .from("users") read blocked by users_owner RLS — no RPC fallback.
+  await supabaseAdmin.from('users').upsert(
+    {
+      phone: TEST_CUSTOMER_PHONE,
+      warn_count: 0,
+      noshow_count: 1,
+      fake_count: 0,
+      is_banned: false,
+    },
+    { onConflict: 'phone' },
+  );
   await loginAsAdminViaSession(page, TEST_DEVICE_ID);
-  await ensureAdminHealthVisible(page);
+  await openVendorModeration(page);
 
-  const modBtn = page.getByRole('button', { name: /Vendor Moderation/i }).first();
-  if (await modBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await modBtn.click();
-    await page.waitForTimeout(500);
-  }
-
-  const warnBtn = page.getByRole('button', { name: 'Warn' }).first();
-  if (await warnBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await warnBtn.click();
-    await page.waitForTimeout(2000);
-    const { data } = await supabaseAdmin.from('users')
-      .select('warn_count').eq('phone', TEST_CUSTOMER_PHONE).single();
-    expect(data?.warn_count).toBeGreaterThan(0);
-    return;
-  }
-
-  const adminClient = await getAdminSessionClient();
-  await adminClient.rpc('admin_warn_user', {
-    p_admin_phone: TEST_ADMIN_PHONE,
-    p_user_phone: TEST_CUSTOMER_PHONE,
+  await expect(page.getByText(/Flagged Users/i).first()).toBeVisible({ timeout: 8000 });
+  const flaggedCard = page
+    .locator('div')
+    .filter({ hasText: TEST_CUSTOMER_PHONE })
+    .filter({ has: page.getByRole('button', { name: 'Warn' }) })
+    .last();
+  await expect(flaggedCard, 'seeded flagged user must render in the panel').toBeVisible({
+    timeout: 8000,
   });
-  const { data } = await supabaseAdmin.from('users')
-    .select('warn_count').eq('phone', TEST_CUSTOMER_PHONE).single();
-  expect(data?.warn_count).toBe(1);
+  await flaggedCard.getByRole('button', { name: 'Warn' }).click();
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await supabaseAdmin
+          .from('users')
+          .select('warn_count')
+          .eq('phone', TEST_CUSTOMER_PHONE)
+          .single();
+        return data?.warn_count ?? 0;
+      },
+      { timeout: 10000 },
+    )
+    .toBeGreaterThan(0);
 });
 
 // ─── AUDIT LOG ─────────────────────────────────────────────────────────────
