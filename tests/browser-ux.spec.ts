@@ -266,6 +266,49 @@ test('UX-NAV-04: unknown route redirects gracefully — no crash', async ({ page
   expect(bodyText!.length).toBeGreaterThan(0);
 });
 
+test('UX-NAV-05: Settings privacy link leads to the single canonical policy', async ({ page }) => {
+  await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
+  await page.goto(`${APP_URL}/settings`);
+
+  await page.getByRole('button', { name: /CONNECTION & PRIVACY/i }).click();
+  await page.getByTestId('settings-privacy-policy-link').click();
+  await expect(page).toHaveURL(`${APP_URL}/privacy`);
+
+  const canonical = page.getByTestId('privacy-policy-canonical-link');
+  await expect(canonical).toHaveAttribute(
+    'href',
+    'https://aaspaaspro.com/privacy-policy.html',
+  );
+  await expect(page.getByText('Last updated: May 2026')).not.toBeVisible();
+  await expect(page.getByText('privacy@aaspaas.app')).not.toBeVisible();
+});
+
+test('UX-NAV-06: 404 Return Home uses client-side routing', async ({ page }) => {
+  await page.goto(`${APP_URL}/this-route-does-not-exist`);
+  const documentRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.resourceType() === 'document') documentRequests.push(request.url());
+  });
+
+  await page.getByRole('link', { name: 'Return to Home' }).click();
+  await expect(page).toHaveURL(`${APP_URL}/`);
+  expect(documentRequests).toHaveLength(0);
+});
+
+test('UX-NAV-07: vendor status and 404 copy are localized', async ({ page }) => {
+  await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
+  await page.evaluate(() => {
+    localStorage.setItem('aaspaas:language', 'hi');
+    localStorage.setItem('aaspaas:vendor_active', '0');
+  });
+  await page.reload();
+  await expect(page.getByTestId('nav-vendor')).toHaveText('मैं·ऑफलाइन');
+
+  await page.goto(`${APP_URL}/this-route-does-not-exist`);
+  await expect(page.getByText('यह पेज नहीं मिला')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'होम पर लौटें' })).toBeVisible();
+});
+
 // ─── LOADING STATES ───────────────────────────────────────────────────────
 
 test('UX-LOAD-01: home screen loads without JS errors', async ({ page }) => {

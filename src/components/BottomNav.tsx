@@ -74,8 +74,8 @@ export const BottomNav = () => {
               const vendorLabel =
                 to === "/vendor" && hasVendorId
                   ? isVendorActive
-                    ? "ME·Online"
-                    : "ME·Offline"
+                    ? s.nav_vendor_online
+                    : s.nav_vendor_offline
                   : label;
               return (
                 <>

@@ -3088,6 +3088,17 @@ const Settings = () => {
         <SettingsRow label={s.settings_trustSecurity} sublabel={s.settings_tlsNote}>
           <CheckCircle2 className="h-5 w-5 text-brand shrink-0" aria-hidden />
         </SettingsRow>
+        <button
+          type="button"
+          data-testid="settings-privacy-policy-link"
+          onClick={() => navigate("/privacy")}
+          className="w-full flex items-center justify-between gap-3 px-4 py-3.5 border-b border-surface-border text-left active:opacity-90"
+        >
+          <span className="text-sm font-medium text-foreground">
+            {s.privacy_policy_title}
+          </span>
+          <Globe className="h-5 w-5 text-brand shrink-0" aria-hidden />
+        </button>
         <div className="px-4 pb-3.5">
           <p className="text-xs text-brand font-medium">{s.settings_dbConnected}</p>
         </div>
