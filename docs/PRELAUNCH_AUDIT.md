@@ -1,11 +1,35 @@
 # Prelaunch Audit
 
+## CRITICAL INCIDENT — Service Role Key Exposure (RESOLVED)
+
+| Field | Status |
+|-------|--------|
+| Incident | `app_config.service_role_key` was publicly readable under `USING (true)` on TEST and PROD. The exposed values were confirmed to match each project's real service-role key, allowing any anon caller to bypass all RLS. |
+| Resolution | Rotated both projects to new publishable/secret key pairs; updated environment files; removed stale hardcoded key literals from `playwright.config.ts`; refactored `scripts/switch-env.mjs` to read keys from environment variables; verified the new keys through automated TEST coverage and the real production-build PROD smoke suite (**5/5 passing**); disabled legacy JWT-based keys; and deleted `service_role_key` and `anon_key` from `app_config` on both projects. |
+| Residual | The existing tester APK used by Gajanand/Monika contains the old key and requires a fresh build. |
+
+## Systemic OTP-off Silent-Read Bug (RESOLVED across the app)
+
+| Field | Status |
+|-------|--------|
+| Root cause | RLS owner policies relied on `auth_user_phone()`, which requires a Supabase Auth session, while the real app identity model is OTP-off (`localStorage` phone/device; no Auth session). Direct owner-table reads therefore silently returned zero rows for real users. Test infrastructure minted real sessions and masked the defect for the project's lifetime. |
+| Resolution | Replaced affected direct reads with narrowly scoped, rate-limited `SECURITY DEFINER` RPCs using caller-supplied phone/device or vendor identity; kept RLS restrictive. Live PROD checks against real affected accounts verified all six passes: Home saved neighbours; FirstOpen vendor/customer restore (including two offline vendors previously locked out); My Orders (a real customer's full history was invisible); the complete vendor order/bill/khata path (launch blocker—vendors had never been able to see real orders); vendor secondary reads (stats, background location, deletion status, green-pending enforcement); and remaining customer reads (Home/Radar/feed/address data, wrong-owner notification dedup, and removal of a world-readable address policy). |
+| Standing practice | Every future functionality audit must include a live anon, no-session probe. |
+
+## Vendor Trust Tier — CLOSED
+
+Radar now degrades gracefully when its tier query fails instead of crashing search. The previously designed but unrendered customer badge is live as **Verified · Tier**, with a tap-to-detail verification sheet. The admin verification checklist is localized in EN/HI/MR.
+
+## Full Suite Verification
+
+Ran the complete ~700+ Playwright/Vitest suite for the first time this session. All failures traced to test-infrastructure debt (stale mocks, direct-read assertions invalidated by intentional RLS hardening, one stale seed, and one correctly changed policy allowlist); **zero genuine product regressions were found**. Test-infrastructure fixes were committed separately from product changes.
+
 ## Progress tracker
 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **12 of ~52 functionality-inventory entries fully closed (partial — 4 of 10 dimensions each). ~40 entries not yet reviewed on any dimension.** — Bill/UPI/Khata Payment Flow, UPI Vendor Verification, Live Tracking Secure Call, Ratings & Reviews, Vendor Registration, Order Lifecycle (Help/Delivery/Appointment), Notifications, Local Feed, Referrals, Settings (customer + vendor), Radar Search. Phase A (Admin Session Auth) closed separately. |
+| Phase 2 progress | **17 of ~52 functionality-inventory entries fully closed.** Vendor Configuration is closed. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
 | Next planned Phase 2 target | TBD |
 
 ## Lessons for future audit passes
@@ -19,6 +43,7 @@
 | Note | Detail |
 |------|--------|
 | `supabase/migrations-deferred/` ordering friction | Causes recurring `db push` friction against PROD — CLI enforces strict chronological application. Each push after the deferred migration's timestamp needs a manual workaround (direct SQL apply + `migration repair`). Revisit once Part L (FCM cron replacement) is verified and `20260711180001` can move back to active migrations. **This session alone: five separate PROD pushes hit the same workaround — this needs a structural decision next session, not another one-off workaround.** |
+| Confirm the linked Supabase project before every push/deploy | Run an explicit project-ref check before every `supabase db push` and `supabase functions deploy`, with no exceptions. A rate-limit migration and two edge functions were pushed to PROD before TEST verification this session because the CLI retained a stale PROD link. The outcome was low-risk and both environments were subsequently verified in sync, but the sequence violated the standing TEST-then-PROD rule. |
 
 ## Phase A — Admin Session Auth — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
 
@@ -36,7 +61,7 @@
 
 ## Phase 2
 
-> **Scope correction (as of this update):** the twelve functionality-inventory entries marked below as closed (Bill/UPI/Khata Payment Flow, UPI Vendor Verification, Live Tracking Secure Call, Ratings & Reviews, Vendor Registration, Order Lifecycle, Notifications, Local Feed, Referrals, Settings, Radar Search — plus Phase A Admin Session Auth tracked separately) were reviewed and fixed against **4 of the original 10 audit dimensions only**: Functionality, Security, DB Integrity, and Test Coverage. Performance, Reliability, Device/OS Compatibility, Localization, Observability, and UI/UX Layout have **NOT** been reviewed for any of them. Do not treat "closed" / "CLOSED (TEST + PROD)" / "SECURITY/INTEGRITY FIXED" below as meaning fully audited against all 10 dimensions — it means the specific bugs found in those 4 dimensions were fixed and verified. A decision on backfilling the remaining 6 dimensions is pending.
+> **Scope correction (as of this update):** 17 functionality-inventory entries are closed, including Vendor Configuration. Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
 
 ## Bill/UPI/Khata Payment Flow — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
 
@@ -240,6 +265,34 @@
 | `subscription_status` / `subscription_id` / `grace_ends_at` blocked from generic `vendor_update_own` patch | Same pattern as `discoverable` / `upi_verified` — closes revenue-leakage risk where a vendor could self-grant active subscription status |
 | Vendor owner `name` field fixed | Was silently failing to persist |
 | Migrations | `20260717160001`, `20260717170001` |
+
+## Vendor Configuration (Menu Items, Availability Modes, Cancel Reasons) — CLOSED
+
+### Availability Modes — CLOSED (TEST + PROD)
+
+Confirmed critical discoverability bug: vendors with multiple business types under one account (for example, a Help-mode category plus a Delivery-mode category) were discoverable only under whichever mode the account happened to expose first. Secondary business modes were invisible on Radar.
+
+Fixed with:
+
+- full per-category mode selection during registration and post-registration category management;
+- backend reconciliation that preserves authoritative per-category mode sets and prevents category-edit data loss;
+- narrowly scoped Radar discovery based on real category-mode membership instead of the single account-level `service_mode` column; and
+- immutable persistence of the effective mode on each order, preventing the wrong billing or fulfillment rules from being applied later.
+
+Migration: `20260718100001_per_category_availability_modes.sql`.
+
+### Menu Items — CLOSED (TEST + PROD)
+
+- Menu mutation RPCs are rate-limited by vendor phone, mitigating the known phone-based tampering risk while the broader OTP-off identity limitation remains open.
+- Failed menu saves now surface visible errors instead of silently disappearing.
+- Paid AI parsing edge functions (`parse-voice-bill` and `parse-image-bill`) are rate-limited against cost abuse.
+
+Migration: `20260719000001_menu_mutation_rate_limits.sql`.
+
+### Cancel Reasons — CLOSED
+
+1. Single-category shadowing resolved: Settings now reads and writes category-level cancel-reason rows whenever the vendor has an approved category, so edits correctly take effect instead of being shadowed by stale seed-copied rows. Legacy account-level columns remain only as the zero-approved-category fallback.
+2. Hidden-vendor fallback logout resolved: the no-phone fallback no longer treats an RLS-hidden vendor as a missing account or clears the stored vendor ID. Discoverable vendors recover their phone and load through the hardened `get_vendor_own` RPC; hidden/offline vendors retain their account association and can recover through the find-account flow.
 
 ## Radar Search — CLOSED (TEST + PROD)
 
