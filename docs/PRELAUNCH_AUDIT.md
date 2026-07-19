@@ -29,7 +29,7 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **17 of ~52 functionality-inventory entries fully closed.** Vendor Configuration is closed. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
+| Phase 2 progress | **17 of ~52 functionality-inventory entries fully closed.** Vendor Configuration is CLOSED — no open items. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
 | Next planned Phase 2 target | TBD |
 
 ## Lessons for future audit passes
@@ -61,7 +61,7 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 
 ## Phase 2
 
-> **Scope correction (as of this update):** 17 functionality-inventory entries are closed, including Vendor Configuration. Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
+> **Scope correction (as of this update):** 17 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
 
 ## Bill/UPI/Khata Payment Flow — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
 
@@ -266,7 +266,7 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Vendor owner `name` field fixed | Was silently failing to persist |
 | Migrations | `20260717160001`, `20260717170001` |
 
-## Vendor Configuration (Menu Items, Availability Modes, Cancel Reasons) — CLOSED
+## Vendor Configuration (Menu Items, Availability Modes, Cancel Reasons) — CLOSED — no open items
 
 ### Availability Modes — CLOSED (TEST + PROD)
 
@@ -291,8 +291,7 @@ Migration: `20260719000001_menu_mutation_rate_limits.sql`.
 
 ### Cancel Reasons — CLOSED
 
-1. Single-category shadowing resolved: Settings now reads and writes category-level cancel-reason rows whenever the vendor has an approved category, so edits correctly take effect instead of being shadowed by stale seed-copied rows. Legacy account-level columns remain only as the zero-approved-category fallback.
-2. Hidden-vendor fallback logout resolved: the no-phone fallback no longer treats an RLS-hidden vendor as a missing account or clears the stored vendor ID. Discoverable vendors recover their phone and load through the hardened `get_vendor_own` RPC; hidden/offline vendors retain their account association and can recover through the find-account flow.
+Single-category shadowing resolved; hidden-vendor fallback logout resolved.
 
 ## Radar Search — CLOSED (TEST + PROD)
 
