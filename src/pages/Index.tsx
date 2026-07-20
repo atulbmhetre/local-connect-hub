@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
+import { SearchSuggestSheet, SUGGEST_TIER1_COUNT } from "@/components/SearchSuggestSheet";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { NeighbourSheet, type SavedVendorInfo } from "@/components/NeighbourSheet";
@@ -17,6 +18,7 @@ import {
   supabase,
   type Category,
   type CategoryGroup,
+  type ClassifySearchCandidate,
   type Vendor,
   emojiForVendorCategory,
   useCategoryLabel,
@@ -30,6 +32,7 @@ import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/
 import { NotificationBell } from "@/components/NotificationBell";
 import { FirstOpenFlow } from "@/components/FirstOpenFlow";
 import { cn } from "@/lib/utils";
+import { captureError } from "@/lib/sentry";
 
 type SavedNeighbourTile = {
   savedId: string;
@@ -48,7 +51,19 @@ type SavedVendorRemovalNotice = {
   id: string;
   shop_name: string;
   category_label: string | null;
-  reason: "category_removed" | "account_deleted";
+  reason: "category_removed" | "account_deleted" | "vendor_banned";
+};
+
+/** Tiered AI-search suggestion sheet state (null = closed). */
+type SuggestSheetState = {
+  /** The user's original free text, preserved verbatim. */
+  searchText: string;
+  candidates: ClassifySearchCandidate[];
+  tier: 1 | 2;
+  /** Both tiers rejected — showing the rephrase input. */
+  rephrasing: boolean;
+  /** This classification came from a rephrased search (second attempt). */
+  wasRephrased: boolean;
 };
 
 function isVendorLocationStale(
@@ -71,6 +86,7 @@ const Index = () => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [classifying, setClassifying] = useState(false);
+  const [suggest, setSuggest] = useState<SuggestSheetState | null>(null);
   const [savedNeighbours, setSavedNeighbours] = useState<SavedNeighbourTile[]>([]);
   const [parchiVendor, setParchiVendor] = useState<Vendor | null>(null);
   const [parchiOpen, setParchiOpen] = useState(false);
@@ -85,6 +101,10 @@ const Index = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState(false);
+  const [savedNeighboursError, setSavedNeighboursError] = useState(false);
+  const [activeOrderCountError, setActiveOrderCountError] = useState(false);
+  const [helpBannerError, setHelpBannerError] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pushRegisteredUserRef = useRef<string | null>(null);
   const [userPhone, setUserPhone] = useState(() => getUserPhone());
@@ -94,13 +114,20 @@ const Index = () => {
   const [welcomed, setWelcomed] = useState(() => hasBeenWelcomed());
 
   const loadSavedNeighbours = useCallback(async () => {
+    setSavedNeighboursError(false);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     const { data: saved, error } = await supabase.rpc("get_saved_vendors", {
       p_user_phone: userPhone,
       p_device_id: device_id,
     });
-    if (error || !saved?.length) {
+    if (error) {
+      captureError(error, { homeSurface: "saved_neighbours", operation: "get_saved_vendors" });
+      setSavedNeighboursError(true);
+      setSavedNeighbours([]);
+      return;
+    }
+    if (!saved?.length) {
       setSavedNeighbours([]);
       return;
     }
@@ -117,7 +144,13 @@ const Index = () => {
       .in("id", vendorIds)
       .eq("is_banned", false)
       .eq("discoverable", true);
-    if (vErr || !vendors?.length) {
+    if (vErr) {
+      captureError(vErr, { homeSurface: "saved_neighbours", operation: "load_vendors" });
+      setSavedNeighboursError(true);
+      setSavedNeighbours([]);
+      return;
+    }
+    if (!vendors?.length) {
       setSavedNeighbours([]);
       return;
     }
@@ -192,20 +225,30 @@ const Index = () => {
   useEffect(() => {
     const run = async () => {
       setCategoriesLoading(true);
-      const cats = await fetchCategories();
-      setCategories(cats);
-      const modeLabels = {
-        help: s.category_mode_help,
-        delivery: s.category_mode_delivery,
-        appointment: s.category_mode_appointment,
-      };
-      setCategoryGroups(groupCategoriesByMode(cats, modeLabels));
-      setCategoriesLoading(false);
+      setCategoriesError(false);
+      try {
+        const cats = await fetchCategories();
+        setCategories(cats);
+        const modeLabels = {
+          help: s.category_mode_help,
+          delivery: s.category_mode_delivery,
+          appointment: s.category_mode_appointment,
+        };
+        setCategoryGroups(groupCategoriesByMode(cats, modeLabels));
+      } catch (error) {
+        captureError(error, { homeSurface: "category_grid", operation: "fetch_categories" });
+        setCategories([]);
+        setCategoryGroups([]);
+        setCategoriesError(true);
+      } finally {
+        setCategoriesLoading(false);
+      }
     };
     void run();
   }, [s.category_mode_help, s.category_mode_delivery, s.category_mode_appointment]);
 
   const loadHelpOrderBanner = useCallback(async () => {
+    setHelpBannerError(false);
     const phone = getUserPhone();
     if (!phone) {
       setHelpOrderBanner(null);
@@ -217,6 +260,8 @@ const Index = () => {
       p_user_phone: phone,
     });
     if (error) {
+      captureError(error, { homeSurface: "help_banner", operation: "get_my_help_banner_orders" });
+      setHelpBannerError(true);
       setHelpOrderBanner(null);
       return;
     }
@@ -283,6 +328,7 @@ const Index = () => {
   }, [helpOrderBanner, loadHelpOrderBanner]);
 
   const loadActiveOrderCount = useCallback(async () => {
+    setActiveOrderCountError(false);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     // Same user-role active window as buildRequestsActiveWindowOrFilter("user"),
@@ -292,6 +338,11 @@ const Index = () => {
       p_device_id: device_id,
     });
     if (error) {
+      captureError(error, {
+        homeSurface: "active_orders",
+        operation: "get_my_active_order_count",
+      });
+      setActiveOrderCountError(true);
       setActiveOrderCount(0);
       return;
     }
@@ -388,26 +439,74 @@ const Index = () => {
     return null;
   }
 
-  /** AI classifier for typed / voice free text only (not Quick Assist / picker). */
-  const runFreeTextSearch = async (raw: string) => {
+  /** Graceful degradation shared by AI-search dead ends: browse the full grid. */
+  const fallThroughToCategoryGrid = () => {
+    toast.info(s.search_fallback, { duration: 3000 });
+    document.getElementById("category-grid")?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  /**
+   * AI classifier for typed / voice free text only (not Quick Assist / picker).
+   * Only an exact category-label match navigates directly; every AI guess is
+   * surfaced as ranked candidates the user must confirm in the suggest sheet.
+   */
+  const runFreeTextSearch = async (raw: string, wasRephrased = false) => {
     const term = raw.trim();
     if (!term) return;
     setClassifying(true);
     try {
       const r = await classifySearchTermForRadar(term, categories);
+      if (r.outcome === "exact") {
+        goToRadar(r.query);
+        return;
+      }
       if (r.outcome === "hint") {
         toast.info(r.message);
         return;
       }
       if (r.outcome === "fallback") {
-        toast.info(s.search_fallback, { duration: 3000 });
-        document.getElementById("category-grid")?.scrollIntoView({ behavior: "smooth" });
+        fallThroughToCategoryGrid();
         return;
       }
-      goToRadar(r.query);
+      setSuggest({
+        searchText: term,
+        candidates: r.candidates,
+        tier: 1,
+        rephrasing: false,
+        wasRephrased,
+      });
     } finally {
       setClassifying(false);
     }
+  };
+
+  const handleSuggestPick = (candidate: ClassifySearchCandidate) => {
+    setSuggest(null);
+    goToRadar(candidate.label, candidate.mode);
+  };
+
+  const handleSuggestNone = () => {
+    if (!suggest) return;
+    if (suggest.tier === 1 && suggest.candidates.length > SUGGEST_TIER1_COUNT) {
+      setSuggest({ ...suggest, tier: 2 });
+      return;
+    }
+    // All candidates rejected. First attempt gets a rephrase prompt; a
+    // rephrased attempt falls through to the browse-categories grid.
+    if (suggest.wasRephrased) {
+      setSuggest(null);
+      fallThroughToCategoryGrid();
+      return;
+    }
+    setSuggest({ ...suggest, rephrasing: true });
+  };
+
+  const handleSuggestRephrase = async (text: string) => {
+    const t = text.trim();
+    if (!t) return;
+    setSuggest(null);
+    setQuery(t);
+    await runFreeTextSearch(t, true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -423,7 +522,7 @@ const Index = () => {
   const handleSOS = async () => {
     const term = query.trim();
     if (!term) {
-      goToRadar("");
+      setPickerOpen(true);
       return;
     }
     await runFreeTextSearch(term);
@@ -448,7 +547,7 @@ const Index = () => {
     try {
       const available = await SpeechRecognition.available();
       if (!available.available) {
-        toast.error("Voice not available on this device");
+        toast.error(s.home_voice_unavailable);
         return;
       }
       await SpeechRecognition.requestPermissions();
@@ -502,6 +601,8 @@ const Index = () => {
               <li key={n.id} data-testid="home-saved-vendor-removal-item">
                 {n.reason === "account_deleted"
                   ? s.home_saved_vendor_account_closed(n.shop_name)
+                  : n.reason === "vendor_banned"
+                    ? s.home_saved_vendor_banned(n.shop_name)
                   : s.home_saved_vendor_category_removed(
                       n.shop_name,
                       n.category_label ? getCategoryLabel(n.category_label) : "",
@@ -518,6 +619,16 @@ const Index = () => {
             {s.home_saved_vendor_removed_dismiss}
           </button>
         </div>
+      )}
+
+      {helpBannerError && (
+        <p
+          data-testid="home-help-banner-error"
+          role="status"
+          className="mx-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+        >
+          {s.home_help_banner_load_error}
+        </p>
       )}
 
       {helpOrderBanner &&
@@ -578,7 +689,7 @@ const Index = () => {
               type="button"
               onClick={() => void startVoice()}
               disabled={classifying}
-              aria-label="Voice search"
+              aria-label={s.home_voice_search_aria}
               className={cn(
                 "absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl grid place-items-center transition-colors disabled:opacity-50",
                 listening ? "bg-brand text-page-bg animate-pulse" : "bg-surface border border-surface-border text-muted-foreground",
@@ -600,6 +711,16 @@ const Index = () => {
         <SOSButton onClick={() => void handleSOS()} />
       </div>
 
+      {savedNeighboursError && (
+        <p
+          data-testid="home-saved-neighbours-error"
+          role="status"
+          className="mx-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+        >
+          {s.home_saved_neighbours_load_error}
+        </p>
+      )}
+
       {savedNeighbours.length > 0 && (
         <section className="animate-fade-up">
           <SettingsSectionLabel>{s.myNeighbourhood}</SettingsSectionLabel>
@@ -607,6 +728,7 @@ const Index = () => {
             {savedNeighbours.map(({ savedId, vendor, nickname, category }) => (
               <button
                 key={savedId}
+                data-testid="saved-neighbour-tile"
                 type="button"
                 onClick={async () => {
                   const { data } = await supabase
@@ -644,11 +766,13 @@ const Index = () => {
                     {vendor.is_active === true && (
                       <span
                         className="h-2 w-2 rounded-full bg-brand shrink-0"
-                        aria-label="Online"
+                        aria-label={s.online}
                       />
                     )}
                   </p>
-                  <p className="text-[11px] text-muted-foreground truncate">{category}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {getCategoryLabel(category)}
+                  </p>
                 </div>
               </button>
             ))}
@@ -666,6 +790,15 @@ const Index = () => {
             {s.activeOrders(activeOrderCount)}
           </button>
         </div>
+      )}
+      {activeOrderCountError && (
+        <p
+          data-testid="home-active-orders-error"
+          role="status"
+          className="px-4 text-center text-xs text-destructive"
+        >
+          {s.home_active_orders_load_error}
+        </p>
       )}
 
       <NeighbourSheet
@@ -731,6 +864,14 @@ const Index = () => {
           <div className="flex justify-center py-6">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
+        ) : categoriesError ? (
+          <p
+            data-testid="home-categories-error"
+            role="status"
+            className="mx-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+          >
+            {s.home_categories_load_error}
+          </p>
         ) : (
           <div className="space-y-3">
             {categoryGroups.map((group) => (
@@ -740,6 +881,7 @@ const Index = () => {
                   {group.categories.map((cat) => (
                     <button
                       key={cat.id}
+                      data-testid="home-category-button"
                       onClick={() => goToRadar(cat.label, cat.service_mode)}
                       className="flex-shrink-0 w-20 rounded-2xl bg-surface active:scale-95 transition-all flex flex-col items-center justify-center gap-1.5 border border-surface-border py-3 px-2"
                     >
@@ -766,6 +908,18 @@ const Index = () => {
         }}
         onMic={startVoice}
         categories={categories}
+      />
+
+      <SearchSuggestSheet
+        open={suggest !== null}
+        searchText={suggest?.searchText ?? ""}
+        candidates={suggest?.candidates ?? []}
+        tier={suggest?.tier ?? 1}
+        rephrasing={suggest?.rephrasing ?? false}
+        onPick={handleSuggestPick}
+        onNone={handleSuggestNone}
+        onRephrase={(text) => void handleSuggestRephrase(text)}
+        onClose={() => setSuggest(null)}
       />
       </div>
       {!welcomed && (

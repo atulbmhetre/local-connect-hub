@@ -71,7 +71,7 @@ export const KNOWN_CATEGORIES: Record<string, KnownCategoryDef> = {
   pharmacy: {
     label: "Pharmacy",
     aliases: ["dawai", "dawa", "medicine", "pharmacy", "chemist", "medical", "drug store", "tablet"],
-    service_mode: "help",
+    service_mode: "delivery",
     isEmergency: false,
   },
   nursing: {

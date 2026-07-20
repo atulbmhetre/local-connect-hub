@@ -22,6 +22,15 @@ type DbCategoryRow = {
 
 type ServiceMode = "help" | "delivery" | "appointment";
 
+/** One ranked suggestion in the classify_category response. */
+type ClassifyCandidate = { label: string; emoji: string; mode: ServiceMode };
+
+/**
+ * Upper bound on ranked suggestions returned to the client. Home shows the
+ * first 5 as Tier 1 and the rest (up to this cap) as Tier 2.
+ */
+const MAX_CANDIDATES = 10;
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: CORS_HEADERS });
 }
@@ -71,49 +80,24 @@ async function callGroq(system: string, user: string, temperature = 0.2) {
   return { data, text };
 }
 
-const CATEGORY_META = {
-  Beautician: { mode: "help" as const, emoji: "💄", hindi: "ब्यूटीशियन" },
-};
-
-const classifyFallback = {
-  canonical: "Other",
-  emoji: "✨",
-  hindi: "अन्य",
-  mode: "help" as const,
-};
-
 function normalizeServiceMode(raw: string | null | undefined): ServiceMode {
   const mode = String(raw ?? "").trim().toLowerCase();
   if (mode === "delivery" || mode === "appointment") return mode;
   return "help";
 }
 
+function candidateFromDbRow(row: DbCategoryRow): ClassifyCandidate {
+  return {
+    label: row.label,
+    emoji: row.emoji?.trim() || "✨",
+    mode: normalizeServiceMode(row.service_mode),
+  };
+}
+
 function findDbCategory(dbCategories: DbCategoryRow[], label: string): DbCategoryRow | null {
   const lower = label.trim().toLowerCase();
   if (!lower) return null;
   return dbCategories.find((c) => c.label.trim().toLowerCase() === lower) ?? null;
-}
-
-function resolveCanonicalFromLabels(
-  raw: string,
-  validLabels: Set<string>,
-  dbCategories: DbCategoryRow[],
-): string {
-  let canonical = raw.trim();
-  if (!canonical) return "Other";
-
-  if (!validLabels.has(canonical)) {
-    const matched = dbCategories.find(
-      (c) => c.label.trim().toLowerCase() === canonical.toLowerCase(),
-    );
-    canonical = matched?.label ?? "Other";
-  }
-
-  if (!validLabels.has(canonical)) {
-    canonical = "Other";
-  }
-
-  return canonical;
 }
 
 async function fetchActiveCategories(
@@ -132,11 +116,18 @@ async function fetchActiveCategories(
   return { categories: (data ?? []) as DbCategoryRow[], error: null };
 }
 
+/**
+ * Resilience fallback when Groq is unavailable or returns garbage: ask the
+ * suggest-category classifier for its single best match and surface it as a
+ * one-item candidate list (still user-confirmed on the client, never
+ * auto-navigated).
+ */
 async function invokeSuggestCategory(
   supabaseUrl: string,
   serviceRoleKey: string,
   input: string,
   action: GatewayAction,
+  dbCategories: DbCategoryRow[],
 ) {
   try {
     const resp = await fetch(`${supabaseUrl}/functions/v1/suggest-category`, {
@@ -150,7 +141,7 @@ async function invokeSuggestCategory(
 
     if (!resp.ok) {
       console.error("ai-gateway suggest-category failed", resp.status, await resp.text());
-      return jsonResponse({ action, result: classifyFallback });
+      return jsonResponse({ action, result: { candidates: [] } });
     }
 
     const data = (await resp.json()) as {
@@ -161,34 +152,35 @@ async function invokeSuggestCategory(
     };
 
     if (data.success && typeof data.category_name === "string" && data.category_name.trim()) {
-      return jsonResponse({
-        action,
-        result: {
-          canonical: data.category_name.trim(),
-          mode: normalizeServiceMode(data.service_mode),
-          emoji: data.emoji?.trim() || "✨",
-          hindi: "अन्य",
-        },
-      });
+      const name = data.category_name.trim();
+      const dbRow = findDbCategory(dbCategories, name);
+      if (dbRow) {
+        return jsonResponse({ action, result: { candidates: [candidateFromDbRow(dbRow)] } });
+      }
+      // Category list unavailable — trust the suggestion rather than dead-end.
+      if (dbCategories.length === 0) {
+        return jsonResponse({
+          action,
+          result: {
+            candidates: [
+              {
+                label: name,
+                emoji: data.emoji?.trim() || "✨",
+                mode: normalizeServiceMode(data.service_mode),
+              },
+            ],
+          },
+        });
+      }
+      // Suggestion is a not-yet-active category — nothing searchable on Radar.
+      return jsonResponse({ action, result: { candidates: [] } });
     }
 
-    return jsonResponse({ action, result: classifyFallback });
+    return jsonResponse({ action, result: { candidates: [] } });
   } catch (err) {
     console.error("ai-gateway suggest-category invoke failed", err);
-    return jsonResponse({ action, result: classifyFallback });
+    return jsonResponse({ action, result: { candidates: [] } });
   }
-}
-
-function resultFromDbCategory(
-  dbRow: DbCategoryRow,
-  hindi?: string,
-) {
-  return {
-    canonical: dbRow.label,
-    mode: normalizeServiceMode(dbRow.service_mode),
-    emoji: dbRow.emoji?.trim() || "✨",
-    hindi: hindi?.trim() || "अन्य",
-  };
 }
 
 Deno.serve(async (req) => {
@@ -235,7 +227,8 @@ Deno.serve(async (req) => {
         return jsonResponse({
           action,
           result: {
-            canonical: null,
+            candidates: [],
+            is_government: true,
             message: "Search for Ambulance, Doctor, or Nursing instead",
           },
         });
@@ -244,63 +237,56 @@ Deno.serve(async (req) => {
       if (
         /\b(fire station|fire brigade|agni\s*shaman|agnishaman)\b/i.test(input)
       ) {
+        const fireRow = findDbCategory(dbCategories, "Fire Brigade");
         return jsonResponse({
           action,
           result: {
-            canonical: "Fire Brigade",
-            is_government: true,
-            mode: "help",
-            emoji: "🔥",
-            hindi: "फायर ब्रिगेड",
-          },
-        });
-      }
-
-      // Wellness / beauty — conservative alias map (same as client KNOWN_CATEGORIES)
-      const beauticianWellness =
-        /\b(therapist|therapy|massage|spa|salon|parlou?r|beauty\s*parlou?r|beautician|mehendi|makeup\s*artist|nail\s*art|facial|waxing)\b/i;
-      if (beauticianWellness.test(input)) {
-        const meta = CATEGORY_META.Beautician;
-        return jsonResponse({
-          action,
-          result: {
-            canonical: "Beautician",
-            mode: meta.mode,
-            emoji: meta.emoji,
-            hindi: meta.hindi,
+            candidates: [
+              fireRow
+                ? candidateFromDbRow(fireRow)
+                : { label: "Fire Brigade", emoji: "🔥", mode: "help" as ServiceMode },
+            ],
           },
         });
       }
 
       if (catError || dbCategories.length === 0) {
         if (!supabaseUrl || !serviceRoleKey) {
-          return jsonResponse({ action, result: classifyFallback });
+          return jsonResponse({ action, result: { candidates: [] } });
         }
-        return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
+        return await invokeSuggestCategory(
+          supabaseUrl,
+          serviceRoleKey,
+          input,
+          action,
+          dbCategories,
+        );
       }
 
-      const validLabels = new Set(dbCategories.map((c) => c.label));
-      const categoryList = dbCategories.map((c) => c.label).join(", ");
+      const categoryLines = dbCategories
+        .map((c) => `${c.label} (${normalizeServiceMode(c.service_mode)})`)
+        .join("\n");
       const escapedInput = input.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-      const system = `You are a strict category classifier for a hyperlocal service app in India called Aaspaas.
+      const system = `You are a category-suggestion assistant for Aaspaas, a hyperlocal service app in India.
 
-User input: "${escapedInput}"
+A customer typed this free-text search (English, Hindi, Marathi, or a full sentence):
+"${escapedInput}"
 
-You must classify this into ONE of these exact canonical categories:
-${categoryList}
+Active service categories (label (mode)):
+${categoryLines}
+
+Rank the categories that could plausibly help with the customer's need, most relevant first.
 
 Rules:
-1. Return ONLY valid JSON, no other text
-2. If input matches a category above → return that exact label
-3. If input is a government service (fire brigade, police, hospital) → return is_government: true with a helpful message
-4. If input is completely unrelated to local services → return canonical: "Other"
-5. NEVER invent category names not in the list above
+1. Return ONLY valid JSON, no other text.
+2. "candidates" is an ordered array of category labels copied EXACTLY from the list above — most relevant first, at most ${MAX_CANDIDATES}. Include a category only if it could plausibly serve the need; omit clearly irrelevant ones. It is fine to return fewer, or an empty array if nothing fits.
+3. If the input asks for a government or emergency service (police, fire, hospital), set "is_government": true and write one short helpful "message"; "candidates" may be empty.
+4. NEVER invent labels that are not in the list.
+5. Therapist and Beautician are permanently distinct categories, and BOTH plausibly serve wellness / body-care needs (massage, spa, therapy, physiotherapy, relaxation, salon-style body treatments). For any such wellness-adjacent query, include BOTH "Therapist" and "Beautician" as candidates when they appear in the list above — never pick just one; the customer chooses.
 
 Response format:
 {
-  "canonical": "exact category name from list above OR null if government",
-  "emoji": "single emoji",
-  "hindi": "Hindi name",
+  "candidates": ["<label>", "<label>"],
   "is_government": false,
   "message": "only if is_government is true"
 }`;
@@ -308,99 +294,63 @@ Response format:
       try {
         const { text } = await callGroq(system, input, 0.08);
         const parsed = extractJson<{
-          canonical?: string | null;
-          emoji?: string;
-          hindi?: string;
+          candidates?: unknown;
           is_government?: boolean;
           message?: string;
         }>(text);
 
         if (!parsed || typeof parsed !== "object") {
-          if (!supabaseUrl || !serviceRoleKey) {
-            return jsonResponse({ action, result: classifyFallback });
-          }
-          return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
-        }
-
-        const result = { ...parsed };
-
-        if (result.is_government === true) {
-          const message =
-            typeof result.message === "string" && result.message.trim()
-              ? result.message.trim()
-              : "This is a government or emergency service — use official helplines.";
-          return jsonResponse({
+          return await invokeSuggestCategory(
+            supabaseUrl!,
+            serviceRoleKey!,
+            input,
             action,
-            result: {
-              canonical: null,
-              is_government: true,
-              message,
-            },
-          });
-        }
-
-        if (result.canonical === null) {
-          return jsonResponse(
-            {
-              action,
-              result: { canonical: null },
-              raw: text,
-            },
-            200,
+            dbCategories,
           );
         }
 
-        if (typeof result.canonical !== "string" || !result.canonical.trim()) {
-          if (!supabaseUrl || !serviceRoleKey) {
-            return jsonResponse({ action, result: classifyFallback });
-          }
-          return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
+        if (parsed.is_government === true) {
+          const message =
+            typeof parsed.message === "string" && parsed.message.trim()
+              ? parsed.message.trim()
+              : "This is a government or emergency service — use official helplines.";
+          return jsonResponse({
+            action,
+            result: { candidates: [], is_government: true, message },
+          });
         }
 
-        const canonical = resolveCanonicalFromLabels(
-          result.canonical,
-          validLabels,
+        const seen = new Set<string>();
+        const candidates: ClassifyCandidate[] = [];
+        const rawList = Array.isArray(parsed.candidates) ? parsed.candidates : [];
+        for (const raw of rawList) {
+          if (typeof raw !== "string") continue;
+          const dbRow = findDbCategory(dbCategories, raw);
+          if (!dbRow || seen.has(dbRow.id)) continue;
+          seen.add(dbRow.id);
+          candidates.push(candidateFromDbRow(dbRow));
+          if (candidates.length >= MAX_CANDIDATES) break;
+        }
+
+        if (candidates.length > 0) {
+          return jsonResponse({ action, result: { candidates } });
+        }
+
+        return await invokeSuggestCategory(
+          supabaseUrl!,
+          serviceRoleKey!,
+          input,
+          action,
           dbCategories,
         );
-
-        if (canonical === "Other") {
-          return jsonResponse({
-            action,
-            result: {
-              canonical: "Other",
-              emoji:
-                typeof result.emoji === "string" && result.emoji.trim()
-                  ? result.emoji.trim()
-                  : classifyFallback.emoji,
-              hindi:
-                typeof result.hindi === "string" && result.hindi.trim()
-                  ? result.hindi.trim()
-                  : classifyFallback.hindi,
-              mode: classifyFallback.mode,
-            },
-          });
-        }
-
-        const dbRow = findDbCategory(dbCategories, canonical);
-        if (dbRow) {
-          return jsonResponse({
-            action,
-            result: resultFromDbCategory(
-              dbRow,
-              typeof result.hindi === "string" ? result.hindi : undefined,
-            ),
-          });
-        }
-
-        if (!supabaseUrl || !serviceRoleKey) {
-          return jsonResponse({ action, result: classifyFallback });
-        }
-        return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
       } catch {
-        if (!supabaseUrl || !serviceRoleKey) {
-          return jsonResponse({ action, result: classifyFallback });
-        }
-        return await invokeSuggestCategory(supabaseUrl, serviceRoleKey, input, action);
+        return await invokeSuggestCategory(
+          supabaseUrl!,
+          serviceRoleKey!,
+          input,
+          action,
+          dbCategories,
+        );
       }
     }
 

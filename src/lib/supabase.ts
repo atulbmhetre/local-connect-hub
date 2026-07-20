@@ -428,159 +428,60 @@ export const SHOP_PHOTOS_BUCKET = "shop-photos";
 export const VENDOR_SELFIES_BUCKET = "vendor-selfies";
 export const GPS_MATCH_TOLERANCE_M = 75;
 
-type CategoryMode = "help" | "delivery";
-export type CategoryClassification = {
-  /** Null when the classifier returns a hint instead of a vendor category (e.g. hospital). */
-  canonical: string | null;
-  mode: CategoryMode;
+import { resolveCategoryFromDB } from "@/lib/categories";
+
+/** One ranked category suggestion from the classify_category gateway action. */
+export type ClassifySearchCandidate = {
+  label: string;
   emoji: string;
-  hindi: string;
-  message?: string;
-  is_government?: boolean;
+  mode: "help" | "delivery" | "appointment";
 };
 
-import { resolveCanonicalTerm, resolveCategoryFromDB } from "@/lib/categories";
-
-const HINDI_BY_CANONICAL: Record<string, string> = {
-  Beautician: "ब्यूटीशियन",
-  "Grocery Store": "किराना स्टोर",
-  Mechanic: "मैकेनिक",
-  Towing: "टोइंग",
-  "Tyre Service": "टायर सर्विस",
-  "Key Maker": "चाबी बनाने वाला",
-  Ambulance: "एंबुलेंस",
-  Pharmacy: "फार्मेसी",
-  Nursing: "नर्सिंग",
-  Plumber: "प्लम्बर",
-  Electrician: "इलेक्ट्रीशियन",
-  Security: "सिक्योरिटी",
-  "Fire Brigade": "फायर ब्रिगेड",
-  Other: "अन्य",
-};
-
-function emojiForCanonical(_canonical: string) {
-  return "✨";
-}
-
-async function serviceModeForCanonical(canonical: string): Promise<CategoryMode> {
-  const { data: catData } = await supabase
-    .from("categories")
-    .select("service_mode")
-    .ilike("label", canonical)
-    .eq("is_active", true)
-    .single();
-
-  const mode = catData?.service_mode;
-  if (mode === "delivery" || mode === "help" || mode === "appointment") {
-    return mode;
-  }
-  return "help";
-}
-
-/** Resolved canonical label → full classification (vendor picker + edge fallback). */
-async function classificationFromCanonical(
-  canonical: string,
-): Promise<CategoryClassification> {
-  const mode = await serviceModeForCanonical(canonical);
-  return {
-    canonical,
-    mode,
-    emoji: emojiForCanonical(canonical),
-    hindi: HINDI_BY_CANONICAL[canonical] ?? "अन्य",
-  };
-}
-
-async function defaultClassification(
-  rawInput: string,
-): Promise<CategoryClassification> {
-  const resolved = resolveCanonicalTerm(rawInput);
-  if (resolved) return classificationFromCanonical(resolved);
-
-  return classificationFromCanonical("Other");
-}
-
-export async function classifyCategory(rawInput: string): Promise<CategoryClassification> {
-  const input = rawInput.trim();
-  if (!input) return defaultClassification(rawInput);
-
-  const localMatch = resolveCanonicalTerm(rawInput);
-  if (localMatch) return classificationFromCanonical(localMatch);
-
-  try {
-    const resp = await fetch(AI_GATEWAY_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        action: "classify_category",
-        term: input,
-        input,
-      }),
-    });
-
-    if (!resp.ok) return defaultClassification(rawInput);
-    const data = (await resp.json()) as {
-      result?: {
-        canonical?: string | null;
-        message?: string;
-        emoji?: string;
-        hindi?: string;
-        mode?: string;
-        is_government?: boolean;
-      };
-    };
-    const result = data?.result;
-    if (!result) return defaultClassification(rawInput);
-
-    if (result.canonical === null && typeof result.message === "string" && result.message.trim()) {
-      return {
-        canonical: null,
-        mode: "help",
-        emoji: "ℹ️",
-        hindi: "",
-        message: result.message.trim(),
-      };
-    }
-
-    if (typeof result.canonical !== "string" || !result.canonical.trim()) {
-      return defaultClassification(rawInput);
-    }
-
-    const canonical = result.canonical.trim();
-    const mode = await serviceModeForCanonical(canonical);
-
-    return {
-      canonical,
-      mode,
-      emoji: typeof result.emoji === "string" && result.emoji.trim() ? result.emoji.trim() : "✨",
-      hindi: typeof result.hindi === "string" && result.hindi.trim() ? result.hindi.trim() : "अन्य",
-      is_government: result.is_government === true,
-    };
-  } catch {
-    return defaultClassification(rawInput);
-  }
-}
-
-/** Home search bar: classify free text with 5s timeout; fallback = original term. */
+/**
+ * Home search bar contract (5s timeout on the AI call):
+ * - "exact": the input IS an active category label — not a guess, go to Radar.
+ * - "hint": fixed informational response (government/emergency service).
+ * - "candidates": ranked suggestions the user must confirm in the tier sheet.
+ * - "fallback": nothing usable — Home falls through to the category grid.
+ * There is intentionally no auto-accepted single guess and no "Other" term.
+ */
 export type ClassifySearchForRadarResult =
-  | { outcome: "canonical"; query: string }
+  | { outcome: "exact"; query: string }
   | { outcome: "hint"; message: string }
-  | { outcome: "fallback"; query: string };
+  | { outcome: "candidates"; candidates: ClassifySearchCandidate[] }
+  | { outcome: "fallback" };
+
+function parseClassifyCandidates(raw: unknown): ClassifySearchCandidate[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const candidates: ClassifySearchCandidate[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const label = typeof rec.label === "string" ? rec.label.trim() : "";
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push({
+      label,
+      emoji: typeof rec.emoji === "string" && rec.emoji.trim() ? rec.emoji.trim() : "✨",
+      mode:
+        rec.mode === "delivery" || rec.mode === "appointment" ? rec.mode : "help",
+    });
+  }
+  return candidates;
+}
 
 export async function classifySearchTermForRadar(
   rawInput: string,
   dbCategories: Category[],
 ): Promise<ClassifySearchForRadarResult> {
   const term = rawInput.trim();
-  if (!term) return { outcome: "fallback", query: "" };
+  if (!term) return { outcome: "fallback" };
 
   const localCanon = await resolveCategoryFromDB(rawInput, dbCategories);
-  if (localCanon) {
-    await serviceModeForCanonical(localCanon);
-    return { outcome: "canonical", query: localCanon };
-  }
+  if (localCanon) return { outcome: "exact", query: localCanon };
 
   try {
     const ctrl = new AbortController();
@@ -599,32 +500,28 @@ export async function classifySearchTermForRadar(
     });
     clearTimeout(timer);
 
-    if (!resp.ok) return { outcome: "fallback", query: term };
+    if (!resp.ok) return { outcome: "fallback" };
 
     const data: unknown = await resp.json();
     const result =
       data && typeof data === "object" && "result" in data
         ? (data as { result: Record<string, unknown> }).result
         : null;
-    if (!result) return { outcome: "fallback", query: term };
+    if (!result) return { outcome: "fallback" };
 
     if (
-      result.canonical === null &&
+      result.is_government === true &&
       typeof result.message === "string" &&
       result.message.trim()
     ) {
       return { outcome: "hint", message: result.message.trim() };
     }
 
-    if (typeof result.canonical === "string" && result.canonical.trim()) {
-      const canonical = result.canonical.trim();
-      await serviceModeForCanonical(canonical);
-      return { outcome: "canonical", query: canonical };
-    }
-
-    return { outcome: "fallback", query: term };
+    const candidates = parseClassifyCandidates(result.candidates);
+    if (candidates.length === 0) return { outcome: "fallback" };
+    return { outcome: "candidates", candidates };
   } catch {
-    return { outcome: "fallback", query: term };
+    return { outcome: "fallback" };
   }
 }
 
@@ -843,18 +740,19 @@ export async function fetchActiveVendorCategoryLabels(): Promise<Set<string>> {
 }
 
 export async function fetchCategories(): Promise<Category[]> {
-  const [catResult, activeVendorCategories] = await Promise.all([
-    supabase
-      .from("categories")
-      .select("*")
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true }),
-    fetchActiveVendorCategoryLabels(),
-  ]);
+  const { data, error } = await supabase
+    .from("categories")
+    .select("*")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
 
-  if (catResult.error || !catResult.data) return [];
+  if (error) throw error;
 
-  return (catResult.data as Category[]).filter((c) => activeVendorCategories.has(c.label));
+  // Home must show the full active catalog. The old three-query vendor filter
+  // only answered "does an active vendor exist anywhere?", not whether one is
+  // reachable for this customer. Radar is the correct gatekeeper: it enforces
+  // distance <= min(customer search bracket, each vendor's service_radius_km).
+  return (data ?? []) as Category[];
 }
 
 export function groupCategoriesByMode(

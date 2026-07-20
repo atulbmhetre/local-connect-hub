@@ -153,7 +153,9 @@ export function NeighbourSheet({
                   </p>
                 </div>
               </div>
-              <SheetDescription className="sr-only">Choose how to contact this saved vendor</SheetDescription>
+              <SheetDescription className="sr-only">
+                {s.home_saved_vendor_sheet_description}
+              </SheetDescription>
             </SheetHeader>
 
             <div className="mt-6 flex flex-col gap-2">

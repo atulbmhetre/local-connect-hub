@@ -184,7 +184,68 @@ test('SVR-02 — vendor anonymization deletes all saved_vendors and creates acco
   expect(anonymised?.shop_name).toBe('Deleted Shop');
 });
 
-test('SVR-03 — Home shows removal flash once as a list; dismiss marks shown', async ({ page }) => {
+test('SVR-03 — banning a vendor deletes saved_vendors and creates vendor_banned notice', async () => {
+  const plumber = await getActiveCategoryByLabel('Plumber');
+  const vendorPhone = nextPhone('99024');
+  const customerPhone = nextPhone('88025');
+  const shopName = `!SVR-BAN-${T}`;
+
+  const { data: vendor, error } = await supabaseAdmin
+    .from('vendors')
+    .insert({
+      name: 'SVR Ban Owner',
+      shop_name: shopName,
+      phone: vendorPhone,
+      category: plumber.label,
+      service_mode: plumber.service_mode,
+      latitude: 18.5204,
+      longitude: 73.8567,
+      is_active: true,
+      profile_status: 'complete',
+      service_radius_km: 9999,
+    })
+    .select('id')
+    .single();
+  if (error) throw error;
+  createdVendorIds.push(vendor.id);
+  await seedVendorCategory(vendor.id, plumber);
+
+  await supabaseAdmin.from('users').upsert(
+    { phone: customerPhone, trust_score: 75 },
+    { onConflict: 'phone' },
+  );
+  await supabaseAdmin.from('saved_vendors').insert({
+    user_phone: customerPhone,
+    device_id: `${DEVICE_ID}_ban`,
+    vendor_id: vendor.id,
+    category: plumber.label,
+    nickname: shopName,
+  });
+
+  const { error: banError } = await supabaseAdmin
+    .from('vendors')
+    .update({ is_banned: true, ban_reason: 'Test moderation' })
+    .eq('id', vendor.id);
+  expect(banError, banError?.message).toBeNull();
+
+  const { data: saves } = await supabaseAdmin
+    .from('saved_vendors')
+    .select('id')
+    .eq('vendor_id', vendor.id);
+  expect(saves).toEqual([]);
+
+  const { data: notices } = await supabaseAdmin
+    .from('saved_vendor_removal_notices')
+    .select('shop_name, category_label, reason, shown_at')
+    .eq('user_phone', customerPhone)
+    .eq('reason', 'vendor_banned');
+  expect(notices?.length).toBe(1);
+  expect(notices![0].shop_name).toBe(shopName);
+  expect(notices![0].category_label).toBe(plumber.label);
+  expect(notices![0].shown_at).toBeNull();
+});
+
+test('SVR-04 — Home shows removal flash once as a list; dismiss marks shown', async ({ page }) => {
   const customerPhone = nextPhone('88024');
   await supabaseAdmin.from('users').upsert({ phone: customerPhone, trust_score: 75 }, { onConflict: 'phone' });
 

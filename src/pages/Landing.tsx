@@ -17,7 +17,7 @@ const Landing = () => {
       }
     }
     await navigator.clipboard.writeText(url);
-    toast.success("Link copied!");
+    toast.success(s.vendor_referLinkCopied);
   };
 
   const valueProps = [

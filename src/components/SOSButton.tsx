@@ -7,7 +7,8 @@ export const SOSButton = ({ onClick }: { onClick: () => void }) => {
   return (
   <button
     onClick={onClick}
-    aria-label="Emergency SOS"
+    aria-label={s.home_sos_aria}
+    data-testid="home-sos-button"
     className="sos-pulse relative h-44 w-44 rounded-full bg-gradient-sos shadow-sos active:scale-95 transition-transform grid place-items-center"
   >
     <div className="flex flex-col items-center gap-1 text-primary-foreground">

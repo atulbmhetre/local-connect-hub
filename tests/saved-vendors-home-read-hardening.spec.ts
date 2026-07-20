@@ -14,7 +14,15 @@ const T = Date.now();
 const createdVendorIds: string[] = [];
 const createdPhones: string[] = [];
 const rlIdentifiers: string[] = [];
-const RL_ACTIONS = ['save_saved_vendor', 'unsave_saved_vendor', 'migrate_saved_vendors_phone'];
+const RL_ACTIONS = [
+  'save_saved_vendor',
+  'unsave_saved_vendor',
+  'migrate_saved_vendors_phone',
+  'get_saved_vendors', // legacy read bucket key (pre-120/60s split)
+  'get_saved_vendors_read',
+  'get_saved_vendor_removal_notices',
+  'mark_saved_vendor_removal_notices_shown',
+];
 
 function nextPhone(prefix: string): string {
   const phone = `${prefix}${String(T + createdPhones.length + 1).slice(-5)}`;
@@ -91,19 +99,22 @@ test('HR-01 — get_saved_vendors returns only the caller\'s rows for a no-sessi
     p_device_id: `devA_${T}`,
   });
   expect(error, error?.message).toBeNull();
-  const rows = (data ?? []) as Array<{ user_phone: string; vendor_id: string }>;
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
   expect(rows.length).toBe(1);
-  expect(rows.every((r) => r.user_phone === phoneA)).toBe(true);
-  expect(rows.some((r) => r.user_phone === phoneB)).toBe(false);
+  expect(Object.keys(rows[0]).sort()).toEqual(['category', 'id', 'nickname', 'vendor_id']);
+  expect(rows[0]).not.toHaveProperty('device_id');
+  expect(rows[0]).not.toHaveProperty('user_phone');
+  expect(rows[0].vendor_id).toBe(vendorId);
 
   // A different caller only sees their own row, never A's.
   const { data: dataB } = await supabase.rpc('get_saved_vendors', {
     p_user_phone: phoneB,
     p_device_id: `devB_${T}`,
   });
-  const rowsB = (dataB ?? []) as Array<{ user_phone: string }>;
+  const rowsB = (dataB ?? []) as Array<Record<string, unknown>>;
   expect(rowsB.length).toBe(1);
-  expect(rowsB.every((r) => r.user_phone === phoneB)).toBe(true);
+  expect(rowsB[0]).not.toHaveProperty('device_id');
+  expect(rowsB[0]).not.toHaveProperty('user_phone');
 });
 
 test('HR-02 — removal notices are not readable via direct anon table access, but are readable via the scoped RPC', async () => {
@@ -241,4 +252,71 @@ test('HR-04 — save/unsave/migrate saved-vendor RPCs are rate limited (30 / 60s
   }
   expect(migErrors.slice(0, 30).every((e) => e === null)).toBe(true);
   expect(migErrors[30]).toContain('rate_limited');
+});
+
+test('HR-05 — removal-notice read/mark RPCs are rate limited (30 / 60s)', async () => {
+  const noticePhone = nextPhone('88079');
+  const markPhone = nextPhone('88080');
+  rlIdentifiers.push(noticePhone, markPhone);
+
+  const noticeReadErrors: (string | null)[] = [];
+  for (let i = 0; i < 31; i++) {
+    const { error } = await supabase.rpc('get_saved_vendor_removal_notices', {
+      p_user_phone: noticePhone,
+    });
+    noticeReadErrors.push(error?.message ?? null);
+  }
+  expect(noticeReadErrors.slice(0, 30).every((e) => e === null)).toBe(true);
+  expect(noticeReadErrors[30]).toContain('rate_limited');
+
+  const noticeMarkErrors: (string | null)[] = [];
+  for (let i = 0; i < 31; i++) {
+    const { error } = await supabase.rpc('mark_saved_vendor_removal_notices_shown', {
+      p_user_phone: markPhone,
+      p_notice_ids: null,
+    });
+    noticeMarkErrors.push(error?.message ?? null);
+  }
+  expect(noticeMarkErrors.slice(0, 30).every((e) => e === null)).toBe(true);
+  expect(noticeMarkErrors[30]).toContain('rate_limited');
+});
+
+test('HR-06 — get_saved_vendors read limit (120 / 60s) survives Radar\'s dense per-card fan-out but still trips beyond it', async () => {
+  // 121 real RPC round-trips take longer than the default 45s test budget.
+  test.setTimeout(120_000);
+
+  const readPhone = nextPhone('88081');
+  rlIdentifiers.push(readPhone);
+  const rpcCall = () =>
+    supabase.rpc('get_saved_vendors', {
+      p_user_phone: readPhone,
+      p_device_id: `dev_radar_${T}`,
+    });
+
+  // Radar's realistic worst case: one search-load read (RadarSearch.tsx) plus a
+  // per-card saved-state refresh (RadarVendorCard.tsx) across a dense results
+  // list, repeated over a couple of refresh passes — calls fan out in parallel.
+  // Simulate 1 + 3 passes × 20 cards = 61 calls in a tight window.
+  const radarErrors: (string | null)[] = [];
+  const first = await rpcCall();
+  radarErrors.push(first.error?.message ?? null);
+  for (let pass = 0; pass < 3; pass++) {
+    const results = await Promise.all(Array.from({ length: 20 }, () => rpcCall()));
+    for (const r of results) radarErrors.push(r.error?.message ?? null);
+  }
+  expect(radarErrors.length).toBe(61);
+  expect(radarErrors.every((e) => e === null)).toBe(true);
+
+  // Exhaust the remainder of the 120-call budget (sequential, so the bucket
+  // count is fully settled before the over-limit assertion).
+  const fillErrors: (string | null)[] = [];
+  for (let i = 0; i < 59; i++) {
+    const { error } = await rpcCall();
+    fillErrors.push(error?.message ?? null);
+  }
+  expect(fillErrors.every((e) => e === null)).toBe(true);
+
+  // Call 121 within the same 60s window must be rejected.
+  const { error: overLimit } = await rpcCall();
+  expect(overLimit?.message ?? '').toContain('rate_limited');
 });

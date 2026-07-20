@@ -203,4 +203,30 @@ describe("localization copy", () => {
     expect(rendered).toContain("5");
     expect(rendered).not.toContain("{hours}");
   });
+
+  it.each(["hi", "mr"] as const)("Home discovery entry copy is localized (%s)", (lang) => {
+    const keys = [
+      "home_voice_unavailable",
+      "home_voice_search_aria",
+      "home_sos_aria",
+      "home_saved_vendor_sheet_description",
+      "home_saved_neighbours_load_error",
+      "home_categories_load_error",
+      "home_active_orders_load_error",
+      "home_help_banner_load_error",
+      "online",
+      "vendor_referLinkCopied",
+      "home_suggest_title",
+      "home_suggest_you_searched",
+      "home_suggest_none",
+      "home_suggest_rephrase_prompt",
+      "home_suggest_rephrase_placeholder",
+      "home_suggest_rephrase_submit",
+    ] as const;
+
+    for (const key of keys) {
+      expect(strings[lang][key]).toBeTruthy();
+      expect(strings[lang][key]).not.toBe(strings.en[key]);
+    }
+  });
 });
