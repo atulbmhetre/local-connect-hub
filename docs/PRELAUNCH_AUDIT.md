@@ -29,7 +29,7 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **19 of ~52 functionality-inventory entries fully closed.** Vendor Profile & Lifecycle is CLOSED, with two explicitly deferred integrations blocked on dormant subscriptions and Exotel KYC. The `~52` figure is the curated functionality inventory; the document currently contains 66 raw `###` headings, which include sub-sections and are not a one-to-one inventory count. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
+| Phase 2 progress | **20 of ~52 functionality-inventory entries fully closed.** Home & Discovery Entry is CLOSED. The `~52` figure is the curated functionality inventory; the document currently contains 66 raw `###` headings, which include sub-sections and are not a one-to-one inventory count. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
 | Next planned Phase 2 target | TBD |
 
 ## Lessons for future audit passes
@@ -394,3 +394,36 @@ GP-07 was updated to accept the stronger permission-denied rejection introduced 
 |------|-------|
 | Radar client-side subscription filter | Deferred because subscriptions are dormant and not yet launched; there is no active subscription lifecycle to integrate with. |
 | Phone-only vendor identity as a credential | Systemic OTP-off architecture remains blocked on Exotel KYC; this is not specific to Vendor Profile & Lifecycle. |
+
+## Home & Discovery Entry — CLOSED (TEST + PROD)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD) |
+| Scope | `Index.tsx` (Home), `Landing.tsx`, `CategoryPicker.tsx`, `SOSButton.tsx` |
+| Review | Home discovery entry paths were reviewed across client behavior, AI-gateway classification, saved-neighbour RPC hardening, localization, failure handling, and genuine OTP-off browser coverage |
+
+### Headline finding
+
+Home's free-text AI search used a single-guess classifier that could silently auto-route a distressed or off-topic query to a wrong-but-plausible Help category with no confirmation — a real risk on this Help-mode / emergency-adjacent surface. Replaced with a tiered confirmation flow: `ai-gateway` `classify_category` returns a ranked candidate list; Home shows Tier 1 (top 5) → Tier 2 (up to 10) → rephrase → browse-categories fallback. Original search text is preserved throughout (no more discarding it for a literal `Other` placeholder). Exact category-label matches and the government-service hint path are unchanged.
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| Empty SOS tap | SOS with no text now opens the Category Picker sheet (same as empty search), instead of navigating straight to Radar. SOS with text still uses the classify path. |
+| Category-existence filter removed | Home's vendor-existence category filter checked whether any vendor was active for a category anywhere, not whether one was reachable near the customer — it never prevented a wasted tap. Radar's real per-vendor radius matching (`distance <= min(customer bracket, vendor's own configured service_radius_km)`) is the true gatekeeper and runs regardless. Home, Picker, and Radar's fallback grid now show the same active-category catalog. Cuts Home's cold-load category queries from 4 to 1. |
+| Therapist vs Beautician | Confirmed product decision: permanently distinct categories; vendor/customer choice decides. Added classify-prompt guidance so ambiguous wellness queries (massage / spa / therapy) surface both as candidates instead of the model picking one. Verified live on TEST and PROD against the ranked Groq path. |
+| Taxonomy mismatches | Fixed two real drifts: Pharmacy `service_mode` in static `categories.ts`, Beautician mode in AI-gateway metadata. Flagged, not fixed: Therapist/Beautician alias overlap in static aliases — needs a separate architecture decision; out of scope for this pass and explicitly flagged rather than silently dropped. |
+| `get_saved_vendors` rate-limit split | Added a distinct `get_saved_vendors_read` bucket at 120/60s so Radar's legitimate dense per-card saved-state refresh does not trip the limiter; mutation RPCs (save/unsave/migrate) and notice read/mark RPCs keep 30/60s. Narrowed return columns (dropped `device_id` from the response). |
+| Ban-time notice parity | Banned saved vendors now purge and queue a `vendor_banned` removal notice, matching the existing delete / category-drop pattern. Trigger `vendors_saved_vendor_notice_on_ban` confirmed live on PROD via `pg_trigger`. |
+| Load failures vs empty state | Home's saved-neighbourhood and category grid (plus active-orders / help-banner paths) now surface distinct load-failure UI instead of silent empty state, and wire `sentry.ts`'s previously unused `captureError` for the first time in the app. |
+| Localization | Localized hardcoded English on Landing ("Link copied!"), voice search, SOS aria-label, saved-tile Online aria-label, NeighbourSheet sr-only description, and saved-tile category subtitles (via `getCategoryLabel`); added suggest-sheet copy in EN/HI/MR. |
+| Test coverage | Landing, CategoryPicker, Home SOS click, Home search/grid, genuine OTP-off Home render (previous helper always minted a real Auth session), tiered suggest-sheet Vitest suite, ACW-01 wellness dual-candidate live assert, and SVR / HR hardening coverage including ban-notice and the 120/60s read bucket. |
+| Mid-session `GROQ_API_KEY` incident (TEST) | TEST had been missing / incorrectly storing `GROQ_API_KEY`, silently degrading every classify smoke to the Claude single-guess `suggest-category` fallback. Key corrected on TEST; all wellness and path-confirmation probes re-run against the real ranked Groq path afterward. Same incident also unblocked `parse-voice-bill` on TEST. PROD key was already present (set 2026-05-03) and verified live post-deploy. |
+| Migrations | `20260719200001`, `20260719210001` |
+| Edge function | `ai-gateway` redeployed to TEST and PROD; PROD version 28 verified live (ranked-candidates contract + wellness rule confirmed via download and live smoke). |
+
+### Standing item (not this pass)
+
+31 pre-existing Playwright failures on the shared TEST baseline (order-lifecycle, expiry-cron, notification-copy domains) were investigated via real A/B against a clean stash — identical failures on baseline and with these changes. Confirmed unrelated to this pass, not resolved here, and flagged for future triage.
