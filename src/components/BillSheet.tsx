@@ -25,6 +25,8 @@ import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import { getVoiceLang } from "@/lib/voiceUtils";
+import { billUnitOptions } from "@/lib/billUnits";
+import { captureError } from "@/lib/sentry";
 import { messageForKhataChargeError } from "@/lib/khataBillErrors";
 
 type Props = {
@@ -67,6 +69,7 @@ export function BillSheet({
   khataRedLimit,
 }: Props) {
   const { s } = useLanguage();
+  const unitOptions = useMemo(() => billUnitOptions(s), [s]);
   const [items, setItems] = useState<BillItem[]>([newBillItem()]);
   const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "khata">("cash");
   const [sending, setSending] = useState(false);
@@ -77,6 +80,7 @@ export function BillSheet({
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [currentOutstanding, setCurrentOutstanding] = useState<number | null>(null);
   const [loadingOutstanding, setLoadingOutstanding] = useState(false);
+  const [outstandingError, setOutstandingError] = useState(false);
   const validItems = useMemo(
     () => items.filter((i) => i.description.trim() && i.unit_price > 0),
     [items],
@@ -105,13 +109,16 @@ export function BillSheet({
     projectedOutstanding >= khataAmberLimit;
 
   const fetchKhataOutstanding = useCallback(async () => {
+    setOutstandingError(false);
     if (!userPhone || khataAmberLimit <= 0) {
       setCurrentOutstanding(null);
       return;
     }
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
-      setCurrentOutstanding(0);
+      // Unknown, not zero — a false ₹0 would suppress the limit warnings.
+      setCurrentOutstanding(null);
+      setOutstandingError(true);
       return;
     }
     setLoadingOutstanding(true);
@@ -122,12 +129,18 @@ export function BillSheet({
     });
     setLoadingOutstanding(false);
     if (error) {
-      setCurrentOutstanding(0);
+      captureError(error, {
+        scope: "billSheet.fetchKhataOutstanding",
+        vendorId,
+        requestId,
+      });
+      setCurrentOutstanding(null);
+      setOutstandingError(true);
       return;
     }
     const row = Array.isArray(data) ? data[0] : null;
     setCurrentOutstanding(Number(row?.total_outstanding) || 0);
-  }, [vendorId, userPhone, khataAmberLimit]);
+  }, [vendorId, userPhone, khataAmberLimit, requestId]);
 
   const selectPaymentMode = (mode: "cash" | "upi" | "khata") => {
     setPaymentMode(mode);
@@ -135,6 +148,7 @@ export function BillSheet({
       void fetchKhataOutstanding();
     } else {
       setCurrentOutstanding(null);
+      setOutstandingError(false);
     }
   };
 
@@ -161,6 +175,7 @@ export function BillSheet({
         setIsProcessingImage(false);
         setCurrentOutstanding(null);
         setLoadingOutstanding(false);
+        setOutstandingError(false);
         onClose();
       }
     },
@@ -304,14 +319,24 @@ export function BillSheet({
     }
   };
 
-  const voidExistingUnpaidBills = async () => {
+  /** Returns true only when the earlier unpaid bills were actually voided. */
+  const voidExistingUnpaidBills = async (): Promise<boolean> => {
     const vendorPhone = getUserPhone()?.trim();
-    if (!vendorPhone) return;
-    await supabase.rpc("vendor_void_unpaid_bills", {
+    if (!vendorPhone) return false;
+    const { error } = await supabase.rpc("vendor_void_unpaid_bills", {
       p_request_id: requestId,
       p_vendor_id: vendorId,
       p_vendor_phone: vendorPhone,
     });
+    if (error) {
+      captureError(error, {
+        scope: "billSheet.voidExistingUnpaidBills",
+        vendorId,
+        requestId,
+      });
+      return false;
+    }
+    return true;
   };
 
   const executeSendBill = async (opts?: { isReplace?: boolean }) => {
@@ -409,7 +434,14 @@ export function BillSheet({
   const confirmReplaceBill = async () => {
     setReplaceDialogOpen(false);
     setSending(true);
-    await voidExistingUnpaidBills();
+    // Block the replacement send if the void failed — otherwise the customer
+    // would end up with both the old and the new bill outstanding.
+    const voided = await voidExistingUnpaidBills();
+    if (!voided) {
+      toast.error(s.bill_voidFailed);
+      setSending(false);
+      return;
+    }
     await executeSendBill({ isReplace: true });
   };
 
@@ -544,6 +576,23 @@ export function BillSheet({
                     className="w-12 rounded-lg border border-surface-border bg-surface px-1 py-1.5 text-sm text-foreground text-center focus:outline-none focus:border-brand"
                     aria-label="Quantity"
                   />
+                  <select
+                    value={item.unit}
+                    onChange={(e) => updateItem(item.id, { unit: e.target.value })}
+                    className="w-14 shrink-0 rounded-lg border border-surface-border bg-surface px-1 py-1.5 text-xs text-foreground focus:outline-none focus:border-brand"
+                    aria-label={s.bill_unitLabel}
+                  >
+                    <option value="">{s.bill_unitLabel}</option>
+                    {item.unit &&
+                      !unitOptions.some((o) => o.value === item.unit) && (
+                        <option value={item.unit}>{item.unit}</option>
+                      )}
+                    {unitOptions.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
                   <div className="relative w-16 shrink-0">
                     <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                       ₹
@@ -658,6 +707,11 @@ export function BillSheet({
           {paymentMode === "khata" && khataAmberLimit > 0 && userPhone && loadingOutstanding && (
             <p className="text-[11px] text-muted-foreground text-center">
               {s.incoming_saving}
+            </p>
+          )}
+          {paymentMode === "khata" && outstandingError && !loadingOutstanding && (
+            <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+              {s.bill_khataOutstandingError}
             </p>
           )}
 

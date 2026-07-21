@@ -15,6 +15,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
+import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -54,8 +55,11 @@ export function BillEditHistorySheet({
         p_device_id: getDeviceId(),
         p_bill_id: billId,
       });
-      if (error || !data) return [];
-      return data as BillEditAuditRow[];
+      if (error) {
+        captureError(error, { scope: "billEditHistorySheet.getMyBillEditAudit", billId });
+        return [];
+      }
+      return (data ?? []) as BillEditAuditRow[];
     };
 
     void load().then((data) => {

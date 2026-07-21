@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { captureError } from "@/lib/sentry";
 import { formatKhataDate } from "@/lib/khataDisplay";
 
 export type BillEditLineItem = {
@@ -79,7 +80,11 @@ export async function fetchBillLineItems(
     p_request_id: requestId,
   });
 
-  if (error || !data?.length) return [newBillEditLineItem()];
+  if (error) {
+    captureError(error, { scope: "billEdit.fetchBillLineItems", requestId, vendorId });
+    return [newBillEditLineItem()];
+  }
+  if (!data?.length) return [newBillEditLineItem()];
 
   return data.map((row: {
     description: string | null;
@@ -104,11 +109,14 @@ export async function fetchEditedBillIds(
   const phone = vendorPhone.trim();
   if (!phone) return new Set();
 
-  const { data } = await supabase.rpc("get_vendor_edited_bill_ids", {
+  const { data, error } = await supabase.rpc("get_vendor_edited_bill_ids", {
     p_vendor_id: vendorId,
     p_vendor_phone: phone,
     p_bill_ids: billIds,
   });
+  if (error) {
+    captureError(error, { scope: "billEdit.fetchEditedBillIds", vendorId });
+  }
   return new Set((data ?? []).map((row: { bill_id: string }) => row.bill_id));
 }
 
@@ -126,8 +134,11 @@ export async function fetchBillEditAudit(
     p_bill_id: billId,
   });
 
-  if (error || !data) return [];
-  return data as BillEditAuditRow[];
+  if (error) {
+    captureError(error, { scope: "billEdit.fetchBillEditAudit", vendorId, billId });
+    return [];
+  }
+  return (data ?? []) as BillEditAuditRow[];
 }
 
 export function formatBillEditAuditDate(iso: string): string {

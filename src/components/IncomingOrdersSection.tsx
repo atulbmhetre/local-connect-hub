@@ -20,6 +20,8 @@ import { fetchEditedBillIds, type VendorEditBillResult } from "@/lib/billEdit";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { getUserPhone } from "@/lib/userIdentity";
+import { captureError } from "@/lib/sentry";
+import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import {
   NetworkExhaustedError,
   throwOnSupabaseNetworkError,
@@ -282,6 +284,7 @@ export function IncomingOrdersSection({
   const [rows, setRows] = useState<IncomingOrderRow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [truncatedRemaining, setTruncatedRemaining] = useState(0);
   const fetchLimitRef = useRef(INCOMING_PAGE_SIZE);
@@ -390,6 +393,7 @@ export function IncomingOrdersSection({
       p_phones: phones,
     });
     if (error) {
+      captureError(error, { scope: "incomingOrders.loadTrustForOrders", vendorId });
       console.error("loadTrustForOrders", error);
       return;
     }
@@ -416,6 +420,7 @@ export function IncomingOrdersSection({
       p_vendor_phone: vendorPhone,
     });
     if (error) {
+      captureError(error, { scope: "incomingOrders.clearOrderEditedFlag", vendorId });
       console.error("clearOrderEditedFlag", error);
       return;
     }
@@ -493,11 +498,17 @@ export function IncomingOrdersSection({
       setEditedBillIds(new Set());
       return;
     }
-    const { data } = await supabase.rpc("get_vendor_order_bills", {
+    const { data, error } = await supabase.rpc("get_vendor_order_bills", {
       p_vendor_id: vendorId,
       p_vendor_phone: vendorPhone,
       p_request_ids: requestIds,
     });
+    if (error) {
+      // Keep the last-good bill summaries; clearing them here would hide
+      // existing bills (false-empty) on a transient RPC failure.
+      captureError(error, { scope: "incomingOrders.loadBillsForOrders", vendorId });
+      return;
+    }
 
     if (!data?.length) {
       setBillsByRequestId({});
@@ -806,12 +817,14 @@ export function IncomingOrdersSection({
       ]);
       if (!mounted.current) return;
       if (error || countError) {
-        setRows([]);
-        setTruncatedRemaining(0);
-        onUnreadCount?.(0);
+        // Preserve the last-good order list instead of blanking it: a transient
+        // RPC failure must not look like "no incoming orders".
+        captureError(error ?? countError, { scope: "incomingOrders.load", vendorId });
+        setLoadFailed(true);
         setLoading(false);
         return;
       }
+      setLoadFailed(false);
       const list = (data ?? []).map(mapIncomingOrderRow);
       const total = typeof totalMatching === "number" ? totalMatching : list.length;
       setTruncatedRemaining(Math.max(0, total - list.length));
@@ -932,15 +945,30 @@ export function IncomingOrdersSection({
     }
   }, [load, loadingMore, truncatedRemaining]);
 
+  // Poll + Realtime share one refresh entry point so a Realtime-triggered
+  // reload suppresses the next poll tick (previously both fired a full
+  // load({silent}) independently for the same underlying change).
+  const lastSilentRefreshAtRef = useRef(0);
+  const silentRefresh = useCallback(() => {
+    // Collapse Realtime bursts (e.g. INSERT + UPDATE for one order) into one load.
+    if (Date.now() - lastSilentRefreshAtRef.current < 2_000) return;
+    lastSilentRefreshAtRef.current = Date.now();
+    void load({ silent: true });
+  }, [load]);
+
   useEffect(() => {
     mounted.current = true;
     void load();
-    const t = window.setInterval(() => void load({ silent: true }), 30_000);
+    const t = window.setInterval(() => {
+      // Skip the poll if Realtime already refreshed within this interval.
+      if (Date.now() - lastSilentRefreshAtRef.current < 25_000) return;
+      silentRefresh();
+    }, 30_000);
     return () => {
       mounted.current = false;
       window.clearInterval(t);
     };
-  }, [load]);
+  }, [load, silentRefresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -959,6 +987,10 @@ export function IncomingOrdersSection({
       ]);
       if (cancelled) return;
       if (reasonsResult.error) {
+        captureError(reasonsResult.error, {
+          scope: "incomingOrders.loadCategoryCancelReasons",
+          vendorId,
+        });
         console.error("loadCategoryCancelReasons", reasonsResult.error);
       } else {
         const map = new Map<string, string[]>();
@@ -996,7 +1028,7 @@ export function IncomingOrdersSection({
           filter: `vendor_id=eq.${vendorId}`,
         },
         () => {
-          void load({ silent: true });
+          silentRefresh();
         },
       )
       .on(
@@ -1008,7 +1040,7 @@ export function IncomingOrdersSection({
           filter: `vendor_id=eq.${vendorId}`,
         },
         () => {
-          void load({ silent: true });
+          silentRefresh();
         },
       )
       .subscribe();
@@ -1016,7 +1048,7 @@ export function IncomingOrdersSection({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [vendorId, load]);
+  }, [vendorId, silentRefresh]);
 
   const acceptHelpOrder = async (id: string) => {
     void clearOrderEditedFlag(id);
@@ -1158,6 +1190,8 @@ export function IncomingOrdersSection({
     }
   };
 
+  // One-tap without a confirmation dialog is a deliberate product decision
+  // (the next action is obvious to the vendor) — do not add friction here.
   const markDone = async (id: string) => {
     const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     const vendorPhone = getUserPhone()?.trim();
@@ -1221,6 +1255,8 @@ export function IncomingOrdersSection({
     }
   };
 
+  // One-tap without a confirmation dialog is a deliberate product decision
+  // (the next action is obvious to the vendor) — do not add friction here.
   const confirmPayment = async (
     requestId: string,
     userPhone: string,
@@ -1240,6 +1276,7 @@ export function IncomingOrdersSection({
     });
     setConfirmingPaymentId(null);
     if (error) {
+      captureError(error, { scope: "incomingOrders.confirmPayment", requestId });
       toast.error(s.payment_confirm_error);
       return;
     }
@@ -1277,6 +1314,7 @@ export function IncomingOrdersSection({
     });
     setDisputingPaymentId(null);
     if (error) {
+      captureError(error, { scope: "incomingOrders.disputePayment", requestId });
       toast.error(s.payment_dispute_error);
       return;
     }
@@ -1297,6 +1335,8 @@ export function IncomingOrdersSection({
     }
   };
 
+  // One-tap without a confirmation dialog is a deliberate product decision
+  // (the next action is obvious to the vendor) — do not add friction here.
   const dismissOrder = async (id: string) => {
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
@@ -1685,6 +1725,7 @@ export function IncomingOrdersSection({
     setFlagSubmitting(false);
 
     if (error) {
+      captureError(error, { scope: "incomingOrders.submitFlagReport", vendorId });
       console.error("submitFlagReport", error);
       return;
     }
@@ -1893,12 +1934,22 @@ export function IncomingOrdersSection({
         </div>
       )}
 
+      {loadFailed && (
+        <NetworkErrorBanner
+          status="failed"
+          onRetry={() => void load()}
+          className="mb-0"
+        />
+      )}
+
       {loading && rows.length === 0 ? (
         <div className="flex justify-center py-6 text-muted-foreground">
           <Loader2 className="h-6 w-6 animate-spin" aria-hidden />
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-4">{s.incoming_empty}</p>
+        !loadFailed && (
+          <p className="text-sm text-muted-foreground text-center py-4">{s.incoming_empty}</p>
+        )
       ) : searchQuery.trim() && filteredRows.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground text-sm">
           {s.search_noResults}

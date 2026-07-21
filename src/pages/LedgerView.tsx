@@ -20,6 +20,7 @@ import {
   throwOnSupabaseNetworkError,
   withNetworkRetry,
 } from "@/lib/withNetworkRetry";
+import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import {
@@ -109,6 +110,8 @@ const LedgerView = () => {
   const [amountValue, setAmountValue] = useState("");
   const [savingAmount, setSavingAmount] = useState(false);
   const [sheetShowFullHistory, setSheetShowFullHistory] = useState(false);
+  const [hasHistoryBeyondCycle, setHasHistoryBeyondCycle] = useState(false);
+  const [fullHistoryLoaded, setFullHistoryLoaded] = useState(false);
   const [fullHistoryTransactions, setFullHistoryTransactions] = useState<KhataTransaction[]>([]);
   const [fullHistoryLoading, setFullHistoryLoading] = useState(false);
   const [fullHistoryNetworkStatus, setFullHistoryNetworkStatus] = useState<
@@ -181,6 +184,7 @@ const LedgerView = () => {
       );
 
       if (namesError) {
+        captureError(namesError, { scope: "ledgerView.loadCustomerNames", vendorId: id });
         console.error("loadCustomerNames", namesError);
         setCustomerNameByPhone(new Map());
       } else {
@@ -205,7 +209,12 @@ const LedgerView = () => {
     }
   }, []);
 
-  const loadTransactions = useCallback(async (id: string, userPhone: string, phoneForRpc?: string) => {
+  const loadTransactions = useCallback(async (
+    id: string,
+    userPhone: string,
+    cycleStart: string | null = null,
+    phoneForRpc?: string,
+  ) => {
     const vendorPhoneForRpc = (phoneForRpc ?? getUserPhone() ?? "").trim();
     loadTransactionsRetryRef.current = { id, userPhone };
     setTxLoading(true);
@@ -237,7 +246,16 @@ const LedgerView = () => {
         return;
       }
       const chronological = (data ?? []) as KhataTransaction[];
-      setTransactions(currentCycleTransactions(chronological));
+      const cycle = currentCycleTransactions(chronological);
+      setTransactions(cycle);
+      // The unfiltered response already tells us whether the full-history view
+      // (rows since the configured cycle start) would show more than the
+      // current settle cycle, so that fetch can stay lazy (on user request).
+      const sinceMs = new Date(ledgerCycleStartIso(cycleStart)).getTime();
+      const sinceCycleStartCount = chronological.filter(
+        (tx) => new Date(tx.created_at).getTime() >= sinceMs,
+      ).length;
+      setHasHistoryBeyondCycle(sinceCycleStartCount > cycle.length);
       setTxNetworkStatus(null);
     } catch (err) {
       if (err instanceof NetworkExhaustedError) {
@@ -337,17 +355,17 @@ const LedgerView = () => {
     setNameEditing(false);
     setNameDraft("");
     setSheetShowFullHistory(false);
+    setHasHistoryBeyondCycle(false);
+    setFullHistoryLoaded(false);
     setFullHistoryTransactions([]);
     if (vendorId) {
-      void loadTransactions(vendorId, userPhone);
-      void loadFullHistory(vendorId, userPhone, ledgerCycleStart);
+      // Full history is lazy-loaded only when the vendor taps "show full
+      // history" — customer-open fetches just the current cycle data.
+      void loadTransactions(vendorId, userPhone, ledgerCycleStart);
     }
   };
 
-  const hasAdditionalHistory =
-    !txLoading &&
-    !fullHistoryLoading &&
-    fullHistoryTransactions.length > transactions.length;
+  const hasAdditionalHistory = !txLoading && hasHistoryBeyondCycle;
 
   useEffect(() => {
     if (!selectedPhone) return;
@@ -363,6 +381,8 @@ const LedgerView = () => {
     setTransactions([]);
     setTxNetworkStatus(null);
     setSheetShowFullHistory(false);
+    setHasHistoryBeyondCycle(false);
+    setFullHistoryLoaded(false);
     setFullHistoryTransactions([]);
     setFullHistoryNetworkStatus(null);
     setAmountSheetMode(null);
@@ -418,7 +438,14 @@ const LedgerView = () => {
 
   const toggleSheetFullHistory = () => {
     if (!hasAdditionalHistory) return;
-    setSheetShowFullHistory((v) => !v);
+    setSheetShowFullHistory((v) => {
+      const next = !v;
+      if (next && !fullHistoryLoaded && vendorId && selectedPhone) {
+        setFullHistoryLoaded(true);
+        void loadFullHistory(vendorId, selectedPhone, ledgerCycleStart);
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -504,11 +531,17 @@ const LedgerView = () => {
     if (newOutstanding === 0) {
       const phoneForRpc = (vendorPhone || getUserPhone() || "").trim();
       if (phoneForRpc) {
-        const { data: linkedId } = await supabase.rpc("get_vendor_khata_linked_request", {
-          p_vendor_id: vendorId,
-          p_vendor_phone: phoneForRpc,
-          p_user_phone: selectedPhone,
-        });
+        const { data: linkedId, error: linkedErr } = await supabase.rpc(
+          "get_vendor_khata_linked_request",
+          {
+            p_vendor_id: vendorId,
+            p_vendor_phone: phoneForRpc,
+            p_user_phone: selectedPhone,
+          },
+        );
+        if (linkedErr) {
+          captureError(linkedErr, { scope: "ledgerView.getKhataLinkedRequest", vendorId });
+        }
         linkedRequestId = typeof linkedId === "string" ? linkedId : null;
       }
       const paidTitle = s.khata_paidNotifTitle;
@@ -525,8 +558,8 @@ const LedgerView = () => {
     setSavingAmount(false);
     toast.success(s.khata_markedPaid);
     closeAmountSheet();
-    void loadTransactions(vendorId, selectedPhone);
-    void loadFullHistory(vendorId, selectedPhone, ledgerCycleStart);
+    void loadTransactions(vendorId, selectedPhone, ledgerCycleStart);
+    if (fullHistoryLoaded) void loadFullHistory(vendorId, selectedPhone, ledgerCycleStart);
   };
 
   const saveRefund = async () => {
@@ -567,8 +600,8 @@ const LedgerView = () => {
     setSavingAmount(false);
     toast.success(s.khata_refundSaved);
     closeAmountSheet();
-    void loadTransactions(vendorId, selectedPhone);
-    void loadFullHistory(vendorId, selectedPhone, ledgerCycleStart);
+    void loadTransactions(vendorId, selectedPhone, ledgerCycleStart);
+    if (fullHistoryLoaded) void loadFullHistory(vendorId, selectedPhone, ledgerCycleStart);
   };
 
   return (
@@ -779,7 +812,7 @@ const LedgerView = () => {
                   txNetworkStatus === "failed"
                     ? () => {
                         const { id, userPhone } = loadTransactionsRetryRef.current;
-                        if (id && userPhone) void loadTransactions(id, userPhone);
+                        if (id && userPhone) void loadTransactions(id, userPhone, ledgerCycleStart);
                       }
                     : undefined
                 }

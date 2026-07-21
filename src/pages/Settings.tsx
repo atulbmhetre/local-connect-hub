@@ -107,6 +107,7 @@ import {
   SettingsParentCollapsible,
 } from "@/components/settings/SettingsSection";
 import { AdminSystemHealthCard } from "@/components/settings/AdminSystemHealthCard";
+import { captureError } from "@/lib/sentry";
 import {
   computeTrustLevelsByVendor,
   trustLevelRank,
@@ -1234,9 +1235,18 @@ const Settings = () => {
           .order("sort_order", { ascending: true }),
       ]);
       if (cancelled) return;
-      if (offerRes.error) console.error("vendorExtras offer", offerRes.error);
-      if (creditsRes.error) console.error("vendorExtras credits", creditsRes.error);
-      if (menuRes.error) console.error("vendorExtras menu", menuRes.error);
+      if (offerRes.error) {
+        captureError(offerRes.error, { scope: "settings.vendorExtras.offer", vendorId });
+        console.error("vendorExtras offer", offerRes.error);
+      }
+      if (creditsRes.error) {
+        captureError(creditsRes.error, { scope: "settings.vendorExtras.credits", vendorId });
+        console.error("vendorExtras credits", creditsRes.error);
+      }
+      if (menuRes.error) {
+        captureError(menuRes.error, { scope: "settings.vendorExtras.menu", vendorId });
+        console.error("vendorExtras menu", menuRes.error);
+      }
 
       let total = 0;
       let pending = 0;
@@ -1253,7 +1263,10 @@ const Settings = () => {
               expires_at: (offerRes.data.expires_at as string | null) ?? null,
             }
           : null,
-        referralCredits: { total, pending },
+        // A failed credits fetch must show "unavailable", not a false ₹0.
+        referralCredits: creditsRes.error
+          ? { total: 0, pending: 0, failed: true }
+          : { total, pending },
         menuItems: (menuRes.data ?? []) as MenuItem[],
       });
     })();

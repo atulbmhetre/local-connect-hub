@@ -1,5 +1,6 @@
 import { supabase, invokeNotifyVendor } from "@/lib/supabase";
 import { strings, type Language } from "@/lib/strings";
+import { captureError } from "@/lib/sentry";
 
 const REFERRAL_STORAGE_KEY = "aaspaas:referral_code";
 const REFERRAL_PATH_RE = /\/r\/([^/?#]+)/;
@@ -54,108 +55,82 @@ export function checkAndStoreReferral(): void {
 
 export async function isReferralEnabled(): Promise<boolean> {
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("app_config")
       .select("value")
       .eq("key", "referral_enabled")
       .maybeSingle();
+    if (error) captureError(error, { scope: "referral.isReferralEnabled" });
     return String(data?.value ?? "").trim().toLowerCase() === "true";
-  } catch {
+  } catch (err) {
+    captureError(err, { scope: "referral.isReferralEnabled" });
     return false;
   }
 }
 
-let cachedReferralUserCredit: number | null = null;
+type ApplyUserReferralResult = {
+  applied: boolean;
+  reason?: string;
+  vendor_id?: string;
+  referral_id?: string;
+  credit_amount?: number;
+  vendor_lang?: string;
+};
 
-async function getReferralUserCreditAmount(): Promise<number> {
-  if (cachedReferralUserCredit != null) return cachedReferralUserCredit;
-  try {
-    const { data } = await supabase
-      .from("app_config")
-      .select("value")
-      .eq("key", "referral_user_credit")
-      .maybeSingle();
-    const n = Number(String(data?.value ?? "").trim());
-    cachedReferralUserCredit = Number.isFinite(n) ? n : 2.5;
-  } catch {
-    cachedReferralUserCredit = 2.5;
-  }
-  return cachedReferralUserCredit;
-}
+export type RecordUserReferralOutcome = "applied" | "not_applied" | "error";
 
-function referralNotifyCopy(): { title: string; body: (amount: number) => string } {
+/**
+ * Applies a stored referral code via the atomic apply_user_referral RPC
+ * (creates the app_users row if missing and records the vendor reward; a retry
+ * completes the reward when a prior attempt created the user but the reward
+ * step failed). Returns "applied" | "not_applied" (no/invalid/duplicate code)
+ * | "error" (RPC/network failure — worth surfacing to the user).
+ */
+export async function recordUserReferralDetailed(
+  phone: string,
+  deviceId: string,
+): Promise<RecordUserReferralOutcome> {
   try {
-    const stored = localStorage.getItem("aaspaas:language");
-    const lang: Language = stored === "hi" || stored === "mr" ? stored : "en";
-    return {
-      title: strings[lang].feed_referralCredit_title,
-      body: strings[lang].feed_referralCredit_body,
-    };
-  } catch {
-    return {
-      title: strings.en.feed_referralCredit_title,
-      body: strings.en.feed_referralCredit_body,
-    };
-  }
-}
-
-/** Returns true if referral was applied; false on missing code, invalid code, or duplicate. */
-export async function recordUserReferral(phone: string, deviceId: string): Promise<boolean> {
-  try {
-    if (!(await isReferralEnabled())) return false;
+    if (!(await isReferralEnabled())) return "not_applied";
 
     const stored = getReferralCode();
-    if (!stored) return false;
+    if (!stored) return "not_applied";
 
-    const { data: vendor, error: vendorError } = await supabase
-      .from("vendors")
-      .select("id, phone")
-      .eq("referral_code", stored)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc("apply_user_referral", {
+      p_phone: phone,
+      p_device_id: deviceId,
+      p_referral_code: stored,
+    });
 
-    if (vendorError || !vendor) return false;
-
-    const normalise = (p: string) => p.replace(/\D/g, "").slice(-10);
-    const vendorPhone = vendor.phone ?? "";
-    if (normalise(vendorPhone) === normalise(phone)) {
-      console.warn("Self-referral blocked");
-      return false;
+    if (error) {
+      captureError(error, { scope: "referral.applyUserReferral" });
+      return "error";
     }
 
-    const { data: userCreated, error: userError } = await supabase.rpc(
-      "create_referred_user",
-      {
-        p_phone: phone,
-        p_device_id: deviceId,
-        p_referral_code: stored,
-        p_referred_by_vendor_id: vendor.id,
-      },
-    );
+    const result = (data ?? {}) as ApplyUserReferralResult;
+    if (!result.applied || !result.vendor_id) {
+      // Not an error: invalid code, self-referral, existing non-referred
+      // user, or reward already recorded.
+      return "not_applied";
+    }
 
-    if (userError || !userCreated) return false;
-
-    const creditAmount = await getReferralUserCreditAmount();
-
-    // Amount is resolved server-side from app_config; p_credit_amount is ignored if sent.
-    const { data: referralId, error: rewardError } = await supabase.rpc(
-      "record_user_referral_reward",
-      {
-        p_referrer_vendor_id: vendor.id,
-        p_user_phone: phone,
-      },
-    );
-
-    if (rewardError || !referralId) return false;
+    // Notification copy resolves from the VENDOR's own language preference
+    // (app_users.lang, returned by the RPC), not the joining user's device
+    // language — each recipient reads their notification in their own locale.
+    const vendorLang: Language =
+      result.vendor_lang === "hi" || result.vendor_lang === "mr"
+        ? result.vendor_lang
+        : "en";
+    const vendorStrings = strings[vendorLang];
 
     // Session 42B violation: client-triggered notify — move to DB trigger post-launch.
-    const notifyStrings = referralNotifyCopy();
     void invokeNotifyVendor({
-      vendor_id: vendor.id,
+      vendor_id: result.vendor_id,
       type: "referral_credit",
-      notification_title: notifyStrings.title,
-      message: notifyStrings.body(creditAmount),
+      notification_title: vendorStrings.feed_referralCredit_title,
+      message: vendorStrings.feed_referralCredit_body(result.credit_amount ?? 2.5),
       route: "vendor",
-      route_params: { vendor_id: vendor.id },
+      route_params: { vendor_id: result.vendor_id },
     });
 
     try {
@@ -163,8 +138,14 @@ export async function recordUserReferral(phone: string, deviceId: string): Promi
     } catch {
       // ignore
     }
-    return true;
-  } catch {
-    return false;
+    return "applied";
+  } catch (err) {
+    captureError(err, { scope: "referral.recordUserReferral" });
+    return "error";
   }
+}
+
+/** Returns true if referral was applied; false on missing code, invalid code, or duplicate. */
+export async function recordUserReferral(phone: string, deviceId: string): Promise<boolean> {
+  return (await recordUserReferralDetailed(phone, deviceId)) === "applied";
 }

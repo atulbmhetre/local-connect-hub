@@ -170,7 +170,7 @@ test('TB-03 — tapping badge opens detail sheet with correct per-check state', 
   await expect(sheet.getByText('Shop Photo')).toBeVisible();
   await expect(sheet.getByText('GPS Location')).toBeVisible();
   await expect(sheet.getByText('Admin Review')).toBeVisible();
-  await expect(sheet.getByText('Bank Account Verified (UPI Penny-drop)')).toBeVisible();
+  await expect(sheet.getByText('Bank account check (UPI penny-drop)')).toBeVisible();
 });
 
 test('TB-04 — ratings display is unaffected by the badge redesign', async ({ page }) => {

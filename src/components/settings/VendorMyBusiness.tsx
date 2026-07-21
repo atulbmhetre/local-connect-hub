@@ -25,6 +25,7 @@ import {
   checkAndNotifyAdminCategoryGreenReady,
 } from "@/lib/vendorGreenReady";
 import { useLanguage } from "@/lib/language";
+import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 import {
   type AvailabilityMode,
@@ -329,6 +330,19 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       ]);
 
       if (loadSeq !== loadSeqRef.current) return;
+
+      if (availResult.error) {
+        captureError(availResult.error, {
+          scope: "vendorMyBusiness.loadCategories",
+          vendorId: vendor.id,
+        });
+      }
+      if (vcResult.error) {
+        captureError(vcResult.error, {
+          scope: "vendorMyBusiness.loadVendorCategories",
+          vendorId: vendor.id,
+        });
+      }
 
       const available = (availResult.data ?? []) as RegCategoryRow[];
       setAvailableCategories(available);
@@ -729,7 +743,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       return;
     }
     setVerifyingUpi(true);
-    await new Promise((r) => setTimeout(r, 900));
     const bank = trimmed.split("@")[1] ?? "bank";
     try {
       const { error } = await withNetworkRetry(
@@ -916,12 +929,18 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         toast.error(s.vendor_save_verification_failed, { description: updErr.message });
         return;
       }
-      await supabase.rpc("submit_vendor_verification", {
+      const { error: verifErr } = await supabase.rpc("submit_vendor_verification", {
         p_vendor_id: vendor.id,
         p_vendor_phone: vendor.phone,
         p_check_type: "photo_selfie",
         p_doc_url: pub.publicUrl,
       });
+      if (verifErr) {
+        captureError(verifErr, {
+          scope: "vendorMyBusiness.submitSelfieVerification",
+          vendorId: vendor.id,
+        });
+      }
       onVendorUpdated({ ...vendor, photo_selfie: pub.publicUrl });
       toast.success(s.vendor_selfie_captured);
     } catch (err) {

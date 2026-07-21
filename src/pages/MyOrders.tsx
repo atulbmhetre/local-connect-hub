@@ -60,6 +60,7 @@ import {
 } from "@/lib/networkToast";
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
+import { captureError } from "@/lib/sentry";
 const MAX_LEN = 200;
 
 function fulfilledOrderCtaLabel(
@@ -455,7 +456,12 @@ const MyOrders = () => {
     // Keep the current map on transport errors, but ALWAYS replace it on a
     // successful (even empty) result — otherwise a just-voided bill stays
     // visible with an active Pay Now button until a full reload.
-    if (error) return;
+    if (error) {
+      captureError(error, { scope: "myOrders.loadBills" });
+      // Deduped by id so a failing 30s poll doesn't stack toasts.
+      toast.error(s.myOrders_billsLoadError, { id: "myorders-bills-load-error" });
+      return;
+    }
 
     type BillRpcRow = {
       id: string;
@@ -491,10 +497,18 @@ const MyOrders = () => {
   const loadMyReviews = async () => {
     const userPhone = getUserPhone();
     const deviceId = getDeviceId();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("vendor_reviews")
       .select("id, request_id, rating, review_text, created_at, vendor_response, vendor_responded_at")
       .or(`user_phone.eq.${userPhone},device_id.eq.${deviceId}`);
+    // Preserve the last-good map on error — wiping it would make already-rated
+    // orders look unrated (Rate CTA reappears) on a transient failure.
+    if (error) {
+      captureError(error, { scope: "myOrders.loadMyReviews" });
+      // Deduped by id so a failing 30s poll doesn't stack toasts.
+      toast.error(s.myOrders_reviewsLoadError, { id: "myorders-reviews-load-error" });
+      return;
+    }
     const map: Record<
       string,
       {
@@ -517,7 +531,12 @@ const MyOrders = () => {
     const { data, error } = await supabase.rpc("get_my_khata_ledger", {
       p_user_phone: userPhone,
     });
-    if (error) return;
+    if (error) {
+      captureError(error, { scope: "myOrders.loadMyKhata" });
+      // Deduped by id so a failing 30s poll doesn't stack toasts.
+      toast.error(s.myOrders_khataLoadError, { id: "myorders-khata-load-error" });
+      return;
+    }
 
     setMyKhata(
       filterKhataLedgerByOutstanding(
@@ -615,9 +634,11 @@ const MyOrders = () => {
       });
       if (!mounted.current) return;
       if (error) {
-        // Don't blank the visible list on a failed silent refresh (e.g. rate limit).
+        captureError(error, { scope: "myOrders.load" });
+        // Preserve the last-good list on any failed refresh (silent or not) —
+        // a transient RPC failure must not look like "no orders".
         if (!opts?.silent) {
-          setRows([]);
+          setNetworkLoadStatus("failed");
           setLoading(false);
         }
         return;
@@ -1131,7 +1152,7 @@ const MyOrders = () => {
     try {
       const available = await SpeechRecognition.available();
       if (!available.available) {
-        toast.error("Voice not available");
+        toast.error(s.home_voice_unavailable);
         return;
       }
       await SpeechRecognition.requestPermissions();
@@ -1621,7 +1642,7 @@ const MyOrders = () => {
                               ? s.bill_upi
                               : s.bill_khata}
                           {" · "}
-                          {bill.payment_status === "paid" ? "✅ Paid" : "⏳ Unpaid"}
+                          {bill.payment_status === "paid" ? s.bill_statusPaid : s.bill_statusUnpaid}
                         </span>
                         <div className="flex items-center gap-2">
                           {r.vendors?.phone?.trim() && (
@@ -1955,6 +1976,9 @@ const MyOrders = () => {
                       <p className="text-[11px] text-gray-400 text-center">
                         {s.myOrders_callDone}
                       </p>
+                      {/* One-tap cancel after the call, without an extra confirmation
+                          dialog, is a deliberate product decision — the call itself is
+                          the confirmation step. Do not add friction here. */}
                       <button
                         type="button"
                         data-testid="order-cancel-btn"

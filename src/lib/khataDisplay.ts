@@ -29,8 +29,8 @@ export function feedAuthorLabel(phone: string, viewerPhone: string | null): stri
 export function khataPaymentModeLabel(mode: string, s: typeof strings.en): string {
   if (mode === "cash") return s.bill_cash;
   if (mode === "upi") return s.bill_upi;
-  if (mode === "khata") return "Unpaid";
-  if (mode === "paid") return "Paid";
+  if (mode === "khata") return s.khata_modeUnpaid;
+  if (mode === "paid") return s.khata_modePaid;
   return mode;
 }
 

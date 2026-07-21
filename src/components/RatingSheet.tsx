@@ -31,6 +31,7 @@ import { getVoiceLang } from "@/lib/voiceUtils";
 import { toast } from "sonner";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import { cn } from "@/lib/utils";
+import { captureError } from "@/lib/sentry";
 import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
 
 const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
@@ -185,6 +186,8 @@ export function RatingSheet({
       .maybeSingle();
 
     if (existingReview) {
+      // A review for this order already exists — retrying can never succeed,
+      // so dismissing (and archiving via onDismiss) is correct here.
       setLoading(false);
       toast.error(s.rating_errCouldNotSave);
       onDismiss();
@@ -194,9 +197,10 @@ export function RatingSheet({
     const deviceId = getDeviceId();
     const userPhone = getUserPhone();
     if (!userPhone) {
+      // Failed submission: keep the sheet open (no onDismiss) so the order is
+      // NOT marked done and the Rate CTA stays available for retry.
       setLoading(false);
       toast.error(s.feed_phoneRequired);
-      onDismiss();
       return;
     }
 
@@ -211,9 +215,15 @@ export function RatingSheet({
     });
 
     if (insertError) {
+      // Failed submission: the rating did NOT save. Do not fire onDismiss —
+      // MyOrders would markDone/archive the order and lose the Rate CTA.
+      captureError(insertError, {
+        scope: "ratingSheet.submitVendorReview",
+        vendorId,
+        requestId,
+      });
       setLoading(false);
       toast.error(messageForSubmitReviewError(insertError.message, s));
-      onDismiss();
       return;
     }
 
@@ -222,6 +232,14 @@ export function RatingSheet({
       const { error: rpcError } = await supabase.rpc(rpc, { p_vendor_id: vendorId });
 
       if (rpcError) {
+        // The review itself saved; only the served-counter increment failed.
+        // A retry would hit the duplicate-review guard, so dismissing is fine —
+        // log the counter drift for investigation.
+        captureError(rpcError, {
+          scope: `ratingSheet.${rpc}`,
+          vendorId,
+          requestId,
+        });
         setLoading(false);
         toast.error(s.rating_errCouldNotSave);
         onDismiss();
@@ -289,9 +307,15 @@ export function RatingSheet({
     if (!existingReview && !radarResolutionAlreadyMarked(vendorId)) {
       const { error } = await supabase.rpc("increment_vendor_issues", { p_vendor_id: vendorId });
       if (error) {
+        // Failed submission: keep the sheet open so the user can retry the
+        // issue report; do not archive the order via onDismiss.
+        captureError(error, {
+          scope: "ratingSheet.incrementVendorIssues",
+          vendorId,
+          requestId,
+        });
         setLoading(false);
         toast.error(s.rating_errCouldNotSaveFeedback);
-        onDismiss();
         return;
       }
     }

@@ -21,6 +21,8 @@ import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
+import { billUnitOptions } from "@/lib/billUnits";
+import { captureError } from "@/lib/sentry";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import {
   computeCustomerCreditAmount,
@@ -60,6 +62,7 @@ export function BillEditSheet({
   onSuccess,
 }: Props) {
   const { s } = useLanguage();
+  const unitOptions = useMemo(() => billUnitOptions(s), [s]);
   const [items, setItems] = useState<BillEditLineItem[]>([newBillEditLineItem()]);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
@@ -141,7 +144,14 @@ export function BillEditSheet({
       p_vendor_phone: vendorPhone,
       p_user_phones: [phone],
     });
-    if (error) return 0;
+    if (error) {
+      captureError(error, {
+        scope: "billEditSheet.fetchKhataOutstanding",
+        vendorId,
+        billId,
+      });
+      return 0;
+    }
     const row = Array.isArray(data) ? data[0] : null;
     return Number(row?.total_outstanding) || 0;
   };
@@ -196,6 +206,11 @@ export function BillEditSheet({
         setCustomerCreditDialogOpen(true);
         return;
       }
+      captureError(error, {
+        scope: "billEditSheet.vendorEditBill",
+        vendorId,
+        billId,
+      });
       toast.error(s.bill_editFailed);
       return;
     }
@@ -333,6 +348,23 @@ export function BillEditSheet({
                             className="w-12 rounded-lg border border-surface-border bg-surface px-1 py-1.5 text-sm text-foreground text-center focus:outline-none focus:border-brand"
                             aria-label="Quantity"
                           />
+                          <select
+                            value={item.unit}
+                            onChange={(e) => updateItem(item.id, { unit: e.target.value })}
+                            className="w-14 shrink-0 rounded-lg border border-surface-border bg-surface px-1 py-1.5 text-xs text-foreground focus:outline-none focus:border-brand"
+                            aria-label={s.bill_unitLabel}
+                          >
+                            <option value="">{s.bill_unitLabel}</option>
+                            {item.unit &&
+                              !unitOptions.some((o) => o.value === item.unit) && (
+                                <option value={item.unit}>{item.unit}</option>
+                              )}
+                            {unitOptions.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
                           <div className="relative w-16 shrink-0">
                             <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                               ₹

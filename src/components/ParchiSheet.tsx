@@ -3,7 +3,8 @@ import { Camera, ChevronDown, Loader2, MapPin, Mic } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getVoiceLang } from "@/lib/voiceUtils";
-import { isValidPaymentUtr } from "@/lib/validation";
+import { captureError } from "@/lib/sentry";
+import { UpiPaymentPanel } from "@/components/payment/UpiPaymentPanel";
 import {
   Sheet,
   SheetContent,
@@ -69,9 +70,10 @@ export type ParchiPaymentOrder = {
   amount: number;
 };
 
-type VendorWithQr = Vendor & { upi_qr_url?: string | null };
-
-type PaymentTab = "upi" | "mobile" | "qr";
+type VendorWithQr = Vendor & {
+  upi_qr_url?: string | null;
+  upi_qr_payee_id?: string | null;
+};
 
 const menuItemLabel = (item: VendorMenuItem) =>
   item.name?.trim() || item.description?.trim() || "Item";
@@ -178,13 +180,6 @@ export function ParchiSheet({
   const lastVendor = useRef<Vendor | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const phoneSheetOpenRef = useRef(false);
-  const [paymentTab, setPaymentTab] = useState<PaymentTab>("upi");
-  const [payCountdown, setPayCountdown] = useState<number | null>(null);
-  const [paymentUtr, setPaymentUtr] = useState("");
-  const [utrSubmitting, setUtrSubmitting] = useState(false);
-  const [localPaymentStatus, setLocalPaymentStatus] = useState<
-    ParchiPaymentOrder["payment_status"] | undefined
-  >(order?.payment_status);
   const [customerLat, setCustomerLat] = useState<number | null>(null);
   const [customerLng, setCustomerLng] = useState<number | null>(null);
   const [shareLocationEnabled, setShareLocationEnabled] = useState(false);
@@ -193,21 +188,6 @@ export function ParchiSheet({
   useEffect(() => {
     if (vendor) lastVendor.current = vendor;
   }, [vendor]);
-
-  useEffect(() => {
-    setLocalPaymentStatus(order?.payment_status);
-    setPaymentTab("upi");
-    setPayCountdown(null);
-    setPaymentUtr("");
-  }, [order?.id, order?.payment_status]);
-
-  useEffect(() => {
-    if (payCountdown === null || payCountdown <= 0) return;
-    const id = window.setInterval(() => {
-      setPayCountdown((n) => (n === null || n <= 1 ? 0 : n - 1));
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [payCountdown]);
 
   const resetFormFields = useCallback(() => {
     setMessage("");
@@ -291,6 +271,9 @@ export function ParchiSheet({
         .order("name", { ascending: true });
       if (cancelled) return;
       if (error || !data?.length) {
+        if (error) {
+          captureError(error, { scope: "parchiSheet.loadMenuItems", vendorId: resolvedVendorId });
+        }
         setMenuItems([]);
         return;
       }
@@ -441,7 +424,7 @@ export function ParchiSheet({
     try {
       const available = await SpeechRecognition.available();
       if (!available.available) {
-        toast.error("Voice not available on this device");
+        toast.error(s.home_voice_unavailable);
         return;
       }
       await SpeechRecognition.requestPermissions();
@@ -646,7 +629,10 @@ export function ParchiSheet({
             p_address_text: newAddress.trim(),
             p_is_default: addresses.length === 0,
           });
-          if (addrError) console.error("Address save failed:", addrError.message);
+          if (addrError) {
+            captureError(addrError, { scope: "parchiSheet.saveAddress" });
+            console.error("Address save failed:", addrError.message);
+          }
         }
         setSending(false);
         toast.success(
@@ -812,71 +798,8 @@ export function ParchiSheet({
     if (pendingPhone) void executeOrderInsert(pendingPhone);
   };
 
-  const selectPaymentTab = (tab: PaymentTab) => {
-    setPaymentTab(tab);
-    setPayCountdown(null);
-    setPaymentUtr("");
-  };
-
-  const amountInRupees = order?.amount ? (order.amount / 100).toFixed(2) : "0";
-
-  const openUpiDeepLink = (pa: string) => {
-    const v = effectiveVendor as VendorWithQr | null;
-    if (!order || !v || !pa) return;
-    const deepLink = `upi://pay?pa=${pa}&pn=${encodeURIComponent(v.shop_name)}&am=${amountInRupees}&tn=AaspaasOrder-${order.id}`;
-    window.open(deepLink, "_blank");
-    setPayCountdown(30);
-  };
-
-  const handlePayNowUpi = () => {
-    const v = effectiveVendor as VendorWithQr | null;
-    if (!v?.upi_id) return;
-    openUpiDeepLink(v.upi_id);
-  };
-
-  const handlePayNowMobile = () => {
-    const v = effectiveVendor as VendorWithQr | null;
-    if (!v?.phone) return;
-    openUpiDeepLink(`${v.phone}@upi`);
-  };
-
-  const handleSubmitPaymentUtr = async () => {
-    const v = effectiveVendor as VendorWithQr | null;
-    if (!order || !v) return;
-    const trimmed = paymentUtr.trim();
-    if (!isValidPaymentUtr(trimmed)) {
-      toast.error(trimmed ? s.payment_utr_invalid : s.payment_utr_empty);
-      return;
-    }
-    setUtrSubmitting(true);
-    const { error } = await supabase.rpc("claim_customer_payment", {
-      p_request_id: order.id,
-      p_payment_utr: trimmed,
-      p_device_id: getDeviceId(),
-      p_user_phone: getUserPhone(),
-    });
-    if (error) {
-      toast.error(error.message);
-      setUtrSubmitting(false);
-      return;
-    }
-    void invokeNotifyVendor({
-      vendor_id: v.id,
-      notification_title: "Payment Claimed",
-      message: `Customer claims payment of ₹${amountInRupees} — UTR: ${trimmed}`,
-      type: "payment_claimed",
-      request_id: order.id,
-    });
-    setLocalPaymentStatus("claimed");
-    setUtrSubmitting(false);
-  };
-
   const showPaymentSection =
-    order?.status === "fulfilled" && localPaymentStatus != null;
-  const showPaymentPicker = localPaymentStatus === "unpaid";
-  const showUtrInput =
-    paymentTab === "qr" || (payCountdown !== null && payCountdown <= 0);
-  const vendorQrUrl = (effectiveVendor as VendorWithQr | null)?.upi_qr_url?.trim() || "";
+    order?.status === "fulfilled" && order?.payment_status != null;
 
   if (!effectiveVendor) return null;
 
@@ -1397,146 +1320,20 @@ export function ParchiSheet({
             )}
             </div>
 
-            {showPaymentSection && (
+            {showPaymentSection && order && (
               <div className="space-y-3 pt-1" data-testid="parchi-payment-section">
-                {showPaymentPicker ? (
-                  <>
-                    <div className="flex border-b border-surface-border">
-                      {(
-                        [
-                          { id: "upi" as const, label: "UPI ID" },
-                          { id: "mobile" as const, label: "Mobile" },
-                          { id: "qr" as const, label: "QR Code" },
-                        ] as const
-                      ).map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => selectPaymentTab(tab.id)}
-                          className={cn(
-                            "flex-1 pb-2 text-xs font-semibold transition-colors border-b-2 -mb-px",
-                            paymentTab === tab.id
-                              ? "border-brand text-foreground"
-                              : "border-transparent text-muted-foreground",
-                          )}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {paymentTab === "upi" && (
-                      <div className="space-y-3">
-                        {payCountdown === null && (
-                          <button
-                            type="button"
-                            onClick={handlePayNowUpi}
-                            className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
-                          >
-                            {s.payment_pay_now}
-                          </button>
-                        )}
-                        {payCountdown !== null && payCountdown > 0 && (
-                          <p className="text-sm text-muted-foreground text-center">
-                            {s.payment_timer.replace("{n}", String(payCountdown))}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {paymentTab === "mobile" && (
-                      <div className="space-y-3">
-                        {payCountdown === null && (
-                          <button
-                            type="button"
-                            onClick={handlePayNowMobile}
-                            className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
-                          >
-                            {s.payment_pay_now}
-                          </button>
-                        )}
-                        {payCountdown !== null && payCountdown > 0 && (
-                          <p className="text-sm text-muted-foreground text-center">
-                            {s.payment_timer.replace("{n}", String(payCountdown))}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {paymentTab === "qr" && (
-                      <div className="space-y-3 text-center">
-                        {!vendorQrUrl ? (
-                          <p className="text-xs text-muted-foreground">
-                            Vendor hasn&apos;t uploaded a QR code yet
-                          </p>
-                        ) : (
-                          <>
-                            <img
-                              src={vendorQrUrl}
-                              alt=""
-                              className="mx-auto h-[200px] w-[200px] rounded-lg border border-surface-border object-contain"
-                            />
-                            <p className="text-sm text-foreground">
-                              {s.payment_amount_label}{" "}
-                              <span className="font-bold">₹{amountInRupees}</span>
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {s.payment_scan_instruction}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {s.payment_enter_amount.replace("{amount}", amountInRupees)}
-                            </p>
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {showUtrInput && (paymentTab !== "qr" || vendorQrUrl) && (
-                      <div className="space-y-2">
-                        <label
-                          htmlFor="parchi-payment-utr"
-                          className="text-xs font-medium text-muted-foreground uppercase tracking-wide block"
-                        >
-                          {s.payment_enter_utr}
-                        </label>
-                        <input
-                          id="parchi-payment-utr"
-                          type="text"
-                          inputMode="numeric"
-                          maxLength={12}
-                          value={paymentUtr}
-                          onChange={(e) =>
-                            setPaymentUtr(e.target.value.replace(/\D/g, "").slice(0, 12))
-                          }
-                          className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
-                        />
-                        <button
-                          type="button"
-                          disabled={utrSubmitting}
-                          onClick={() => void handleSubmitPaymentUtr()}
-                          className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform disabled:opacity-60"
-                        >
-                          {utrSubmitting ? "..." : s.payment_submit_utr}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                ) : localPaymentStatus === "claimed" ? (
-                  <div className="flex items-center gap-2 text-sm text-foreground">
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden />
-                    {s.payment_claimed}
-                  </div>
-                ) : localPaymentStatus === "confirmed" ? (
-                  <div className="flex items-center gap-2 text-sm text-foreground">
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" aria-hidden />
-                    {s.payment_confirmed}
-                  </div>
-                ) : localPaymentStatus === "disputed" ? (
-                  <div className="flex items-center gap-2 text-sm text-foreground">
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-hidden />
-                    {s.payment_disputed}
-                  </div>
-                ) : null}
+                <UpiPaymentPanel
+                  idPrefix="parchi-payment"
+                  orderId={order.id}
+                  paymentStatus={order.payment_status}
+                  amountRupees={order.amount / 100}
+                  vendorId={effectiveVendor.id}
+                  shopName={effectiveVendor.shop_name}
+                  upiId={effectiveVendor.upi_id}
+                  vendorPhone={effectiveVendor.phone}
+                  qrUrl={(effectiveVendor as VendorWithQr).upi_qr_url}
+                  qrPayeeId={(effectiveVendor as VendorWithQr).upi_qr_payee_id}
+                />
               </div>
             )}
 

@@ -46,6 +46,7 @@ import {
   throwOnSupabaseNetworkError,
   withNetworkRetry,
 } from "@/lib/withNetworkRetry";
+import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 
 // Stalled threshold: if helper coords don't move for 2 minutes, alert.
@@ -145,11 +146,12 @@ const LiveTracking = () => {
         },
       );
       if (fetchError) {
+        captureError(fetchError, { scope: "liveTracking.fetchVendor", vendorId });
         setError(fetchError.message);
         return;
       }
       if (!rows) {
-        setError("Responder no longer available.");
+        setError(s.liveTracking_responderGone);
         return;
       }
       const v = rows as Vendor;
@@ -164,12 +166,13 @@ const LiveTracking = () => {
       if (e instanceof NetworkExhaustedError) {
         setNetworkLoadStatus("failed");
       } else {
-        setError(e instanceof Error ? e.message : "Could not load responder.");
+        captureError(e, { scope: "liveTracking.fetchVendor", vendorId });
+        setError(e instanceof Error ? e.message : s.liveTracking_loadError);
       }
     } finally {
       setLoading(false);
     }
-  }, [vendorId]);
+  }, [vendorId, s]);
 
   // Fetch vendor + initial helper coords.
   useEffect(() => {
@@ -310,7 +313,7 @@ const LiveTracking = () => {
   const handleEndCall = () => {
     setCallOpen(false);
     setCallStart(null);
-    toast("Call ended", { description: "Secure bridge closed." });
+    toast(s.liveTracking_callEnded, { description: s.liveTracking_callEndedBody });
   };
 
   const handleVerifyCall = () => {
@@ -373,8 +376,8 @@ const LiveTracking = () => {
             void 0;
           }
         }, 500);
-        toast("Flash LED Signal active", {
-          description: "Your phone torch is pulsing — helper can spot you.",
+        toast(s.liveTracking_flashActive, {
+          description: s.liveTracking_flashActiveBody,
         });
         return;
       } else {
@@ -384,8 +387,8 @@ const LiveTracking = () => {
       // permission denied or unsupported — fall back below
     }
     // Fallback: pulse the screen white via CSS overlay (toggled by `flashing`).
-    toast("Screen flash signal active", {
-      description: "Hold your phone up — the screen will pulse bright.",
+    toast(s.liveTracking_screenFlashActive, {
+      description: s.liveTracking_screenFlashActiveBody,
     });
     flashTimerRef.current = window.setInterval(() => {
       // no-op timer just to keep symmetry; visual handled via CSS animation
@@ -397,27 +400,27 @@ const LiveTracking = () => {
   const handleShareStatus = async () => {
     const url = window.location.href;
     const text = vendor
-      ? `I'm using Aaspaas. ${vendor.name} is on the way to help me. Track live:`
-      : "I'm using Aaspaas. Track my live emergency status:";
+      ? s.liveTracking_shareTextVendor(vendor.name)
+      : s.liveTracking_shareTextGeneric;
     try {
       if (navigator.share) {
-        await navigator.share({ title: "Aaspaas live status", text, url });
+        await navigator.share({ title: s.liveTracking_shareTitle, text, url });
         return;
       }
       await navigator.clipboard.writeText(`${text} ${url}`);
-      toast("Tracking link copied", {
-        description: "Share it with family so they can follow along.",
+      toast(s.liveTracking_linkCopied, {
+        description: s.liveTracking_linkCopiedBody,
       });
     } catch {
-      toast("Couldn't share link", { description: "Try again in a moment." });
+      toast(s.liveTracking_shareFailed, { description: s.liveTracking_shareFailedBody });
     }
   };
 
   const movingLabel = stalled
-    ? "Stalled"
+    ? s.liveTracking_stalled
     : helper
-      ? "Moving toward you"
-      : "Locating responder";
+      ? s.liveTracking_moving
+      : s.liveTracking_locating;
 
   const movingTone = stalled
     ? "text-orange-500 border-orange-500/40 bg-orange-500/10"
@@ -430,7 +433,7 @@ const LiveTracking = () => {
           <Loader2 className="h-4 w-4 animate-spin text-brand" />
           {networkLoadStatus === "retrying"
             ? s.network_retrying
-            : "Opening secure tracking channel…"}
+            : s.liveTracking_opening}
         </div>
       </div>
     );
@@ -475,7 +478,7 @@ const LiveTracking = () => {
         </button>
         <div className="rounded-2xl bg-destructive/10 border border-destructive/40 p-4 flex gap-3">
           <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-          <p className="text-sm">{error ?? "Responder unavailable."}</p>
+          <p className="text-sm">{error ?? s.liveTracking_responderUnavailable}</p>
         </div>
       </div>
     );
@@ -512,7 +515,7 @@ const LiveTracking = () => {
         </button>
         <div className="flex-1">
           <p className="text-[10px] uppercase tracking-[0.3em] text-brand font-bold">
-            Live Tracking
+            {s.liveTracking_header}
           </p>
           <h1 className="font-display text-base font-bold leading-tight">
             AI-Bridge Hub
@@ -572,8 +575,8 @@ const LiveTracking = () => {
             ? movingLabel
             : etaMin != null
               ? etaMin === 0
-                ? "Arriving now"
-                : `Arriving in ${etaMin} min${etaMin === 1 ? "" : "s"}`
+                ? s.liveTracking_arrivingNow
+                : s.liveTracking_arrivingIn(String(etaMin))
               : movingLabel}
           {etaKm != null && !stalled && (
             <span className="text-gray-300 font-normal">
@@ -589,10 +592,10 @@ const LiveTracking = () => {
           <ShieldAlert className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-orange-500">
-              Stalled? Check Status via AI-Bridge
+              {s.liveTracking_stalledTitle}
             </p>
             <p className="text-[11px] text-gray-400 mt-0.5">
-              No movement in the last {Math.max(2, minutesSinceMove)} min. Confirm they're still on the way — your number stays private.
+              {s.liveTracking_stalledBody(String(Math.max(2, minutesSinceMove)))}
             </p>
           </div>
           <button
@@ -600,7 +603,7 @@ const LiveTracking = () => {
             disabled={callInitiating || !secureCallingLive}
             className="rounded-lg bg-orange-500 text-black px-3 py-1.5 text-xs font-bold active:scale-95 disabled:opacity-50"
           >
-            Check
+            {s.liveTracking_checkBtn}
           </button>
         </div>
       )}
@@ -629,11 +632,11 @@ const LiveTracking = () => {
             {vendor.shop_name} · {getLabel(vendor.category)}
           </p>
           <p className="text-[10px] uppercase tracking-[0.2em] text-brand mt-0.5 font-bold">
-            Ready to Help ·{" "}
+            {s.liveTracking_readyToHelp} ·{" "}
             {vendorTier(vendor) === "green"
               ? s.vendor_verified_pro
               : vendorTier(vendor) === "yellow"
-                ? "Identity submitted — pending admin"
+                ? s.liveTracking_pendingAdmin
                 : `${s.settings_unverified} — ${s.liveTracking_callWithCare}`}
           </p>
         </div>
@@ -685,17 +688,17 @@ const LiveTracking = () => {
         >
           <Flashlight className={cn("h-5 w-5", flashing && "animate-pulse")} />
           <span className="text-xs font-semibold">
-            {flashing ? "Stop LED Signal" : "Flash LED Signal"}
+            {flashing ? s.liveTracking_flashStopBtn : s.liveTracking_flashBtn}
           </span>
-          <span className="text-[10px] text-gray-500">Be visible in the dark</span>
+          <span className="text-[10px] text-gray-500">{s.liveTracking_flashHint}</span>
         </button>
         <button
           onClick={handleShareStatus}
           className="rounded-2xl bg-surface border border-white/10 py-3.5 flex flex-col items-center justify-center gap-1 active:scale-[0.98] hover:border-brand/40 transition-colors"
         >
           <Share2 className="h-5 w-5 text-brand" />
-          <span className="text-xs font-semibold">Share Live Status</span>
-          <span className="text-[10px] text-gray-500">Send link to family</span>
+          <span className="text-xs font-semibold">{s.liveTracking_shareBtn}</span>
+          <span className="text-[10px] text-gray-500">{s.liveTracking_shareHint}</span>
         </button>
       </div>
 
@@ -752,7 +755,9 @@ const LiveTracking = () => {
               )}
             </div>
             <p className="font-display text-xl font-bold text-white mt-1">{vendor.name}</p>
-            <p className="text-xs text-gray-400">{getLabel(vendor.category)} · Number masked</p>
+            <p className="text-xs text-gray-400">
+              {getLabel(vendor.category)} · {s.liveTracking_numberMasked}
+            </p>
             <div className="mt-4 flex items-center gap-2 text-sm text-brand font-mono">
               <Clock className="h-4 w-4" />
               {callDuration}
@@ -771,7 +776,9 @@ const LiveTracking = () => {
                 )}
               >
                 {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-                <span className="text-[11px] font-semibold">{muted ? "Unmute" : "Mute"}</span>
+                <span className="text-[11px] font-semibold">
+                  {muted ? s.liveTracking_unmute : s.liveTracking_mute}
+                </span>
               </button>
               <button
                 onClick={() => setSpeaker((s) => !s)}
@@ -783,7 +790,7 @@ const LiveTracking = () => {
                 )}
               >
                 {speaker ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-                <span className="text-[11px] font-semibold">Speaker</span>
+                <span className="text-[11px] font-semibold">{s.liveTracking_speaker}</span>
               </button>
             </div>
             <button
@@ -791,10 +798,10 @@ const LiveTracking = () => {
               className="w-full rounded-full bg-destructive text-destructive-foreground py-4 flex items-center justify-center gap-2 font-bold active:scale-[0.98] shadow-[0_0_24px_rgba(239,68,68,0.45)]"
             >
               <PhoneOff className="h-5 w-5" />
-              End Call
+              {s.liveTracking_endCall}
             </button>
             <p className="text-[10px] text-center text-gray-500 mt-3">
-              Both numbers stay hidden. Call routed via Aaspaas proxy.
+              {s.liveTracking_proxyNote}
             </p>
           </div>
         </div>

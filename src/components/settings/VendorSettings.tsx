@@ -107,6 +107,8 @@ function offerCategoryModeChipLabel(
 export type VendorReferralCredits = {
   total: number;
   pending: number;
+  /** True when the credits fetch failed — show "unavailable", not a false ₹0. */
+  failed?: boolean;
 };
 
 type VendorReview = {
@@ -708,19 +710,25 @@ export function VendorSettingsReferEarn({
           >
             {s.vendor_referShare}
           </button>
-          {(creditTotal > 0 || creditPending > 0) && (
-            <div className="space-y-1 pt-1">
-              {creditTotal > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {s.referral_total_earned(creditTotal.toFixed(2))}
-                </p>
-              )}
-              {creditPending > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {s.referral_pending_payout(creditPending.toFixed(2))}
-                </p>
-              )}
-            </div>
+          {referralCredits?.failed ? (
+            <p className="text-xs text-muted-foreground pt-1">
+              {s.referral_credits_unavailable}
+            </p>
+          ) : (
+            (creditTotal > 0 || creditPending > 0) && (
+              <div className="space-y-1 pt-1">
+                {creditTotal > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {s.referral_total_earned(creditTotal.toFixed(2))}
+                  </p>
+                )}
+                {creditPending > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {s.referral_pending_payout(creditPending.toFixed(2))}
+                  </p>
+                )}
+              </div>
+            )
           )}
         </div>
       ) : null}
