@@ -40,6 +40,12 @@ const ALLOWED_ANON_TRUE_POLICIES = [
     reason: 'Localized category labels for anonymous browse.',
   },
   {
+    table: 'notification_i18n',
+    policy: 'notification_i18n_public_read',
+    command: 'SELECT' as const,
+    reason: 'Localized SQL notification copy templates (en/hi/mr); writes via migrations only.',
+  },
+  {
     table: 'feed_replies',
     policy: 'feed_replies_public_read',
     command: 'SELECT' as const,

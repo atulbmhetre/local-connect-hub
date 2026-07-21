@@ -131,6 +131,8 @@ type Props = {
   activeOffer: VendorActiveOffer | null;
   referralCredits: VendorReferralCredits;
   menuItems: MenuItem[];
+  /** Deep-link from review_received notification — expand My Reviews on mount. */
+  openReviewsInitially?: boolean;
 };
 
 function offerDateInputMin() {
@@ -744,6 +746,7 @@ export function VendorSettings({
   activeOffer,
   referralCredits,
   menuItems: initialMenuItems,
+  openReviewsInitially = false,
 }: Props) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
@@ -793,7 +796,7 @@ export function VendorSettings({
   const [isProcessingImageMenu, setIsProcessingImageMenu] = useState(false);
   const [reviews, setReviews] = useState<VendorReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
-  const [showReviews, setShowReviews] = useState(false);
+  const [showReviews, setShowReviews] = useState(openReviewsInitially);
   const [replyingReviewId, setReplyingReviewId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
@@ -968,6 +971,12 @@ export function VendorSettings({
     setReviews((data ?? []) as VendorReview[]);
     setReviewsLoading(false);
   };
+
+  useEffect(() => {
+    if (openReviewsInitially) {
+      void loadReviews();
+    }
+  }, [openReviewsInitially, vendor.id]);
 
   const sendReviewReply = async (reviewId: string) => {
     const text = replyDraft.trim();

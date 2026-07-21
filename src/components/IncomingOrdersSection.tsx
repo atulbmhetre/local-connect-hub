@@ -1257,6 +1257,8 @@ export function IncomingOrdersSection({
         ),
         type: "payment_confirmed",
         order_id: requestId,
+        route: "my-orders",
+        route_params: { order_id: requestId },
       });
     }
   };
@@ -1287,8 +1289,10 @@ export function IncomingOrdersSection({
         user_phone: userPhone,
         title: s.payment_disputed_notify_title,
         body: s.payment_disputed_notify_body,
-        type: "payment_confirmed",
+        type: "payment_disputed",
         order_id: requestId,
+        route: "my-orders",
+        route_params: { order_id: requestId },
       });
     }
   };

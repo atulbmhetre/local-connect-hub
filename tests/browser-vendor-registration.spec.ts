@@ -287,7 +287,7 @@ test('VR-E2E-01: shop vendor registers with GPS via 2-page wizard', async ({ pag
     .eq('type', 'new_vendor')
     .gte('created_at', since)
     .limit(1);
-  expect(notifications?.[0]?.route).toBe('vendor');
+  expect(notifications?.[0]?.route).toBe('settings');
   expect(notifications?.[0]?.route_params).toMatchObject({ vendor_id: vendorId });
 
   await deleteVendorRegistrationArtifacts(vendorId);

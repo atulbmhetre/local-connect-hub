@@ -1,4 +1,5 @@
 import type { NavigateFunction } from "react-router-dom";
+import { captureError } from "@/lib/sentry";
 
 const ROUTE_PATHS: Record<string, string> = {
   vendor: "/vendor",
@@ -13,6 +14,12 @@ export function resolveRoutePath(route: string | null | undefined): string {
   if (!route?.trim()) return "/";
   const key = route.trim().replace(/^\//, "");
   return ROUTE_PATHS[key] ?? `/${key}`;
+}
+
+export function isKnownNotificationRoute(route: string | null | undefined): boolean {
+  if (!route?.trim()) return false;
+  const key = route.trim().replace(/^\//, "");
+  return Object.prototype.hasOwnProperty.call(ROUTE_PATHS, key);
 }
 
 export type NotificationRouteParams = Record<string, string> | null | undefined;
@@ -43,7 +50,20 @@ export function navigateFromNotification(
     return;
   }
   if (key === "settings" && params.vendor_id) {
-    navigate(path, { state: { highlightVendorId: params.vendor_id } });
+    navigate(path, {
+      state: {
+        highlightVendorId: params.vendor_id,
+        ...(params.open_reviews === "1" || params.open_reviews === "true"
+          ? { vendorSettingsTab: "preferences", openVendorReviews: true }
+          : {}),
+      },
+    });
+    return;
+  }
+  if (key === "settings" && (params.open_reviews === "1" || params.open_reviews === "true")) {
+    navigate(path, {
+      state: { vendorSettingsTab: "preferences", openVendorReviews: true },
+    });
     return;
   }
   if (key === "feed") {
@@ -87,7 +107,24 @@ export function handlePushNotificationData(
 ): void {
   if (!data) return;
   const route = typeof data.route === "string" ? data.route : undefined;
-  if (!route) return;
+  if (!route?.trim()) {
+    captureError(new Error("push_nav_missing_route"), {
+      pushSurface: "navigation",
+      operation: "handlePushNotificationData",
+      reason: "missing_route",
+      dataKeys: Object.keys(data),
+    });
+    return;
+  }
+  if (!isKnownNotificationRoute(route)) {
+    captureError(new Error("push_nav_unresolvable_route"), {
+      pushSurface: "navigation",
+      operation: "handlePushNotificationData",
+      reason: "unresolvable_route",
+      route,
+    });
+    return;
+  }
   const params = parsePushRouteParams(
     typeof data.route_params === "string"
       ? data.route_params

@@ -913,6 +913,9 @@ const Settings = () => {
   const [vendorPanelTab, setVendorPanelTab] = useState<"business" | "preferences">(
     initialVendorPanelTab,
   );
+  const openVendorReviews = Boolean(
+    (location.state as { openVendorReviews?: boolean } | null)?.openVendorReviews,
+  );
 
   useEffect(() => {
     const tab = (location.state as { vendorSettingsTab?: string } | null)?.vendorSettingsTab;
@@ -1851,6 +1854,11 @@ const Settings = () => {
       notification_title: title,
       message: body,
       type: kind === "approved" ? "category_approved" : "category_rejected",
+      route: "settings",
+      route_params: {
+        vendor_id: cat.suggested_by_vendor_id,
+        category_id: cat.id,
+      },
     });
   };
 
@@ -2966,6 +2974,7 @@ const Settings = () => {
                   activeOffer={vendorExtras.activeOffer}
                   referralCredits={vendorExtras.referralCredits}
                   menuItems={vendorExtras.menuItems}
+                  openReviewsInitially={openVendorReviews}
                 />
               </TabsContent>
             </Tabs>

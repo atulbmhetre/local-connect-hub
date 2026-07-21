@@ -2,11 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { getUserPhone, USER_PHONE_CHANGED_EVENT } from "@/lib/userIdentity";
+import {
+  ensureUserDeviceLink,
+  getUserPhone,
+  USER_PHONE_CHANGED_EVENT,
+} from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { formatTimeAgo } from "@/lib/orders";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
+import { captureError } from "@/lib/sentry";
 import {
   Sheet,
   SheetContent,
@@ -14,6 +19,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { navigateFromNotification } from "@/lib/notificationNavigation";
+
+/** Poll interval matching Home help-banner OTP-off Realtime fallback. */
+export const NOTIFICATION_BELL_POLL_MS = 60_000;
 
 export type UserNotification = {
   id: string;
@@ -47,25 +55,36 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const loadIdRef = useRef(0);
+  const openRef = useRef(open);
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   const refreshUnreadCount = useCallback(async (userPhone: string) => {
-    const { data, error } = await supabase.rpc("get_user_notifications", {
+    await ensureUserDeviceLink(userPhone);
+    const { data, error } = await supabase.rpc("get_user_unread_notification_count", {
       p_user_phone: userPhone,
       p_device_id: getDeviceId(),
-      p_limit: 100,
     });
     if (error) {
       console.error("NotificationBell unread count", error);
+      captureError(error, {
+        notificationSurface: "bell",
+        operation: "get_user_unread_notification_count",
+      });
       return;
     }
-    const rows = (Array.isArray(data) ? data : []) as UserNotification[];
-    setUnreadCount(rows.filter((n) => !n.is_read).length);
+    setUnreadCount(typeof data === "number" ? data : Number(data) || 0);
   }, []);
 
   const loadTray = useCallback(async (userPhone: string) => {
     const loadId = ++loadIdRef.current;
     setLoading(true);
+    setLoadError(false);
+    await ensureUserDeviceLink(userPhone);
     const { data, error } = await supabase.rpc("get_user_notifications", {
       p_user_phone: userPhone,
       p_device_id: getDeviceId(),
@@ -75,21 +94,32 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     setLoading(false);
     if (error) {
       console.error("NotificationBell load tray", error);
+      captureError(error, {
+        notificationSurface: "bell",
+        operation: "get_user_notifications",
+      });
       setNotifications([]);
+      setLoadError(true);
       return;
     }
     const rows = (Array.isArray(data) ? data : []) as UserNotification[];
     setNotifications(rows);
-    setUnreadCount(rows.filter((n) => !n.is_read).length);
+    setLoadError(false);
   }, []);
 
   const markInformationalRead = useCallback(async (userPhone: string) => {
+    await ensureUserDeviceLink(userPhone);
     const { error } = await supabase.rpc("mark_user_notifications_read", {
       p_user_phone: userPhone,
+      p_device_id: getDeviceId(),
       p_informational_only: true,
     });
     if (error) {
       console.error("NotificationBell mark informational read", error);
+      captureError(error, {
+        notificationSurface: "bell",
+        operation: "mark_user_notifications_read",
+      });
       return;
     }
     const now = new Date().toISOString();
@@ -103,19 +133,27 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
 
   const markAllRead = useCallback(async (userPhone: string) => {
     const now = new Date().toISOString();
+    await ensureUserDeviceLink(userPhone);
     const { error } = await supabase.rpc("mark_user_notifications_read", {
       p_user_phone: userPhone,
+      p_device_id: getDeviceId(),
       p_informational_only: false,
     });
     if (error) {
       console.error("NotificationBell mark all read", error);
+      captureError(error, {
+        notificationSurface: "bell",
+        operation: "mark_user_notifications_read",
+      });
       return;
     }
     setUnreadCount(0);
     setNotifications((prev) =>
       prev.map((n) => (!n.is_read ? { ...n, is_read: true, read_at: now } : n)),
     );
-    await loadTray(userPhone);
+    if (openRef.current) {
+      await loadTray(userPhone);
+    }
   }, [loadTray]);
 
   const handleMarkAllRead = useCallback(async () => {
@@ -134,13 +172,19 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
       if (!n.is_read) {
         setUnreadCount((count) => Math.max(0, count - 1));
       }
+      await ensureUserDeviceLink(phone);
       const { error } = await supabase.rpc("delete_user_notification", {
         p_user_phone: phone,
+        p_device_id: getDeviceId(),
         p_notification_id: n.id,
       });
       if (error) {
         console.error("NotificationBell dismiss", error);
-        void loadTray(phone);
+        captureError(error, {
+          notificationSurface: "bell",
+          operation: "delete_user_notification",
+        });
+        if (openRef.current) void loadTray(phone);
         void refreshUnreadCount(phone);
       }
     },
@@ -151,12 +195,18 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     async (userPhone: string) => {
       setNotifications([]);
       setUnreadCount(0);
+      await ensureUserDeviceLink(userPhone);
       const { error } = await supabase.rpc("clear_user_notifications", {
         p_user_phone: userPhone,
+        p_device_id: getDeviceId(),
       });
       if (error) {
         console.error("NotificationBell clear all", error);
-        void loadTray(userPhone);
+        captureError(error, {
+          notificationSurface: "bell",
+          operation: "clear_user_notifications",
+        });
+        if (openRef.current) void loadTray(userPhone);
         void refreshUnreadCount(userPhone);
       }
     },
@@ -178,13 +228,31 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     if (!phone) {
       setUnreadCount(0);
       setNotifications([]);
+      setLoadError(false);
       return;
     }
     void refreshUnreadCount(phone);
   }, [phone, refreshUnreadCount]);
 
+  // OTP-off: Realtime filters on user_phone but RLS uses auth_user_phone() (NULL),
+  // so events often never arrive. Poll is the source of truth for the badge.
   useEffect(() => {
     if (!phone) return;
+    const onTick = () => {
+      void refreshUnreadCount(phone);
+      if (openRef.current) void loadTray(phone);
+    };
+    const t = window.setInterval(onTick, NOTIFICATION_BELL_POLL_MS);
+    return () => window.clearInterval(t);
+  }, [phone, refreshUnreadCount, loadTray]);
+
+  useEffect(() => {
+    if (!phone) return;
+
+    const onChange = () => {
+      void refreshUnreadCount(phone);
+      if (openRef.current) void loadTray(phone);
+    };
 
     const channel = supabase
       .channel(`user-notifications-${phone}`)
@@ -196,10 +264,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
           table: "user_notifications",
           filter: `user_phone=eq.${phone}`,
         },
-        () => {
-          void refreshUnreadCount(phone);
-          void loadTray(phone);
-        },
+        onChange,
       )
       .on(
         "postgres_changes",
@@ -209,10 +274,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
           table: "user_notifications",
           filter: `user_phone=eq.${phone}`,
         },
-        () => {
-          void refreshUnreadCount(phone);
-          void loadTray(phone);
-        },
+        onChange,
       )
       .on(
         "postgres_changes",
@@ -222,10 +284,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
           table: "user_notifications",
           filter: `user_phone=eq.${phone}`,
         },
-        () => {
-          void refreshUnreadCount(phone);
-          void loadTray(phone);
-        },
+        onChange,
       )
       .subscribe();
 
@@ -250,12 +309,18 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     if (!phone) return;
     const now = new Date().toISOString();
     if (!n.is_read) {
+      await ensureUserDeviceLink(phone);
       const { error } = await supabase.rpc("mark_user_notification_read", {
         p_user_phone: phone,
+        p_device_id: getDeviceId(),
         p_notification_id: n.id,
       });
       if (error) {
         console.error("NotificationBell mark read", error);
+        captureError(error, {
+          notificationSurface: "bell",
+          operation: "mark_user_notification_read",
+        });
       } else {
         setNotifications((prev) =>
           prev.map((row) =>
@@ -276,12 +341,14 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
     <>
       <button
         type="button"
+        data-testid="notification-bell-btn"
         onClick={() => handleOpenChange(true)}
         className={cn(
           "relative h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-border bg-card text-foreground active:opacity-90",
           className,
         )}
         aria-label={s.notif_bell_aria_label}
+        data-unread-count={unreadCount}
       >
         <Bell className="h-5 w-5" />
         {vendorDualBadges ? (
@@ -290,6 +357,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
               <span
                 className="absolute -top-1 -left-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-[10px] font-bold tabular-nums"
                 aria-hidden
+                data-testid="notification-bell-badge"
               >
                 {formatBadgeCount(unreadCount)}
               </span>
@@ -308,6 +376,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
             <span
               className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-[10px] font-bold tabular-nums"
               aria-hidden
+              data-testid="notification-bell-badge"
             >
               {formatBadgeCount(unreadCount)}
             </span>
@@ -323,7 +392,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
           <SheetHeader className="px-4 pt-4 pb-2 border-b border-border text-left shrink-0">
             <div className="flex items-center justify-between gap-2 pr-8">
               <SheetTitle className="text-foreground">{s.notif_bell_title}</SheetTitle>
-              {(unreadCount > 0 || notifications.length > 0) && (
+              {!loadError && (unreadCount > 0 || notifications.length > 0) && (
                 <div className="flex items-center gap-3 shrink-0">
                   {unreadCount > 0 && (
                     <button
@@ -349,8 +418,18 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
           </SheetHeader>
 
           <div className="flex-1 overflow-y-auto px-4 py-3">
-            {loading && notifications.length === 0 ? (
+            {loading && notifications.length === 0 && !loadError ? (
               <p className="text-sm text-muted-foreground text-center py-8">{s.notif_bell_loading}</p>
+            ) : loadError ? (
+              <div
+                className="flex flex-col items-center justify-center py-12 text-center"
+                data-testid="notification-bell-load-error"
+              >
+                <div className="h-16 w-16 rounded-full bg-muted border border-border grid place-items-center mb-4">
+                  <Bell className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium text-foreground">{s.notif_bell_load_error}</p>
+              </div>
             ) : notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="h-16 w-16 rounded-full bg-muted border border-border grid place-items-center mb-4">

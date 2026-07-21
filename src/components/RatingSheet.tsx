@@ -240,7 +240,12 @@ export function RatingSheet({
         notification_title: s.review_lowRatingNotifTitle,
         message: s.review_lowRatingNotifBody,
         request_id: requestId,
-        type: "order_update",
+        type: "review_received",
+        route: "settings",
+        route_params: {
+          vendor_id: vendorId,
+          open_reviews: "1",
+        },
       });
     }
 

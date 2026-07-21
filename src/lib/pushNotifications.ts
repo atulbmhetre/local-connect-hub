@@ -8,6 +8,7 @@ import { getDeviceId } from "@/lib/deviceId";
 import { getAppNavigate } from "@/lib/appNavigate";
 import { handlePushNotificationData } from "@/lib/notificationNavigation";
 import { storePendingPushNav } from "@/lib/pendingPushNav";
+import { captureError } from "@/lib/sentry";
 
 const VENDOR_ID_KEY = "aaspaas:vendor_id";
 export const VENDOR_SOUND_KEY = "aaspaas:vendor_sound";
@@ -127,6 +128,10 @@ async function attachRegistrationListener(
 
   await PushNotifications.addListener("registrationError", (error) => {
     console.error("Push registration failed", error);
+    captureError(error, {
+      pushSurface: "registration",
+      operation: "registrationError",
+    });
   });
 }
 
@@ -187,7 +192,15 @@ export async function registerUserPushToken(userPhone: string) {
   if (!Capacitor.isNativePlatform()) return;
 
   const permission = await PushNotifications.requestPermissions();
-  if (permission.receive !== "granted") return;
+  if (permission.receive !== "granted") {
+    captureError(new Error("push_permission_denied"), {
+      pushSurface: "registration",
+      operation: "registerUserPushToken",
+      reason: "permission_denied",
+      receive: permission.receive,
+    });
+    return;
+  }
 
   const deviceId = getDeviceId();
 
@@ -201,6 +214,10 @@ export async function registerUserPushToken(userPhone: string) {
     });
     if (error) {
       console.error("User push token save failed", error);
+      captureError(error, {
+        pushSurface: "registration",
+        operation: "upsert_user_device",
+      });
       return;
     }
     void saveUserDeviceLocationSilently(userPhone, deviceId);

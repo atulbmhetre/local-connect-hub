@@ -774,7 +774,7 @@ export function VendorRegistrationWizard({
       `${name.trim()} — ${resolvedCategoryLabel} (${resolvedPrimaryServiceMode})`,
       {
         type: "new_vendor",
-        route: "vendor",
+        route: "settings",
         route_params: { vendor_id: newVendorId },
       },
     );

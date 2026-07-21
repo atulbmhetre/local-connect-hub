@@ -38,8 +38,11 @@ export function buildFcmData(
     ) {
       route = "my-orders";
       if (orderId) routeParams = { order_id: orderId };
-    } else if (type === "payment_claimed" || type === "payment_confirmed") {
+    } else if (type === "payment_claimed") {
       route = "vendor";
+      if (orderId) routeParams = { order_id: orderId };
+    } else if (type === "payment_confirmed" || type === "payment_disputed") {
+      route = "my-orders";
       if (orderId) routeParams = { order_id: orderId };
     } else if (
       type === "new_order" ||
@@ -60,6 +63,9 @@ export function buildFcmData(
       type === "account_restored"
     ) {
       route = "settings";
+    } else if (type === "new_vendor" || type === "vendor_edited") {
+      route = "settings";
+      if (vendorId) routeParams = { vendor_id: vendorId };
     }
   }
 
@@ -106,6 +112,8 @@ export function buildVendorFcmData(
       ? (record.route_params as Record<string, unknown>)
       : undefined;
 
+  const categoryId = String(record.category_id ?? "").trim();
+
   if (!route) {
     if (
       (type === "payment_claimed" || type === "payment_confirmed") &&
@@ -125,6 +133,19 @@ export function buildVendorFcmData(
     ) {
       route = "vendor";
       routeParams = { vendor_id: vendorId };
+    } else if (type === "category_approved" || type === "category_rejected") {
+      route = "settings";
+      routeParams = {
+        vendor_id: vendorId,
+        ...(categoryId ? { category_id: categoryId } : {}),
+      };
+    } else if (type === "review_received") {
+      route = "settings";
+      routeParams = {
+        vendor_id: vendorId,
+        open_reviews: "1",
+        ...(orderId ? { order_id: orderId } : {}),
+      };
     } else if (!type && title.toLowerCase().includes("new order")) {
       route = "vendor";
       if (orderId) routeParams = { order_id: orderId };

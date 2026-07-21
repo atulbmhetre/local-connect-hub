@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getDeviceId } from "@/lib/deviceId";
+import { captureError } from "@/lib/sentry";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -166,6 +167,14 @@ export async function invokeNotifyVendor(record: {
   route?: string;
   route_params?: Record<string, string>;
 }): Promise<void> {
+  if (!record.route?.trim()) {
+    captureError(new Error("invokeNotifyVendor missing route"), {
+      notifyHelper: "invokeNotifyVendor",
+      notificationType: record.type ?? null,
+      vendorId: record.vendor_id,
+      callSiteStack: new Error().stack?.split("\n").slice(0, 10).join("\n"),
+    });
+  }
   try {
     await supabase.functions.invoke("notify-vendor", {
       body: { record },
@@ -240,6 +249,14 @@ export function invokeNotifyUser(payload: {
   route?: string;
   route_params?: Record<string, string>;
 }): void {
+  if (!payload.route?.trim()) {
+    captureError(new Error("invokeNotifyUser missing route"), {
+      notifyHelper: "invokeNotifyUser",
+      notificationType: payload.type ?? null,
+      userPhone: payload.user_phone,
+      callSiteStack: new Error().stack?.split("\n").slice(0, 10).join("\n"),
+    });
+  }
   void supabase.functions.invoke("notify-user", { body: payload }).catch(() => {});
 }
 
