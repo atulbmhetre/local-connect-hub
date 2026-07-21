@@ -29,7 +29,7 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **20 of ~52 functionality-inventory entries fully closed.** Home & Discovery Entry is CLOSED. The `~52` figure is the curated functionality inventory; the document currently contains 66 raw `###` headings, which include sub-sections and are not a one-to-one inventory count. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
+| Phase 2 progress | **21 of ~52 functionality-inventory entries fully closed.** Notifications Client Surfaces is CLOSED. The `~52` figure is the curated functionality inventory; the document currently contains 66 raw `###` headings, which include sub-sections and are not a one-to-one inventory count. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
 | Next planned Phase 2 target | TBD |
 
 ## Lessons for future audit passes
@@ -427,3 +427,44 @@ Home's free-text AI search used a single-guess classifier that could silently au
 ### Standing item (not this pass)
 
 31 pre-existing Playwright failures on the shared TEST baseline (order-lifecycle, expiry-cron, notification-copy domains) were investigated via real A/B against a clean stash — identical failures on baseline and with these changes. Confirmed unrelated to this pass, not resolved here, and flagged for future triage.
+
+## Notifications Client Surfaces — CLOSED (TEST + PROD)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD) |
+| Scope | Bell UI (`NotificationBell`), push navigation bridge (`PushNavigationBridge` / `notificationNavigation`), feed push toggle, and the client-side notify helpers that feed those surfaces |
+| Review | Distinct from the earlier **Notifications — CLOSED** backend entry (inbox write path, `skip_inbox`, edge rate limits, FCM cleanup, `notification_i18n` copy table, archive cron, FCM-failure admin card). That entry left Performance / Reliability / Device / Localization / Observability / UI-Layout as **NOT YET REVIEWED**. This pass closes those client surfaces — it does **not** reopen or redo the backend Notifications work. |
+
+### Headline finding
+
+Atul reported real recurring routing and duplicate-inbox issues that the initial Notifications backend audit alone did not catch. A targeted diagnosis against real inserted rows found four distinct routing bugs (wrong or null destinations), an OTP-off Realtime dead path for the bell (same class as Home's help banner), weaker-than-feed inbox mutation authz, an FCM token collision on shared `device_id`, silent failure paths with no `captureError`, a capped-fetch badge undercount, plus two PROD-severity findings: `notification_i18n` with RLS fully disabled (active anon write-exposure on live copy templates), and a long-standing `new_order` + typeless `notification` duplicate driven by a legacy untracked DB webhook trigger.
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| Bell Realtime dead under OTP-off | `user_notifications` RLS is keyed on `auth_user_phone()`, which is NULL for real OTP-off callers — same root cause as Home's help banner. Poll-based badge/tray refresh is now the source of truth; Realtime kept as a harmless bonus layer. |
+| Inbox mutation RPC hardening | Mark / delete / clear previously accepted only `p_user_phone` with no device binding (weaker than the feed-toggle RPC). Hardened to phone + `device_id`, with rate limiting (30/60s) matching other mutation RPCs. |
+| FCM token collision / staleness | A new phone on a previously-used `device_id` could leave the prior phone receiving pushes. `upsert_user_device` / `ensure_user_device_link` now clear the token from any other phone sharing that `device_id`. |
+| Silent failure → `captureError` | Bell load/mutation failures, push registration failures, and unresolvable push-tap routes were console-only. Wired `captureError` into all three, matching the Home & Discovery pattern. |
+| True unread-count RPC | Badge count was previously derived by filtering a capped 100-row client fetch (could undercount past that limit). Added `get_user_unread_notification_count`. Tray only refetches when the sheet is open. |
+| Routing: `category_approved` / `category_rejected` | Null route → fell through to Home; now routes to Settings. |
+| Routing: low-rating → `review_received` | Reused `order_update` type with copy/destination disagreement; now its own `review_received` type, routed to Settings. |
+| Routing: `payment_confirmed` / `payment_disputed` | Confirmed payments routed customers to `/vendor` instead of `/my-orders`; disputes now have their own `payment_disputed` type. |
+| Routing: admin `new_vendor` | Routed to `/vendor` instead of `/settings`. VR-E2E-01 had a stale assertion expecting `vendor`; updated to `settings` to match the intentional fix. |
+| Route-missing safety net | Non-blocking `captureError` in shared `invokeNotifyUser` / `invokeNotifyVendor` client helpers so a future type shipped without a route cannot silently repeat the `category_approved` bug. |
+| Historical `referral_credit` duplicate cleanup | 6 pre-2026-07-17 duplicate inbox rows cleaned on TEST (root cause — double-insert in `process-vendor-referral` — already fixed in source on 2026-07-17). PROD had zero such duplicates. |
+| **Urgent:** `notification_i18n` RLS | Active PROD write-exposure: RLS was disabled entirely with full anon/authenticated CRUD grants — any anon caller could alter live notification copy templates app-wide. Enabled RLS with a SELECT-only public-read policy (same pattern as `categories` / `app_config` / `category_translations`). Pushed to PROD ahead of the rest of this pass given severity. |
+| `new_order` + typeless `notification` duplicate | Long-standing, previously unexplained PROD pair for the same order (~1.8s apart). Root cause: legacy dashboard-created DB webhook trigger `notify_vendor_on_order` (never in git) fired on every `requests` INSERT across all modes, redundant with ParchiSheet's client notify; also silently dead since the July 18 key rotation (embedded invalid legacy anon JWT). Removed via a git-tracked migration. |
+| Admin category-suggestion dual-write | Source-fixed 2026-07-13 but never deployed to PROD; redeployed `suggest-category` (plus `notify-vendor` / `notify-user` / `notify-admin`) and verified live. |
+| Test coverage | Push bridge cold-start / unresolvable-route handling, feed-toggle native persistence, phone-spoofing authz on hardened inbox RPCs, bell fetch-fail-to-error-UI, poll-based badge under simulated OTP-off Realtime failure, NRF-01..04 routing-fix specs. |
+| Migrations | `20260720120001`, `20260720140001`, `20260720150001`, `20260720160001` |
+| Edge functions | `notify-vendor`, `notify-user`, `notify-admin`, `suggest-category` redeployed to PROD |
+
+### Standing items (not this pass)
+
+| Item | Notes |
+|------|-------|
+| NOTIF-RATE-01 | Investigated via real A/B; pre-existing test-harness bug — mismatched service/anon key header pairing against TEST's `sb_`-style keys causes an early 401 before rate-limit logic runs. Not a product regression; flagged for future test-infra cleanup. |
+| IO-DEL-02 | Investigated via real A/B against pre-session code; fails identically (`incoming-accept-btn` not found) — same class as IO-DEL-01/05. Confirmed pre-existing / unrelated; not fixed in this pass. |
