@@ -29,8 +29,30 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **21 of ~52 functionality-inventory entries fully closed.** Notifications Client Surfaces is CLOSED. The `~52` figure is the curated functionality inventory; the document currently contains 66 raw `###` headings, which include sub-sections and are not a one-to-one inventory count. Phase A, the app-wide OTP-off sweep, and the service-role key-rotation incident are tracked separately as cross-cutting closures. |
+| Phase 2 progress | **36 of 66 functionality-inventory entries fully closed** (named list and section-to-entries mapping directly below this table). The denominator is the number of `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` — **66** in both the current file and the originally committed version (`41e6519`); the earlier `~52` was an undocumented approximation from early in the audit, now corrected (no inventory items were discovered, added, or removed — only the denominator was made accurate). The numerator is derived by mapping each fully-CLOSED Phase 2 `##` audit section to the distinct `###` inventory entries it wholly closes. Phase A, the app-wide OTP-off sweep, the service-role key-rotation incident, and the Vendor Trust Tier closure (which sits above the Phase 2 divider) are tracked separately as cross-cutting closures and are **not** part of this tally. |
 | Next planned Phase 2 target | TBD |
+
+### Phase 2 fully-closed inventory entries (36 of 66)
+
+Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial", not "NOT YET REVIEWED") to the distinct `docs/FUNCTIONALITY_INVENTORY.md` `###` entries it wholly closes. Only whole, user-facing inventory entries are counted; dead-code / duplication meta-entries and entries whose core still lives under a partial section are excluded.
+
+| Closing audit section | Inventory `###` entries wholly closed |
+|-----------------------|----------------------------------------|
+| Radar Search | Geo vendor search (help / delivery / appointment) |
+| Vendor Profile & Lifecycle | Vendor onboarding (native); Vendor phone lookup (returning vendor); Go live / offline; Edit shop details; Vendor analytics summary; Banned vendor gate |
+| Home & Discovery Entry | Home screen (Index); Landing / app download; Category picker (SOS fallback); SOS button |
+| Notifications Client Surfaces | In-app notification bell; Push navigation bridge; Feed push toggle |
+| Admin Dashboard & Moderation | Admin dashboard & moderation; System health monitoring |
+| App Shell & Bottom Navigation, 404, Privacy Page, Network Error Banner | App shell & bottom navigation; 404 & privacy; Network error banner |
+| Bill/UPI/Khata Payment Flow | Send bill (vendor); Edit bill (vendor); Bill edit history; Khata ledger (vendor book); Add bill to khata / khata from order; Customer khata view (My Orders); UPI payment confirm / dispute (vendor); Customer UPI payment sheet; Inline post-fulfillment payment (Parchi) |
+| UPI Vendor Verification | Vendor verification checklist |
+| Order Lifecycle (Help/Delivery/Appointment) | Incoming orders list & actions; Order list & lifecycle; Help live tracking |
+| Referrals | Vendor refer & earn; Customer referral redirect; Referral link capture |
+| Ratings & Reviews | Post-order rating sheet |
+
+**Total: 1 + 6 + 4 + 3 + 2 + 3 + 9 + 1 + 3 + 3 + 1 = 36 distinct inventory entries.** Vendor Configuration (CLOSED) contributes 0 additional whole entries — its availability-modes work overlaps the already-counted Geo vendor search entry, and its menu-items / cancel-reasons work lives inside the still-partial "MY SHOP (vendor settings)" entry.
+
+**Tracker note — remaining-dimensions upgrade (not a net-new inventory discovery):** Bill/UPI/Khata, UPI Vendor Verification, Order Lifecycle, Referrals, and Ratings & Reviews were Security/Integrity-closed earlier (headers still carried `… NOT YET REVIEWED` for the other six dimensions). Under the corrected **19 of 66** methodology they were **not** counted in the numerator — only sections marked fully CLOSED with no remaining-dimension caveat qualify. This pass did **not** invent new inventory `###` entries; it upgraded those five already-partial sections to genuine full closure across all 10 dimensions, which is why the numerator moves **19 → 36**. The older committed phrasing **"21 of ~52"** was a separate, undocumented approximation and is not the basis of this tally. **Live Tracking Secure Call** remains its own Security/Integrity-only section (not upgraded here); LiveTracking page localization from this pass is attributed under Order Lifecycle (Help live tracking), not as a Secure Call closure.
 
 ## Lessons for future audit passes
 
@@ -44,6 +66,14 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 |------|--------|
 | `supabase/migrations-deferred/` ordering friction | Causes recurring `db push` friction against PROD — CLI enforces strict chronological application. Each push after the deferred migration's timestamp needs a manual workaround (direct SQL apply + `migration repair`). Revisit once Part L (FCM cron replacement) is verified and `20260711180001` can move back to active migrations. **This session alone: five separate PROD pushes hit the same workaround — this needs a structural decision next session, not another one-off workaround.** |
 | Confirm the linked Supabase project before every push/deploy | Run an explicit project-ref check before every `supabase db push` and `supabase functions deploy`, with no exceptions. A rate-limit migration and two edge functions were pushed to PROD before TEST verification this session because the CLI retained a stale PROD link. The outcome was low-risk and both environments were subsequently verified in sync, but the sequence violated the standing TEST-then-PROD rule. |
+
+## Process — Parallel Cursor Window Risk (standing rule, permanent)
+
+| Field | Detail |
+|-------|--------|
+| Risk | Two Claude conversations share one Cursor workspace. `supabase/.temp/project-ref` is a single shared local file, so whichever conversation last ran `supabase link` silently determines the target of the next `db push` / `functions deploy` in *either* conversation — with no warning in the conversation that did not run the link. |
+| Confirmed impact | Root cause of at least two accidental early-landed PROD pushes this session. Both were harmless in outcome (additive / nullable schema, no data loss) but were not safe by design. |
+| Standing rule (both windows, permanent) | Run `supabase migration list` immediately before every single `db push` / `functions deploy`, in the same breath. Treat any mismatch between expected-pending and actual-pending as an automatic hard stop — do not proceed. |
 
 ## Phase A — Admin Session Auth — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
 
@@ -61,13 +91,15 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 
 ## Phase 2
 
-> **Scope correction (as of this update):** 17 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
+> **Scope correction (as of this update):** 36 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items) and five sections upgraded from Security/Integrity-only to full 10-dimension closure (Bill/UPI/Khata, UPI Vendor Verification, Order Lifecycle, Referrals, Ratings & Reviews). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
 
-## Bill/UPI/Khata Payment Flow — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+## Bill/UPI/Khata Payment Flow — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD) |
+| Scope | Vendor bill create/edit/history, khata ledger + customer khata, customer UPI claim (PaymentSheet + Parchi inline), vendor confirm/dispute |
+| Review | Earlier Security/Integrity closure left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. This remaining-dimensions pass closes those six for this flow. |
 
 ### Fixed
 
@@ -92,11 +124,25 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | `order_bills` no dedicated `vendor_id` index | Fine at current scale; UI queries by `request_id` |
 | Payment/khata RPCs still phone-param auth | Same identity-binding gap as Phase A; pending OTP |
 
-## UPI Vendor Verification — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| UPI return-flow unification | PaymentSheet's resume-based "Did you pay?" (Session 63, with regression tests) was the later design vs ParchiSheet's 30s timer (Session 57). Both surfaces now share `UpiPaymentPanel`; Parchi gains disputed-resubmit + QR deep-link payee support. |
+| `payment_claimed` vendor notification | Was titled "Pay Now" in the customer's language. New `notifyVendor_paymentClaimed_*` copy (EN/HI/MR); language resolved via `resolve_user_lang` on the vendor phone (same recipient-language pattern as referrals). |
+| Bill line-item `unit` input | Data model had `unit` with no UI. Added localized select (kg/litre/pc/…) in BillSheet + BillEditSheet; historical bills without a unit still render correctly. |
+| Silent empty / false-zero states | BillSheet khata outstanding no longer defaults to ₹0 on fetch failure (unknown/error state); bill-replace checks `vendor_void_unpaid_bills` return and blocks send on void failure; MyOrders `loadBills` / `loadMyKhata` toast on error and keep last-good data. |
+| Observability | `captureError` wired on BillSheet, BillEditSheet, BillEditHistorySheet, `billEdit.ts`, UpiPaymentPanel claim path, LedgerView load paths. |
+| Localization | Payment tab labels + QR empty state; MyOrders bill Paid/Unpaid; `khataPaymentModeLabel` Unpaid/Paid — all EN/HI/MR. |
+| Performance | LedgerView customer-open lazy-loads full khata history only when requested (cycle-only first). |
+
+## UPI Vendor Verification — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD), with real PSP/bank penny-drop still deliberately deferred |
+| Scope | `vendor_verify_upi`, My Business UPI verify UI, trust-badge UPI check copy |
+| Review | Earlier Security/Integrity closure left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. This remaining-dimensions pass closes those six for this surface. |
 
 ### Fixed
 
@@ -120,6 +166,16 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Future real verification | `vendor_verification` check_type `upi_pennydrop` is the correct slot |
 | Audit trail | Possible `upi_self_verify` check_type considered but not added — revisit if formal audit logging is wanted here |
 
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| Copy honesty | Trust/admin strings (`trust_check_upi_pennydrop` and related) claimed bank-verified "penny-drop". Actual mechanism is format validation + exact match to saved UPI ID. Copy now says so in EN/HI/MR (`Bank account check (UPI penny-drop)` / vendor "UPI ID confirmed" wording). |
+| Artificial delay removed | 900ms `setTimeout` before `vendor_verify_upi` in VendorMyBusiness had no functional purpose — removed. |
+| Dead key | Unused `vendor_verify_upi_btn` removed after confirming no call sites. |
+| Observability | `captureError` on UPI/category verify paths in VendorMyBusiness. |
+| Test TB-03 | Trust detail sheet still asserted the old dishonest label; updated to the new honest string and re-run green. |
+
 ## Live Tracking Secure Call — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
 
 | Field | Detail |
@@ -141,11 +197,13 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 |------|-------|
 | Real Exotel masked calling itself | External KYC blocker; same category as Razorpay and UPI PSP verification |
 
-## Ratings & Reviews — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+## Ratings & Reviews — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD) |
+| Scope | `RatingSheet`, MyOrders rate CTA / dismiss path, `vendorRating.ts` stats sync |
+| Review | Earlier Security/Integrity closure left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. This remaining-dimensions pass closes those six for this flow. |
 
 ### Fixed
 
@@ -160,6 +218,15 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 |------|-------|
 | Medium, deferred: `recalculate_vendor_rating_stats` has no row lock | Possible race under concurrent submissions; self-correcting; low impact |
 | Backlog: no review-flagging / dispute mechanism | Vendors cannot contest a review |
+
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| Failed-submit must not archive | `RatingSheet` called `onDismiss` after a failed `submit_vendor_review`, which MyOrders treated as markDone — Rate CTA disappeared even though nothing saved. Failures now keep the sheet open for retry. Skip/Issue → dismiss/archive remains confirmed correct (RV-04). |
+| Observability + sync retry | `captureError` on RatingSheet submit/issue paths; `syncVendorRatingFromReviews` retries once then `captureError` with context (was silent while the UI still showed success). |
+| Localization | Leftover voice-unavailable toast uses shared `home_voice_unavailable`. |
+| Tests | New `RatingSheet.test.tsx` covers fail-no-dismiss, success-dismiss, Skip-dismiss. |
 
 ## Vendor Registration — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
 
@@ -182,11 +249,13 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Medium/Low, deferred: UPI format not re-validated server-side in `register_vendor` | Client-only |
 | Medium/Low, deferred: no server-side sanitization on name/shop text fields | Low risk |
 
-## Order Lifecycle (Help/Delivery/Appointment) — CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+## Order Lifecycle (Help/Delivery/Appointment) — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD) |
+| Scope | Incoming orders (vendor), My Orders (customer), Help live-tracking page surfaces used by this lifecycle |
+| Review | Earlier header said CLOSED for Security/Integrity but left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. This remaining-dimensions pass closes those six. **Live Tracking Secure Call** remains a separate section (secure-call / Exotel) and was not upgraded by this pass — only LiveTracking page localization/reliability touched here under Help live tracking. |
 
 ### Fixed
 
@@ -196,6 +265,18 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Incoming-orders list no longer silently caps at 20 | Raised to 50 with explicit count + load-more |
 | Appointment double-booking constraint deliberately reverted | Product decision: informal-market vendors legitimately serve overlapping appointments via multiple staff/flexible scheduling — replaced with a soft, non-blocking "you have another appointment around this time" indicator |
 | Migrations | `20260715160001`, `20260715170001` |
+
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| IncomingOrders silent empty | `load()` / `loadBillsForOrders` no longer wipe to a false-empty list on RPC error — preserve last-good state + NetworkErrorBanner retry. |
+| Poll + Realtime double-load | 30s poll and Realtime shared a `silentRefresh` debounce so the same change does not trigger two full reloads. MyOrders poll+Realtime confirmed no equivalent double-load (Realtime patches in place). |
+| MyOrders reviews load | `loadMyReviews` ignored errors (could blank already-rated orders on a failed poll). Now `captureError` + toast + preserve last-good map. |
+| Observability | `captureError` across IncomingOrdersSection, MyOrders, LiveTracking, ParchiSheet side paths. |
+| Localization | LiveTracking EN surface (~40 `liveTracking_*` keys EN/HI/MR); MyOrders Paid/Unpaid; voice-unavailable toasts. |
+| Deliberate one-tap (documented, not changed) | Vendor Dismiss / Mark Done / Confirm Payment and same-day post-call appointment cancel intentionally skip confirmation dialogs — one-line code comments added so future audits do not re-flag. |
+| Test investigation (not caused by this pass) | LOC-REQ-05, MO-DEL-05, MO-BOOK-05, RV-REQ-07, RV-REQ-08 failed with help-mode CTA copy ("Vendor Helped Me"). Real A/B: identical failures on clean HEAD — pre-existing fixture/`service_mode` issue; not fixed here; flagged for future triage. |
 
 ## Notifications — CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
 
@@ -230,11 +311,13 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Orphaned storage objects on upload-then-fail cleaned up client-side | |
 | Migrations | `20260717120001`, `20260717140001` |
 
-## Referrals — CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+## Referrals — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD), with admin referrer→referee visibility explicitly deferred |
+| Scope | `referral.ts` / `apply_user_referral`, ReferralRedirect, vendor Refer & Earn credits display |
+| Review | Earlier header said CLOSED for Security/Integrity but left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. This remaining-dimensions pass closes those six. |
 
 ### Fixed
 
@@ -249,6 +332,23 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Notes |
 |------|-------|
 | Referral credits intentionally accumulating (`disbursed: false`) | Pending a future disbursement strategy once subscriptions launch |
+
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| Create-success / reward-fail trap | If `create_referred_user` succeeded but reward recording failed, retries saw the user and silently no-op'd — credit permanently lost. New atomic `apply_user_referral` completes the reward on retry; dedupes on existing `referrals` row (`already_rewarded`) so no double credit. Migration `20260721090001` (verified on TEST + PROD). |
+| Per-recipient notification language | Vendor "you earned credit" notification was worded from the joiner's device language. RPC now returns `vendor_lang` via `resolve_user_lang`; client picks vendor-locale copy. Joiner-facing messages stay on the joiner's locale. |
+| ReferralRedirect UX | Was blank while awaiting and silent on failure. Now loading UI + error toast (`referral_apply_failed`). |
+| False ₹0 credits | Settings referral-credits fetch error no longer shows ₹0 — unknown/unavailable state (`referral_credits_unavailable`). |
+| Observability | `captureError` in `referral.ts` / related Settings fetch paths. |
+| Tests | `tests/referral-reward-retry.spec.ts` (RF-RETRY-01..04). |
+
+### Deliberately deferred
+
+| Item | Notes |
+|------|-------|
+| Admin referrer→referee visibility | No admin surface clearly showing who referred whom (names/phones, not raw IDs). Discussed with Atul; deferred as non-urgent — not built under this ticket. |
 
 ## Settings (customer + vendor) — CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
 
@@ -468,3 +568,26 @@ Atul reported real recurring routing and duplicate-inbox issues that the initial
 |------|-------|
 | NOTIF-RATE-01 | Investigated via real A/B; pre-existing test-harness bug — mismatched service/anon key header pairing against TEST's `sb_`-style keys causes an early 401 before rate-limit logic runs. Not a product regression; flagged for future test-infra cleanup. |
 | IO-DEL-02 | Investigated via real A/B against pre-session code; fails identically (`incoming-accept-btn` not found) — same class as IO-DEL-01/05. Confirmed pre-existing / unrelated; not fixed in this pass. |
+
+## App Shell & Bottom Navigation, 404, Privacy Page, Network Error Banner — CLOSED (TEST + PROD, frontend-only)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD, frontend-only) |
+| Scope | `AppShell` / `BottomNav`, the 404 / not-found route, the in-app Privacy Policy page, and the global Network Error Banner |
+| Review | All four are frontend-only surfaces — none perform direct owner-table reads, so the systemic OTP-off silent-read class does not apply here. Confirmed by inspection at every call site. |
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| Stale duplicate Privacy Policy | The in-app Privacy Policy page was a materially incomplete second copy of the canonical policy — missing the OTP, payments, user-rights, and security sections, with a wrong contact and an outdated date. Repointed to the single canonical source instead of maintaining a divergent copy that could drift, and added a Settings link (previously reachable only by typing the direct URL). |
+| 404 home link | Now uses client-side navigation instead of a full document reload. |
+| Localization | Remaining hardcoded English strings across these surfaces localized. |
+
+### Confirmed correct (no change needed)
+
+| Item | Notes |
+|------|-------|
+| Network Error Banner classification | Correctly distinguishes genuine network failures from RLS/permission errors at every audited call site — it does not misreport an authorization denial as an offline/network problem. |
+| No OTP-off exposure | None of the four surfaces read owner tables directly; the OTP-off silent-read defect cannot manifest here. |
