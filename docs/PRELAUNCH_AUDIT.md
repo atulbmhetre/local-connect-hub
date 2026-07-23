@@ -29,10 +29,10 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **36 of 66 functionality-inventory entries fully closed** (named list and section-to-entries mapping directly below this table). The denominator is the number of `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` — **66** in both the current file and the originally committed version (`41e6519`); the earlier `~52` was an undocumented approximation from early in the audit, now corrected (no inventory items were discovered, added, or removed — only the denominator was made accurate). The numerator is derived by mapping each fully-CLOSED Phase 2 `##` audit section to the distinct `###` inventory entries it wholly closes. Phase A, the app-wide OTP-off sweep, the service-role key-rotation incident, and the Vendor Trust Tier closure (which sits above the Phase 2 divider) are tracked separately as cross-cutting closures and are **not** part of this tally. |
+| Phase 2 progress | **46 of 66 functionality-inventory entries fully closed** (named list and section-to-entries mapping directly below this table). The denominator is the number of `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` — **66** in both the current file and the originally committed version (`41e6519`); the earlier `~52` was an undocumented approximation from early in the audit, now corrected (no inventory items were discovered, added, or removed — only the denominator was made accurate). The numerator is derived by mapping each fully-CLOSED Phase 2 `##` audit section to the distinct `###` inventory entries it wholly closes. Phase A, the app-wide OTP-off sweep, the service-role key-rotation incident, and the Vendor Trust Tier closure (which sits above the Phase 2 divider) are tracked separately as cross-cutting closures and are **not** part of this tally. |
 | Next planned Phase 2 target | TBD |
 
-### Phase 2 fully-closed inventory entries (36 of 66)
+### Phase 2 fully-closed inventory entries (46 of 66)
 
 Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial", not "NOT YET REVIEWED") to the distinct `docs/FUNCTIONALITY_INVENTORY.md` `###` entries it wholly closes. Only whole, user-facing inventory entries are counted; dead-code / duplication meta-entries and entries whose core still lives under a partial section are excluded.
 
@@ -49,16 +49,21 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Order Lifecycle (Help/Delivery/Appointment) | Incoming orders list & actions; Order list & lifecycle; Help live tracking |
 | Referrals | Vendor refer & earn; Customer referral redirect; Referral link capture |
 | Ratings & Reviews | Post-order rating sheet |
+| Live Tracking Secure Call | AI-Bridge pre-call sheet |
+| Vendor Registration | Vendor registration (new shop) |
+| Local Feed | Feed reader; Vendor post offer; Feed discovery radius (reader) |
+| Settings (customer + vendor) | My Account (customer); MY SHOP (vendor settings); Device permissions; Account deletion; Clear my data |
 
-**Total: 1 + 6 + 4 + 3 + 2 + 3 + 9 + 1 + 3 + 3 + 1 = 36 distinct inventory entries.** Vendor Configuration (CLOSED) contributes 0 additional whole entries — its availability-modes work overlaps the already-counted Geo vendor search entry, and its menu-items / cancel-reasons work lives inside the still-partial "MY SHOP (vendor settings)" entry.
+**Total: 1 + 6 + 4 + 3 + 2 + 3 + 9 + 1 + 3 + 3 + 1 + 1 + 1 + 3 + 5 = 46 distinct inventory entries.** Vendor Configuration (CLOSED) still contributes 0 additional whole entries — its availability-modes work overlaps the already-counted Geo vendor search entry. **Notifications** (backend entry, distinct from Notifications Client Surfaces) likewise contributes **0** additional inventory entries — the three notification `###` rows were already wholly closed under Notifications Client Surfaces; this pass finishes the remaining six dimensions on the backend write/FCM/admin-health path that those same surfaces depend on.
 
-**Tracker note — remaining-dimensions upgrade (not a net-new inventory discovery):** Bill/UPI/Khata, UPI Vendor Verification, Order Lifecycle, Referrals, and Ratings & Reviews were Security/Integrity-closed earlier (headers still carried `… NOT YET REVIEWED` for the other six dimensions). Under the corrected **19 of 66** methodology they were **not** counted in the numerator — only sections marked fully CLOSED with no remaining-dimension caveat qualify. This pass did **not** invent new inventory `###` entries; it upgraded those five already-partial sections to genuine full closure across all 10 dimensions, which is why the numerator moves **19 → 36**. The older committed phrasing **"21 of ~52"** was a separate, undocumented approximation and is not the basis of this tally. **Live Tracking Secure Call** remains its own Security/Integrity-only section (not upgraded here); LiveTracking page localization from this pass is attributed under Order Lifecycle (Help live tracking), not as a Secure Call closure.
+**Tracker note — remaining-dimensions upgrade (not a net-new inventory discovery):** This pass, like the Bill/UPI/Khata…Ratings upgrade that moved the numerator **19 → 36**, did **not** invent new inventory `###` entries. It upgraded five already-partial sections — Live Tracking Secure Call, Vendor Registration, Notifications (backend), Local Feed, and Settings — from Security/Integrity-only (or CLOSED-with-`NOT YET REVIEWED` caveat) to genuine full closure across all 10 dimensions. Four of those five newly contribute whole inventory rows that were previously excluded from the numerator because their closing sections still carried the remaining-dimension caveat; Notifications (backend) upgrades to full CLOSED without moving the numerator further (same 0-contribution pattern as Vendor Configuration). That is why the numerator moves **36 → 46** (+10 = 1 + 1 + 3 + 5). Migrations: `20260722090001`, `20260722090002`, `20260722100001`, `20260722120001`, `20260722140001`, `20260723100001`. Edge functions redeployed: `notify-vendor`, `notify-admin`, `notify-feed-post`, `warn-near-deadline`, `check-vendor-subscriptions`.
 
 ## Lessons for future audit passes
 
 | Lesson | Action |
 |--------|--------|
 | TEST and PROD can diverge outside version control entirely | Plan periodic direct PROD schema / trigger / function audits — not migration-file review alone |
+| TEST/PROD schema drift — migration file edited after apply | During Batch 2 final verification, `get_local_feed_posts` / `get_local_feed_posts_count` differed between TEST and PROD (TEST missing the `is_banned` author filter) even though `migration list` showed the same version stamps with zero local-only / remote-only rows. Root cause: an earlier draft of `20260722090002` was applied to TEST; the file was later edited in git to restore the ban filter before PROD push; TEST's already-recorded version meant `db push` never re-ran the corrected statements. Caught only by direct `pg_get_functiondef` (+ `schema_migrations.statements` body) comparison — **not** by migration list alone. Fixed with new migration `20260723100001` + FEED-BAN-01/02 regression tests. **Standing rule:** never edit a migration file after any environment has applied it — always create a new migration instead. |
 
 ## Process notes
 
@@ -91,7 +96,7 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 
 ## Phase 2
 
-> **Scope correction (as of this update):** 36 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items) and five sections upgraded from Security/Integrity-only to full 10-dimension closure (Bill/UPI/Khata, UPI Vendor Verification, Order Lifecycle, Referrals, Ratings & Reviews). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
+> **Scope correction (as of this update):** 46 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items), five sections upgraded in the prior remaining-dimensions pass (Bill/UPI/Khata, UPI Vendor Verification, Order Lifecycle, Referrals, Ratings & Reviews), and five more upgraded in this pass (Live Tracking Secure Call, Vendor Registration, Notifications backend, Local Feed, Settings). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
 
 ## Bill/UPI/Khata Payment Flow — CLOSED (TEST + PROD)
 
@@ -176,11 +181,13 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Observability | `captureError` on UPI/category verify paths in VendorMyBusiness. |
 | Test TB-03 | Trust detail sheet still asserted the old dishonest label; updated to the new honest string and re-run green. |
 
-## Live Tracking Secure Call — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+## Live Tracking Secure Call — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD), with real Exotel masked calling still deliberately deferred |
+| Scope | `LiveTracking.tsx` secure-call chrome + `invokeInitiateCall`; shared honesty path with `AiBridgeSheet.tsx` |
+| Review | Earlier Security/Integrity closure left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. This remaining-dimensions pass closes those six for this surface. |
 
 ### Fixed
 
@@ -196,6 +203,15 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Item | Notes |
 |------|-------|
 | Real Exotel masked calling itself | External KYC blocker; same category as Razorpay and UPI PSP verification |
+
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| Call-chrome honesty | Removed fake Mute / Speaker / End Call controls that implied in-app control over a real WebRTC call. This is a PSTN/Exotel bridge — chrome now matches AiBridge's already-honest "answer on your phone" pattern with auto-dismiss. |
+| Call-initiation reliability | Real abort/timeout + `captureError` on `invokeInitiateCall` (was `console.log` only on failure). |
+| Localization | Remaining hardcoded Live Tracking chrome localized EN/HI/MR. |
+| Tests | `LiveTracking.secureCall.test.tsx` updated for the honest overlay. |
 
 ## Ratings & Reviews — CLOSED (TEST + PROD)
 
@@ -228,11 +244,13 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Localization | Leftover voice-unavailable toast uses shared `home_voice_unavailable`. |
 | Tests | New `RatingSheet.test.tsx` covers fail-no-dismiss, success-dismiss, Skip-dismiss. |
 
-## Vendor Registration — SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+## Vendor Registration — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD) |
+| Scope | `register_vendor` / VendorRegistrationWizard, go-live photo gate, selfie verification submission |
+| Review | Earlier Security/Integrity closure left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. This remaining-dimensions pass closes those six for this flow. |
 
 ### Fixed
 
@@ -248,6 +266,17 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 |------|-------|
 | Medium/Low, deferred: UPI format not re-validated server-side in `register_vendor` | Client-only |
 | Medium/Low, deferred: no server-side sanitization on name/shop text fields | Low risk |
+
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| Photo go-live gate (confirmed product decision) | Selfie + shop photo are now a real server gate via `_assert_vendor_photos_ready` inside `vendor_update_own` — not just a UI nag. A vendor whose photo upload fails can still register, but must successfully retry the photo before going live. Migration `20260722100001`. |
+| Selfie verification submission | Wizard now calls `submit_vendor_verification` for the selfie so admin's checklist cannot miss it. |
+| Gibberish name check (confirmed product decision) | Loosened Latin-vowel bias in `looksLikeGibberish` so legitimate Indic names are not false-flagged. Unit tests added. |
+| Network reliability | `withNetworkRetry` on `register_vendor` (previously had none); soft-fails use `captureError` + warnings instead of claiming success early. |
+| Localization | LiveCamera / QR and related reg copy EN/HI/MR. |
+| Tests | Go-live fixtures seed required photos; VR-MULTI-01 fixed for current add-business UI (no brand-name field). |
 
 ## Order Lifecycle (Help/Delivery/Appointment) — CLOSED (TEST + PROD)
 
@@ -278,11 +307,13 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Deliberate one-tap (documented, not changed) | Vendor Dismiss / Mark Done / Confirm Payment and same-day post-call appointment cancel intentionally skip confirmation dialogs — one-line code comments added so future audits do not re-flag. |
 | Test investigation (not caused by this pass) | LOC-REQ-05, MO-DEL-05, MO-BOOK-05, RV-REQ-07, RV-REQ-08 failed with help-mode CTA copy ("Vendor Helped Me"). Real A/B: identical failures on clean HEAD — pre-existing fixture/`service_mode` issue; not fixed here; flagged for future triage. |
 
-## Notifications — CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+## Notifications — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD) |
+| Scope | Notify edge functions (`notify-user` / `notify-vendor` / `notify-admin` / `notify-feed-post` / `warn-near-deadline` / `check-vendor-subscriptions`), FCM delivery logging, AdminSystemHealthCard backend health sections, `vendor_devices` multi-device push |
+| Review | Earlier Security/Integrity (and related backend) closure left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. Distinct from **Notifications Client Surfaces** (bell / push bridge / feed toggle), which is already fully CLOSED. This remaining-dimensions pass closes those six for the backend path. |
 
 ### Fixed
 
@@ -296,11 +327,24 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | FCM-failure observability added to existing `AdminSystemHealthCard` | |
 | Migration | `20260715180001` |
 
-## Local Feed — CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| AdminSystemHealthCard early-return | One failing section no longer blanked every section after it — independent section loading + tests. |
+| Vendor multi-device push (confirmed decision to build now) | New `vendor_devices` table (migrated from single-token `vendors.fcm_token`); `notify-vendor` delivers to every registered device. Customers already had multi-device; vendors were limited to one. Migration `20260722120001`; tests `vendor-devices.spec.ts`. |
+| FCM delivery logging | Admin/feed notify paths now log deliveries (previously only user/vendor); vendor FCM logs use the real notification type instead of a hardcoded label. |
+| Near-deadline honesty | `warn-near-deadline` marks pushed only when `sent > 0` (was marking success even with zero tokens). |
+| Subscriptions edge | `check-vendor-subscriptions` payload / `skip_inbox` fixed ahead of subscriptions going live. |
+| Edge redeploys | `notify-vendor`, `notify-admin`, `notify-feed-post`, `warn-near-deadline`, `check-vendor-subscriptions`. |
+
+## Local Feed — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD) |
+| Scope | `LocalFeed.tsx` reader, `get_local_feed_posts` / notify audience, discovery-radius prefs, vendor offers |
+| Review | Earlier Security/Integrity closure left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. This remaining-dimensions pass closes those six for this flow. |
 
 ### Fixed
 
@@ -310,6 +354,16 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Rate limiting added to post creation | |
 | Orphaned storage objects on upload-then-fail cleaned up client-side | |
 | Migrations | `20260717120001`, `20260717140001` |
+
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| Notify-radius parity | Push eligibility used a flat `app_config` default instead of the same per-post `reach_radius_km` + reader discovery-radius logic as the display path. Fixed in `get_feed_post_notify_devices`. Migration `20260722090001`. |
+| Category-chip filter | Filtering by an offer vendor's category could hide announcement posts; chips now filter offers only as intended. |
+| Pagination | Past the 50-post cap via raised limit ceiling + `get_local_feed_posts_count` (Incoming Orders pattern). Migration `20260722090002`; restore of banned-author filter after TEST apply-drift: `20260723100001` + FEED-BAN-01/02. |
+| Discovery-radius save | Revert-on-error when `set_feed_discovery_radius` fails. |
+| Performance / i18n / observability | Lazy images; localized dates/push body text; `captureError` on load paths. |
 
 ## Referrals — CLOSED (TEST + PROD)
 
@@ -350,11 +404,13 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 |------|-------|
 | Admin referrer→referee visibility | No admin surface clearly showing who referred whom (names/phones, not raw IDs). Discussed with Atul; deferred as non-urgent — not built under this ticket. |
 
-## Settings (customer + vendor) — CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED
+## Settings (customer + vendor) — CLOSED (TEST + PROD)
 
 | Field | Detail |
 |-------|--------|
-| Status | CLOSED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
+| Status | CLOSED (TEST + PROD) |
+| Scope | Customer Settings (standing, addresses, prefs), vendor Settings load/extras, Clear My Data, permission dialogs, delete-account hardening (prior Security pass) |
+| Review | Earlier Security/Integrity closure left Performance / Reliability / Device / Localization / Observability / UI-Layout as NOT YET REVIEWED. This remaining-dimensions pass closes those six for this surface. |
 
 ### Fixed
 
@@ -365,6 +421,16 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | `subscription_status` / `subscription_id` / `grace_ends_at` blocked from generic `vendor_update_own` patch | Same pattern as `discoverable` / `upi_verified` — closes revenue-leakage risk where a vendor could self-grant active subscription status |
 | Vendor owner `name` field fixed | Was silently failing to persist |
 | Migrations | `20260717160001`, `20260717170001` |
+
+### Remaining dimensions (Performance / Reliability / Device / Localization / Observability / UI-Layout) — CLOSED
+
+| Item | Notes |
+|------|-------|
+| Clear My Data rebuild (confirmed retention scope with Atul) | Replaced piecemeal client deletes (addresses/devices only) with atomic SECURITY DEFINER `clear_my_data`. **Retained:** orders/bills/khata, referral credits, `users` ban/warn/trust, `user_flags` (no-show/fake), review rating contribution. **Cleared:** notifications, addresses, profile prefs, saved neighbours, feed/review text, device tokens, local `aaspaas:*` keys. Dialog copy now matches real behavior. Migration `20260722140001`; tests CMD-01..06. |
+| False-good Account Standing | Trust RPC failure no longer shows a false “good” badge — genuine unavailable state. |
+| Vendor Settings load | No longer stuck on infinite loading on fetch failure; retry + failed flags for menu/addresses/reviews extras. |
+| Permissions dialog | “Open Settings” now opens device settings (`App.openUrl('app-settings:')`) instead of only dismissing. |
+| Observability | Additional `captureError` on standing / vendor extras / clear-data / address paths. |
 
 ## Vendor Configuration (Menu Items, Availability Modes, Cancel Reasons) — CLOSED — no open items
 
