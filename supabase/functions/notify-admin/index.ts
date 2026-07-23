@@ -117,6 +117,7 @@ serve(async (req) => {
       .from("user_devices")
       .select("fcm_token")
       .eq("user_phone", adminPhone)
+      .eq("is_current", true)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();

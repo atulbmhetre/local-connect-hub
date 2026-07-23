@@ -12,6 +12,7 @@ import {
 } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { registerUserPushToken } from "@/lib/pushNotifications";
+import { captureError } from "@/lib/sentry";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
@@ -121,6 +122,12 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
           usersResult.error?.message?.includes("rate_limit") ||
           vendorStatusResult.error?.message?.includes("rate_limit");
         logRestoreOutcome(rateLimited ? "rate_limited" : "error");
+        if (!rateLimited) {
+          captureError(usersResult.error ?? vendorStatusResult.error, {
+            scope: "firstOpen.restore.lookup",
+            phoneSuffix: digits.slice(-4),
+          });
+        }
         setInlineMessage(s.firstopen_restore_error);
         setInlineTone("error");
         setRestoreLoading(false);
@@ -128,10 +135,21 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       }
 
       const vendorStatus = (vendorStatusResult.data ?? null) as VendorRestoreStatus | null;
-      const hasCustomer = usersResult.data?.[0] != null;
+      const customerRow = usersResult.data?.[0] ?? null;
+      const hasCustomer = customerRow != null;
+      const customerBanned = customerRow?.is_banned === true;
       const vendorFound = vendorStatus?.found === true;
       const vendorRestorable = vendorFound && vendorStatus?.restore_allowed === true;
       const hasAccount = hasCustomer || vendorFound;
+
+      // Match vendor deny_reason === "banned": do not grant identity; show denial and stay.
+      if (customerBanned) {
+        logRestoreOutcome("denied_banned");
+        setInlineMessage(s.customer_account_banned);
+        setInlineTone("error");
+        setRestoreLoading(false);
+        return;
+      }
 
       if (hasAccount) {
         saveUserPhone(digits);
@@ -142,6 +160,12 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         }
 
         if (!migration.ok) {
+          captureError(new Error("firstopen_migrate_partial"), {
+            scope: "firstOpen.restore.migrate",
+            savedOk: migration.savedOk,
+            requestsOk: migration.requestsOk,
+            phoneSuffix: digits.slice(-4),
+          });
           setInlineMessage(s.firstopen_restore_partial);
           setInlineTone("warning");
         } else {
@@ -200,7 +224,8 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         }
       }, 800);
       return;
-    } catch {
+    } catch (err) {
+      captureError(err, { scope: "firstOpen.restore", phoneSuffix: digits.slice(-4) });
       logRestoreOutcome("error");
       setInlineMessage(s.firstopen_restore_error);
       setInlineTone("error");

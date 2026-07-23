@@ -44,6 +44,15 @@ export const strings = {
       'Your number helps the vendor contact you and track your order.',
     phone_entry_save_context:
       'Save your number to keep your neighbourhood list across devices.',
+    phone_entry_title: 'Enter your mobile number',
+    phone_entry_subtitle:
+      'So the vendor can reach you and your orders are saved across devices.',
+    phone_entry_invalid: 'Please enter a valid 10-digit Indian mobile number.',
+    phone_entry_placeholder: '98765 43210',
+    phone_entry_continue: 'Continue',
+    phone_entry_checking: 'Checking...',
+    phone_entry_privacy:
+      'Your number is only used to save your orders. We never share it.',
     recovery_welcome_title: 'Welcome back!',
     recovery_welcome_body:
       'We found your account with {count} orders. Your history is restored.',
@@ -1657,9 +1666,18 @@ export const strings = {
       'आपका नंबर विक्रेता को आपसे संपर्क करने और ऑर्डर ट्रैक करने में मदद करता है।',
     phone_entry_save_context:
       'अपने पड़ोस की सूची सभी डिवाइस पर रखने के लिए अपना नंबर सेव करें।',
-    recovery_welcome_title: 'Welcome back!',
+    phone_entry_title: 'अपना मोबाइल नंबर दर्ज करें',
+    phone_entry_subtitle:
+      'ताकि विक्रेता आपसे संपर्क कर सके और आपके ऑर्डर सभी डिवाइस पर सुरक्षित रहें।',
+    phone_entry_invalid: 'कृपया मान्य 10 अंकों का भारतीय मोबाइल नंबर दर्ज करें।',
+    phone_entry_placeholder: '98765 43210',
+    phone_entry_continue: 'जारी रखें',
+    phone_entry_checking: 'जाँच हो रही है...',
+    phone_entry_privacy:
+      'आपका नंबर केवल आपके ऑर्डर सेव करने के लिए उपयोग होता है। हम इसे कभी साझा नहीं करते।',
+    recovery_welcome_title: 'वापसी पर स्वागत है!',
     recovery_welcome_body:
-      'We found your account with {count} orders. Your history is restored.',
+      'हमें आपका खाता {count} ऑर्डर के साथ मिला। आपका इतिहास पुनर्स्थापित हो गया है।',
     home_help_ontheway: 'मदद आ रही है!',
     home_help_vendor_stopped: 'आपका सहायक रुका हुआ लगता है। जांचें।',
     home_saved_vendor_removed_title: 'आपके पड़ोस में बदलाव',
@@ -3267,9 +3285,18 @@ export const strings = {
       'तुमचा नंबर विक्रेत्याला तुमच्याशी संपर्क साधण्यास आणि ऑर्डर ट्रॅक करण्यास मदत करतो.',
     phone_entry_save_context:
       'तुमची शेजारची यादी सर्व डिव्हाइसवर ठेवण्यासाठी तुमचा नंबर सेव करा.',
-    recovery_welcome_title: 'Welcome back!',
+    phone_entry_title: 'तुमचा मोबाइल नंबर प्रविष्ट करा',
+    phone_entry_subtitle:
+      'जेणेकरून विक्रेता तुमच्याशी संपर्क साधू शकेल आणि तुमच्या ऑर्डर सर्व डिव्हाइसवर सुरक्षित राहतील.',
+    phone_entry_invalid: 'कृपया वैध 10 अंकी भारतीय मोबाइल नंबर प्रविष्ट करा.',
+    phone_entry_placeholder: '98765 43210',
+    phone_entry_continue: 'सुरू ठेवा',
+    phone_entry_checking: 'तपासत आहे...',
+    phone_entry_privacy:
+      'तुमचा नंबर फक्त तुमच्या ऑर्डर सेव्ह करण्यासाठी वापरला जातो. आम्ही तो कधीही शेअर करत नाही.',
+    recovery_welcome_title: 'परत स्वागत आहे!',
     recovery_welcome_body:
-      'We found your account with {count} orders. Your history is restored.',
+      'आम्हाला तुमचे खाते {count} ऑर्डरसह सापडले. तुमचा इतिहास पुनर्स्थापित झाला आहे.',
     home_help_ontheway: 'मदत येत आहे!',
     home_help_vendor_stopped: 'तुमचा मदतनीस थांबलेला दिसतो. तपासा.',
     home_saved_vendor_removed_title: 'तुमच्या शेजारीपणात बदल',

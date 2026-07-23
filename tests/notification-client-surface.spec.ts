@@ -287,6 +287,14 @@ test.describe('notification client surface hardening', () => {
 
     expect(rowA?.fcm_token).toBeNull();
     expect(rowB?.fcm_token).toBe(token);
+
+    const { data: flags } = await supabaseAdmin
+      .from('user_devices')
+      .select('user_phone, is_current')
+      .eq('device_id', deviceId);
+    expect(flags).toHaveLength(2);
+    expect(flags!.find((r) => r.user_phone === phoneA)?.is_current).toBe(false);
+    expect(flags!.find((r) => r.user_phone === phoneB)?.is_current).toBe(true);
   });
 
   test('NCS-06 — matching phone+device can mark read', async () => {

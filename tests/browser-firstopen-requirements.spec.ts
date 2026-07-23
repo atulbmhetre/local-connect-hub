@@ -171,6 +171,23 @@ test('FO-REQ-02 — No account found — starts fresh', async ({ page }) => {
   expect(await lsGet(page, 'aaspaas:user_phone')).toBeNull();
 });
 
+test('FO-REQ-02b — Banned customer restore is blocked (no phone saved)', async ({ page }) => {
+  const phone = nextCustomerPhone();
+  await seedCustomer(phone, { is_banned: true, total_orders: 4, trust_score: 5 });
+
+  await loginAsFreshUser(page);
+  await openRestoreFlow(page);
+  await enterPhone(page, phone);
+  await tapRestore(page);
+
+  await expect(page.getByTestId('firstopen-restore-message')).toContainText(
+    EN.customer_account_banned,
+    { timeout: 15000 },
+  );
+  expect(await lsGet(page, 'aaspaas:user_phone')).toBeNull();
+  await expect(page.getByTestId('first-open-flow')).toBeVisible();
+});
+
 // ─── RESTORE — VENDOR ────────────────────────────────────────────────────────
 
 test('FO-REQ-03 — Vendor restore — active vendor fully restored', async ({ page }) => {

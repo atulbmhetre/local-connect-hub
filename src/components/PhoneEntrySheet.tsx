@@ -11,6 +11,7 @@ import { saveUserPhone } from "@/lib/userIdentity";
 import { recordUserReferral } from "@/lib/referral";
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
+import { captureError } from "@/lib/sentry";
 import { supabase } from "@/lib/supabase";
 
 export type PhoneEntryContext = "order" | "save";
@@ -33,8 +34,15 @@ async function checkExistingAccount(
   phone: string,
 ): Promise<{ total_orders: number; completed_orders: number } | null> {
   const { data, error } = await supabase.rpc("lookup_user_by_phone", { p_phone: phone });
+  if (error) {
+    captureError(error, {
+      scope: "phoneEntry.checkExistingAccount",
+      phoneSuffix: phone.slice(-4),
+    });
+    return null;
+  }
   const row = data?.[0];
-  if (error || !row) return null;
+  if (!row) return null;
   return {
     total_orders: row.total_orders ?? 0,
     completed_orders: row.completed_orders ?? 0,
@@ -76,7 +84,7 @@ export function PhoneEntrySheet({
   const handleConfirm = async () => {
     const digits = normalizePhoneDigits(value);
     if (digits.length !== 10 || !/^[6-9]/.test(digits)) {
-      setError("Please enter a valid 10-digit Indian mobile number.");
+      setError(s.phone_entry_invalid);
       return;
     }
 
@@ -86,15 +94,22 @@ export function PhoneEntrySheet({
     }
 
     setIsChecking(true);
-    const result = await checkExistingAccount(digits);
-    setIsChecking(false);
-
-    if (result && result.total_orders > 0) {
-      setExistingAccount(result);
-      return;
+    try {
+      const result = await checkExistingAccount(digits);
+      if (result && result.total_orders > 0) {
+        setExistingAccount(result);
+        return;
+      }
+      completePhoneFlow(digits);
+    } catch (err) {
+      captureError(err, {
+        scope: "phoneEntry.handleConfirm",
+        phoneSuffix: digits.slice(-4),
+      });
+      completePhoneFlow(digits);
+    } finally {
+      setIsChecking(false);
     }
-
-    completePhoneFlow(digits);
   };
 
   const handleRecoveryContinue = () => {
@@ -137,7 +152,7 @@ export function PhoneEntrySheet({
                 onClick={handleRecoveryContinue}
                 className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
               >
-                Continue
+                {s.phone_entry_continue}
               </button>
             </div>
           </>
@@ -145,10 +160,10 @@ export function PhoneEntrySheet({
           <>
             <SheetHeader className="text-left space-y-1 pr-8">
               <SheetTitle className="font-display text-lg">
-                Enter your mobile number
+                {s.phone_entry_title}
               </SheetTitle>
               <SheetDescription className="text-sm text-muted-foreground">
-                So the vendor can reach you and your orders are saved across devices.
+                {s.phone_entry_subtitle}
               </SheetDescription>
             </SheetHeader>
 
@@ -161,7 +176,7 @@ export function PhoneEntrySheet({
                   type="tel"
                   inputMode="numeric"
                   maxLength={10}
-                  placeholder="98765 43210"
+                  placeholder={s.phone_entry_placeholder}
                   value={value}
                   onChange={(e) => {
                     setValue(e.target.value.replace(/\D/g, "").slice(0, 10));
@@ -186,10 +201,10 @@ export function PhoneEntrySheet({
                 {isChecking ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                    Checking...
+                    {s.phone_entry_checking}
                   </>
                 ) : (
-                  "Continue"
+                  s.phone_entry_continue
                 )}
               </button>
 
@@ -199,11 +214,11 @@ export function PhoneEntrySheet({
                 disabled={isChecking}
                 className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground disabled:opacity-70"
               >
-                Cancel
+                {s.cancel}
               </button>
 
               <p className="text-center text-[11px] text-muted-foreground/70 pb-1">
-                Your number is only used to save your orders. We never share it.
+                {s.phone_entry_privacy}
               </p>
             </div>
           </>

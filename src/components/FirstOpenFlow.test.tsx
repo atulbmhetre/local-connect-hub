@@ -9,6 +9,7 @@ import {
   markWelcomed,
   restoreVendorSession,
 } from "@/lib/userIdentity";
+import { captureError } from "@/lib/sentry";
 
 const { mockUsersData, mockVendorStatus, mockRpc } = vi.hoisted(() => {
   let usersData: {
@@ -123,6 +124,10 @@ vi.mock("@/lib/supabase", () => ({
 
 vi.mock("@/lib/deviceId", () => ({
   getDeviceId: () => "test-device-id",
+}));
+
+vi.mock("@/lib/sentry", () => ({
+  captureError: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -344,6 +349,94 @@ describe("FirstOpenFlow restore", () => {
     expect(mockRpc).toHaveBeenCalledWith("log_firstopen_restore", {
       p_outcome: "denied_banned",
       p_device_id: "test-device-id",
+    });
+  });
+
+  it("blocks restore for banned customer and does not save phone", async () => {
+    const onComplete = vi.fn();
+    mockUsersData.set({
+      total_orders: 3,
+      completed_orders: 1,
+      trust_score: 10,
+      warn_count: 2,
+      is_banned: true,
+    });
+    mockVendorStatus.set({
+      found: false,
+      vendor_id: null,
+      is_banned: false,
+      is_active: false,
+      discoverable: false,
+      profile_status: null,
+      deletion_requested_at: null,
+      restore_allowed: false,
+      deny_reason: "not_found",
+    });
+
+    render(<FirstOpenFlow onComplete={onComplete} />);
+
+    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
+      target: { value: "9876543210" },
+    });
+    fireEvent.click(screen.getByTestId("firstopen-restore-cta"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("firstopen-restore-message")).toHaveTextContent(
+        strings.en.customer_account_banned,
+      );
+    });
+    expect(getUserPhone()).toBeNull();
+    expect(localStorage.getItem("aaspaas:user_phone")).toBeNull();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith("log_firstopen_restore", {
+      p_outcome: "denied_banned",
+      p_device_id: "test-device-id",
+    });
+    expect(screen.getByTestId("first-open-flow")).toBeInTheDocument();
+  });
+
+  it("calls captureError on lookup failure", async () => {
+    const lookupError = { message: "rpc failed" };
+    mockRpc.mockImplementation(async (fnName: string) => {
+      if (fnName === "lookup_user_by_phone") {
+        return { data: null, error: lookupError };
+      }
+      if (fnName === "get_vendor_restore_status") {
+        return {
+          data: {
+            found: false,
+            vendor_id: null,
+            is_banned: false,
+            is_active: false,
+            discoverable: false,
+            profile_status: null,
+            deletion_requested_at: null,
+            restore_allowed: false,
+            deny_reason: "not_found",
+          },
+          error: null,
+        };
+      }
+      return { data: null, error: null };
+    });
+
+    render(<FirstOpenFlow onComplete={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
+      target: { value: "9876543210" },
+    });
+    fireEvent.click(screen.getByTestId("firstopen-restore-cta"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("firstopen-restore-message")).toHaveTextContent(
+        strings.en.firstopen_restore_error,
+      );
+    });
+    expect(captureError).toHaveBeenCalledWith(lookupError, {
+      scope: "firstOpen.restore.lookup",
+      phoneSuffix: "3210",
     });
   });
 

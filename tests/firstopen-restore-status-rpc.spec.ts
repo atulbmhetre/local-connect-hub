@@ -5,6 +5,7 @@ const T = Date.now();
 let phoneSeq = 0;
 const createdPhones: string[] = [];
 const createdVendorIds: string[] = [];
+const createdDeviceIds: string[] = [];
 
 function nextPhone(prefix: string): string {
   phoneSeq += 1;
@@ -42,12 +43,18 @@ test.afterAll(async () => {
     await supabaseAdmin.from('vendor_categories').delete().in('vendor_id', createdVendorIds);
     await supabaseAdmin.from('vendors').delete().in('id', createdVendorIds);
   }
-  if (createdPhones.length) {
+  if (createdPhones.length || createdDeviceIds.length) {
+    const identifiers = [...new Set([...createdPhones, ...createdDeviceIds])];
     await supabaseAdmin
       .from('edge_function_rate_limits')
       .delete()
-      .in('function_name', ['get_vendor_restore_status', 'lookup_user_by_phone'])
-      .in('identifier', [...new Set(createdPhones)]);
+      .in('function_name', [
+        'get_vendor_restore_status',
+        'lookup_user_by_phone',
+        'migrate_device_requests_phone',
+        'ensure_user_device_link',
+      ])
+      .in('identifier', identifiers);
   }
 });
 
@@ -152,6 +159,62 @@ test('RESTORE-RPC-07 — lookup_user_by_phone is phone rate-limited', async () =
 
   const blocked = await supabaseAdmin.rpc('lookup_user_by_phone', { p_phone: phone });
   expect(blocked.error?.message ?? '').toMatch(/rate_limit/i);
+});
+
+test('RESTORE-RPC-07b — migrate_device_requests_phone is device rate-limited', async () => {
+  const deviceId = `dev_mig_req_${T}`;
+  createdDeviceIds.push(deviceId);
+  const phone = nextPhone('88118');
+  createdPhones.push(phone);
+
+  await supabaseAdmin
+    .from('edge_function_rate_limits')
+    .delete()
+    .eq('function_name', 'migrate_device_requests_phone')
+    .eq('identifier', deviceId);
+
+  for (let i = 0; i < 30; i++) {
+    const { error } = await supabaseAdmin.rpc('migrate_device_requests_phone', {
+      p_device_id: deviceId,
+      p_user_phone: phone,
+    });
+    expect(error, error?.message).toBeNull();
+  }
+
+  const blocked = await supabaseAdmin.rpc('migrate_device_requests_phone', {
+    p_device_id: deviceId,
+    p_user_phone: phone,
+  });
+  expect(blocked.error?.message ?? '').toMatch(/rate_limit/i);
+});
+
+test('RESTORE-RPC-07c — ensure_user_device_link is device rate-limited', async () => {
+  const deviceId = `dev_ensure_${T}`;
+  createdDeviceIds.push(deviceId);
+  const phone = nextPhone('88119');
+  createdPhones.push(phone);
+
+  await supabaseAdmin
+    .from('edge_function_rate_limits')
+    .delete()
+    .eq('function_name', 'ensure_user_device_link')
+    .eq('identifier', deviceId);
+
+  for (let i = 0; i < 30; i++) {
+    const { error } = await supabaseAdmin.rpc('ensure_user_device_link', {
+      p_user_phone: phone,
+      p_device_id: deviceId,
+    });
+    expect(error, error?.message).toBeNull();
+  }
+
+  const blocked = await supabaseAdmin.rpc('ensure_user_device_link', {
+    p_user_phone: phone,
+    p_device_id: deviceId,
+  });
+  expect(blocked.error?.message ?? '').toMatch(/rate_limit/i);
+
+  await supabaseAdmin.from('user_devices').delete().eq('device_id', deviceId);
 });
 
 test('RESTORE-RPC-08 — banned vendor cannot accept orders', async () => {

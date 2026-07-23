@@ -140,7 +140,8 @@ serve(async (req) => {
       const { data: devices, error } = await supabase
         .from("user_devices")
         .select("fcm_token")
-        .eq("user_phone", userPhone);
+        .eq("user_phone", userPhone)
+        .eq("is_current", true);
 
       if (error) {
         console.error("notify-user user_devices query failed", error);

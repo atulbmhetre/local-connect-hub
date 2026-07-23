@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
+import { captureError } from "@/lib/sentry";
 import { notifyVendorIdChanged, VENDOR_ACTIVE_CHANGED_EVENT } from "@/lib/vendorSessionSync";
 
 // Phase D: get phone from real Supabase session, strips 91 prefix
@@ -63,9 +64,19 @@ export async function ensureUserDeviceLink(phone: string): Promise<void> {
       p_user_phone: trimmed,
       p_device_id: getDeviceId(),
     });
-    if (error) console.warn("[ensureUserDeviceLink]", error.message);
+    if (error) {
+      console.warn("[ensureUserDeviceLink]", error.message);
+      captureError(error, {
+        scope: "userIdentity.ensureUserDeviceLink",
+        phoneSuffix: trimmed.slice(-4),
+      });
+    }
   } catch (err) {
     console.warn("[ensureUserDeviceLink]", err);
+    captureError(err, {
+      scope: "userIdentity.ensureUserDeviceLink",
+      phoneSuffix: trimmed.slice(-4),
+    });
   }
 }
 
@@ -135,6 +146,10 @@ export async function migrateUserPhone(
   });
   if (savedErr) {
     console.warn("[migrateUserPhone] saved_vendors", savedErr.message);
+    captureError(savedErr, {
+      scope: "userIdentity.migrateUserPhone.saved_vendors",
+      phoneSuffix: newPhone.slice(-4),
+    });
   }
   const { error: reqErr } = await supabase.rpc("migrate_device_requests_phone", {
     p_device_id: deviceId,
@@ -142,6 +157,10 @@ export async function migrateUserPhone(
   });
   if (reqErr) {
     console.warn("[migrateUserPhone] requests", reqErr.message);
+    captureError(reqErr, {
+      scope: "userIdentity.migrateUserPhone.requests",
+      phoneSuffix: newPhone.slice(-4),
+    });
   }
   const savedOk = !savedErr;
   const requestsOk = !reqErr;
