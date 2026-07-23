@@ -29,10 +29,10 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **54 of 66 functionality-inventory entries fully closed** (named list and section-to-entries mapping directly below this table). The denominator is the number of `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` — **66** in both the current file and the originally committed version (`41e6519`); the earlier `~52` was an undocumented approximation from early in the audit, now corrected (no inventory items were discovered, added, or removed — only the denominator was made accurate). The numerator is derived by mapping each fully-CLOSED Phase 2 `##` audit section to the distinct `###` inventory entries it wholly closes. Phase A, the app-wide OTP-off sweep, the service-role key-rotation incident, and the Vendor Trust Tier closure (which sits above the Phase 2 divider) are tracked separately as cross-cutting closures and are **not** part of this tally. |
-| Next planned Phase 2 target | Resume at the remaining **12**: First-open/phone restore; Phone entry sheet; Session identity (client); Radar vendor card (shared); Legacy vendor card (unused); Home help-order banner; Neighbour (saved vendor) sheet; Khata settings (vendor); Vendor reply to reviews; Admin delete low reviews; Trust warning banner; Verification badge. |
+| Phase 2 progress | **57 of 66 functionality-inventory entries fully closed** (named list and section-to-entries mapping directly below this table). The denominator is the number of `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` — **66** in both the current file and the originally committed version (`41e6519`); the earlier `~52` was an undocumented approximation from early in the audit, now corrected (no inventory items were discovered, added, or removed — only the denominator was made accurate). The numerator is derived by mapping each fully-CLOSED Phase 2 `##` audit section to the distinct `###` inventory entries it wholly closes. Phase A, the app-wide OTP-off sweep, the service-role key-rotation incident, and the Vendor Trust Tier closure (which sits above the Phase 2 divider) are tracked separately as cross-cutting closures and are **not** part of this tally. |
+| Next planned Phase 2 target | Resume at the remaining **9**: Radar vendor card (shared); Legacy vendor card (unused); Home help-order banner; Neighbour (saved vendor) sheet; Khata settings (vendor); Vendor reply to reviews; Admin delete low reviews; Trust warning banner; Verification badge. |
 
-### Phase 2 fully-closed inventory entries (54 of 66)
+### Phase 2 fully-closed inventory entries (57 of 66)
 
 Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial", not "NOT YET REVIEWED") to the distinct `docs/FUNCTIONALITY_INVENTORY.md` `###` entries it wholly closes. Only whole, user-facing inventory entries are counted; dead-code / duplication meta-entries and entries whose core still lives under a partial section are excluded.
 
@@ -55,10 +55,13 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Settings (customer + vendor) | My Account (customer); MY SHOP (vendor settings); Device permissions; Account deletion; Clear my data |
 | Help / Delivery / Appointment Placement & Order Cards | Customer help order (AI-Bridge / neighbour); Delivery order placement; Delivery slot / address on vendor side; Appointment booking; Vendor confirm / decline appointment; Order card pattern |
 | Dev Menu & Admin Access Gate | Dev menu (hidden); Admin access gate |
+| First-open / Phone Entry / Session Identity | First-open / phone restore; Phone entry sheet (mid-flow); Session identity (client) |
 
-**Total: 1 + 6 + 4 + 3 + 2 + 3 + 9 + 1 + 3 + 3 + 1 + 1 + 1 + 3 + 5 + 6 + 2 = 54 distinct inventory entries.** Vendor Configuration (CLOSED) still contributes 0 additional whole entries — its availability-modes work overlaps the already-counted Geo vendor search entry. **Notifications** (backend entry, distinct from Notifications Client Surfaces) likewise contributes **0** additional inventory entries — the three notification `###` rows were already wholly closed under Notifications Client Surfaces.
+**Total: 1 + 6 + 4 + 3 + 2 + 3 + 9 + 1 + 3 + 3 + 1 + 1 + 1 + 3 + 5 + 6 + 2 + 3 = 57 distinct inventory entries.** Vendor Configuration (CLOSED) still contributes 0 additional whole entries — its availability-modes work overlaps the already-counted Geo vendor search entry. **Notifications** (backend entry, distinct from Notifications Client Surfaces) likewise contributes **0** additional inventory entries — the three notification `###` rows were already wholly closed under Notifications Client Surfaces.
 
 **Tracker note — Help/Delivery/Appointment placement + Dev menu / Admin gate (not a net-new inventory discovery):** This pass closes **8** inventory rows that were still open after the prior remaining-dimensions upgrade (**46 → 54** = +6 placement/order-card + +2 dev-menu/admin-gate). Migrations: `20260723120001`, `20260723120002`, `20260723120003`, `20260723140001`. Side-effect (not an inventory row): restored PROD `app_config.anon_key` (publishable) and re-verified `feed_post_after_insert` after the July 18 key-rotation deletion had left feed notify silently no-op.
+
+**Tracker note — First-open / Phone entry / Session identity (54 → 57):** Closes **3** Auth & Session inventory rows. Migrations: `20260723150001` (rate limits on `migrate_device_requests_phone` + `ensure_user_device_link`), `20260723160001` (`user_devices.is_current` + current-only readers). Edge: `notify-user` / `notify-admin` filter `is_current`. App commit `6152c66` (ban-on-restore, i18n, `captureError`, client identity helpers) — **server live on PROD; app-bundle not yet in a device build** (see standing item below).
 
 ## Lessons for future audit passes
 
@@ -67,12 +70,14 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | TEST and PROD can diverge outside version control entirely | Plan periodic direct PROD schema / trigger / function audits — not migration-file review alone |
 | TEST/PROD schema drift — migration file edited after apply | During Batch 2 final verification, `get_local_feed_posts` / `get_local_feed_posts_count` differed between TEST and PROD (TEST missing the `is_banned` author filter) even though `migration list` showed the same version stamps with zero local-only / remote-only rows. Root cause: an earlier draft of `20260722090002` was applied to TEST; the file was later edited in git to restore the ban filter before PROD push; TEST's already-recorded version meant `db push` never re-ran the corrected statements. Caught only by direct `pg_get_functiondef` (+ `schema_migrations.statements` body) comparison — **not** by migration list alone. Fixed with new migration `20260723100001` + FEED-BAN-01/02 regression tests. **Standing rule:** never edit a migration file after any environment has applied it — always create a new migration instead. |
 | Order card pattern (architectural debt) | **Standing item:** no shared `OrderCard` exists — customer My Orders and vendor Incoming Orders use divergent inline implementations. Both verified working via existing E2E; inventory row closed as reviewed. Unify only if a future pass needs one card surface. |
+| Identity app-bundle vs server (First-open pass) | **Standing item:** Ban-check enforcement, PhoneEntry i18n, and `captureError` wiring are code-complete and committed (`6152c66`) but **not yet in a real device build**. Atul will ship via `npm run build` → `npx cap sync android` → Android Studio once this audit sprint completes. **No Capgo/OTA live-update is wired in this repo** (only `@capgo/background-geolocation`). Server-side portions (rate limits, `user_devices.is_current`, `notify-user` / `notify-admin`) are fully live on PROD already. |
 
 ## Recently resolved
 
 | Item | Resolution |
 |------|------------|
 | Client-readable `dev_menu_pin` | Dev “Set phone number” was gated only by a PIN stored in publicly readable `app_config`. Re-gated behind real admin session auth; PIN dialog and `app_config.dev_menu_pin` row removed (`20260723140001`). Verified TEST + PROD. |
+| Mystery customer phone on unknown-phone restore | Investigated and **disproven** via git history + tests: `saveUserPhone` was never called on the unknown/not_found restore path. Real creation paths remain vendor-only restore, PhoneEntrySheet confirm, and `upsert_app_user` on first order. |
 
 ## Process notes
 
@@ -105,7 +110,7 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 
 ## Phase 2
 
-> **Scope correction (as of this update):** 54 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items), the prior remaining-dimensions upgrades through Settings, plus tonight’s Help/Delivery/Appointment placement & order-card section (6) and Dev menu / Admin access gate (2). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
+> **Scope correction (as of this update):** 57 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items), the prior remaining-dimensions upgrades through Settings, Help/Delivery/Appointment placement & order-card (6), Dev menu / Admin access gate (2), and First-open / Phone entry / Session identity (3). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
 
 ## Bill/UPI/Khata Payment Flow — CLOSED (TEST + PROD)
 
@@ -491,6 +496,36 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Item | Notes |
 |------|-------|
 | Admin RPC auth | Every live PROD `admin_*` / `get_admin*` / `log_admin_action` mutator gates on `is_admin_session()`; zero RPCs still hard-gate on `IF NOT is_admin_phone(...)`. `p_admin_phone` remains audit/label-only. Residual: two table RLS policies (`admin_alerts`, `fcm_delivery_log`) still use `is_admin_phone(auth_user_phone())` — not RPC auth. |
+
+## First-open / Phone Entry / Session Identity — CLOSED (TEST + PROD)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD, all 10 dimensions) |
+| Scope | First-open / phone restore (`FirstOpenFlow`), mid-flow Phone entry sheet (`PhoneEntrySheet`), and client session identity (`userIdentity` / `user_devices` binding) |
+| Review | Closes the three Auth & Session inventory rows. Real fixes below; server portions live on PROD; app-bundle portions committed but awaiting Atul’s next native build (standing item). |
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| Customer ban on restore | `FirstOpenFlow` now checks `lookup_user_by_phone` → `is_banned`, shows `customer_account_banned`, logs `denied_banned`, and **does not** `saveUserPhone` — matching the existing vendor-ban-on-restore pattern from the Jul 18 hardening. |
+| Rate limits on device-link RPCs | `migrate_device_requests_phone` and `ensure_user_device_link` now rate-limited (30/60s per `device_id`), matching sibling RPCs’ existing shape. Migration `20260723150001`. |
+| PhoneEntrySheet localization | Full EN/HI/MR, including previously English-only recovery strings; fixed HI/MR `recovery_welcome_*` keys in `strings.ts`. |
+| Observability | `captureError` wired across `FirstOpenFlow`, `PhoneEntrySheet`, and `userIdentity` failure paths; verified via real Sentry event IDs on TEST. |
+| `user_devices.is_current` | New flag preserves full device↔phone link history (**no deletion**, per Atul’s explicit anti-abuse-signal decision) while every “current phone for this device” reader gets a correct, non-stale answer. Ensure/upsert demote prior phone rows; current-only filters on binding/get/location/feed-toggle/`get_feed_post_notify_devices`; edge `notify-user` / `notify-admin` filter `.eq("is_current", true)`. `delete-account` ownership intentionally still matches any historical `(phone, device)` row. Migration `20260723160001`. |
+
+### Resolved open question (disproven)
+
+| Item | Notes |
+|------|-------|
+| Mystery customer phone registration on unknown-phone restore | Earlier suspicion that restore-on-unknown created a customer phone was investigated and **disproven** via git history + tests — `saveUserPhone` was never called on that path. Real creation paths: vendor-only restore, PhoneEntrySheet confirm, and `upsert_app_user` on first order. |
+
+### Standing item (this pass)
+
+| Item | Notes |
+|------|-------|
+| App-bundle not yet on device | Ban-check, i18n, and `captureError` are in git (`6152c66`) but not in a real device build. Ship path: `npm run build` → `npx cap sync android` → Android Studio after audit sprint. No Capgo/OTA updater is wired in this repo. Rate limits + `is_current` + notify edge filters are already live on PROD. |
 
 ## Vendor Configuration (Menu Items, Availability Modes, Cancel Reasons) — CLOSED — no open items
 
