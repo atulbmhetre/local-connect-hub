@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 dotenv.config({ path: path.join(root, ".env.test.prod"), override: true });
 
 const url = process.env.VITE_SUPABASE_URL;
@@ -172,10 +172,8 @@ try {
     );
   }
 
-  // Schema: is_current column + index present
+  // Schema: is_current column readable
   {
-    const { data: cols } = await sb.rpc("to_jsonb", {}).maybeSingle?.();
-    void cols;
     const { error } = await sb.from("user_devices").select("is_current").limit(1);
     ok("is_current_column_readable", !error, error?.message ?? "");
   }
