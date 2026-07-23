@@ -6,6 +6,7 @@ import {
   CameraResultType,
   CameraSource,
 } from "@capacitor/camera";
+import { useLanguage } from "@/lib/language";
 
 export type CapturedShot = {
   blob: Blob;
@@ -35,6 +36,7 @@ export const LiveCamera = ({
   facing = "rear",
   requireLocation = true,
 }: Props) => {
+  const { s } = useLanguage();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -70,7 +72,7 @@ export const LiveCamera = ({
 
         if (cancelled) return;
         if (!dataUrl) {
-          setError("Couldn't capture a photo.");
+          setError(s.camera_capture_failed);
           return;
         }
 
@@ -106,7 +108,7 @@ export const LiveCamera = ({
           onClose();
           return;
         }
-        setError(message || "Camera access failed. Please allow camera permission.");
+        setError(message || s.camera_access_failed);
       }
     };
     void launchCamera();
@@ -114,7 +116,7 @@ export const LiveCamera = ({
     return () => {
       cancelled = true;
     };
-  }, [open, onCapture, onClose, facing, requireLocation]);
+  }, [open, onCapture, onClose, facing, requireLocation, s]);
 
   if (!open) return null;
 
@@ -129,14 +131,14 @@ export const LiveCamera = ({
               onClick={() => void App.openUrl({ url: "app-settings:" })}
               className="w-full rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold"
             >
-              Go to Settings
+              {s.camera_go_to_settings}
             </button>
             <button
               type="button"
               onClick={onClose}
               className="w-full rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold"
             >
-              Cancel
+              {s.camera_cancel}
             </button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Tag,
@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { distanceKm, fetchActiveVendorCategoryLabels, isValidPhone, supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
+import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 import { feedAuthorLabel } from "@/lib/khataDisplay";
 import { withOptionalFeedImageUpload } from "@/lib/imageUpload";
@@ -26,7 +27,7 @@ import { FeedReachChips } from "@/components/FeedReachChips";
 import { SettingsSectionLabel, SettingsCard } from "@/components/settings/SettingsSection";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useLanguage } from "@/lib/language";
-import { strings } from "@/lib/strings";
+import { strings, type Language } from "@/lib/strings";
 import { buildRecommendedVendorRadarUrl, resolveRecommendedVendorRadarLink } from "@/lib/feedVendorLink";
 import { maskPhoneNumbers } from "@/lib/textUtils";
 import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
@@ -48,6 +49,7 @@ const FEED_CACHE_KEY = "aaspaas:feed_cache";
 const FEED_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 const FEED_CACHE_MAX_POSTS = 20;
 const GPS_TIMEOUT_MS = 10_000;
+const FEED_PAGE_SIZE = 50;
 
 type FeedCachePayload = {
   timestamp: number;
@@ -196,6 +198,7 @@ async function resolveReaderCoords(): Promise<GeoCoords | null> {
   });
   if (error) {
     console.error("resolveReaderCoords/get_user_device", error);
+    captureError(error, { scope: "localFeed.resolveReaderCoords" });
     return null;
   }
 
@@ -258,6 +261,12 @@ function expiryBadgeLabel(
   return s.feed_expiresInDays(dayDiff);
 }
 
+const FEED_DATE_LOCALE_BY_LANG: Record<Language, string> = {
+  en: "en-IN",
+  hi: "hi-IN",
+  mr: "mr-IN",
+};
+
 function feedPostedTimeLabel(
   createdAt: string,
   s: {
@@ -265,6 +274,7 @@ function feedPostedTimeLabel(
     feed_postedHoursAgo: (hours: number) => string;
     feed_postedYesterday: string;
   },
+  lang: Language,
 ): string {
   const t = new Date(createdAt).getTime();
   if (!Number.isFinite(t)) return "";
@@ -283,7 +293,10 @@ function feedPostedTimeLabel(
   if (postDate.toDateString() === yesterday.toDateString()) {
     return s.feed_postedYesterday;
   }
-  return postDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  return postDate.toLocaleDateString(FEED_DATE_LOCALE_BY_LANG[lang] ?? "en-IN", {
+    day: "numeric",
+    month: "short",
+  });
 }
 
 type LocationHighlightState = { highlightPostId?: string };
@@ -291,9 +304,12 @@ type LocationHighlightState = { highlightPostId?: string };
 export default function LocalFeed() {
   const location = useLocation();
   const highlightPostId = (location.state as LocationHighlightState | null)?.highlightPostId;
-  const { s } = useLanguage();
+  const { s, lang } = useLanguage();
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [truncatedRemaining, setTruncatedRemaining] = useState(0);
+  const fetchLimitRef = useRef(FEED_PAGE_SIZE);
   const [flashPostId, setFlashPostId] = useState<string | null>(null);
   const [showCompose, setShowCompose] = useState(false);
   const [composeType, setComposeType] = useState<PostType>("announcement");
@@ -340,6 +356,7 @@ export default function LocalFeed() {
     void supabase.rpc("get_feed_preferences", { p_user_phone: phone }).then(({ data, error }) => {
       if (error) {
         console.error("get_feed_preferences", error);
+        captureError(error, { scope: "localFeed.getFeedPreferences" });
         return;
       }
       const raw = (data as { feed_discovery_radius_km?: number | null } | null)
@@ -416,6 +433,7 @@ export default function LocalFeed() {
           setVendorSearchLoading(false);
           if (error) {
             console.error("vendorSearch", error);
+            captureError(error, { scope: "localFeed.vendorSearch" });
             setVendorSearchResults([]);
             return;
           }
@@ -429,77 +447,115 @@ export default function LocalFeed() {
     };
   }, [vendorSearchQuery, showCompose, composeType, recommendedVendorId]);
 
-  const fetchPosts = useCallback(async () => {
-    const cached = readFeedCache();
-    const showingCached = cached != null;
-    if (showingCached) {
-      setPosts(cached);
-      setLoading(false);
-    } else {
-      setLoading(true);
-    }
+  const fetchPosts = useCallback(
+    async (opts?: { silent?: boolean; limit?: number }) => {
+      const limit = opts?.limit ?? fetchLimitRef.current;
+      fetchLimitRef.current = limit;
 
-    try {
-      const readerCoords = await resolveReaderCoords();
-      if (!readerCoords) {
+      const cached = !opts?.silent ? readFeedCache() : null;
+      const showingCached = cached != null;
+      if (showingCached) {
+        setPosts(cached);
+        setLoading(false);
+      } else if (!opts?.silent) {
+        setLoading(true);
+      }
+
+      try {
+        const readerCoords = await resolveReaderCoords();
+        if (!readerCoords) {
+          if (!showingCached) {
+            setPosts([]);
+          }
+          setTruncatedRemaining(0);
+          return;
+        }
+
+        const readerVendorIdRaw = localStorage.getItem("aaspaas:vendor_id");
+        const readerVendorId = readerVendorIdRaw?.trim() || null;
+
+        const [{ data, error }, { data: totalMatching, error: countError }] = await Promise.all([
+          supabase.rpc("get_local_feed_posts", {
+            p_reader_lat: readerCoords.lat,
+            p_reader_lng: readerCoords.lng,
+            p_limit: limit,
+            p_reader_radius_km: readerDiscoveryRadiusKm,
+            p_reader_vendor_id: readerVendorId,
+          }),
+          supabase.rpc("get_local_feed_posts_count", {
+            p_reader_lat: readerCoords.lat,
+            p_reader_lng: readerCoords.lng,
+            p_reader_radius_km: readerDiscoveryRadiusKm,
+            p_reader_vendor_id: readerVendorId,
+          }),
+        ]);
+
+        if (error) {
+          console.warn("get_local_feed_posts unavailable, using client filter", error);
+          captureError(error, { scope: "localFeed.fetchPosts.rpc" });
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from("feed_posts")
+            .select(
+              "*, vendors!vendor_id(shop_name, category), recommended_vendor:vendors!recommended_vendor_id(shop_name, service_mode, service_radius_km)",
+            )
+            .eq("is_hidden", false)
+            .or("expires_at.is.null,expires_at.gt.now()")
+            .or("starts_at.is.null,starts_at.lte.now()")
+            .order("created_at", { ascending: false })
+            .limit(limit);
+          if (fallbackError) throw fallbackError;
+          const located = filterPostsByLocation(
+            (fallbackData ?? []) as FeedPost[],
+            readerCoords,
+            readerDiscoveryRadiusKm,
+          );
+          const nextPosts = await filterPostsByAudienceAndCategory(located, readerVendorId);
+          setPosts(nextPosts);
+          setTruncatedRemaining(0);
+          writeFeedCache(nextPosts);
+          return;
+        }
+
+        if (countError) {
+          console.error("get_local_feed_posts_count", countError);
+          captureError(countError, { scope: "localFeed.fetchPosts.count" });
+        }
+
+        const nextPosts = parseFeedPostsFromRpc(data);
+        const total = typeof totalMatching === "number" ? totalMatching : nextPosts.length;
+        setTruncatedRemaining(Math.max(0, total - nextPosts.length));
+        setPosts(nextPosts);
+        writeFeedCache(nextPosts);
+      } catch (error) {
+        console.error("fetchPosts", error);
+        captureError(error, { scope: "localFeed.fetchPosts" });
+        toast.error(s.feed_errLoad);
         if (!showingCached) {
           setPosts([]);
         }
-        return;
+        setTruncatedRemaining(0);
+      } finally {
+        if (!opts?.silent) setLoading(false);
       }
-
-      const readerVendorIdRaw = localStorage.getItem("aaspaas:vendor_id");
-      const readerVendorId = readerVendorIdRaw?.trim() || null;
-
-      const { data, error } = await supabase.rpc("get_local_feed_posts", {
-        p_reader_lat: readerCoords.lat,
-        p_reader_lng: readerCoords.lng,
-        p_limit: 50,
-        p_reader_radius_km: readerDiscoveryRadiusKm,
-        p_reader_vendor_id: readerVendorId,
-      });
-
-      if (error) {
-        console.warn("get_local_feed_posts unavailable, using client filter", error);
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from("feed_posts")
-          .select(
-            "*, vendors!vendor_id(shop_name, category), recommended_vendor:vendors!recommended_vendor_id(shop_name, service_mode, service_radius_km)",
-          )
-          .eq("is_hidden", false)
-          .or("expires_at.is.null,expires_at.gt.now()")
-          .or("starts_at.is.null,starts_at.lte.now()")
-          .order("created_at", { ascending: false })
-          .limit(50);
-        if (fallbackError) throw fallbackError;
-        const located = filterPostsByLocation(
-          (fallbackData ?? []) as FeedPost[],
-          readerCoords,
-          readerDiscoveryRadiusKm,
-        );
-        const nextPosts = await filterPostsByAudienceAndCategory(located, readerVendorId);
-        setPosts(nextPosts);
-        writeFeedCache(nextPosts);
-        return;
-      }
-
-      const nextPosts = parseFeedPostsFromRpc(data);
-      setPosts(nextPosts);
-      writeFeedCache(nextPosts);
-    } catch (error) {
-      console.error("fetchPosts", error);
-      toast.error(s.feed_errLoad);
-      if (!showingCached) {
-        setPosts([]);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [s.feed_errLoad, readerDiscoveryRadiusKm]);
+    },
+    [s.feed_errLoad, readerDiscoveryRadiusKm],
+  );
 
   useEffect(() => {
+    fetchLimitRef.current = FEED_PAGE_SIZE;
+    setTruncatedRemaining(0);
     void fetchPosts();
   }, [fetchPosts]);
+
+  const loadMoreFeed = useCallback(async () => {
+    if (loadingMore || truncatedRemaining <= 0) return;
+    setLoadingMore(true);
+    try {
+      await fetchPosts({ silent: true, limit: fetchLimitRef.current + FEED_PAGE_SIZE });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [fetchPosts, loadingMore, truncatedRemaining]);
 
   useEffect(() => {
     if (!viewerPhone || posts.length === 0) {
@@ -517,6 +573,7 @@ export default function LocalFeed() {
       if (cancelled) return;
       if (error) {
         console.error("loadUserFeedFlags", error);
+        captureError(error, { scope: "localFeed.loadUserFeedFlags" });
         return;
       }
       setFlaggedByMe(new Set((data ?? []).map((row) => row.post_id)));
@@ -536,6 +593,7 @@ export default function LocalFeed() {
       if (cancelled) return;
       if (catsRes.error) {
         console.error("fetch categories", catsRes.error);
+        captureError(catsRes.error, { scope: "localFeed.fetchCategories" });
         setCategories([]);
         return;
       }
@@ -573,7 +631,11 @@ export default function LocalFeed() {
   const visiblePosts = useMemo(() => {
     if (!selectedCategoryMeta) return posts;
     const chipLabel = selectedCategoryMeta.label;
+    // Category chips only scope vendor offers. Announcements and
+    // recommendations have no vendor category of their own and must always
+    // pass through — otherwise selecting a chip would hide all of them.
     return posts.filter((post) => {
+      if (post.type !== "offer") return true;
       return offerMatchesCategory(post.vendors?.category, chipLabel);
     });
   }, [posts, selectedCategoryMeta]);
@@ -595,6 +657,7 @@ export default function LocalFeed() {
 
     if (error) {
       console.error("loadReplies", error);
+      captureError(error, { scope: "localFeed.loadReplies", postId });
       toast.error(s.feed_errLoadReplies);
       return;
     }
@@ -632,6 +695,7 @@ export default function LocalFeed() {
 
     if (error) {
       console.error("submitReply", error);
+      captureError(error, { scope: "localFeed.submitReply", postId });
       toast.error(s.feed_errSendReply);
       return;
     }
@@ -662,6 +726,7 @@ export default function LocalFeed() {
         toast.error(s.feed_alreadyFlagged);
         return;
       }
+      captureError(error, { scope: "localFeed.flagPost", postId });
       toast.error(s.feed_errReportPost);
       return;
     }
@@ -853,6 +918,7 @@ export default function LocalFeed() {
       );
     } catch (err) {
       console.error("uploadFeedImage", err);
+      captureError(err, { scope: "localFeed.uploadFeedImage" });
       toast.error(s.feed_errImageUpload);
       setSubmitting(false);
       return;
@@ -862,6 +928,7 @@ export default function LocalFeed() {
 
     if (submitResult.error) {
       console.error("submitPost", submitResult.error);
+      captureError(submitResult.error, { scope: "localFeed.submitPost" });
       toast.error(s.feed_errPost);
       return;
     }
@@ -956,13 +1023,14 @@ export default function LocalFeed() {
               )}
             >
               {post.type === "offer" && (
-                <OfferCard post={post} viewerPhone={viewerPhone} s={s} />
+                <OfferCard post={post} viewerPhone={viewerPhone} s={s} lang={lang} />
               )}
               {post.type === "announcement" && (
                 <AnnouncementCard
                   post={post}
                   viewerPhone={viewerPhone}
                   s={s}
+                  lang={lang}
                   onFlag={() => void flagPost(post.id)}
                   flagging={flaggingId === post.id}
                   reported={flaggedByMe.has(post.id)}
@@ -973,6 +1041,7 @@ export default function LocalFeed() {
                   post={post}
                   viewerPhone={viewerPhone}
                   s={s}
+                  lang={lang}
                   expanded={expandedReplies.has(post.id)}
                   replies={replies[post.id] ?? []}
                   loadingReplies={loadingReplies.has(post.id)}
@@ -990,6 +1059,21 @@ export default function LocalFeed() {
             </li>
           ))}
         </ul>
+        {truncatedRemaining > 0 && (
+          <div className="px-4 pb-2" data-testid="feed-truncated">
+            <button
+              type="button"
+              data-testid="feed-load-more"
+              disabled={loadingMore}
+              onClick={() => void loadMoreFeed()}
+              className="w-full rounded-xl border border-border bg-muted/40 py-2.5 text-sm font-semibold text-foreground disabled:opacity-50"
+            >
+              {loadingMore
+                ? s.feed_loadingMore
+                : s.feed_loadMore.replace("{count}", String(truncatedRemaining))}
+            </button>
+          </div>
+        )}
         </>
       )}
 
@@ -1263,13 +1347,15 @@ function OfferCard({
   post,
   viewerPhone,
   s,
+  lang,
 }: {
   post: FeedPost;
   viewerPhone: string | null;
   s: FeedStrings;
+  lang: Language;
 }) {
   const expiry = expiryBadgeLabel(post.expires_at, s);
-  const postedAt = feedPostedTimeLabel(post.created_at, s);
+  const postedAt = feedPostedTimeLabel(post.created_at, s, lang);
   return (
     <article
       data-testid="feed-post-card"
@@ -1296,6 +1382,8 @@ function OfferCard({
         <img
           src={post.image_url}
           alt=""
+          loading="lazy"
+          decoding="async"
           className="w-full rounded-xl border border-border object-cover max-h-56 mb-3"
         />
       )}
@@ -1348,6 +1436,7 @@ function AnnouncementCard({
   post,
   viewerPhone,
   s,
+  lang,
   onFlag,
   flagging,
   reported,
@@ -1355,12 +1444,13 @@ function AnnouncementCard({
   post: FeedPost;
   viewerPhone: string | null;
   s: FeedStrings;
+  lang: Language;
   onFlag: () => void;
   flagging: boolean;
   reported: boolean;
 }) {
   const expiry = expiryBadgeLabel(post.expires_at, s);
-  const postedAt = feedPostedTimeLabel(post.created_at, s);
+  const postedAt = feedPostedTimeLabel(post.created_at, s, lang);
   return (
     <article
       data-testid="feed-post-card"
@@ -1381,6 +1471,8 @@ function AnnouncementCard({
         <img
           src={post.image_url}
           alt=""
+          loading="lazy"
+          decoding="async"
           className="w-full rounded-xl border border-border object-cover max-h-56 mb-3"
         />
       )}
@@ -1398,6 +1490,7 @@ function RecommendationCard({
   post,
   viewerPhone,
   s,
+  lang,
   expanded,
   replies,
   loadingReplies,
@@ -1412,6 +1505,7 @@ function RecommendationCard({
   post: FeedPost;
   viewerPhone: string | null;
   s: FeedStrings;
+  lang: Language;
   expanded: boolean;
   replies: FeedReply[];
   loadingReplies: boolean;
@@ -1425,7 +1519,7 @@ function RecommendationCard({
 }) {
   const navigate = useNavigate();
   const [linkingVendor, setLinkingVendor] = useState(false);
-  const postedAt = feedPostedTimeLabel(post.created_at, s);
+  const postedAt = feedPostedTimeLabel(post.created_at, s, lang);
   const linkedShopName = post.recommended_vendor?.shop_name ?? null;
 
   const handleRecommendedVendorTap = async () => {

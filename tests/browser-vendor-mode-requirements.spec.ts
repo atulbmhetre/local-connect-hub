@@ -3,6 +3,7 @@ import { loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
+  ensureVendorGoLivePhotos,
   seedVendorCategory,
 } from './helpers/setup';
 
@@ -96,6 +97,7 @@ async function createVendor(
     .single();
   if (error) throw error;
   await seedVendorCategory(vendor.id, category);
+  await ensureVendorGoLivePhotos(vendor.id);
   createdVendorIds.push(vendor.id);
   return vendor;
 }

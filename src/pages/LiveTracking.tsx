@@ -6,16 +6,9 @@ import {
   PhoneCall,
   ShieldAlert,
   Loader2,
-  Navigation,
   AlertTriangle,
-  Mic,
-  MicOff,
-  Volume2,
-  VolumeX,
-  PhoneOff,
   Flashlight,
   Share2,
-  Clock,
 } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -43,7 +36,6 @@ import { toast } from "sonner";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import {
   NetworkExhaustedError,
-  throwOnSupabaseNetworkError,
   withNetworkRetry,
 } from "@/lib/withNetworkRetry";
 import { captureError } from "@/lib/sentry";
@@ -54,6 +46,9 @@ const STALL_MS = 2 * 60 * 1000;
 
 // Average urban responder speed used to derive an ETA from straight-line km.
 const AVG_SPEED_KMH = 28;
+
+/** Match AiBridgeSheet: after Exotel accepts, show brief "ringing on your phone" then dismiss. */
+const SECURE_CALL_SUCCESS_DISMISS_MS = 3000;
 
 // Build a DivIcon so we can style markers with Tailwind-ish raw CSS while
 // keeping bundle light (no marker image assets to import).
@@ -111,13 +106,10 @@ const LiveTracking = () => {
   const [stalled, setStalled] = useState(false);
   const [now, setNow] = useState(Date.now());
 
-  // AI-Bridge call modal state (opened only after initiate-call succeeds).
-  const [callOpen, setCallOpen] = useState(false);
+  // Secure call: in-flight request vs brief post-success "answer on your phone" overlay (AiBridge pattern).
   const [callInitiating, setCallInitiating] = useState(false);
+  const [callConnecting, setCallConnecting] = useState(false);
   const [directCallConfirmOpen, setDirectCallConfirmOpen] = useState(false);
-  const [callStart, setCallStart] = useState<number | null>(null);
-  const [muted, setMuted] = useState(false);
-  const [speaker, setSpeaker] = useState(false);
 
   // Flash LED signal (torch) state.
   const [flashing, setFlashing] = useState(false);
@@ -237,6 +229,15 @@ const LiveTracking = () => {
     return () => clearInterval(t);
   }, []);
 
+  // After Exotel accepts: brief overlay, then dismiss (call continues on the phone).
+  useEffect(() => {
+    if (!callConnecting) return;
+    const t = window.setTimeout(() => {
+      setCallConnecting(false);
+    }, SECURE_CALL_SUCCESS_DISMISS_MS);
+    return () => window.clearTimeout(t);
+  }, [callConnecting]);
+
   const etaKm = useMemo(() => {
     if (!user || !helper) return null;
     return distanceKm(user, helper);
@@ -262,7 +263,7 @@ const LiveTracking = () => {
     return [20.5937, 78.9629]; // India centroid fallback
   }, [helper, user]);
 
-  const vendorDisplayName = vendor?.name?.trim() || vendor?.shop_name || "vendor";
+  const vendorDisplayName = vendor?.name?.trim() || vendor?.shop_name || s.liveTracking_vendorFallback;
 
   const openDirectTel = () => {
     const phone = vendor?.phone?.replace(/[\s\-+]/g, "").trim();
@@ -301,36 +302,17 @@ const LiveTracking = () => {
       return;
     }
 
-    setMuted(false);
-    setSpeaker(false);
-    setCallStart(Date.now());
-    setCallOpen(true);
+    // Honest PSTN bridge UX (same as AiBridge): phone rings; overlay is informational only.
+    setCallConnecting(true);
     toast(s.secure_call_connected, {
       description: s.secure_call_connected_body.replace("{name}", vendorDisplayName),
     });
-  };
-
-  const handleEndCall = () => {
-    setCallOpen(false);
-    setCallStart(null);
-    toast(s.liveTracking_callEnded, { description: s.liveTracking_callEndedBody });
   };
 
   const handleVerifyCall = () => {
     if (!vendor) return;
     void handleSecureCall();
   };
-
-  // Live call duration ticker.
-  const [callTick, setCallTick] = useState(0);
-  useEffect(() => {
-    if (!callOpen) return;
-    const t = setInterval(() => setCallTick((v) => v + 1), 1000);
-    return () => clearInterval(t);
-  }, [callOpen]);
-  const callSeconds = callStart ? Math.floor((Date.now() - callStart) / 1000) : 0;
-  const callDuration = `${String(Math.floor(callSeconds / 60)).padStart(2, "0")}:${String(callSeconds % 60).padStart(2, "0")}`;
-  void callTick; // dependency for re-render
 
   // Flash LED Signal — try real torch via getUserMedia, fall back to white screen pulse.
   const stopFlash = () => {
@@ -426,6 +408,13 @@ const LiveTracking = () => {
     ? "text-orange-500 border-orange-500/40 bg-orange-500/10"
     : "text-green-700 dark:text-brand border-brand/40 bg-brand-muted";
 
+  const etaDistanceLabel =
+    etaKm != null
+      ? etaKm < 1
+        ? s.liveTracking_distanceMeters(String(Math.round(etaKm * 1000)))
+        : s.liveTracking_distanceKm(etaKm.toFixed(1))
+      : null;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-page-bg grid place-items-center text-white">
@@ -445,7 +434,7 @@ const LiveTracking = () => {
         <button
           onClick={() => navigate(-1)}
           className="h-10 w-10 grid place-items-center rounded-xl bg-surface border border-white/10"
-          aria-label="Back"
+          aria-label={s.aria_back}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -472,7 +461,7 @@ const LiveTracking = () => {
         <button
           onClick={() => navigate(-1)}
           className="h-10 w-10 grid place-items-center rounded-xl bg-surface border border-white/10"
-          aria-label="Back"
+          aria-label={s.aria_back}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -509,7 +498,7 @@ const LiveTracking = () => {
         <button
           onClick={() => navigate(-1)}
           className="h-10 w-10 grid place-items-center rounded-xl bg-surface border border-white/10"
-          aria-label="Back"
+          aria-label={s.aria_back}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -518,7 +507,7 @@ const LiveTracking = () => {
             {s.liveTracking_header}
           </p>
           <h1 className="font-display text-base font-bold leading-tight">
-            AI-Bridge Hub
+            {s.liveTracking_hubTitle}
           </h1>
         </div>
       </header>
@@ -578,10 +567,8 @@ const LiveTracking = () => {
                 ? s.liveTracking_arrivingNow
                 : s.liveTracking_arrivingIn(String(etaMin))
               : movingLabel}
-          {etaKm != null && !stalled && (
-            <span className="text-gray-300 font-normal">
-              · {etaKm < 1 ? `${Math.round(etaKm * 1000)} m` : `${etaKm.toFixed(1)} km`}
-            </span>
+          {etaDistanceLabel != null && !stalled && (
+            <span className="text-gray-300 font-normal">· {etaDistanceLabel}</span>
           )}
         </div>
       </div>
@@ -600,7 +587,7 @@ const LiveTracking = () => {
           </div>
           <button
             onClick={() => void handleVerifyCall()}
-            disabled={callInitiating || !secureCallingLive}
+            disabled={callInitiating || callConnecting || !secureCallingLive}
             className="rounded-lg bg-orange-500 text-black px-3 py-1.5 text-xs font-bold active:scale-95 disabled:opacity-50"
           >
             {s.liveTracking_checkBtn}
@@ -614,7 +601,7 @@ const LiveTracking = () => {
           {vendor.shop_photo_url ? (
             <img
               src={vendor.shop_photo_url}
-              alt={`${vendor.name}'s photo`}
+              alt={s.liveTracking_photoAlt(vendor.name)}
               className="h-full w-full object-cover"
             />
           ) : (
@@ -647,13 +634,13 @@ const LiveTracking = () => {
         <button
           type="button"
           onClick={() => void handleSecureCall()}
-          disabled={callInitiating || !secureCallingLive}
+          disabled={callInitiating || callConnecting || !secureCallingLive}
           className="w-full rounded-2xl bg-brand text-black py-4 flex items-center justify-center gap-2 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_28px_rgba(34,197,94,0.45)] disabled:opacity-60 disabled:active:scale-100"
         >
-          {callInitiating ? (
+          {callInitiating || callConnecting ? (
             <>
               <Loader2 className="h-5 w-5 animate-spin" />
-              {s.secure_call_connecting}
+              {callConnecting ? s.secure_call_phone_ringing : s.secure_call_connecting}
             </>
           ) : !secureCallingLive ? (
             <>
@@ -705,13 +692,15 @@ const LiveTracking = () => {
       {/* Screen-flash fallback overlay */}
       {flashing && !torchTrackRef.current && <div className="aaspaas-flash-overlay" />}
 
-      {/* Connecting overlay — only while initiate-call is in flight */}
-      {callInitiating && (
+      {/* In-flight or brief post-success overlay — no fake mute/speaker/end controls */}
+      {(callInitiating || callConnecting) && (
         <div className="fixed inset-0 z-50 bg-page-bg/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 px-6">
           <Loader2 className="h-10 w-10 animate-spin text-brand" />
-          <p className="text-sm font-semibold text-brand">{s.secure_call_connecting}</p>
+          <p className="text-sm font-semibold text-brand">
+            {callConnecting ? s.secure_call_phone_ringing : s.secure_call_connecting}
+          </p>
           <p className="text-[11px] text-gray-400 text-center max-w-xs">
-            {s.secure_call_masked_hint}
+            {callConnecting ? s.secure_call_phone_ringing_body : s.secure_call_masked_hint}
           </p>
         </div>
       )}
@@ -737,75 +726,6 @@ const LiveTracking = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Secure Call modal — only after API confirms success */}
-      {callOpen && vendor && (
-        <div className="fixed inset-0 z-50 bg-page-bg/95 backdrop-blur-sm flex flex-col items-center justify-between py-12 px-6">
-          <div className="flex flex-col items-center gap-3 mt-6">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.3em] text-brand font-bold">
-              <Lock className="h-3 w-3" /> AI-Bridge · Secure
-            </div>
-            <div className="h-24 w-24 rounded-full overflow-hidden border-2 border-brand shadow-[0_0_36px_rgba(34,197,94,0.45)] bg-surface grid place-items-center">
-              {vendor.shop_photo_url ? (
-                <img src={vendor.shop_photo_url} alt={vendor.name} className="h-full w-full object-cover" />
-              ) : (
-                <span className="text-3xl font-display font-bold text-brand">
-                  {vendor.name?.[0]?.toUpperCase() ?? "?"}
-                </span>
-              )}
-            </div>
-            <p className="font-display text-xl font-bold text-white mt-1">{vendor.name}</p>
-            <p className="text-xs text-gray-400">
-              {getLabel(vendor.category)} · {s.liveTracking_numberMasked}
-            </p>
-            <div className="mt-4 flex items-center gap-2 text-sm text-brand font-mono">
-              <Clock className="h-4 w-4" />
-              {callDuration}
-            </div>
-          </div>
-
-          <div className="w-full max-w-xs">
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <button
-                onClick={() => setMuted((m) => !m)}
-                className={cn(
-                  "rounded-2xl py-4 flex flex-col items-center gap-1 border transition-colors",
-                  muted
-                    ? "bg-white text-black border-white"
-                    : "bg-surface text-white border-white/10",
-                )}
-              >
-                {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-                <span className="text-[11px] font-semibold">
-                  {muted ? s.liveTracking_unmute : s.liveTracking_mute}
-                </span>
-              </button>
-              <button
-                onClick={() => setSpeaker((s) => !s)}
-                className={cn(
-                  "rounded-2xl py-4 flex flex-col items-center gap-1 border transition-colors",
-                  speaker
-                    ? "bg-white text-black border-white"
-                    : "bg-surface text-white border-white/10",
-                )}
-              >
-                {speaker ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-                <span className="text-[11px] font-semibold">{s.liveTracking_speaker}</span>
-              </button>
-            </div>
-            <button
-              onClick={handleEndCall}
-              className="w-full rounded-full bg-destructive text-destructive-foreground py-4 flex items-center justify-center gap-2 font-bold active:scale-[0.98] shadow-[0_0_24px_rgba(239,68,68,0.45)]"
-            >
-              <PhoneOff className="h-5 w-5" />
-              {s.liveTracking_endCall}
-            </button>
-            <p className="text-[10px] text-center text-gray-500 mt-3">
-              {s.liveTracking_proxyNote}
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

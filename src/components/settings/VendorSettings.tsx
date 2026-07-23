@@ -53,6 +53,7 @@ import { withOptionalFeedImageUpload } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
 import { FeedReachChips } from "@/components/FeedReachChips";
 import { DEFAULT_FEED_REACH_KM, normalizeFeedReachKm, VENDOR_FEED_REACH_CHIP_OPTIONS } from "@/lib/feedReach";
+import { captureError } from "@/lib/sentry";
 
 export type MenuItem = {
   id: string;
@@ -133,6 +134,8 @@ type Props = {
   activeOffer: VendorActiveOffer | null;
   referralCredits: VendorReferralCredits;
   menuItems: MenuItem[];
+  /** True when the parent's initial menu fetch failed — show "unavailable". */
+  menuItemsFailed?: boolean;
   /** Deep-link from review_received notification — expand My Reviews on mount. */
   openReviewsInitially?: boolean;
 };
@@ -208,6 +211,7 @@ export function VendorSettingsOffers({
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) {
+          captureError(error, { scope: "vendorSettings.loadOfferCategories" });
           console.error("loadOfferCategories", error);
           setOfferCategories([]);
         } else {
@@ -231,6 +235,7 @@ export function VendorSettingsOffers({
       .or("starts_at.is.null,starts_at.lte.now()")
       .maybeSingle();
     if (error) {
+      captureError(error, { scope: "vendorSettings.loadActiveOffer", vendorId });
       console.error("loadActiveOffer", error);
       setActiveOffer(null);
       return;
@@ -754,6 +759,7 @@ export function VendorSettings({
   activeOffer,
   referralCredits,
   menuItems: initialMenuItems,
+  menuItemsFailed: initialMenuItemsFailed = false,
   openReviewsInitially = false,
 }: Props) {
   const { s } = useLanguage();
@@ -784,6 +790,8 @@ export function VendorSettings({
   const [cancelReasonCategoryId, setCancelReasonCategoryId] = useState<string | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems);
   const [menuLoading, setMenuLoading] = useState(false);
+  // True when the menu fetch failed — show "unavailable", not a false empty menu.
+  const [menuLoadFailed, setMenuLoadFailed] = useState(initialMenuItemsFailed);
   const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
   const [editDraft, setEditDraft] = useState({
     name: "",
@@ -804,6 +812,8 @@ export function VendorSettings({
   const [isProcessingImageMenu, setIsProcessingImageMenu] = useState(false);
   const [reviews, setReviews] = useState<VendorReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
+  // True when the reviews fetch failed — show "unavailable", not a false "no reviews".
+  const [reviewsFailed, setReviewsFailed] = useState(false);
   const [showReviews, setShowReviews] = useState(openReviewsInitially);
   const [replyingReviewId, setReplyingReviewId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
@@ -969,13 +979,22 @@ export function VendorSettings({
 
   const loadReviews = async () => {
     setReviewsLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("vendor_reviews")
       .select(
         "id, rating, review_text, service_mode, created_at, user_phone, vendor_response, vendor_responded_at",
       )
       .eq("vendor_id", vendor.id)
       .order("created_at", { ascending: false });
+    if (error) {
+      captureError(error, { scope: "vendorSettings.loadReviews", vendorId: vendor.id });
+      console.error("loadReviews", error);
+      setReviewsFailed(true);
+      setReviews([]);
+      setReviewsLoading(false);
+      return;
+    }
+    setReviewsFailed(false);
     setReviews((data ?? []) as VendorReview[]);
     setReviewsLoading(false);
   };
@@ -1030,6 +1049,7 @@ export function VendorSettings({
       .eq("status", "approved")
       .order("is_primary", { ascending: false });
     if (error) {
+      captureError(error, { scope: "vendorSettings.loadApprovedCategories", vendorId: vendor.id });
       console.error("loadApprovedCategories", error);
       return;
     }
@@ -1077,6 +1097,10 @@ export function VendorSettings({
         .eq("category_id", categoryId)
         .order("position", { ascending: true });
       if (error) {
+        captureError(error, {
+          scope: "vendorSettings.loadCategoryCancelReasons",
+          vendorId: vendor.id,
+        });
         console.error("loadCategoryCancelReasons", error);
         return;
       }
@@ -1112,11 +1136,19 @@ export function VendorSettings({
   // after in-panel mutations (add/edit/delete/toggle/voice/scan).
   const loadMenu = useCallback(async () => {
     setMenuLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("vendor_menu_items")
       .select("*")
       .eq("vendor_id", vendor.id)
       .order("sort_order", { ascending: true });
+    if (error) {
+      captureError(error, { scope: "vendorSettings.loadMenu", vendorId: vendor.id });
+      console.error("loadMenu", error);
+      setMenuLoadFailed(true);
+      setMenuLoading(false);
+      return;
+    }
+    setMenuLoadFailed(false);
     setMenuItems(data ?? []);
     setMenuLoading(false);
   }, [vendor.id]);
@@ -1124,6 +1156,10 @@ export function VendorSettings({
   useEffect(() => {
     setMenuItems(initialMenuItems);
   }, [initialMenuItems]);
+
+  useEffect(() => {
+    setMenuLoadFailed(initialMenuItemsFailed);
+  }, [initialMenuItemsFailed]);
 
   // Zero approved categories: account columns are the storage, keep in sync.
   // Vendors with an approved category load/save category-level rows instead
@@ -1636,9 +1672,11 @@ export function VendorSettings({
       <SettingsCollapsible
         label={s.menu_title}
         badge={
-          <span className="text-[10px] font-semibold text-muted-foreground normal-case tracking-normal">
-            {menuItems.length} items
-          </span>
+          menuLoadFailed ? null : (
+            <span className="text-[10px] font-semibold text-muted-foreground normal-case tracking-normal">
+              {menuItems.length} items
+            </span>
+          )
         }
         open={menuOpen}
         onToggle={() => setMenuOpen((o) => !o)}
@@ -1681,7 +1719,20 @@ export function VendorSettings({
           <p className="text-xs text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
         )}
 
-        {!menuLoading && menuItems.length === 0 && (
+        {!menuLoading && menuLoadFailed && (
+          <div className="px-4 py-3.5 space-y-2">
+            <p className="text-xs text-destructive">{s.menu_items_unavailable}</p>
+            <button
+              type="button"
+              onClick={() => void loadMenu()}
+              className="rounded-lg border border-surface-border px-2.5 py-1 text-xs font-semibold text-foreground"
+            >
+              {s.network_retry_btn}
+            </button>
+          </div>
+        )}
+
+        {!menuLoading && !menuLoadFailed && menuItems.length === 0 && (
           <p className="text-xs text-muted-foreground px-4 py-3.5">{s.menu_empty}</p>
         )}
 
@@ -2162,7 +2213,11 @@ export function VendorSettings({
       </SettingsCollapsible>
 
       <SettingsCollapsible
-        label={`⭐ ${s.review_myReviews} (${reviews.length})`}
+        label={
+          reviewsFailed
+            ? `⭐ ${s.review_myReviews}`
+            : `⭐ ${s.review_myReviews} (${reviews.length})`
+        }
         open={showReviews}
         onToggle={() => {
           setShowReviews((p) => {
@@ -2176,7 +2231,19 @@ export function VendorSettings({
         {reviewsLoading && (
           <p className="text-xs text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
         )}
-        {!reviewsLoading && reviews.length === 0 && (
+        {!reviewsLoading && reviewsFailed && (
+          <div className="px-4 py-3.5 space-y-2">
+            <p className="text-xs text-destructive">{s.review_unavailable}</p>
+            <button
+              type="button"
+              onClick={() => void loadReviews()}
+              className="rounded-lg border border-surface-border px-2.5 py-1 text-xs font-semibold text-foreground"
+            >
+              {s.network_retry_btn}
+            </button>
+          </div>
+        )}
+        {!reviewsLoading && !reviewsFailed && reviews.length === 0 && (
           <p className="text-xs text-muted-foreground px-4 py-3.5">{s.review_noReviews}</p>
         )}
         <div className="px-4 pb-3 space-y-2">

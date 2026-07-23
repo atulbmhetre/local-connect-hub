@@ -34,6 +34,11 @@ async function logFcmDelivery(
   }
 }
 
+function vendorNotificationType(record: Record<string, unknown>): string {
+  const raw = String(record?.type ?? "vendor-new-order").trim() || "vendor-new-order";
+  return raw.startsWith("vendor-") ? raw : `vendor-${raw}`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -108,6 +113,26 @@ serve(async (req) => {
       .eq("id", vendorId)
       .single();
 
+    let vendorTokens: string[] = [];
+    if (typeof vendorId === "string" && vendorId.trim()) {
+      const { data: deviceRows, error: devicesError } = await supabase
+        .from("vendor_devices")
+        .select("fcm_token")
+        .eq("vendor_id", vendorId);
+      if (devicesError) {
+        console.error("notify-vendor vendor_devices query failed", devicesError);
+      } else {
+        vendorTokens = (deviceRows ?? [])
+          .map((row) => row.fcm_token)
+          .filter((token): token is string => typeof token === "string" && token.trim().length > 0)
+          .map((token) => token.trim());
+      }
+    }
+    if (vendorTokens.length === 0 && typeof vendor?.fcm_token === "string" && vendor.fcm_token.trim()) {
+      vendorTokens = [vendor.fcm_token.trim()];
+    }
+    vendorTokens = [...new Set(vendorTokens)];
+
     const categoryKey =
       categoryFromRequest ??
       (typeof record?.category === "string" ? record.category : null) ??
@@ -171,92 +196,136 @@ serve(async (req) => {
       }
     }
 
-    if (!vendor?.fcm_token) {
+    if (vendorTokens.length === 0) {
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: CORS_HEADERS });
     }
 
-    const clientEmail = Deno.env.get("FCM_CLIENT_EMAIL")!;
-    const privateKey = Deno.env.get("FCM_PRIVATE_KEY")!.replace(/\\n/g, "\n");
-    const projectId = Deno.env.get("FCM_PROJECT_ID")!;
+    const notificationType = vendorNotificationType(record);
+    const targetPhone = typeof vendor?.phone === "string" ? vendor.phone.trim() : null;
 
-    const auth = new GoogleAuth({
-      credentials: {
-        client_email: clientEmail,
-        private_key: privateKey,
-      },
-      scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
-    });
+    let accessToken: string | null | undefined;
+    let projectId: string | undefined;
+    try {
+      const clientEmail = Deno.env.get("FCM_CLIENT_EMAIL")!;
+      const privateKey = Deno.env.get("FCM_PRIVATE_KEY")!.replace(/\\n/g, "\n");
+      projectId = Deno.env.get("FCM_PROJECT_ID")!;
 
-    const client = await auth.getClient();
-    const tokenResponse = await client.getAccessToken();
-    const accessToken = tokenResponse.token;
-
-    const fcmRes = await fetch(
-      `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
+      const auth = new GoogleAuth({
+        credentials: {
+          client_email: clientEmail,
+          private_key: privateKey,
         },
-        body: JSON.stringify({
-          message: {
-            token: vendor.fcm_token,
-            notification: {
-              title: notificationTitle,
-              body: message,
-            },
-            data: fcmData,
-            android: {
-              priority: "high",
-              notification: {
-                channel_id: "order_alert",
-                notification_priority: "PRIORITY_MAX",
-                visibility: "PUBLIC",
-              },
-            },
-          },
-        }),
-      },
-    );
-
-    const rawResponse = await fcmRes.text();
-
-    if (fcmRes.ok) {
-      await logFcmDelivery(supabase, {
-        notification_type: "vendor-new-order",
-        target_phone: typeof vendor.phone === "string" ? vendor.phone.trim() : null,
-        success: true,
-        raw_response: rawResponse,
+        scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
       });
-    } else {
-      let fcmError: Record<string, unknown> | null = null;
-      try {
-        fcmError = JSON.parse(rawResponse) as Record<string, unknown>;
-      } catch {
-        fcmError = null;
+
+      const client = await auth.getClient();
+      const tokenResponse = await client.getAccessToken();
+      accessToken = tokenResponse.token;
+    } catch (authErr) {
+      console.error("notify-vendor FCM auth failed", authErr);
+      const authErrMessage = authErr instanceof Error ? authErr.message : String(authErr);
+      for (let i = 0; i < vendorTokens.length; i++) {
+        await logFcmDelivery(supabase, {
+          notification_type: notificationType,
+          target_phone: targetPhone,
+          success: false,
+          raw_response: `fcm_auth_failed: ${authErrMessage}`,
+        });
       }
-      console.error("notify-vendor fcm_response:", rawResponse);
-      await logFcmDelivery(supabase, {
-        notification_type: "vendor-new-order",
-        target_phone: typeof vendor.phone === "string" ? vendor.phone.trim() : null,
-        success: false,
-        raw_response: rawResponse,
-      });
-      if (
-        fcmError &&
-        typeof fcmError === "object" &&
-        fcmError.error &&
-        typeof fcmError.error === "object"
-      ) {
-        const errObj = fcmError.error as { status?: string; code?: number };
-        if (errObj.status === "UNREGISTERED" || errObj.code === 404) {
-          await deleteStaleToken(
-            vendor.fcm_token,
-            Deno.env.get("SUPABASE_URL")!,
-            Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-          );
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: CORS_HEADERS });
+    }
+
+    if (!accessToken || !projectId) {
+      console.error("notify-vendor failed to obtain FCM access token");
+      for (let i = 0; i < vendorTokens.length; i++) {
+        await logFcmDelivery(supabase, {
+          notification_type: notificationType,
+          target_phone: targetPhone,
+          success: false,
+          raw_response: "fcm_auth_failed: no access token",
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: CORS_HEADERS });
+    }
+
+    for (const fcmToken of vendorTokens) {
+      try {
+        const fcmRes = await fetch(
+          `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message: {
+                token: fcmToken,
+                notification: {
+                  title: notificationTitle,
+                  body: message,
+                },
+                data: fcmData,
+                android: {
+                  priority: "high",
+                  notification: {
+                    channel_id: "order_alert",
+                    notification_priority: "PRIORITY_MAX",
+                    visibility: "PUBLIC",
+                  },
+                },
+              },
+            }),
+          },
+        );
+
+        const rawResponse = await fcmRes.text();
+
+        if (fcmRes.ok) {
+          await logFcmDelivery(supabase, {
+            notification_type: notificationType,
+            target_phone: targetPhone,
+            success: true,
+            raw_response: rawResponse,
+          });
+        } else {
+          let fcmError: Record<string, unknown> | null = null;
+          try {
+            fcmError = JSON.parse(rawResponse) as Record<string, unknown>;
+          } catch {
+            fcmError = null;
+          }
+          console.error("notify-vendor fcm_response:", rawResponse);
+          await logFcmDelivery(supabase, {
+            notification_type: notificationType,
+            target_phone: targetPhone,
+            success: false,
+            raw_response: rawResponse,
+          });
+          if (
+            fcmError &&
+            typeof fcmError === "object" &&
+            fcmError.error &&
+            typeof fcmError.error === "object"
+          ) {
+            const errObj = fcmError.error as { status?: string; code?: number };
+            if (errObj.status === "UNREGISTERED" || errObj.code === 404) {
+              await deleteStaleToken(
+                fcmToken,
+                Deno.env.get("SUPABASE_URL")!,
+                Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+              );
+            }
+          }
         }
+      } catch (tokenErr) {
+        console.error("notify-vendor token send failed", tokenErr);
+        await logFcmDelivery(supabase, {
+          notification_type: notificationType,
+          target_phone: targetPhone,
+          success: false,
+          raw_response: tokenErr instanceof Error ? tokenErr.message : String(tokenErr),
+        });
       }
     }
 

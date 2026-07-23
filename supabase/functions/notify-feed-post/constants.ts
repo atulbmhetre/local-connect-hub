@@ -30,3 +30,15 @@ export function feedPushTitle(postType: string, lang: string): string {
   const normalized = (lang === "hi" || lang === "mr" ? lang : "en") as FeedPushLang;
   return FEED_PUSH_TITLES[normalized][key];
 }
+
+/** Fallback offer push body (when the post has no content of its own) by lang. */
+const FEED_PUSH_OFFER_BODY_TEMPLATES: Record<FeedPushLang, (shopName: string) => string> = {
+  en: (shopName) => `${shopName} has a new offer for you`,
+  hi: (shopName) => `${shopName} की तरफ़ से आपके लिए नया ऑफर`,
+  mr: (shopName) => `${shopName} कडून तुमच्यासाठी नवीन ऑफर`,
+};
+
+export function feedPushOfferBody(shopName: string, lang: string): string {
+  const normalized = (lang === "hi" || lang === "mr" ? lang : "en") as FeedPushLang;
+  return FEED_PUSH_OFFER_BODY_TEMPLATES[normalized](shopName);
+}

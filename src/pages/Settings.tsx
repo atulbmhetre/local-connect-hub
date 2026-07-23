@@ -788,6 +788,8 @@ const Settings = () => {
     activeOffer: VendorActiveOffer | null;
     referralCredits: VendorReferralCredits;
     menuItems: MenuItem[];
+    /** True when the initial menu fetch failed — show "unavailable", not a false empty menu. */
+    menuItemsFailed: boolean;
   } | null>(null);
   const identityPhone = (vendor?.phone ?? "").trim() || (userPhone ?? "").trim() || null;
 
@@ -867,7 +869,12 @@ const Settings = () => {
     vendor: (typeof vendorList)[number] | null;
     mode: "verify" | "unverify";
   }>({ open: false, vendor: null, mode: "verify" });
-  const { addresses, loading: addressesLoading, refresh: refreshAddresses } = useUserAddresses();
+  const {
+    addresses,
+    loading: addressesLoading,
+    failed: addressesFailed,
+    refresh: refreshAddresses,
+  } = useUserAddresses();
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [editAddressValue, setEditAddressValue] = useState("");
   const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
@@ -905,6 +912,9 @@ const Settings = () => {
     warn_count: number | null;
     is_banned: boolean;
   } | null>(null);
+  // True only when the trust RPC itself failed — distinct from "no row yet",
+  // which is a legitimately good standing, not an unknown one.
+  const [trustLoadFailed, setTrustLoadFailed] = useState(false);
   const [accountOpen, setAccountOpen] = useState(true);
   const [shopOpen, setShopOpen] = useState(() => Boolean(vendorId?.trim()));
   const initialVendorPanelTab =
@@ -997,6 +1007,7 @@ const Settings = () => {
   const onFeedDiscoveryRadiusChange = async (km: number | null) => {
     const phone = userPhone?.trim();
     if (!phone) return;
+    const previous = feedDiscoveryRadiusKm;
     setFeedDiscoveryRadiusKm(km);
     const { error } = await supabase.rpc("set_feed_discovery_radius", {
       p_user_phone: phone,
@@ -1004,6 +1015,8 @@ const Settings = () => {
     });
     if (error) {
       console.error("set_feed_discovery_radius", error);
+      captureError(error, { scope: "settings.setFeedDiscoveryRadius" });
+      setFeedDiscoveryRadiusKm(previous);
       toast.error(s.feed_notifyToggle_saveError);
       return;
     }
@@ -1145,15 +1158,19 @@ const Settings = () => {
     const phone = userPhone?.trim();
     if (!phone) {
       setUserTrust(null);
+      setTrustLoadFailed(false);
       return;
     }
     void (async () => {
       const { data, error } = await supabase.rpc("lookup_user_by_phone", { p_phone: phone });
       if (error) {
+        captureError(error, { scope: "settings.loadUserTrust" });
         console.error("loadUserTrust", error);
         setUserTrust(null);
+        setTrustLoadFailed(true);
         return;
       }
+      setTrustLoadFailed(false);
       const row = data?.[0];
       setUserTrust(
         row
@@ -1168,6 +1185,10 @@ const Settings = () => {
   }, [userPhone]);
 
   const accountStanding = useMemo(() => {
+    // RPC failure: show "unavailable", not a false-good standing.
+    if (trustLoadFailed) {
+      return { tone: "unavailable" as const, label: s.trust_status_unavailable };
+    }
     if (!userTrust) {
       return { tone: "good" as const, label: s.trust_status_good };
     }
@@ -1183,24 +1204,30 @@ const Settings = () => {
       return { tone: "fair" as const, label: s.trust_status_fair };
     }
     return { tone: "good" as const, label: s.trust_status_good };
-  }, [userTrust, s]);
-  useEffect(() => {
+  }, [userTrust, trustLoadFailed, s]);
+  const [vendorLoadFailed, setVendorLoadFailed] = useState(false);
+  const loadVendorOwn = useCallback(async () => {
     if (!vendorId) return;
-    const load = async () => {
-      const phone = getUserPhone()?.trim();
-      if (!phone) {
-        console.error("Failed to load vendor: phone required");
-        return;
-      }
-      const { data, error } = await fetchVendorOwn(vendorId, phone);
-      if (error) {
-        console.error("Failed to load vendor:", error.message);
-        return;
-      }
-      if (data) setVendor(data);
-    };
-    void load();
+    setVendorLoadFailed(false);
+    const phone = getUserPhone()?.trim();
+    if (!phone) {
+      console.error("Failed to load vendor: phone required");
+      setVendorLoadFailed(true);
+      return;
+    }
+    const { data, error } = await fetchVendorOwn(vendorId, phone);
+    if (error) {
+      captureError(error, { scope: "settings.fetchVendorOwn", vendorId });
+      console.error("Failed to load vendor:", error.message);
+      setVendorLoadFailed(true);
+      return;
+    }
+    if (data) setVendor(data);
   }, [vendorId]);
+
+  useEffect(() => {
+    void loadVendorOwn();
+  }, [loadVendorOwn]);
 
   // Batch-fetch everything VendorSettings needs (offer / referral credits /
   // menu) so its panels render complete instead of popping in one by one.
@@ -1268,6 +1295,7 @@ const Settings = () => {
           ? { total: 0, pending: 0, failed: true }
           : { total, pending },
         menuItems: (menuRes.data ?? []) as MenuItem[],
+        menuItemsFailed: Boolean(menuRes.error),
       });
     })();
     return () => {
@@ -2419,37 +2447,29 @@ const Settings = () => {
   const reset = async () => {
     await stopAllVendorLocationTracking();
     const phone = localStorage.getItem("aaspaas:user_phone");
+    const deviceId = getDeviceId();
     if (phone) {
-      // Phone-scoped only (p_device_id null) to mirror the old direct read;
-      // delete_user_address rejects rows not owned by this phone.
-      const { data: addressRows } = await supabase.rpc("get_my_addresses", {
+      const { error } = await supabase.rpc("clear_my_data", {
         p_user_phone: phone,
-        p_device_id: null,
+        p_device_id: deviceId,
       });
-      for (const row of addressRows ?? []) {
-        await supabase.rpc("delete_user_address", {
-          p_user_phone: phone,
-          p_address_id: row.id,
-        });
+      if (error) {
+        captureError(error, { scope: "settings.clearMyData", phone });
+        toast.error(s.settings_clearDataFailed);
+        return;
       }
-      await supabase.rpc("delete_user_devices_for_phone", { p_user_phone: phone });
     }
-    const keysToClear = [
-      "aaspaas:user_phone",
-      "aaspaas:vendor_id",
-      "aaspaas:vendor_active",
-      "aaspaas:vendor_live",
-      "aaspaas:theme",
-      "aaspaas:language",
-      "aaspaas:vendor_sound",
-      "aaspaas:vendor_vibrate",
-      "aaspaas:vendor_onboarded",
-      "aaspaas:device_id",
-      "aaspaas:saved_neighbours",
-      "aaspaas:verification_progress",
-      "aaspaas:voice_lang",
-    ];
-    keysToClear.forEach((key) => localStorage.removeItem(key));
+
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith("aaspaas:"))
+      .forEach((key) => localStorage.removeItem(key));
+
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i);
+      if (key?.startsWith("aaspaas:")) sessionStorage.removeItem(key);
+    }
+
+    toast.success(s.settings_localDataCleared);
     window.location.reload();
   };
 
@@ -2466,14 +2486,14 @@ const Settings = () => {
   const saveEditAddress = async () => {
     const trimmed = editAddressValue.trim();
     if (!trimmed || !editingAddressId) {
-      toast.error("Address cannot be empty");
+      toast.error(s.settings_addressEmptyError);
       return;
     }
     setSavingAddress(true);
     const phone = userPhone?.trim();
     if (!phone) {
       setSavingAddress(false);
-      toast.error("Phone required to save address");
+      toast.error(s.settings_addressPhoneRequiredSave);
       return;
     }
     const { error } = await supabase.rpc("update_user_address", {
@@ -2483,6 +2503,7 @@ const Settings = () => {
     });
     setSavingAddress(false);
     if (error) {
+      captureError(error, { scope: "settings.saveEditAddress" });
       toast.error(error.message);
       return;
     }
@@ -2496,7 +2517,7 @@ const Settings = () => {
     const phone = userPhone?.trim();
     if (!phone) {
       setDeletingAddress(false);
-      toast.error("Phone required to delete address");
+      toast.error(s.settings_addressPhoneRequiredDelete);
       return;
     }
     const { error } = await supabase.rpc("delete_user_address", {
@@ -2505,6 +2526,7 @@ const Settings = () => {
     });
     setDeletingAddress(false);
     if (error) {
+      captureError(error, { scope: "settings.confirmDeleteAddress" });
       toast.error(error.message);
       return;
     }
@@ -2552,6 +2574,7 @@ const Settings = () => {
     setDeleteConfirmOpen(false);
 
     if (result.ok === false) {
+      captureError(new Error(result.error), { scope: "settings.invokeDeleteAccount" });
       toast.error(result.error);
       return;
     }
@@ -2592,6 +2615,7 @@ const Settings = () => {
     setDeleteAccountLoading(false);
 
     if (result.ok === false) {
+      captureError(new Error(result.error), { scope: "settings.invokeCancelDeletion" });
       toast.error(result.error);
       return;
     }
@@ -2754,6 +2778,8 @@ const Settings = () => {
                 "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
               accountStanding.tone === "good" &&
                 "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30",
+              accountStanding.tone === "unavailable" &&
+                "bg-muted text-muted-foreground border-surface-border",
             )}
           >
             {accountStanding.label}
@@ -2761,13 +2787,28 @@ const Settings = () => {
         </div>
 
         <SettingsCollapsible
-          label={`${s.settings_myDeliveryAddresses} (${addresses.length})`}
+          label={
+            addressesFailed
+              ? s.settings_myDeliveryAddresses
+              : `${s.settings_myDeliveryAddresses} (${addresses.length})`
+          }
           open={addressesOpen}
           onToggle={() => setAddressesOpen((o) => !o)}
           nested
         >
         {addressesLoading ? (
           <p className="text-sm text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
+        ) : addressesFailed ? (
+          <div className="px-4 py-3.5 space-y-2">
+            <p className="text-sm text-destructive">{s.settings_addressesUnavailable}</p>
+            <button
+              type="button"
+              onClick={() => void refreshAddresses()}
+              className="rounded-xl border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
+            >
+              {s.network_retry_btn}
+            </button>
+          </div>
         ) : addresses.length === 0 ? (
           <p className="text-sm text-muted-foreground px-4 py-3.5">{s.settings_noAddresses}</p>
         ) : (
@@ -2933,7 +2974,19 @@ const Settings = () => {
 
       {vendorId && (
         <>
-          {(!vendor || !vendorExtras) && (
+          {vendorLoadFailed && (
+            <div className="px-4 mb-5 space-y-2" data-testid="settings-vendor-load-failed">
+              <p className="text-sm text-destructive">{s.settings_vendorLoadFailed}</p>
+              <button
+                type="button"
+                onClick={() => void loadVendorOwn()}
+                className="rounded-xl border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
+              >
+                {s.network_retry_btn}
+              </button>
+            </div>
+          )}
+          {!vendorLoadFailed && (!vendor || !vendorExtras) && (
             <p className="text-sm text-muted-foreground px-4 mb-5">{s.settings_loading}</p>
           )}
           {vendor && vendorExtras && vendor.is_banned && (
@@ -2987,6 +3040,7 @@ const Settings = () => {
                   activeOffer={vendorExtras.activeOffer}
                   referralCredits={vendorExtras.referralCredits}
                   menuItems={vendorExtras.menuItems}
+                  menuItemsFailed={vendorExtras.menuItemsFailed}
                   openReviewsInitially={openVendorReviews}
                 />
               </TabsContent>
@@ -3073,7 +3127,16 @@ const Settings = () => {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogAction className="mt-0">OK</AlertDialogAction>
+                <AlertDialogAction
+                  className="mt-0"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setPermissionHint(null);
+                    void App.openUrl({ url: "app-settings:" });
+                  }}
+                >
+                  {s.settings_ok}
+                </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
@@ -4344,7 +4407,7 @@ const Settings = () => {
                 void confirmDeleteAccount();
               }}
             >
-              Yes, Delete
+              {s.delete_account_confirm_action}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -4361,8 +4424,8 @@ const Settings = () => {
       >
         <AlertDialogContent className="rounded-2xl border border-border bg-card">
           <AlertDialogHeader>
-            <AlertDialogTitle>Developer PIN</AlertDialogTitle>
-            <AlertDialogDescription>Enter the 4-digit PIN to open the developer menu.</AlertDialogDescription>
+            <AlertDialogTitle>{s.settings_devPinTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{s.settings_devPinBody}</AlertDialogDescription>
           </AlertDialogHeader>
           <input
             type="password"
@@ -4386,7 +4449,7 @@ const Settings = () => {
                 submitDevPin();
               }}
             >
-              Unlock
+              {s.settings_devPinUnlock}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -4397,9 +4460,7 @@ const Settings = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>{s.settings_clearDataTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove your phone number, saved addresses, devices, preferences, and vendor
-              session from this device and our servers. Your order history is preserved. This cannot
-              be undone.
+              {s.settings_clearDataDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">

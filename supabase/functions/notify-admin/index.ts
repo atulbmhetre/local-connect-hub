@@ -12,6 +12,33 @@ const CORS_HEADERS = {
   "Content-Type": "application/json",
 };
 
+async function logFcmDelivery(
+  supabase: ReturnType<typeof createClient>,
+  opts: {
+    notification_type: string;
+    target_phone: string | null;
+    success: boolean;
+    raw_response: string;
+  },
+): Promise<void> {
+  try {
+    await supabase.from("fcm_delivery_log").insert({
+      notification_type: opts.notification_type,
+      target_phone: opts.target_phone,
+      success_count: opts.success ? 1 : 0,
+      failure_count: opts.success ? 0 : 1,
+      raw_response: opts.raw_response.slice(0, 500),
+    });
+  } catch (err) {
+    console.error("notify-admin fcm_delivery_log insert failed", err);
+  }
+}
+
+function adminNotificationType(payload: Record<string, unknown>): string {
+  const raw = String(payload?.type ?? "notification").trim() || "notification";
+  return raw.startsWith("admin-") ? raw : `admin-${raw}`;
+}
+
 async function getAdminPhoneFromConfig(
   supabaseClient: ReturnType<typeof createClient>,
 ): Promise<string | null> {
@@ -188,21 +215,50 @@ serve(async (req) => {
       },
     );
 
+    const rawResponse = await fcmRes.text();
+    const notificationType = adminNotificationType(payload);
+
     if (!fcmRes.ok) {
-      const fcmData = await fcmRes.json();
-      console.error("notify-admin fcm_response:", JSON.stringify(fcmData));
-      if (fcmData?.error?.status === "UNREGISTERED" || fcmData?.error?.code === 404) {
-        await deleteStaleToken(
-          adminFcmToken,
-          Deno.env.get("SUPABASE_URL")!,
-          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-        );
+      let fcmErrorData: Record<string, unknown> | null = null;
+      try {
+        fcmErrorData = JSON.parse(rawResponse) as Record<string, unknown>;
+      } catch {
+        fcmErrorData = null;
+      }
+      console.error("notify-admin fcm_response:", rawResponse);
+      await logFcmDelivery(supabase, {
+        notification_type: notificationType,
+        target_phone: adminPhone.trim(),
+        success: false,
+        raw_response: rawResponse,
+      });
+      if (
+        fcmErrorData &&
+        typeof fcmErrorData === "object" &&
+        fcmErrorData.error &&
+        typeof fcmErrorData.error === "object"
+      ) {
+        const errObj = fcmErrorData.error as { status?: string; code?: number };
+        if (errObj.status === "UNREGISTERED" || errObj.code === 404) {
+          await deleteStaleToken(
+            adminFcmToken,
+            Deno.env.get("SUPABASE_URL")!,
+            Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          );
+        }
       }
       return new Response(JSON.stringify({ success: false, reason: "fcm_send_failed" }), {
         status: 200,
         headers: CORS_HEADERS,
       });
     }
+
+    await logFcmDelivery(supabase, {
+      notification_type: notificationType,
+      target_phone: adminPhone.trim(),
+      success: true,
+      raw_response: rawResponse,
+    });
 
     return new Response(JSON.stringify({ success: true }), { status: 200, headers: CORS_HEADERS });
   } catch (err) {

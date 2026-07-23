@@ -116,7 +116,7 @@ async function addBusinessViaSetupSheet(
   page: Page,
   opts: {
     categoryLabel: string;
-    brandName: string;
+    brandName?: string;
     reach?: 'customer' | 'vendor' | 'both';
     modes?: Array<'help' | 'delivery' | 'appointment'>;
   },
@@ -130,8 +130,6 @@ async function addBusinessViaSetupSheet(
     .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
   await expect(chip.first()).toBeVisible({ timeout: 15000 });
   await chip.first().click();
-
-  await page.getByPlaceholder('e.g. Ramesh Home Kitchen').fill(opts.brandName);
 
   const reach = opts.reach ?? 'vendor';
   if (reach === 'customer') {
@@ -151,7 +149,10 @@ async function addBusinessViaSetupSheet(
   }
 
   await page.getByTestId('add-business-shop-photo').click();
-  await page.waitForTimeout(800);
+  await expect(page.getByTestId('add-business-shop-photo')).toContainText(
+    /Re-shoot|Reshoot|Retake|फिर|पुन्हा/i,
+    { timeout: 15000 },
+  );
 
   await page.getByTestId('add-business-submit').click();
   await expect(page.getByTestId('my-business-add-business')).toBeVisible({ timeout: 20000 });
@@ -250,10 +251,13 @@ test('VR-E2E-01: shop vendor registers with GPS via 2-page wizard', async ({ pag
 
   const { data: verificationRows, error: verificationError } = await supabaseAdmin
     .from('vendor_verification')
-    .select('id')
+    .select('id, check_type')
     .eq('vendor_id', vendorId);
   expect(verificationError).toBeNull();
-  expect(verificationRows?.length).toBe(7);
+  // Wizard now submits photo_selfie via submit_vendor_verification (parity with My Business),
+  // so the checklist includes that row in addition to the prior 7 defaults.
+  expect(verificationRows?.length).toBe(8);
+  expect(verificationRows?.some((r) => r.check_type === 'photo_selfie')).toBe(true);
 
   await page.waitForTimeout(2000);
 

@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 import { buildFcmData } from "../_shared/notification-routes.ts";
-import { feedPushTitle } from "./constants.ts";
+import { feedPushOfferBody, feedPushTitle } from "./constants.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -26,37 +26,52 @@ type NotifyFeedPostBody = {
 
 type SupabaseClient = ReturnType<typeof createClient>;
 
+// Either a fixed body shared by every recipient (explicit body, or the
+// post's own user-generated content — not translatable), or a template that
+// still needs per-recipient language substitution, same as titles.
+type BodyResolution =
+  | { kind: "fixed"; value: string }
+  | { kind: "offer_template"; shopName: string };
+
 async function resolveNotifyBody(
   supabase: SupabaseClient,
   postId: string | undefined,
   postType: string,
   parsedBody: string,
   vendorId: string | undefined,
-): Promise<string> {
+): Promise<BodyResolution> {
   const trimmed = parsedBody.trim();
-  if (trimmed) return trimmed.substring(0, 100);
+  if (trimmed) return { kind: "fixed", value: trimmed.substring(0, 100) };
 
   if (postId) {
-    const { data: post } = await supabase
+    const { data: post, error } = await supabase
       .from("feed_posts")
       .select("content")
       .eq("id", postId)
       .maybeSingle();
-    if (post?.content) return String(post.content).substring(0, 100);
+    if (error) {
+      console.error("notify-feed-post resolveNotifyBody post lookup failed", error);
+    }
+    if (post?.content) {
+      return { kind: "fixed", value: String(post.content).substring(0, 100) };
+    }
   }
 
   if (postType === "offer" && vendorId) {
-    const { data: vendor } = await supabase
+    const { data: vendor, error } = await supabase
       .from("vendors")
       .select("shop_name")
       .eq("id", vendorId)
       .maybeSingle();
+    if (error) {
+      console.error("notify-feed-post resolveNotifyBody vendor lookup failed", error);
+    }
     if (vendor?.shop_name) {
-      return `${vendor.shop_name} has a new offer for you`.substring(0, 100);
+      return { kind: "offer_template", shopName: String(vendor.shop_name) };
     }
   }
 
-  return "";
+  return { kind: "fixed", value: "" };
 }
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -70,6 +85,28 @@ function notificationType(postType: string): string {
   if (postType === "announcement") return "feed_announcement";
   if (postType === "offer") return "feed_offer";
   return "feed_recommendation";
+}
+
+async function logFcmDelivery(
+  supabase: SupabaseClient,
+  opts: {
+    notification_type: string;
+    target_phone: string | null;
+    success: boolean;
+    raw_response: string;
+  },
+): Promise<void> {
+  try {
+    await supabase.from("fcm_delivery_log").insert({
+      notification_type: opts.notification_type,
+      target_phone: opts.target_phone,
+      success_count: opts.success ? 1 : 0,
+      failure_count: opts.success ? 0 : 1,
+      raw_response: opts.raw_response.slice(0, 500),
+    });
+  } catch (err) {
+    console.error("notify-feed-post fcm_delivery_log insert failed", err);
+  }
 }
 
 function defaultPushTitle(postType: string, lang = "en"): string {
@@ -150,9 +187,11 @@ async function getFcmAccessToken(): Promise<string | null> {
 }
 
 async function sendFcmPush(
+  supabase: SupabaseClient,
   accessToken: string,
   projectId: string,
   fcmToken: string,
+  targetPhone: string,
   title: string,
   body: string,
   postId: string | undefined,
@@ -169,6 +208,7 @@ async function sendFcmPush(
     title,
     body,
   );
+  const logType = `feed-${notifType}`;
   try {
     const fcmRes = await fetch(
       `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
@@ -193,19 +233,55 @@ async function sendFcmPush(
       },
     );
 
-    if (fcmRes.ok) return true;
-    const fcmData = await fcmRes.json();
-    console.error("notify-feed-post fcm_response:", JSON.stringify(fcmData));
-    if (fcmData?.error?.status === "UNREGISTERED" || fcmData?.error?.code === 404) {
-      await deleteStaleToken(
-        fcmToken,
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-      );
+    const rawResponse = await fcmRes.text();
+
+    if (fcmRes.ok) {
+      await logFcmDelivery(supabase, {
+        notification_type: logType,
+        target_phone: targetPhone,
+        success: true,
+        raw_response: rawResponse,
+      });
+      return true;
+    }
+
+    let fcmErrorData: Record<string, unknown> | null = null;
+    try {
+      fcmErrorData = JSON.parse(rawResponse) as Record<string, unknown>;
+    } catch {
+      fcmErrorData = null;
+    }
+    console.error("notify-feed-post fcm_response:", rawResponse);
+    await logFcmDelivery(supabase, {
+      notification_type: logType,
+      target_phone: targetPhone,
+      success: false,
+      raw_response: rawResponse,
+    });
+    if (
+      fcmErrorData &&
+      typeof fcmErrorData === "object" &&
+      fcmErrorData.error &&
+      typeof fcmErrorData.error === "object"
+    ) {
+      const errObj = fcmErrorData.error as { status?: string; code?: number };
+      if (errObj.status === "UNREGISTERED" || errObj.code === 404) {
+        await deleteStaleToken(
+          fcmToken,
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        );
+      }
     }
     return false;
   } catch (err) {
     console.error("notify-feed-post token send failed", err);
+    await logFcmDelivery(supabase, {
+      notification_type: logType,
+      target_phone: targetPhone,
+      success: false,
+      raw_response: err instanceof Error ? err.message : String(err),
+    });
     return false;
   }
 }
@@ -225,7 +301,8 @@ serve(async (req) => {
     if (text && text.trim()) {
       parsed = JSON.parse(text) as NotifyFeedPostBody;
     }
-  } catch {
+  } catch (err) {
+    console.error("notify-feed-post invalid_json", err);
     return jsonResponse({ error: "invalid_json" }, 400);
   }
 
@@ -245,6 +322,12 @@ serve(async (req) => {
     !postType ||
     !titleFallback
   ) {
+    console.error("notify-feed-post missing_required_fields", {
+      hasLat: Number.isFinite(lat),
+      hasLng: Number.isFinite(lng),
+      hasAuthorPhone: !!authorPhone,
+      hasPostType: !!postType,
+    });
     return jsonResponse({ error: "missing_required_fields" }, 400);
   }
 
@@ -254,7 +337,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const body = await resolveNotifyBody(
+    const bodyResolution = await resolveNotifyBody(
       supabase,
       String(parsed.post_id ?? "").trim() || undefined,
       postType,
@@ -273,19 +356,15 @@ serve(async (req) => {
       return jsonResponse({ notified: 0, error: "post_id_required" });
     }
 
-    const { data: radiusRow } = await supabase
-      .from("app_config")
-      .select("value")
-      .eq("key", "feed_notification_radius_km")
-      .maybeSingle();
-    const radiusKm = Number(radiusRow?.value) || 5;
-
-    // Same audience/category rules as get_local_feed_posts via feed_post_matches_reader_audience.
+    // Radius + audience rules now come from the post itself (reach_radius_km,
+    // recommendation vendor service_radius_km) and each recipient's own
+    // feed_discovery_radius_km preference — the same logic get_local_feed_posts
+    // uses for display, computed inside get_feed_post_notify_devices. We no
+    // longer pass a flat app_config radius; the RPC computes it from the post.
     const { data: devices, error: devicesError } = await supabase.rpc(
       "get_feed_post_notify_devices",
       {
         p_post_id: postIdForDevices,
-        p_radius_km: radiusKm,
         p_author_phone: authorPhone,
       },
     );
@@ -352,11 +431,23 @@ serve(async (req) => {
       return defaultPushTitle(postType, langByPhone.get(phone) ?? "en").substring(0, 100);
     };
 
+    // Localize the body per recipient the same way titles are localized.
+    // User-generated post content (and any explicit body) is shared as-is
+    // (it isn't translatable); only the generated offer fallback template
+    // varies by recipient language.
+    const bodyForPhone = (phone: string): string => {
+      if (bodyResolution.kind === "fixed") return bodyResolution.value;
+      return feedPushOfferBody(bodyResolution.shopName, langByPhone.get(phone) ?? "en").substring(
+        0,
+        100,
+      );
+    };
+
     const inboxRows = uniquePhones.map((user_phone) => ({
       user_phone,
       type: notifType,
       title: titleForPhone(user_phone),
-      body,
+      body: bodyForPhone(user_phone),
       route: "feed",
       route_params: postId ? { post_id: postId } : null,
       related_id: postId ?? null,
@@ -378,11 +469,13 @@ serve(async (req) => {
     if (accessToken && projectId) {
       for (const row of rows) {
         await sendFcmPush(
+          supabase,
           accessToken,
           projectId,
           row.fcm_token.trim(),
+          row.user_phone,
           titleForPhone(row.user_phone),
-          body,
+          bodyForPhone(row.user_phone),
           postId,
           notifType,
         );

@@ -58,13 +58,30 @@ export function showRegistrationGuidanceToast(message: string): void {
   });
 }
 
+/**
+ * True when a meaningful share of the string's letters fall outside the
+ * basic Latin + Latin-1 Supplement range (covers Devanagari, other Indic
+ * scripts, etc.). Latin-only heuristics below (vowel/keyboard-mash checks)
+ * don't apply to these — they false-flag real names like "राज" or "श्री".
+ */
+function hasSignificantNonLatinScript(raw: string): boolean {
+  const letters = raw.match(/\p{L}/gu) ?? [];
+  if (letters.length === 0) return false;
+  const nonLatin = letters.filter((ch) => (ch.codePointAt(0) ?? 0) > 0xff);
+  return nonLatin.length / letters.length >= 0.3;
+}
+
 export function looksLikeGibberish(s: string): boolean {
-  const t = s.trim().toLowerCase();
+  const raw = s.trim();
+  const t = raw.toLowerCase();
   if (t.length < 2) return true;
-  if (!/[aeiouy]/.test(t)) return true;
+  const nonLatin = hasSignificantNonLatinScript(raw);
+  if (!nonLatin && !/[aeiouy]/.test(t)) return true;
   if (/(.)\1{3,}/.test(t)) return true;
-  if (/^[asdfghjkl;]+$/.test(t) && t.length > 4) return true;
-  if (/^[qwertyuiop]+$/.test(t) && t.length > 4) return true;
+  if (!nonLatin) {
+    if (/^[asdfghjkl;]+$/.test(t) && t.length > 4) return true;
+    if (/^[qwertyuiop]+$/.test(t) && t.length > 4) return true;
+  }
   return false;
 }
 

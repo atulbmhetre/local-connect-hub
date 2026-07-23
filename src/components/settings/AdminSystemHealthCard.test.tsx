@@ -107,6 +107,77 @@ describe("AdminSystemHealthCard FCM signal", () => {
     expect(rpc).toHaveBeenCalledWith("get_admin_fcm_failure_stats", { p_hours: 24 });
   });
 
+  it("still loads Radar (and later sections) when the FCM RPC fails", async () => {
+    rpc.mockImplementation((name: string) => {
+      if (name === "get_admin_fcm_failure_stats") {
+        return Promise.resolve({ data: null, error: { message: "boom" } });
+      }
+      if (name === "get_admin_radar_health_stats") {
+        return Promise.resolve({
+          data: {
+            total_searches: 7,
+            zero_result_searches: 0,
+            zero_result_rate_pct: 0,
+            active_categories_count: 2,
+            categories_ok: true,
+          },
+          error: null,
+        });
+      }
+      if (name === "get_admin_restore_health_stats") {
+        return Promise.resolve({
+          data: {
+            attempts: 3,
+            successes: 3,
+            denied_banned: 0,
+            denied_deleted: 0,
+            not_found: 0,
+            offline_now_restorable: 0,
+            hidden_now_restorable: 0,
+            success_rate_pct: 100,
+          },
+          error: null,
+        });
+      }
+      if (name === "get_admin_green_pending_stats") {
+        return Promise.resolve({
+          data: {
+            account_pending: 1,
+            category_pending: 0,
+            vendors_ready: 1,
+          },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    render(<AdminSystemHealthCard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("admin-fcm-failure-total")).toHaveTextContent(
+        "Unable to load FCM stats",
+      );
+    });
+    // Later sections must still load despite the FCM RPC failing earlier in the chain.
+    await waitFor(() => {
+      expect(screen.getByTestId("admin-radar-health-summary")).toHaveTextContent(
+        "Radar categories OK",
+      );
+    });
+    expect(screen.getByTestId("admin-radar-health-detail")).toHaveTextContent("7 searches");
+    await waitFor(() => {
+      expect(screen.getByTestId("admin-restore-health-summary")).toHaveTextContent(
+        "3/3 restored (100%)",
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("admin-green-pending-summary")).toHaveTextContent(
+        "1 vendor ready for review",
+      );
+    });
+  });
+
   it("shows radar health summary from get_admin_radar_health_stats", async () => {
     render(<AdminSystemHealthCard />);
 

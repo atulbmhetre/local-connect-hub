@@ -105,11 +105,33 @@ export async function invokeRegisterVendorRpc(
   return { vendorId: data as string };
 }
 
+/** Minimal photos required by _assert_vendor_photos_ready when going live via vendor_update_own. */
+export const TEST_VENDOR_PHOTO_SELFIE = 'https://example.com/test-selfie.jpg';
+export const TEST_VENDOR_SHOP_PHOTO = 'https://example.com/test-shop.jpg';
+
+export async function ensureVendorGoLivePhotos(vendorId: string): Promise<void> {
+  const { error: vendorErr } = await supabaseAdmin
+    .from('vendors')
+    .update({
+      photo_selfie: TEST_VENDOR_PHOTO_SELFIE,
+      shop_photo_url: TEST_VENDOR_SHOP_PHOTO,
+    })
+    .eq('id', vendorId);
+  if (vendorErr) throw vendorErr;
+
+  const { error: catErr } = await supabaseAdmin
+    .from('vendor_categories')
+    .update({ shop_photo_url: TEST_VENDOR_SHOP_PHOTO })
+    .eq('vendor_id', vendorId);
+  if (catErr) throw catErr;
+}
+
 export async function createTestVendor(opts: RegisterVendorRpcOptions = {}) {
   const result = await invokeRegisterVendorRpc(opts);
   if (result.error) throw new Error(result.error.message);
 
   const vendorId = result.vendorId!;
+  await ensureVendorGoLivePhotos(vendorId);
   if (opts.is_active !== false) {
     await supabaseAdmin
       .from('vendors')
@@ -292,6 +314,7 @@ export async function seedVendorCategory(
       ...(opts.serves_at_customer_place !== undefined
         ? { serves_at_customer_place: opts.serves_at_customer_place }
         : {}),
+      shop_photo_url: TEST_VENDOR_SHOP_PHOTO,
     })
     .select('id')
     .single();

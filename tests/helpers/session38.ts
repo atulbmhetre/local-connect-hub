@@ -78,6 +78,18 @@ export async function deleteStaleToken(token: string): Promise<void> {
     console.error('deleteStaleToken user_devices failed', deviceRes.status, errText);
   }
 
+  const vendorDeviceRes = await fetch(
+    `${supabaseUrl}/rest/v1/vendor_devices?fcm_token=eq.${encodeURIComponent(token)}`,
+    {
+      method: 'DELETE',
+      headers,
+    },
+  );
+  if (!vendorDeviceRes.ok) {
+    const errText = await vendorDeviceRes.text();
+    console.error('deleteStaleToken vendor_devices failed', vendorDeviceRes.status, errText);
+  }
+
   const vendorRes = await fetch(
     `${supabaseUrl}/rest/v1/vendors?fcm_token=eq.${encodeURIComponent(token)}`,
     {

@@ -4,6 +4,7 @@ import { loginAsVendor, loginAsCustomer, openVendorMyBusinessTab, APP_URL } from
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
+  ensureVendorGoLivePhotos,
   seedVendorCategory,
 } from './helpers/setup';
 import {
@@ -66,6 +67,7 @@ async function createVendor(tag: string): Promise<{ id: string; phone: string; s
     .single();
   if (error) throw error;
   await seedVendorCategory(vendor.id, category);
+  await ensureVendorGoLivePhotos(vendor.id);
   createdVendorIds.push(vendor.id);
   return vendor;
 }

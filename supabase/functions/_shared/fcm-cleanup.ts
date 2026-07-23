@@ -1,4 +1,4 @@
-/** Clear stale FCM tokens from user_devices and vendors.fcm_token. */
+/** Clear stale FCM tokens from user_devices, vendor_devices, and vendors.fcm_token. */
 export async function deleteStaleToken(
   token: string,
   supabaseUrl: string,
@@ -25,6 +25,22 @@ export async function deleteStaleToken(
     }
   } catch (err) {
     console.error("deleteStaleToken user_devices error", err);
+  }
+
+  try {
+    const vendorDeviceRes = await fetch(
+      `${supabaseUrl}/rest/v1/vendor_devices?fcm_token=eq.${encodeURIComponent(token)}`,
+      {
+        method: "DELETE",
+        headers,
+      },
+    );
+    if (!vendorDeviceRes.ok) {
+      const errText = await vendorDeviceRes.text();
+      console.error("deleteStaleToken vendor_devices failed", vendorDeviceRes.status, errText);
+    }
+  } catch (err) {
+    console.error("deleteStaleToken vendor_devices error", err);
   }
 
   try {

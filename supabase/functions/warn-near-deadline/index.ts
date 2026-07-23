@@ -127,6 +127,15 @@ serve(async (req) => {
           console.error("warn-near-deadline notify-user failed", res.status, errText);
           continue;
         }
+
+        const resJson = await res.json().catch(() => ({}) as { sent?: number });
+        const sent = Number((resJson as { sent?: number }).sent ?? 0);
+        if (!(sent > 0)) {
+          // sent:0 means no FCM tokens / send failed — leave push_sent false so it retries later.
+          console.warn("warn-near-deadline notify-user sent 0, not marking pushed", userPhone);
+          continue;
+        }
+
         pushed += 1;
 
         const { error: markError } = await supabase

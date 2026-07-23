@@ -42,11 +42,16 @@ if (import.meta.env.MODE === "test" && typeof window !== "undefined") {
 const AI_GATEWAY_URL = `${SUPABASE_URL}/functions/v1/ai-gateway`;
 export const INITIATE_CALL_URL = `${SUPABASE_URL}/functions/v1/initiate-call`;
 
+/** Abort initiate-call if Exotel / edge does not respond in time. */
+const INITIATE_CALL_TIMEOUT_MS = 20_000;
+
 export async function invokeInitiateCall(body: {
   caller_phone: string;
   vendor_phone: string;
   service_mode: string;
 }): Promise<{ success: boolean; call_sid?: string; error?: string }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), INITIATE_CALL_TIMEOUT_MS);
   try {
     const resp = await fetch(INITIATE_CALL_URL, {
       method: "POST",
@@ -55,6 +60,7 @@ export async function invokeInitiateCall(body: {
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     const data = (await resp.json()) as {
       success?: boolean;
@@ -62,23 +68,26 @@ export async function invokeInitiateCall(body: {
       error?: string;
     };
     if (!resp.ok || !data.success) {
-      const result = {
-        success: false as const,
-        error: data.error ?? `HTTP ${resp.status}`,
+      const error = data.error ?? `HTTP ${resp.status}`;
+      captureError(new Error(error), {
+        scope: "invokeInitiateCall",
         status: resp.status,
-        data,
-      };
-      console.log("Exotel response:", result);
-      return { success: false, error: result.error };
+        service_mode: body.service_mode,
+      });
+      return { success: false, error };
     }
     return { success: true, call_sid: data.call_sid };
   } catch (err) {
-    const result = {
-      success: false as const,
-      error: err instanceof Error ? err.message : "Network error",
-    };
-    console.log("Exotel response:", result);
-    return result;
+    const aborted = err instanceof DOMException && err.name === "AbortError";
+    const error = aborted
+      ? "Call request timed out"
+      : err instanceof Error
+        ? err.message
+        : "Network error";
+    captureError(err, { scope: "invokeInitiateCall", aborted, service_mode: body.service_mode });
+    return { success: false, error };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

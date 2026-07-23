@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { strings } from "@/lib/strings";
@@ -139,12 +139,17 @@ function renderTrack() {
 describe("LiveTracking secure call honesty", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     mockConfig.exotelSecureCallingEnabled = false;
     mockInvokeInitiateCall.mockResolvedValue({ success: true, call_sid: "CA_OK" });
     vi.spyOn(window, "open").mockImplementation(() => null);
   });
 
-  it("with exotel_secure_calling_enabled=false shows coming soon and never opens the call modal", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("with exotel_secure_calling_enabled=false shows coming soon and never opens in-call chrome", async () => {
     renderTrack();
 
     const cta = await screen.findByRole("button", { name: s.secure_call_coming_soon });
@@ -156,10 +161,10 @@ describe("LiveTracking secure call honesty", () => {
     expect(window.open).not.toHaveBeenCalled();
     expect(toast).not.toHaveBeenCalledWith(s.secure_call_connected, expect.anything());
     expect(screen.queryByRole("button", { name: /End Call/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/AI-Bridge · Secure/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(s.secure_call_phone_ringing)).not.toBeInTheDocument();
   });
 
-  it("with flag true and initiate success: connecting first, then connected modal after resolve", async () => {
+  it("with flag true and initiate success: connecting first, then phone-ringing overlay (no mute/end chrome)", async () => {
     mockConfig.exotelSecureCallingEnabled = true;
 
     let resolveCall!: (value: { success: boolean; call_sid?: string }) => void;
@@ -186,9 +191,12 @@ describe("LiveTracking secure call honesty", () => {
       resolveCall({ success: true, call_sid: "CA_OK" });
     });
 
-    expect(await screen.findByRole("button", { name: /End Call/i })).toBeInTheDocument();
-    expect(screen.getByText(/AI-Bridge · Secure/i)).toBeInTheDocument();
-    expect(screen.getByText(/00:0/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByText(s.secure_call_phone_ringing).length).toBeGreaterThanOrEqual(1);
+    });
+    expect(screen.getByText(s.secure_call_phone_ringing_body)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /End Call/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Mute/i })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(toast).toHaveBeenCalledWith(
         s.secure_call_connected,
@@ -198,7 +206,13 @@ describe("LiveTracking secure call honesty", () => {
       );
     });
     expect(window.open).not.toHaveBeenCalled();
-    expect(screen.queryByText(s.secure_call_connecting)).not.toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(3100);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(s.secure_call_phone_ringing_body)).not.toBeInTheDocument();
+    });
   });
 
   it("with flag true and initiate failure: confirm dialog before tel:, no silent dial", async () => {

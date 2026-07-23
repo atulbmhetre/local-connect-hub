@@ -28,17 +28,21 @@ import {
   VENDOR_SELFIES_BUCKET,
   distanceMeters,
   type CategorySuggestionResult,
+  type RegisterVendorResult,
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import {
   withNetworkRetry,
   isNetworkFailure,
+  NetworkExhaustedError,
 } from "@/lib/withNetworkRetry";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import {
   dismissNetworkRetryingToast,
   showNetworkRetryingToast,
+  showNetworkFailedToast,
 } from "@/lib/networkToast";
+import { captureError } from "@/lib/sentry";
 import {
   allCategoriesHaveModes,
   buildCategoryModesPayload,
@@ -507,7 +511,7 @@ export function VendorRegistrationWizard({
       upsert: true,
     });
     if (upErr) {
-      toast.error("QR upload failed");
+      toast.error(s.vendor_qr_upload_failed);
       setUpiQrUploading(false);
       return;
     }
@@ -605,30 +609,57 @@ export function VendorRegistrationWizard({
     );
     const availabilityModesUnion = unionAvailabilityModes(modesByIdForRpc);
 
-    const registerResult = await invokeRegisterVendor({
-      name: name.trim(),
-      shop_name: resolvedShopName,
-      category: effectiveCategory,
-      phone: phone.trim(),
-      upi_id: upi.trim(),
-      upi_qr_url: upiQrUrl || null,
-      upi_qr_payee_id: upiQrPayeeId,
-      service_mode: primaryServiceMode,
-      vendor_type: vendorType,
-      vendor_note: vendorNote.trim() || null,
-      latitude: coords!.lat,
-      longitude: coords!.lng,
-      referral_code: referralCodeFromPhone(phone.trim()),
-      profile_status: "complete",
-      category_ids: categoryIdsForRpc,
-      category_service_modes: categoryServiceModes,
-      category_modes: modesByIdForRpc,
-      base_type: baseType,
-      serves_at_vendor_place: reachFlags.serves_at_vendor_place,
-      serves_at_customer_place: reachFlags.serves_at_customer_place,
-      service_radius_km: serviceRadiusKm ?? 15,
-      availability_modes: availabilityModesUnion,
-    });
+    let registerResult: RegisterVendorResult;
+    try {
+      registerResult = await withNetworkRetry(
+        async () => {
+          const r = await invokeRegisterVendor({
+            name: name.trim(),
+            shop_name: resolvedShopName,
+            category: effectiveCategory,
+            phone: phone.trim(),
+            upi_id: upi.trim(),
+            upi_qr_url: upiQrUrl || null,
+            upi_qr_payee_id: upiQrPayeeId,
+            service_mode: primaryServiceMode,
+            vendor_type: vendorType,
+            vendor_note: vendorNote.trim() || null,
+            latitude: coords!.lat,
+            longitude: coords!.lng,
+            referral_code: referralCodeFromPhone(phone.trim()),
+            profile_status: "complete",
+            category_ids: categoryIdsForRpc,
+            category_service_modes: categoryServiceModes,
+            category_modes: modesByIdForRpc,
+            base_type: baseType,
+            serves_at_vendor_place: reachFlags.serves_at_vendor_place,
+            serves_at_customer_place: reachFlags.serves_at_customer_place,
+            service_radius_km: serviceRadiusKm ?? 15,
+            availability_modes: availabilityModesUnion,
+          });
+          if (r.ok === false && isNetworkFailure({ message: r.error })) {
+            throw new Error(r.error);
+          }
+          return r;
+        },
+        {
+          onRetrying: () => showNetworkRetryingToast({ retrying: s.network_retrying }),
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      setLoading(false);
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void register(e), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+        return;
+      }
+      throw err;
+    }
 
     if (registerResult.ok === false) {
       setLoading(false);
@@ -650,6 +681,8 @@ export function VendorRegistrationWizard({
     let resolvedCategoryLabel = effectiveCategory;
     let resolvedCategoryId =
       selectedCategoryIds.length > 0 ? selectedCategoryIds[0] : null;
+    let selfiePhotoFailed = false;
+    let shopPhotoFailed = false;
 
     if (pendingNewCategoryCreate) {
       const created = await invokeSuggestCategory({
@@ -674,13 +707,31 @@ export function VendorRegistrationWizard({
           modes: pendingCategoryModes,
         });
         if (attachResult.ok === false) {
-          console.error("attach_pending_category failed", attachResult.error);
+          captureError(new Error(attachResult.error), {
+            scope: "vendorRegistrationWizard.attachPendingCategory",
+            vendorId: newVendorId,
+          });
+          toast.warning(s.reg_soft_fail_category);
         } else {
-          await patchVendorOwn(newVendorId, phone.trim(), {
+          const { error: attachPatchErr } = await patchVendorOwn(newVendorId, phone.trim(), {
             category: resolvedCategoryLabel,
             service_mode: resolvedPrimaryServiceMode,
           });
+          if (attachPatchErr) {
+            captureError(attachPatchErr, {
+              scope: "vendorRegistrationWizard.attachPendingCategoryPatch",
+              vendorId: newVendorId,
+            });
+          }
         }
+      } else {
+        // Pending-category creation itself failed — shop photo has nowhere to attach.
+        shopPhotoFailed = true;
+        captureError(new Error("pending_category_create_failed"), {
+          scope: "vendorRegistrationWizard.pendingCategoryCreate",
+          vendorId: newVendorId,
+        });
+        toast.warning(s.reg_soft_fail_category);
       }
     }
 
@@ -693,14 +744,45 @@ export function VendorRegistrationWizard({
         const { data: selfiePub } = supabase.storage
           .from(VENDOR_SELFIES_BUCKET)
           .getPublicUrl(selfiePath);
-        await patchVendorOwn(newVendorId, phone.trim(), {
+        const { error: selfiePatchErr } = await patchVendorOwn(newVendorId, phone.trim(), {
           photo_selfie: selfiePub.publicUrl,
         });
+        if (selfiePatchErr) {
+          selfiePhotoFailed = true;
+          captureError(selfiePatchErr, {
+            scope: "vendorRegistrationWizard.selfiePatch",
+            vendorId: newVendorId,
+          });
+        } else {
+          // Mirrors My Business's selfie flow (submit_vendor_verification).
+          // photo_selfie is already saved — a verification RPC failure here
+          // is non-blocking for the go-live gate.
+          const { error: verifErr } = await supabase.rpc("submit_vendor_verification", {
+            p_vendor_id: newVendorId,
+            p_vendor_phone: phone.trim(),
+            p_check_type: "photo_selfie",
+            p_doc_url: selfiePub.publicUrl,
+          });
+          if (verifErr) {
+            captureError(verifErr, {
+              scope: "vendorRegistrationWizard.submitSelfieVerification",
+              vendorId: newVendorId,
+            });
+          }
+        }
       } else {
-        console.error("selfie upload failed", selfieUpErr);
+        selfiePhotoFailed = true;
+        captureError(selfieUpErr, {
+          scope: "vendorRegistrationWizard.selfieUpload",
+          vendorId: newVendorId,
+        });
       }
     } catch (err) {
-      console.error("selfie upload failed", err);
+      selfiePhotoFailed = true;
+      captureError(err, {
+        scope: "vendorRegistrationWizard.selfieUpload",
+        vendorId: newVendorId,
+      });
     }
 
     if (resolvedCategoryId && shopPhotoBlob) {
@@ -714,21 +796,41 @@ export function VendorRegistrationWizard({
             .from(SHOP_PHOTOS_BUCKET)
             .getPublicUrl(shopPath);
           const hasAccountCoords = coords != null;
-          await supabase.rpc("vendor_submit_category_shop_photo", {
-            p_vendor_id: newVendorId,
-            p_vendor_phone: phone.trim(),
-            p_category_id: resolvedCategoryId,
-            p_shop_photo_url: shopPub.publicUrl,
-            p_gps_match_distance: shopPhotoGpsDistance,
-            p_set_account_lat: hasAccountCoords ? null : shopPhotoCoords?.lat ?? null,
-            p_set_account_lng: hasAccountCoords ? null : shopPhotoCoords?.lng ?? null,
-          });
+          const { error: shopSubmitErr } = await supabase.rpc(
+            "vendor_submit_category_shop_photo",
+            {
+              p_vendor_id: newVendorId,
+              p_vendor_phone: phone.trim(),
+              p_category_id: resolvedCategoryId,
+              p_shop_photo_url: shopPub.publicUrl,
+              p_gps_match_distance: shopPhotoGpsDistance,
+              p_set_account_lat: hasAccountCoords ? null : shopPhotoCoords?.lat ?? null,
+              p_set_account_lng: hasAccountCoords ? null : shopPhotoCoords?.lng ?? null,
+            },
+          );
+          if (shopSubmitErr) {
+            shopPhotoFailed = true;
+            captureError(shopSubmitErr, {
+              scope: "vendorRegistrationWizard.submitShopPhoto",
+              vendorId: newVendorId,
+            });
+          }
         } else {
-          console.error("shop photo upload failed", shopUpErr);
+          shopPhotoFailed = true;
+          captureError(shopUpErr, {
+            scope: "vendorRegistrationWizard.shopPhotoUpload",
+            vendorId: newVendorId,
+          });
         }
       } catch (err) {
-        console.error("shop photo upload failed", err);
+        shopPhotoFailed = true;
+        captureError(err, {
+          scope: "vendorRegistrationWizard.shopPhotoUpload",
+          vendorId: newVendorId,
+        });
       }
+    } else if (!resolvedCategoryId) {
+      shopPhotoFailed = true;
     }
 
     const filledReasons = cancelReasons.map((r) => r.trim());
@@ -743,7 +845,11 @@ export function VendorRegistrationWizard({
         },
       );
       if (reasonsErr) {
-        console.error("cancel reasons upsert failed", reasonsErr);
+        captureError(reasonsErr, {
+          scope: "vendorRegistrationWizard.cancelReasons",
+          vendorId: newVendorId,
+        });
+        toast.warning(s.reg_soft_fail_cancel_reasons);
       }
     }
 
@@ -764,7 +870,11 @@ export function VendorRegistrationWizard({
           p_patch: patch,
         });
         if (profileErr) {
-          console.error("category profile update failed", profileErr);
+          captureError(profileErr, {
+            scope: "vendorRegistrationWizard.categoryProfile",
+            vendorId: newVendorId,
+          });
+          toast.warning(s.reg_soft_fail_profile);
         }
       }
     }
@@ -810,6 +920,11 @@ export function VendorRegistrationWizard({
 
     setLoading(false);
     toast.success(s.vendor_welcome_title, { description: s.vendor_welcome_body });
+    if (selfiePhotoFailed || shopPhotoFailed) {
+      toast.warning(s.vendor_photos_required_title, {
+        description: s.vendor_photos_required_body,
+      });
+    }
     onRegistered(newVendorId, phone.trim());
   };
 
@@ -869,7 +984,7 @@ export function VendorRegistrationWizard({
               onClick={() => upiQrInputRef.current?.click()}
               className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
             >
-              {upiQrUploading ? "Uploading..." : s.vendor_upi_qr_hint}
+              {upiQrUploading ? s.vendor_uploading : s.vendor_upi_qr_hint}
             </button>
           </div>
 

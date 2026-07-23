@@ -100,10 +100,10 @@ export function AdminSystemHealthCard() {
         console.error("get_admin_fcm_failure_stats failed", fcmError);
         setFcmLoadError(true);
         setFcmRows([]);
-        return;
+      } else {
+        setFcmLoadError(false);
+        setFcmRows((Array.isArray(fcmData) ? fcmData : []) as FcmFailureRow[]);
       }
-      setFcmLoadError(false);
-      setFcmRows((Array.isArray(fcmData) ? fcmData : []) as FcmFailureRow[]);
 
       const { data: radarData, error: radarError } = await supabase.rpc(
         "get_admin_radar_health_stats",
@@ -113,10 +113,10 @@ export function AdminSystemHealthCard() {
         console.error("get_admin_radar_health_stats failed", radarError);
         setRadarLoadError(true);
         setRadarHealth(null);
-        return;
+      } else {
+        setRadarLoadError(false);
+        setRadarHealth((radarData ?? null) as RadarHealthStats | null);
       }
-      setRadarLoadError(false);
-      setRadarHealth((radarData ?? null) as RadarHealthStats | null);
 
       const { data: restoreData, error: restoreError } = await supabase.rpc(
         "get_admin_restore_health_stats",
@@ -126,10 +126,10 @@ export function AdminSystemHealthCard() {
         console.error("get_admin_restore_health_stats failed", restoreError);
         setRestoreLoadError(true);
         setRestoreHealth(null);
-        return;
+      } else {
+        setRestoreLoadError(false);
+        setRestoreHealth((restoreData ?? null) as RestoreHealthStats | null);
       }
-      setRestoreLoadError(false);
-      setRestoreHealth((restoreData ?? null) as RestoreHealthStats | null);
 
       const { data: greenData, error: greenError } = await supabase.rpc(
         "get_admin_green_pending_stats",
@@ -138,10 +138,10 @@ export function AdminSystemHealthCard() {
         console.error("get_admin_green_pending_stats failed", greenError);
         setGreenPendingLoadError(true);
         setGreenPending(null);
-        return;
+      } else {
+        setGreenPendingLoadError(false);
+        setGreenPending((greenData ?? null) as GreenPendingStats | null);
       }
-      setGreenPendingLoadError(false);
-      setGreenPending((greenData ?? null) as GreenPendingStats | null);
     };
 
     void load();

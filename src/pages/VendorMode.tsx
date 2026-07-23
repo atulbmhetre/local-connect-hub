@@ -391,6 +391,7 @@ const VendorMode = () => {
   const [checkingOffline, setCheckingOffline] = useState(false);
   const [offlineBlockingOrders, setOfflineBlockingOrders] = useState<BlockingOfflineOrder[]>([]);
   const [availabilityModes, setAvailabilityModes] = useState<string[]>([]);
+  const [hasCategoryShopPhoto, setHasCategoryShopPhoto] = useState(false);
 
 
   useEffect(() => {
@@ -479,12 +480,17 @@ const VendorMode = () => {
           setVendor(data as Vendor);
           setNetworkLoadStatus(null);
           setError(null);
-          const { data: modeRows } = await supabase
-            .from("vendor_availability_modes")
-            .select("mode")
-            .eq("vendor_id", vendorId);
+          const [{ data: modeRows }, { data: categoryPhotoRows }] = await Promise.all([
+            supabase.from("vendor_availability_modes").select("mode").eq("vendor_id", vendorId),
+            supabase.from("vendor_categories").select("shop_photo_url").eq("vendor_id", vendorId),
+          ]);
           if (!cancelled) {
             setAvailabilityModes((modeRows ?? []).map((r) => String(r.mode)));
+            setHasCategoryShopPhoto(
+              (categoryPhotoRows ?? []).some(
+                (r) => r.shop_photo_url != null && String(r.shop_photo_url).trim() !== "",
+              ),
+            );
           }
         }
       } catch (err) {
@@ -982,12 +988,34 @@ const VendorMode = () => {
   };
 
   // ---- runtime actions ----
+  const missingRequiredPhotos = (v: Vendor): boolean => {
+    const hasSelfie = v.photo_selfie != null && String(v.photo_selfie).trim() !== "";
+    const hasShopPhoto =
+      hasCategoryShopPhoto ||
+      (v.shop_photo_url != null && String(v.shop_photo_url).trim() !== "");
+    return !hasSelfie || !hasShopPhoto;
+  };
+
+  const showPhotosRequiredToast = () => {
+    toast.error(s.vendor_photos_required_title, {
+      description: s.vendor_photos_required_body,
+      action: {
+        label: s.vendor_photos_required_cta,
+        onClick: () => navigate("/settings", { state: { vendorSettingsTab: "business" } }),
+      },
+    });
+  };
+
   const applyActiveState = async (next: boolean): Promise<boolean> => {
     if (!vendor) return false;
     if (next && vendor.is_banned) {
       toast.error(s.admin_vendor_banned_title, {
         description: s.admin_vendor_banned_body,
       });
+      return false;
+    }
+    if (next && missingRequiredPhotos(vendor)) {
+      showPhotosRequiredToast();
       return false;
     }
     isTogglingRef.current = true;
@@ -1056,7 +1084,15 @@ const VendorMode = () => {
       dismissNetworkRetryingToast();
       if (error) {
         setVendor({ ...vendor, is_active: !next });
-        toast.error(s.vendor_status_failed, { description: error.message });
+        if (next && (error.message ?? "").includes("vendor_photos_required")) {
+          showPhotosRequiredToast();
+        } else if (next && (error.message ?? "").includes("vendor_banned")) {
+          toast.error(s.admin_vendor_banned_title, {
+            description: s.admin_vendor_banned_body,
+          });
+        } else {
+          toast.error(s.vendor_status_failed, { description: error.message });
+        }
         return false;
       }
 
@@ -1108,6 +1144,11 @@ const VendorMode = () => {
       toast.error(s.admin_vendor_banned_title, {
         description: s.admin_vendor_banned_body,
       });
+      return;
+    }
+
+    if (next && missingRequiredPhotos(vendor)) {
+      showPhotosRequiredToast();
       return;
     }
 

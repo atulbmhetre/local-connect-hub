@@ -86,10 +86,12 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          vendor_phone: vendor.phone,
-          title: "Free trial ended",
-          body: `Your free trial has ended. Subscribe for ₹99/month within ${graceDays} days to keep your shop live.`,
+          vendor_id: vendor.id,
+          notification_title: "Free trial ended",
+          message: `Your free trial has ended. Subscribe for ₹99/month within ${graceDays} days to keep your shop live.`,
           type: "subscription_update",
+          route: "settings",
+          skip_inbox: true,
         }),
       });
 
@@ -129,10 +131,12 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          vendor_phone: vendor.phone,
-          title: "Shop is now offline",
-          body: "Your grace period has ended. Your shop is now offline. Renew to go live again.",
+          vendor_id: vendor.id,
+          notification_title: "Shop is now offline",
+          message: "Your grace period has ended. Your shop is now offline. Renew to go live again.",
           type: "subscription_update",
+          route: "settings",
+          skip_inbox: true,
         }),
       });
 
