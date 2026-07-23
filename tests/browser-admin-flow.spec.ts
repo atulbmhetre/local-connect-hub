@@ -327,13 +327,9 @@ test('ADMIN-09: admin action logged to admin_actions table', async () => {
 test('ADMIN-10: app_config whitelisted keys readable and updatable', async () => {
   const { data } = await supabaseAdmin.from('app_config')
     .select('key, value')
-    .in('key', ['referral_enabled', 'help_accept_timeout_hours', 'dev_menu_pin']);
+    .in('key', ['referral_enabled', 'help_accept_timeout_hours', 'feed_notification_radius_km']);
   expect(data?.length).toBeGreaterThan(0);
-  const pin = data?.find((r) => r.key === 'dev_menu_pin');
-  expect(pin).toBeTruthy();
-  if (pin?.value === '1947') {
-    console.warn('⚠️ LAUNCH BLOCKER: dev_menu_pin is still default 1947. Change before launch.');
-  }
+  expect(data?.find((r) => r.key === 'dev_menu_pin')).toBeUndefined();
 });
 
 // ─── NEGATIVE CASES ────────────────────────────────────────────────────────

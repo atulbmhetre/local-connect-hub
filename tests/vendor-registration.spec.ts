@@ -504,7 +504,7 @@ test('AD-11: app_config whitelisted keys are readable and updatable', async () =
     'help_accept_timeout_hours',
     'vendor_stopped_minutes',
     'referral_user_credit',
-    'dev_menu_pin',
+    'feed_notification_radius_km',
   ];
 
   const defaults: Record<string, string> = {
@@ -512,7 +512,7 @@ test('AD-11: app_config whitelisted keys are readable and updatable', async () =
     help_accept_timeout_hours: '2',
     vendor_stopped_minutes: '10',
     referral_user_credit: '2.5',
-    dev_menu_pin: '1947',
+    feed_notification_radius_km: '5',
   };
 
   for (const key of whitelisted) {

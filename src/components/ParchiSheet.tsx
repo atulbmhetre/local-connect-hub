@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/sheet";
 import {
   supabase,
-  invokeNotifyVendor,
   upsertUser,
   incrementUserOrders,
   fetchUserTrust,
@@ -499,6 +498,11 @@ export function ParchiSheet({
     async (phone: string) => {
       const v = effectiveVendor;
       if (!v) return;
+
+      // Hold disabled from first entry through RPC completion so trust→insert
+      // cannot double-submit (caller may already have set sending during trust).
+      setSending(true);
+      try {
       const text = message.trim();
       const needsAddress =
         resolvedServiceMode === "delivery" ||
@@ -557,10 +561,8 @@ export function ParchiSheet({
         }
       }
 
-      setSending(true);
       const device_id = getDeviceId();
-      try {
-        const { data: insertedId, error } = await withNetworkRetry(
+        const { error } = await withNetworkRetry(
           async () =>
             throwOnSupabaseNetworkError(
               await supabase.rpc("create_customer_request", {
@@ -593,7 +595,11 @@ export function ParchiSheet({
         );
         dismissNetworkRetryingToast();
         if (error) {
-          setSending(false);
+          captureError(error, {
+            scope: "parchiSheet.createCustomerRequest",
+            vendorId: v.id,
+            serviceMode: resolvedServiceMode,
+          });
           const msg = error.message ?? "";
           if (msg.includes("vendor_not_live_for_asap") || msg.includes("vendor_not_live_for_instant")) {
             toast.error(s.parchi_errVendorNotLiveAsap);
@@ -608,19 +614,7 @@ export function ParchiSheet({
         }
         void upsertUser(phone);
         void incrementUserOrders(phone);
-        const fullMessage = text.slice(0, config.maxOrderMessageChars) + locationNote;
-        const notifyBody = fullMessage
-          .replace(/\s*\[Come to my place\]/g, "")
-          .replace(/\s*\[I'll visit your shop\]/g, "")
-          .replace(/\s*\[Location TBD\]/g, "")
-          .trim();
-        void invokeNotifyVendor({
-          vendor_id: v.id,
-          category: orderCategoryLabel?.trim() || v.category,
-          message: notifyBody,
-          type: "new_order",
-          request_id: insertedId,
-        });
+        // Vendor new_order notify is server-triggered (request_after_insert_notify_vendor).
         if (saveAddress && newAddress.trim()) {
           const { error: addrError } = await supabase.rpc("insert_user_address", {
             p_device_id: getDeviceId(),
@@ -634,7 +628,6 @@ export function ParchiSheet({
             console.error("Address save failed:", addrError.message);
           }
         }
-        setSending(false);
         toast.success(
           isAppointmentMode ? s.parchi_toastBookingSuccess : s.parchi_toastOrderSuccess,
         );
@@ -650,7 +643,6 @@ export function ParchiSheet({
       } catch (err) {
         dismissNetworkRetryingToast();
         if (err instanceof NetworkExhaustedError) {
-          setSending(false);
           showNetworkFailedToast(() => void executeOrderInsert(phone), {
             failed: s.network_failed,
             retryBtn: s.network_retry_btn,
@@ -658,6 +650,8 @@ export function ParchiSheet({
         } else {
           throw err;
         }
+      } finally {
+        setSending(false);
       }
     },
     [
@@ -735,22 +729,24 @@ export function ParchiSheet({
 
       setSending(true);
       const trust = await fetchUserTrust(phone);
-      setSending(false);
 
       if (trust?.is_banned) {
+        setSending(false);
         setTrustBlock("banned");
         return;
       }
 
       const score = trust?.trust_score;
       if (score != null && score >= 1 && score <= 24) {
+        setSending(false);
         setTrustBlock("suspended");
         return;
       }
 
       if (score != null && score >= 25 && score <= 49) {
+        setSending(false);
         if (resolvedServiceMode === "help") {
-          toast.error("Help mode is currently unavailable for your account");
+          toast.error(s.parchi_errHelpUnavailableTrust);
           onClose();
           return;
         }
@@ -761,11 +757,13 @@ export function ParchiSheet({
       }
 
       if (score != null && score >= 50 && score <= 74) {
+        setSending(false);
         setPendingPhone(phone);
         setMediumTrustDialogOpen(true);
         return;
       }
 
+      // Keep sending=true through the insert gap; executeOrderInsert finally clears it.
       await executeOrderInsert(phone);
     },
     [

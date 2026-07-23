@@ -180,14 +180,14 @@ test('ED-07: delivery address stored correctly on request', async () => {
       message: 'Delivery order with address',
       status: 'sent',
       delivery_address: '42 Test Lane, Warje, Pune',
-      delivery_slot: 'Morning (9am-12pm)',
+      delivery_slot: 'morning',
     })
     .select()
     .single();
 
   expect(error).toBeNull();
   expect(data.delivery_address).toBe('42 Test Lane, Warje, Pune');
-  expect(data.delivery_slot).toBe('Morning (9am-12pm)');
+  expect(data.delivery_slot).toBe('morning');
 });
 
 test('ED-08: previous_message preserved through multiple edits', async () => {

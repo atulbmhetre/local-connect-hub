@@ -29,10 +29,10 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **46 of 66 functionality-inventory entries fully closed** (named list and section-to-entries mapping directly below this table). The denominator is the number of `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` — **66** in both the current file and the originally committed version (`41e6519`); the earlier `~52` was an undocumented approximation from early in the audit, now corrected (no inventory items were discovered, added, or removed — only the denominator was made accurate). The numerator is derived by mapping each fully-CLOSED Phase 2 `##` audit section to the distinct `###` inventory entries it wholly closes. Phase A, the app-wide OTP-off sweep, the service-role key-rotation incident, and the Vendor Trust Tier closure (which sits above the Phase 2 divider) are tracked separately as cross-cutting closures and are **not** part of this tally. |
-| Next planned Phase 2 target | TBD |
+| Phase 2 progress | **54 of 66 functionality-inventory entries fully closed** (named list and section-to-entries mapping directly below this table). The denominator is the number of `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` — **66** in both the current file and the originally committed version (`41e6519`); the earlier `~52` was an undocumented approximation from early in the audit, now corrected (no inventory items were discovered, added, or removed — only the denominator was made accurate). The numerator is derived by mapping each fully-CLOSED Phase 2 `##` audit section to the distinct `###` inventory entries it wholly closes. Phase A, the app-wide OTP-off sweep, the service-role key-rotation incident, and the Vendor Trust Tier closure (which sits above the Phase 2 divider) are tracked separately as cross-cutting closures and are **not** part of this tally. |
+| Next planned Phase 2 target | Resume at the remaining **12**: First-open/phone restore; Phone entry sheet; Session identity (client); Radar vendor card (shared); Legacy vendor card (unused); Home help-order banner; Neighbour (saved vendor) sheet; Khata settings (vendor); Vendor reply to reviews; Admin delete low reviews; Trust warning banner; Verification badge. |
 
-### Phase 2 fully-closed inventory entries (46 of 66)
+### Phase 2 fully-closed inventory entries (54 of 66)
 
 Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial", not "NOT YET REVIEWED") to the distinct `docs/FUNCTIONALITY_INVENTORY.md` `###` entries it wholly closes. Only whole, user-facing inventory entries are counted; dead-code / duplication meta-entries and entries whose core still lives under a partial section are excluded.
 
@@ -53,10 +53,12 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Vendor Registration | Vendor registration (new shop) |
 | Local Feed | Feed reader; Vendor post offer; Feed discovery radius (reader) |
 | Settings (customer + vendor) | My Account (customer); MY SHOP (vendor settings); Device permissions; Account deletion; Clear my data |
+| Help / Delivery / Appointment Placement & Order Cards | Customer help order (AI-Bridge / neighbour); Delivery order placement; Delivery slot / address on vendor side; Appointment booking; Vendor confirm / decline appointment; Order card pattern |
+| Dev Menu & Admin Access Gate | Dev menu (hidden); Admin access gate |
 
-**Total: 1 + 6 + 4 + 3 + 2 + 3 + 9 + 1 + 3 + 3 + 1 + 1 + 1 + 3 + 5 = 46 distinct inventory entries.** Vendor Configuration (CLOSED) still contributes 0 additional whole entries — its availability-modes work overlaps the already-counted Geo vendor search entry. **Notifications** (backend entry, distinct from Notifications Client Surfaces) likewise contributes **0** additional inventory entries — the three notification `###` rows were already wholly closed under Notifications Client Surfaces; this pass finishes the remaining six dimensions on the backend write/FCM/admin-health path that those same surfaces depend on.
+**Total: 1 + 6 + 4 + 3 + 2 + 3 + 9 + 1 + 3 + 3 + 1 + 1 + 1 + 3 + 5 + 6 + 2 = 54 distinct inventory entries.** Vendor Configuration (CLOSED) still contributes 0 additional whole entries — its availability-modes work overlaps the already-counted Geo vendor search entry. **Notifications** (backend entry, distinct from Notifications Client Surfaces) likewise contributes **0** additional inventory entries — the three notification `###` rows were already wholly closed under Notifications Client Surfaces.
 
-**Tracker note — remaining-dimensions upgrade (not a net-new inventory discovery):** This pass, like the Bill/UPI/Khata…Ratings upgrade that moved the numerator **19 → 36**, did **not** invent new inventory `###` entries. It upgraded five already-partial sections — Live Tracking Secure Call, Vendor Registration, Notifications (backend), Local Feed, and Settings — from Security/Integrity-only (or CLOSED-with-`NOT YET REVIEWED` caveat) to genuine full closure across all 10 dimensions. Four of those five newly contribute whole inventory rows that were previously excluded from the numerator because their closing sections still carried the remaining-dimension caveat; Notifications (backend) upgrades to full CLOSED without moving the numerator further (same 0-contribution pattern as Vendor Configuration). That is why the numerator moves **36 → 46** (+10 = 1 + 1 + 3 + 5). Migrations: `20260722090001`, `20260722090002`, `20260722100001`, `20260722120001`, `20260722140001`, `20260723100001`. Edge functions redeployed: `notify-vendor`, `notify-admin`, `notify-feed-post`, `warn-near-deadline`, `check-vendor-subscriptions`.
+**Tracker note — Help/Delivery/Appointment placement + Dev menu / Admin gate (not a net-new inventory discovery):** This pass closes **8** inventory rows that were still open after the prior remaining-dimensions upgrade (**46 → 54** = +6 placement/order-card + +2 dev-menu/admin-gate). Migrations: `20260723120001`, `20260723120002`, `20260723120003`, `20260723140001`. Side-effect (not an inventory row): restored PROD `app_config.anon_key` (publishable) and re-verified `feed_post_after_insert` after the July 18 key-rotation deletion had left feed notify silently no-op.
 
 ## Lessons for future audit passes
 
@@ -64,6 +66,13 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 |--------|--------|
 | TEST and PROD can diverge outside version control entirely | Plan periodic direct PROD schema / trigger / function audits — not migration-file review alone |
 | TEST/PROD schema drift — migration file edited after apply | During Batch 2 final verification, `get_local_feed_posts` / `get_local_feed_posts_count` differed between TEST and PROD (TEST missing the `is_banned` author filter) even though `migration list` showed the same version stamps with zero local-only / remote-only rows. Root cause: an earlier draft of `20260722090002` was applied to TEST; the file was later edited in git to restore the ban filter before PROD push; TEST's already-recorded version meant `db push` never re-ran the corrected statements. Caught only by direct `pg_get_functiondef` (+ `schema_migrations.statements` body) comparison — **not** by migration list alone. Fixed with new migration `20260723100001` + FEED-BAN-01/02 regression tests. **Standing rule:** never edit a migration file after any environment has applied it — always create a new migration instead. |
+| Order card pattern (architectural debt) | **Standing item:** no shared `OrderCard` exists — customer My Orders and vendor Incoming Orders use divergent inline implementations. Both verified working via existing E2E; inventory row closed as reviewed. Unify only if a future pass needs one card surface. |
+
+## Recently resolved
+
+| Item | Resolution |
+|------|------------|
+| Client-readable `dev_menu_pin` | Dev “Set phone number” was gated only by a PIN stored in publicly readable `app_config`. Re-gated behind real admin session auth; PIN dialog and `app_config.dev_menu_pin` row removed (`20260723140001`). Verified TEST + PROD. |
 
 ## Process notes
 
@@ -96,7 +105,7 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 
 ## Phase 2
 
-> **Scope correction (as of this update):** 46 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items), five sections upgraded in the prior remaining-dimensions pass (Bill/UPI/Khata, UPI Vendor Verification, Order Lifecycle, Referrals, Ratings & Reviews), and five more upgraded in this pass (Live Tracking Secure Call, Vendor Registration, Notifications backend, Local Feed, Settings). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
+> **Scope correction (as of this update):** 54 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items), the prior remaining-dimensions upgrades through Settings, plus tonight’s Help/Delivery/Appointment placement & order-card section (6) and Dev menu / Admin access gate (2). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
 
 ## Bill/UPI/Khata Payment Flow — CLOSED (TEST + PROD)
 
@@ -431,6 +440,57 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | Vendor Settings load | No longer stuck on infinite loading on fetch failure; retry + failed flags for menu/addresses/reviews extras. |
 | Permissions dialog | “Open Settings” now opens device settings (`App.openUrl('app-settings:')`) instead of only dismissing. |
 | Observability | Additional `captureError` on standing / vendor extras / clear-data / address paths. |
+
+## Help / Delivery / Appointment Placement & Order Cards — CLOSED (TEST + PROD)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD, all 10 dimensions) |
+| Scope | Customer help / delivery / appointment placement (`ParchiSheet` + shared `create_customer_request`), vendor-side delivery slot/address display, vendor confirm/decline appointment, and the (absent) shared order-card pattern |
+| Review | Distinct from **Order Lifecycle** (incoming list, My Orders list, Help live tracking) and **Live Tracking Secure Call**. This pass closes the placement → vendor-notify → confirm/decline path end-to-end. |
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| Client-fired `invokeNotifyVendor` after create | Violated the standing “notifications always server-triggered” rule. Replaced with AFTER INSERT trigger `request_after_insert_notify_vendor` → vendor inbox always + best-effort FCM via `notify-vendor` (`skip_inbox`) when `app_config.anon_key` is present. Migrations `20260723120001`, `20260723120003`. |
+| Confirm/decline race | `vendor_confirm_appointment` / `vendor_decline_booking` now require `appointment_status = 'pending'`; second action raises `already_actioned` (no silent overwrite). Migration `20260723120002`; UI toast + silent reload. |
+| Double-submit window | ParchiSheet keeps `sending` through trust→RPC `finally` so rapid taps cannot place twice. |
+| Tests | New Help-mode placement Playwright (`PS-HELP-02`); slot enum fixture strings corrected (SLOT-02/03, DM-01, ED-07); `AP-GUARD-01` + `NOTIFY-REQ-01`. |
+| Observability / i18n | `captureError` on create/confirm/decline failures; hardcoded-English help-unavailable toast → i18n; vendor appointment date uses app locale. |
+
+### Logged, not fixed
+
+| Item | Notes |
+|------|-------|
+| Order card pattern | **No shared OrderCard component exists.** Customer My Orders and vendor Incoming Orders each use divergent inline card markup. Real but non-blocking architectural debt — both paths independently verified working via existing E2E. Not unified this pass. |
+
+### Side-effect (not an inventory entry)
+
+| Item | Notes |
+|------|-------|
+| `feed_post_after_insert` silent PROD no-op | Broken since the July 18 `anon_key` / `service_role_key` deletion from `app_config` (trigger early-returns when key missing). Restored publishable `sb_publishable_…` into PROD `app_config.anon_key` (service-role upsert, same method as TEST). Live PROD probe: insert → `max_resp_id` +1, response `200` `{"notified":0}`. Same-push verified with request-notify E2E. |
+
+## Dev Menu & Admin Access Gate — CLOSED (TEST + PROD)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD, all 10 dimensions) |
+| Scope | Hidden Settings 7-tap Admin tab reveal; “Set phone number (dev)” identity override; admin email/password gate |
+| Review | **Admin access gate** was already correctly closed in an earlier session (`is_admin_session()` / `auth.uid()`, no remaining `p_admin_phone` string-comparison auth gate on live PROD admin RPCs — reconfirmed tonight with a full RPC sweep). This pass only fixed the Dev menu gap and formally closes both inventory rows. |
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| Dev phone override gated only by client PIN | `dev_menu_pin` was world-readable under `app_config` public SELECT; PIN compared locally. Re-gated “Set phone number (dev)” behind real admin session (`isAdmin` / `is_admin_session()`). Removed PIN dialog path; 7-tap still only reveals Admin tab (login still required). |
+| `dev_menu_pin` removed | Dropped from `admin_update_app_config` whitelist + deleted `app_config` row. Migration `20260723140001`. Verified TEST + PROD (`pin_rows = 0`). Playwright DEV-PHONE-01/02 on TEST; PROD via production-build preview (`playwright.prod-dev-phone.config.ts`). |
+
+### Confirmed correct (no change needed)
+
+| Item | Notes |
+|------|-------|
+| Admin RPC auth | Every live PROD `admin_*` / `get_admin*` / `log_admin_action` mutator gates on `is_admin_session()`; zero RPCs still hard-gate on `IF NOT is_admin_phone(...)`. `p_admin_phone` remains audit/label-only. Residual: two table RLS policies (`admin_alerts`, `fcm_delivery_log`) still use `is_admin_phone(auth_user_phone())` — not RPC auth. |
 
 ## Vendor Configuration (Menu Items, Availability Modes, Cancel Reasons) — CLOSED — no open items
 

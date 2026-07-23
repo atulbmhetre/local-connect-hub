@@ -1268,6 +1268,7 @@ export const strings = {
     parchi_trust_medium_body:
       '⚠️ Please confirm you want to place this order. Vendors travel to fulfil requests — only place orders you genuinely need.',
     parchi_trust_medium_confirmBtn: 'Yes, place order',
+    parchi_errHelpUnavailableTrust: 'Help mode is currently unavailable for your account',
     bill_title: '📋 Create Bill',
     bill_view_title: 'View Bill',
     bill_addItem: '＋ Add Item',
@@ -1457,6 +1458,7 @@ export const strings = {
     incoming_errCouldNotUpdateAppt: 'Could not update appointment',
     incoming_apptConfirmed: '✅ Appointment confirmed!',
     incoming_apptDeclined: 'Booking declined.',
+    incoming_apptAlreadyActioned: 'This booking was already confirmed or declined.',
     incoming_errCouldNotCancel: 'Could not cancel',
     incoming_bookingCancelled: 'Booking cancelled.',
     incoming_statusNew: 'New',
@@ -2876,6 +2878,7 @@ export const strings = {
     parchi_trust_medium_body:
       '⚠️ कृपया पुष्टि करें कि आप यह ऑर्डर देना चाहते हैं। विक्रेता अनुरोध पूरे करने के लिए यात्रा करते हैं — केवल वही ऑर्डर दें जिसकी आपको वास्तव में आवश्यकता हो।',
     parchi_trust_medium_confirmBtn: 'हाँ, ऑर्डर भेजें',
+    parchi_errHelpUnavailableTrust: 'हेल्प मोड आपके खाते के लिए अभी उपलब्ध नहीं है',
     bill_title: '📋 बिल बनाएं',
     bill_view_title: 'बिल देखें',
     bill_addItem: '＋ आइटम जोड़ें',
@@ -3065,6 +3068,7 @@ export const strings = {
     incoming_errCouldNotUpdateAppt: 'अपॉइंटमेंट अपडेट नहीं हो सकी',
     incoming_apptConfirmed: '✅ अपॉइंटमेंट पक्की हुई!',
     incoming_apptDeclined: 'बुकिंग नकारी।',
+    incoming_apptAlreadyActioned: 'यह बुकिंग पहले ही पक्की या नकार दी गई है।',
     incoming_errCouldNotCancel: 'रद्द नहीं हो सका',
     incoming_bookingCancelled: 'बुकिंग रद्द हुई।',
     incoming_statusNew: 'नया',
@@ -4483,6 +4487,7 @@ export const strings = {
     parchi_trust_medium_body:
       '⚠️ कृपया पुष्टी करा की तुम्हाला हा ऑर्डर द्यायचा आहे. विक्रेते विनंत्या पूर्ण करण्यासाठी प्रवास करतात — फक्त खरोखर गरजेचे ऑर्डर द्या.',
     parchi_trust_medium_confirmBtn: 'होय, ऑर्डर द्या',
+    parchi_errHelpUnavailableTrust: 'मदत मोड तुमच्या खात्यासाठी सध्या उपलब्ध नाही',
     bill_title: '📋 बिल तयार करा',
     bill_view_title: 'बिल पहा',
     bill_addItem: '＋ आयटम जोडा',
@@ -4672,6 +4677,7 @@ export const strings = {
     incoming_errCouldNotUpdateAppt: 'अपॉइंटमेंट अपडेट होऊ शकली नाही',
     incoming_apptConfirmed: '✅ अपॉइंटमेंट पक्की झाली!',
     incoming_apptDeclined: 'बुकिंग नाकारली.',
+    incoming_apptAlreadyActioned: 'ही बुकिंग आधीच निश्चित किंवा नाकारली गेली आहे.',
     incoming_errCouldNotCancel: 'रद्द होऊ शकले नाही',
     incoming_bookingCancelled: 'बुकिंग रद्द झाली.',
     incoming_statusNew: 'नवीन',

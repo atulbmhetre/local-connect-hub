@@ -1,0 +1,33 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig } from '@playwright/test';
+import dotenv from 'dotenv';
+
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(projectRoot, '.env.test.prod'), override: true });
+process.env.VITE_APP_URL = 'http://127.0.0.1:4173';
+
+const previewUrl = 'http://127.0.0.1:4173';
+
+/**
+ * PROD verification for admin-gated Settings phone override (DEV-PHONE-01/02).
+ * Production Vite build + PROD Supabase (.env.test.prod).
+ */
+export default defineConfig({
+  testDir: './tests',
+  testMatch: 'browser-dev-phone-admin-gate.spec.ts',
+  timeout: 90000,
+  workers: 1,
+  retries: 0,
+  use: {
+    baseURL: previewUrl,
+    headless: true,
+  },
+  reporter: [['list']],
+  webServer: {
+    command: 'npm run build:prod && npx vite preview --port 4173 --host 127.0.0.1',
+    url: previewUrl,
+    reuseExistingServer: process.env.PW_REUSE_PROD_PREVIEW === 'true',
+    timeout: 300000,
+  },
+});

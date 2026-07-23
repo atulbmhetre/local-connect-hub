@@ -142,6 +142,8 @@ test('SLOT-01: delivery slot select visible in ParchiSheet for delivery vendor',
 });
 
 test('SLOT-02: delivery_slot stored on request after order placement', async () => {
+  // Live Parchi enum values (parchi_slot* keys): asap|morning|afternoon|evening|tomorrow
+  // UI copy for morning is "Morning (before 12pm)" / emoji variant — stored value is `morning`.
   const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
@@ -150,25 +152,20 @@ test('SLOT-02: delivery_slot stored on request after order placement', async () 
       device_id: TEST_DEVICE_ID,
       message: 'Slot test order',
       status: 'sent',
-      delivery_slot: '🌅 Morning (before 12pm)',
+      delivery_slot: 'morning',
+      service_mode: 'delivery',
     })
     .select()
     .single();
 
   expect(error).toBeNull();
-  expect(data.delivery_slot).toBe('🌅 Morning (before 12pm)');
+  expect(data.delivery_slot).toBe('morning');
 
   await supabase.from('requests').delete().eq('id', data.id);
 });
 
 test('SLOT-03: all slot values are valid strings', async () => {
-  const validSlots = [
-    '🚀 As soon as possible',
-    '🌅 Morning (before 12pm)',
-    '🌞 Afternoon (12–4pm)',
-    '🌆 Evening (after 4pm)',
-    '📅 Tomorrow',
-  ];
+  const validSlots = ['asap', 'morning', 'afternoon', 'evening', 'tomorrow'] as const;
 
   for (const slot of validSlots) {
     const { data, error } = await supabaseAdmin
@@ -180,6 +177,7 @@ test('SLOT-03: all slot values are valid strings', async () => {
         message: `Slot test: ${slot}`,
         status: 'sent',
         delivery_slot: slot,
+        service_mode: 'delivery',
       })
       .select()
       .single();

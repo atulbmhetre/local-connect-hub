@@ -169,17 +169,12 @@ test('CAT-04: category translations exist for active categories', async () => {
   }
 });
 
-test('SC-01: dev_menu_pin exists in app_config', async () => {
+test('SC-01: dev_menu_pin removed from app_config', async () => {
   const { data } = await supabaseAdmin
     .from('app_config')
     .select('value')
     .eq('key', 'dev_menu_pin')
-    .single();
+    .maybeSingle();
 
-  expect(data).not.toBeNull();
-  expect(data!.value).toBeTruthy();
-  // Warn if still default — this is a launch blocker
-  if (data!.value === '1947') {
-    console.warn('⚠️  LAUNCH BLOCKER: dev_menu_pin is still default 1947. Change before launch.');
-  }
+  expect(data).toBeNull();
 });

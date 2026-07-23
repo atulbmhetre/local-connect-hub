@@ -416,8 +416,6 @@ function adminServiceModeLabel(mode: string | null | undefined): string {
 
 const GPS_MATCH_TOLERANCE_M = 75;
 
-const DEV_MENU_PIN_DEFAULT = "1947";
-
 // Client-side mirror of the server whitelist inside admin_update_app_config
 // (supabase/migrations/20260719140001_admin_config_ops_keys_and_fcm_grant.sql;
 //  originally introduced in 20260719120001). Keep BOTH lists in sync when adding a key.
@@ -456,7 +454,6 @@ const ADMIN_CONFIG_WHITELIST = [
   // AI
   "ai_category_confidence_threshold",
   // App
-  "dev_menu_pin",
   "feed_notification_radius_km",
   "app_base_url",
   // Operational (payments / KYC / alerts / grace / khata)
@@ -502,7 +499,6 @@ const ADMIN_CONFIG_FALLBACK_DEFAULTS: Record<AdminConfigKey, string> = {
   lang_marathi_enabled: "true",
   exotel_secure_calling_enabled: "false",
   ai_category_confidence_threshold: "0.85",
-  dev_menu_pin: DEV_MENU_PIN_DEFAULT,
   feed_notification_radius_km: "5",
   app_base_url: "https://aaspaas.in",
   payments_enabled: "false",
@@ -590,7 +586,6 @@ const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
   lang_marathi_enabled: "Marathi Language Enabled",
   exotel_secure_calling_enabled: "Exotel Secure Calling Enabled",
   ai_category_confidence_threshold: "AI Category Confidence Threshold (0–1)",
-  dev_menu_pin: "Developer Menu PIN",
   feed_notification_radius_km: "Feed Notification Radius (km)",
   app_base_url: "App Base URL",
   payments_enabled: "Payments Enabled",
@@ -738,11 +733,7 @@ const Settings = () => {
   const getLabel = useCategoryLabel();
   const getServiceModeLabel = useServiceModeLabel();
   const [titleTaps, setTitleTaps] = useState(0);
-  const [devOpen, setDevOpen] = useState(false);
   const [adminTabRevealed, setAdminTabRevealed] = useState(false);
-  const [pinDialogOpen, setPinDialogOpen] = useState(false);
-  const [pinInput, setPinInput] = useState("");
-  const [devMenuPin, setDevMenuPin] = useState(DEV_MENU_PIN_DEFAULT);
   const userPhone = getUserPhone();
   const deviceId = getDeviceId();
   const vendorId = localStorage.getItem("aaspaas:vendor_id");
@@ -1123,19 +1114,6 @@ const Settings = () => {
     });
     return () => subscription.unsubscribe();
   }, [checkAdminSession]);
-
-  useEffect(() => {
-    void (async () => {
-      const { data, error } = await supabase
-        .from("app_config")
-        .select("key, value")
-        .eq("key", "dev_menu_pin")
-        .maybeSingle();
-      if (error || !data) return;
-      const value = String(data.value ?? "").trim();
-      if (value) setDevMenuPin(value);
-    })();
-  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -1958,7 +1936,6 @@ const Settings = () => {
     }
     setAdminConfigValues((prev) => ({ ...prev, [key]: newValue }));
     setAdminConfigDraft((prev) => ({ ...prev, [key]: newValue }));
-    if (key === "dev_menu_pin" && newValue) setDevMenuPin(newValue);
     if (key === "referral_enabled") {
       setReferEarnVisible(parseAdminConfigBoolean(newValue));
     }
@@ -2419,29 +2396,14 @@ const Settings = () => {
     return () => window.clearTimeout(t);
   }, [highlightVendorId, isAdmin, vendorList.length]);
 
-  // Hidden gesture: tap the page title 7× to open PIN gate for developer menu.
+  // Hidden gesture: tap the page title 7× to reveal the Admin tab (login still required).
   const tapTitle = () => {
     const next = titleTaps + 1;
     setTitleTaps(next);
     if (next >= 7) {
       setTitleTaps(0);
       setAdminTabRevealed(true);
-      setPinInput("");
-      setPinDialogOpen(true);
     }
-  };
-
-  const submitDevPin = () => {
-    const expected = devMenuPin.trim() || DEV_MENU_PIN_DEFAULT;
-    if (pinInput.trim() !== expected) {
-      toast.error(s.settings_incorrectPin);
-      setPinInput("");
-      return;
-    }
-    setPinDialogOpen(false);
-    setPinInput("");
-    setDevOpen(true);
-    toast(s.settings_devMenuUnlocked);
   };
 
   const reset = async () => {
@@ -3253,43 +3215,6 @@ const Settings = () => {
       </p>
       </div>
 
-      {devOpen && (
-        <section className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 mb-5 mx-4 animate-fade-up">
-          <div className="flex items-center gap-2 mb-3">
-            <Wrench className="h-4 w-4 text-destructive" />
-            <p className="text-xs uppercase tracking-wider text-destructive font-semibold">{s.settings_devMenu}</p>
-          </div>
-          <div className="mb-4 space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground" htmlFor="dev-phone-number">
-              Set phone number (dev)
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="dev-phone-number"
-                value={devPhone}
-                onChange={(e) => setDevPhone(e.target.value)}
-                className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  saveUserPhone(devPhone);
-                  window.location.reload();
-                }}
-                className="rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-          <button
-            onClick={() => setDevOpen(false)}
-            className="w-full text-xs text-muted-foreground underline"
-          >
-            {s.settings_hideDevMenu}
-          </button>
-        </section>
-      )}
       </>
       )}
 
@@ -3362,6 +3287,42 @@ const Settings = () => {
               Log out
             </button>
           </div>
+          <section
+            className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 mb-5 mx-4"
+            data-testid="admin-dev-phone-override"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Wrench className="h-4 w-4 text-destructive" />
+              <p className="text-xs uppercase tracking-wider text-destructive font-semibold">
+                {s.settings_devMenu}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground" htmlFor="dev-phone-number">
+                Set phone number (dev)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="dev-phone-number"
+                  data-testid="admin-dev-phone-input"
+                  value={devPhone}
+                  onChange={(e) => setDevPhone(e.target.value)}
+                  className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                />
+                <button
+                  type="button"
+                  data-testid="admin-dev-phone-save"
+                  onClick={() => {
+                    saveUserPhone(devPhone);
+                    window.location.reload();
+                  }}
+                  className="rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </section>
           <SettingsCard className="border-brand/20">
             <div className="px-4 py-3 border-b border-surface-border">
               <p className="text-sm font-medium text-foreground">{s.settings_adminHealth}</p>
@@ -4408,48 +4369,6 @@ const Settings = () => {
               }}
             >
               {s.delete_account_confirm_action}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={pinDialogOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPinDialogOpen(false);
-            setPinInput("");
-          }
-        }}
-      >
-        <AlertDialogContent className="rounded-2xl border border-border bg-card">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{s.settings_devPinTitle}</AlertDialogTitle>
-            <AlertDialogDescription>{s.settings_devPinBody}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <input
-            type="password"
-            inputMode="numeric"
-            maxLength={4}
-            value={pinInput}
-            onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4))}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && pinInput.length === 4) submitDevPin();
-            }}
-            placeholder="••••"
-            className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary"
-            autoFocus
-          />
-          <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
-            <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={pinInput.length !== 4}
-              onClick={(e) => {
-                e.preventDefault();
-                submitDevPin();
-              }}
-            >
-              {s.settings_devPinUnlock}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -251,7 +251,9 @@ export function IncomingOrdersSection({
   const [flashOrderId, setFlashOrderId] = useState<string | null>(null);
   const isHelpMode = serviceMode === "help";
   const canAddToLedger = serviceMode === "appointment" || serviceMode === "delivery";
-  const { s } = useLanguage();
+  const { s, lang } = useLanguage();
+  const appointmentDateLocale =
+    lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";
   const getLabel = useCategoryLabel();
   const slotLabels = useMemo(
     () => ({
@@ -1410,7 +1412,18 @@ export function IncomingOrdersSection({
       );
       dismissNetworkRetryingToast();
       if (error) {
+        captureError(error, {
+          scope: "incomingOrders.confirmAppointment",
+          vendorId,
+          requestId: id,
+        });
         console.error("handleAppointmentAction", action, error);
+        const msg = error.message ?? "";
+        if (msg.includes("already_actioned")) {
+          toast.info(s.incoming_apptAlreadyActioned);
+          void load({ silent: true });
+          return;
+        }
         toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
         return;
       }
@@ -1547,7 +1560,19 @@ export function IncomingOrdersSection({
       );
       dismissNetworkRetryingToast();
       if (error) {
+        captureError(error, {
+          scope: "incomingOrders.declineBooking",
+          vendorId,
+          requestId: declineOrderId,
+        });
         console.error("confirmDeclineBooking", error);
+        const msg = error.message ?? "";
+        if (msg.includes("already_actioned")) {
+          toast.info(s.incoming_apptAlreadyActioned);
+          closeDeclineSheet();
+          void load({ silent: true });
+          return;
+        }
         toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
         return;
       }
@@ -2101,7 +2126,7 @@ export function IncomingOrdersSection({
                       <div>
                         {s.incoming_apptAround}
                         <span className="font-semibold">
-                          {new Date(r.appointment_time).toLocaleString("en-IN", {
+                          {new Date(r.appointment_time).toLocaleString(appointmentDateLocale, {
                             weekday: "short",
                             day: "numeric",
                             month: "short",

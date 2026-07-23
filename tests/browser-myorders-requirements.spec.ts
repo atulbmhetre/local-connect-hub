@@ -506,6 +506,38 @@ test('PS-HELP-01 — ParchiSheet for help vendor', async ({ page }) => {
   await expect(page.locator('input[type="time"]')).not.toBeVisible();
 });
 
+test('PS-HELP-02 — Help-mode placement creates requests row via ParchiSheet', async ({ page }) => {
+  const vendor = await createPanIndiaVendor('help', 'PS-HELP-02');
+  await supabaseAdmin
+    .from('vendors')
+    .update({ is_active: true, discoverable: true, profile_status: 'complete' })
+    .eq('id', vendor.id);
+  await seedCustomer(80);
+  await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
+  await openHelpParchiSheet(page, vendor);
+
+  const msg = `PS-HELP-02 help order ${T}`;
+  await page.getByTestId('parchi-message-input').fill(msg);
+  await page.getByTestId('parchi-submit-btn').click();
+
+  await expect(page.getByText('✅ Order sent! They will see it shortly.')).toBeVisible({
+    timeout: 20000,
+  });
+
+  const { data: row, error } = await supabaseAdmin
+    .from('requests')
+    .select('id, service_mode, status, message, vendor_id')
+    .eq('user_phone', CUSTOMER_PHONE)
+    .eq('vendor_id', vendor.id)
+    .eq('message', msg)
+    .maybeSingle();
+  expect(error).toBeNull();
+  expect(row).toBeTruthy();
+  expect(row!.service_mode).toBe('help');
+  expect(row!.status).toBe('sent');
+  createdRequestIds.push(row!.id);
+});
+
 test('PS-TRUST-01 — Low trust vendor requires confirmation checkbox', async ({ page }) => {
   const vendor = await createPanIndiaVendor('delivery', 'PS-TRUST-01');
   await seedCustomer(35);

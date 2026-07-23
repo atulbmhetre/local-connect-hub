@@ -152,7 +152,7 @@ export async function waitForSettingsAdminReady(page: Page) {
   );
 }
 
-/** 7-tap Settings title → reveal Admin tab; dismisses Developer PIN dialog. */
+/** 7-tap Settings title → reveal Admin tab (no PIN dialog). */
 export async function revealAdminTab(page: Page) {
   await waitForSettingsAdminReady(page);
   await expect(page.getByTestId('settings-tab-admin')).toHaveCount(0);
@@ -163,14 +163,8 @@ export async function revealAdminTab(page: Page) {
     await title.click();
   }
 
-  // Gesture also opens the Developer PIN dialog — cancel so it does not block the Admin tab.
-  const pinDialog = page.getByRole('alertdialog').filter({ hasText: /Developer PIN/i });
-  if (await pinDialog.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await pinDialog.getByRole('button', { name: /Cancel|रद्द|रद्द करा/i }).click();
-    await expect(pinDialog).toHaveCount(0, { timeout: 5000 });
-  }
-
   await expect(page.getByTestId('settings-tab-admin')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('alertdialog').filter({ hasText: /Developer PIN/i })).toHaveCount(0);
 }
 
 /**

@@ -39,7 +39,7 @@ test('DM-01: customer places delivery order — request created with status sent
       message: 'Test order — 2 litres of milk',
       status: 'sent',
       delivery_address: '123 Test Street, Warje',
-      delivery_slot: 'Morning (9am-12pm)',
+      delivery_slot: 'morning',
     })
     .select()
     .single();
@@ -48,6 +48,7 @@ test('DM-01: customer places delivery order — request created with status sent
   expect(data.status).toBe('sent');
   expect(data.vendor_id).toBe(testVendor.id);
   expect(data.user_phone).toBe(TEST_CUSTOMER_PHONE);
+  expect(data.delivery_slot).toBe('morning');
   testRequestId = data.id;
 });
 
