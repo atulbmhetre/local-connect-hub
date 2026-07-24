@@ -1,23 +1,25 @@
 import type { Page } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-dotenv.config({ path: '.env.test' });
+import {
+  getAnonKey,
+  getServiceRoleClient,
+  getSupabaseUrl,
+  loadTestEnv,
+  withAuthAdminResultRetry,
+  isTransientAuthAdminJwtError,
+} from './testEnv';
+
+loadTestEnv();
 
 const APP_URL = process.env.VITE_APP_URL || 'http://localhost:8080';
 
-export const supabase = createClient(
-  process.env.VITE_SUPABASE_URL!,
-  process.env.VITE_SUPABASE_ANON_KEY!
-);
+export const supabase = createClient(getSupabaseUrl(), getAnonKey());
 
 /** Bypass RLS for test seed/cleanup on restricted tables (vendor_categories, vendor_verification). */
-export const supabaseAdmin = createClient(
-  process.env.VITE_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.VITE_SUPABASE_ANON_KEY!,
-);
+export const supabaseAdmin = getServiceRoleClient();
 
 export const TEST_SESSION = `test_${Date.now()}`;
 
@@ -267,6 +269,34 @@ export async function getActiveCategories(limit: number) {
   return data ?? [];
 }
 
+/**
+ * Resolve service_mode for a request seed.
+ * Prefer explicit value; otherwise copy the vendor's mode (matches DB trigger
+ * `requests_set_service_mode_from_vendor` — defense in depth for tests).
+ */
+export async function resolveRequestServiceMode(
+  vendorId: string,
+  explicit?: string | null,
+): Promise<string> {
+  const trimmed = typeof explicit === 'string' ? explicit.trim().toLowerCase() : '';
+  if (trimmed === 'help' || trimmed === 'delivery' || trimmed === 'appointment') {
+    return trimmed;
+  }
+  const { data, error } = await supabaseAdmin
+    .from('vendors')
+    .select('service_mode')
+    .eq('id', vendorId)
+    .maybeSingle();
+  if (error) throw error;
+  const fromVendor = String(data?.service_mode ?? '')
+    .trim()
+    .toLowerCase();
+  if (fromVendor === 'help' || fromVendor === 'delivery' || fromVendor === 'appointment') {
+    return fromVendor;
+  }
+  return 'help';
+}
+
 /** Minimal order_bills row so delivery/appointment Mark Done can fulfil (check_bill_before_fulfil). */
 export async function seedOrderBill(
   requestId: string,
@@ -505,7 +535,9 @@ async function findAuthUserIdByPhone(tenDigitPhone: string): Promise<string | nu
   const authPhone = `91${tenDigitPhone}`;
   let page = 1;
   for (;;) {
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 });
+    const { data, error } = await withAuthAdminResultRetry('listUsers', () =>
+      supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 }),
+    );
     if (error || !data?.users?.length) return null;
     for (const user of data.users) {
       const digits = normalizeAuthPhoneDigits(user.phone);
@@ -523,28 +555,43 @@ async function ensureTestAuthUser(tenDigitPhone: string, logTag: string): Promis
   const email = testAuthEmail(tenDigitPhone);
   const password = testAuthPassword(tenDigitPhone);
   const e164Phone = `+91${tenDigitPhone}`;
-
-  const { error: createError } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    phone: e164Phone,
-    email_confirm: true,
-    phone_confirm: true,
-    password,
+  const probe = createClient(getSupabaseUrl(), getAnonKey(), {
+    auth: { autoRefreshToken: false, persistSession: false },
   });
+
+  // Prefer sign-in when the test user already exists — avoids flaky Auth Admin listUsers.
+  const { error: signErr } = await probe.auth.signInWithPassword({ email, password });
+  if (!signErr) return true;
+
+  const { error: createError } = await withAuthAdminResultRetry('createUser', () =>
+    supabaseAdmin.auth.admin.createUser({
+      email,
+      phone: e164Phone,
+      email_confirm: true,
+      phone_confirm: true,
+      password,
+    }),
+  );
   if (!createError) return true;
 
   const msg = createError.message.toLowerCase();
   if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
+    // Try sign-in again (password may already match) before expensive listUsers.
+    const { error: retrySign } = await probe.auth.signInWithPassword({ email, password });
+    if (!retrySign) return true;
+
     const userId = await findAuthUserIdByPhone(tenDigitPhone);
     if (!userId) {
       console.warn(`[${logTag}] auth user exists but could not resolve id for ${tenDigitPhone}`);
       return false;
     }
-    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-      email,
-      email_confirm: true,
-      password,
-    });
+    const { error: updateError } = await withAuthAdminResultRetry('updateUserById', () =>
+      supabaseAdmin.auth.admin.updateUserById(userId, {
+        email,
+        email_confirm: true,
+        password,
+      }),
+    );
     if (updateError) {
       console.warn(`[${logTag}] updateUserById failed:`, updateError.message);
       return false;
@@ -552,7 +599,11 @@ async function ensureTestAuthUser(tenDigitPhone: string, logTag: string): Promis
     return true;
   }
 
-  console.warn(`[${logTag}] admin createUser failed:`, createError.message);
+  if (isTransientAuthAdminJwtError(createError.message)) {
+    console.warn(`[${logTag}] admin createUser failed after retries:`, createError.message);
+  } else {
+    console.warn(`[${logTag}] admin createUser failed:`, createError.message);
+  }
   return false;
 }
 

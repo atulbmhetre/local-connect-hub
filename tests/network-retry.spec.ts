@@ -11,7 +11,7 @@ import {
   installAbortRoute,
   isGetMyOrdersRpc,
   isGetVendorOwnRpc,
-  isVendorUpdateOwnRpc,
+  isVendorUpdateProfileAndCategoriesRpc,
 } from './helpers/network-retry-routes';
 
 dotenv.config({ path: '.env.test' });
@@ -316,7 +316,7 @@ test.describe('TEST 2 — MyOrders load retries', () => {
 });
 
 test.describe('TEST 3 — My Business service radius retries', () => {
-  test('retries and recovers after aborted vendor_update_own RPC', async ({ page }) => {
+  test('retries and recovers after aborted vendor_update_profile_and_categories RPC', async ({ page }) => {
     const vendor = await createVendor('rad-recover');
     await loginAsVendor(page, vendor.phone, vendor.id, VENDOR_DEVICE_ID);
     await page.goto(`${APP_URL}/vendor`);
@@ -325,8 +325,8 @@ test.describe('TEST 3 — My Business service radius retries', () => {
 
     const route = await installAbortRoute(
       page,
-      `${SUPABASE_URL}/rest/v1/rpc/vendor_update_own`,
-      isVendorUpdateOwnRpc,
+      `${SUPABASE_URL}/rest/v1/rpc/vendor_update_profile_and_categories`,
+      isVendorUpdateProfileAndCategoriesRpc,
       { mode: 'fail-then-succeed', failCount: 2 },
     );
 
@@ -353,7 +353,7 @@ test.describe('TEST 3 — My Business service radius retries', () => {
     await route.unroute();
   });
 
-  test('shows exhausted toast when vendor_update_own RPC never succeeds', async ({ page }) => {
+  test('shows exhausted toast when vendor_update_profile_and_categories RPC never succeeds', async ({ page }) => {
     const vendor = await createVendor('rad-exhaust');
     await loginAsVendor(page, vendor.phone, vendor.id, VENDOR_DEVICE_ID);
     await page.goto(`${APP_URL}/vendor`);
@@ -362,8 +362,8 @@ test.describe('TEST 3 — My Business service radius retries', () => {
 
     const route = await installAbortRoute(
       page,
-      `${SUPABASE_URL}/rest/v1/rpc/vendor_update_own`,
-      isVendorUpdateOwnRpc,
+      `${SUPABASE_URL}/rest/v1/rpc/vendor_update_profile_and_categories`,
+      isVendorUpdateProfileAndCategoriesRpc,
       { mode: 'always-fail' },
     );
 

@@ -84,3 +84,10 @@ export function isGetMyOrdersRpc(url: string, method: string): boolean {
 export function isVendorUpdateOwnRpc(url: string, method: string): boolean {
   return method === 'POST' && url.includes('/rest/v1/rpc/vendor_update_own');
 }
+
+export function isVendorUpdateProfileAndCategoriesRpc(url: string, method: string): boolean {
+  return (
+    method === 'POST' &&
+    url.includes('/rest/v1/rpc/vendor_update_profile_and_categories')
+  );
+}

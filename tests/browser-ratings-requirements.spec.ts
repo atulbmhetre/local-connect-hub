@@ -5,6 +5,7 @@ import {
   getActiveCategoryByServiceMode,
   getActiveCategoryByLabel,
   seedVendorCategory,
+  resolveRequestServiceMode,
 } from './helpers/setup';
 
 /** Unique suffix for all test data in this file. */
@@ -95,6 +96,10 @@ async function seedFulfilledOrder(
   message: string,
   fields: Record<string, unknown> = {},
 ) {
+  const service_mode = await resolveRequestServiceMode(
+    vendorId,
+    typeof fields.service_mode === 'string' ? fields.service_mode : null,
+  );
   const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
@@ -104,6 +109,7 @@ async function seedFulfilledOrder(
       message,
       status: 'fulfilled',
       ...fields,
+      service_mode,
     })
     .select('id')
     .single();

@@ -472,9 +472,15 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         const nextSettings = { ...prevSettings };
         for (const id of next) {
           if (!nextSettings[id]) {
+            const catalogMode =
+              availableCategories.find((c) => c.id === id)?.service_mode ??
+              selectedCategories.find((c) => c.id === id)?.service_mode ??
+              null;
             nextSettings[id] = {
               ...accountDefaultsForInherit(),
-              availability_modes: [],
+              availability_modes: normalizeAvailabilityModes(
+                catalogMode ? [catalogMode] : ["help"],
+              ),
             };
           }
         }

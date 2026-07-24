@@ -28,6 +28,37 @@ These remain real launch/ops follow-ups; they are **not** open functionality-inv
 
 ---
 
+## Post-inventory full-suite regression sweep (2026-07-24 / 2026-07-25) — CLOSED (TEST)
+
+Independent verification pass **after** the 66/66 functionality inventory closure — not part of the inventory tally itself. Goal: catch combination failures that per-item TEST→PROD verifications could miss.
+
+| Field | Detail |
+|-------|--------|
+| Scope | Full Vitest + full Playwright on **TEST** only |
+| Vitest | **339/339** clean throughout |
+| Playwright start | **45** failures on the first full run after inventory close |
+| Cause of the 45 | **None** caused by tonight's functionality-audit product changes — all pre-existing harness/product debt or environmental (key rotation, incomplete TEST FCM secrets, stale test expectations) |
+| Playwright end | **951+ / ~952** green; **zero unexplained failures** (VL-02 and FCM paths included after their fixes) |
+
+### Root causes and resolutions
+
+| Cluster | What failed | Resolution |
+|---------|-------------|------------|
+| Admin Auth API JWT cascade (~18) | Post–security-incident key rotation: `sb_secret` intermittently failing Supabase Auth Admin `/admin/*` (`unrecognized JWT kid`). | Hardened the **test harness** (sign-in-first, avoid `listUsers` pagination, retry on transient failure). Did **not** revert to legacy JWT keys — preserves the incident's security hardening. |
+| `requests.service_mode` silent `help` default (15) | Column DEFAULT `'help'` when seeds omit it; `get_my_orders` / UI trust `COALESCE(request, vendor)` so unset request mode masquerades as Help. | Source fix: migration `20260724160001` (drop silent default; BEFORE INSERT copies vendor mode when null/blank) + seed-helper hardening — not fixture-only patches. |
+| VendorMyBusiness empty `availability_modes` (2) | Newly added categories initialized `availability_modes: []`, silently blocking save. | Initialize from catalog default `service_mode`. |
+| Stale network-retry RPC name (1) | Test still aborted `vendor_update_own` after rename to `vendor_update_profile_and_categories`. | Test + abort matcher updated. |
+| Conflicting API keys 401 (1) | `notify-user` rate-limit test sent `Authorization: Bearer sb_secret` with `apikey: publishable` → 401; rate-limit path never ran. | Pair both headers with the service/secret key. |
+| Admin config whitelist expectations (2) | Stale count + expected arbitrary upsert. | Corrected to current whitelist (**36** keys) and `key_not_allowed` for non-whitelisted upsert. |
+| VL-02 GPS-deny | Missing go-live photos seed; photos gate ran before GPS — product path fine. | Seed via `ensureVendorGoLivePhotos` (same as other vendor-mode specs). |
+| TEST FCM / `notify-vendor` | Missing `FCM_CLIENT_EMAIL` / `FCM_PRIVATE_KEY` (and incomplete project secret); auth path failed after devices were readable. | Restored from a freshly generated Firebase service-account JSON for `aaspaas-pro`; E2E probe: auth succeeds, FCM correctly rejects an invalid device token. **PROD** May credential checked independently — already authenticates the same way; **left untouched**. |
+
+### PROD follow-up (flagged)
+
+This sweep was **TEST-only**. Frontend fix (`VendorMyBusiness` default modes) ships with the next app build/APK. Migration **`20260724160001` is on TEST and not yet on PROD** — live PROD probe still shows an insert without `service_mode` landing as `help` while the vendor is `delivery`. **Needs a small PROD `db push` of that migration** (not covered by the 66/66 closure's PROD pushes).
+
+---
+
 ## CRITICAL INCIDENT — Service Role Key Exposure (RESOLVED)
 
 | Field | Status |

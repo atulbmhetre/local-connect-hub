@@ -16,16 +16,17 @@ import { deleteStaleToken, uniqueTestPhone } from './helpers/session38';
 
 const T = Date.now();
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY!;
 const SERVICE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.VITE_SUPABASE_ANON_KEY!;
 
 async function invokeNotifyUser(body: Record<string, unknown>) {
+  // New-format sb_secret must not be paired with a different apikey (publishable) —
+  // the gateway returns 401 Conflicting API keys before rate-limit logic runs.
   const res = await fetch(`${SUPABASE_URL}/functions/v1/notify-user`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${SERVICE_KEY}`,
-      apikey: ANON_KEY,
+      apikey: SERVICE_KEY,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),

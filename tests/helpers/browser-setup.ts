@@ -1,9 +1,15 @@
 import { expect, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
 import { loginAsCustomer, mintBrowserSupabaseSession } from './setup';
+import {
+  getAnonKey,
+  getServiceRoleClient,
+  getSupabaseUrl,
+  loadTestEnv,
+  withAuthAdminResultRetry,
+} from './testEnv';
 
-dotenv.config({ path: '.env.test' });
+loadTestEnv();
 
 export const APP_URL = process.env.VITE_APP_URL || 'http://localhost:8080';
 export const RADAR_DELIVERY_URL = `${APP_URL}/radar?mode=delivery`;
@@ -62,66 +68,75 @@ function requireAdminCredentials(): { email: string; password: string } {
 
 let ensureAdminUserPromise: Promise<void> | null = null;
 
-/** Create/link TEST admin auth user + admin_users row via service role (idempotent). */
+/**
+ * Create/link TEST admin auth user + admin_users row (idempotent).
+ * Prefer password sign-in (stable) over Auth Admin listUsers — sb_secret Auth Admin is flaky
+ * on this project after ES256 signing-key migration.
+ */
 export async function ensureTestAdminUser(): Promise<{ email: string; password: string }> {
   const creds = requireAdminCredentials();
   if (!ensureAdminUserPromise) {
     ensureAdminUserPromise = (async () => {
-      const url = process.env.VITE_SUPABASE_URL;
-      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      if (!url || !serviceKey) {
-        throw new Error(
-          'ensureTestAdminUser requires VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY',
-        );
-      }
-      const admin = createClient(url, serviceKey, {
+      const admin = getServiceRoleClient();
+      const anon = createClient(getSupabaseUrl(), getAnonKey(), {
         auth: { autoRefreshToken: false, persistSession: false },
       });
 
       let userId: string | null = null;
-      const { data: created, error: createErr } = await admin.auth.admin.createUser({
+
+      // 1) Prefer sign-in — works when the ephemeral admin already exists (usual case).
+      const { data: signedIn, error: signErr } = await anon.auth.signInWithPassword({
         email: creds.email,
         password: creds.password,
-        email_confirm: true,
       });
-      if (createErr) {
-        const msg = createErr.message.toLowerCase();
-        if (!msg.includes('already') && !msg.includes('registered') && !msg.includes('exists')) {
-          throw new Error(`createUser failed: ${createErr.message}`);
-        }
-        let page = 1;
-        while (page <= 50 && !userId) {
-          const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-          if (error) throw new Error(`listUsers failed: ${error.message}`);
-          const match = data.users.find(
-            (u) => u.email?.trim().toLowerCase() === creds.email.toLowerCase(),
-          );
-          if (match) {
-            userId = match.id;
-            const { error: updErr } = await admin.auth.admin.updateUserById(userId, {
+      if (!signErr && signedIn.user?.id) {
+        userId = signedIn.user.id;
+      } else {
+        // 2) Create via Auth Admin (retried — sb_secret Auth Admin is intermittently rejected).
+        const { data: created, error: createErr } = await withAuthAdminResultRetry(
+          'createUser',
+          () =>
+            admin.auth.admin.createUser({
+              email: creds.email,
               password: creds.password,
               email_confirm: true,
-            });
-            if (updErr) throw new Error(`updateUserById failed: ${updErr.message}`);
-            break;
+            }),
+        );
+        if (createErr) {
+          const msg = createErr.message.toLowerCase();
+          if (!msg.includes('already') && !msg.includes('registered') && !msg.includes('exists')) {
+            throw new Error(`createUser failed: ${createErr.message}`);
           }
-          if (data.users.length < 200) break;
-          page += 1;
+          // 3) User exists but password may differ — try sign-in after reset is unavailable
+          // without listUsers; re-sign-in after a short wait, else fail clearly.
+          const { data: retrySign, error: retryErr } = await anon.auth.signInWithPassword({
+            email: creds.email,
+            password: creds.password,
+          });
+          if (retryErr || !retrySign.user?.id) {
+            throw new Error(
+              `Admin user ${creds.email} exists but sign-in failed (${retryErr?.message ?? 'no user'}). ` +
+                'Set TEST_ADMIN_EMAIL/TEST_ADMIN_PASSWORD to a working account, or reset the password in Dashboard.',
+            );
+          }
+          userId = retrySign.user.id;
+        } else {
+          userId = created.user?.id ?? null;
         }
-        if (!userId) {
-          throw new Error(`Admin user ${creds.email} already exists but could not be listed`);
-        }
-      } else {
-        userId = created.user?.id ?? null;
       }
-      if (!userId) throw new Error('Admin user id missing after create/lookup');
 
+      if (!userId) throw new Error('Admin user id missing after create/sign-in');
+
+      // PostgREST with sb_secret is stable (unlike Auth Admin).
       const { error: upsertErr } = await admin.from('admin_users').upsert(
         { user_id: userId },
         { onConflict: 'user_id' },
       );
       if (upsertErr) throw new Error(`admin_users upsert failed: ${upsertErr.message}`);
-    })();
+    })().catch((err) => {
+      ensureAdminUserPromise = null;
+      throw err;
+    });
   }
   await ensureAdminUserPromise;
   return creds;
@@ -130,11 +145,9 @@ export async function ensureTestAdminUser(): Promise<{ email: string; password: 
 /** Supabase client signed in as the session admin (for admin_* RPC fallbacks). */
 export async function getAdminSessionClient() {
   const { email, password } = await ensureTestAdminUser();
-  const client = createClient(
-    process.env.VITE_SUPABASE_URL!,
-    process.env.VITE_SUPABASE_ANON_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  );
+  const client = createClient(getSupabaseUrl(), getAnonKey(), {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
   const { error } = await client.auth.signInWithPassword({ email, password });
   if (error) throw new Error(`admin session signIn failed: ${error.message}`);
   return client;

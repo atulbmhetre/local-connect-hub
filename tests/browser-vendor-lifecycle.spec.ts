@@ -9,6 +9,7 @@ import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
+  ensureVendorGoLivePhotos,
 } from './helpers/setup';
 
 const T = Date.now();
@@ -115,6 +116,8 @@ test('VL-02 — Go Live help mode shows permission-denied help when GPS denied',
   page,
 }) => {
   const vendor = await createVendor('GPSDENY', { is_active: false, is_banned: false });
+  // Photos gate runs before GPS; seed so the deny path can assert Location required.
+  await ensureVendorGoLivePhotos(vendor.id);
   await page.addInitScript(() => {
     const err = Object.assign(new Error('User denied Geolocation'), { code: 1, PERMISSION_DENIED: 1 });
     Object.defineProperty(navigator, 'geolocation', {

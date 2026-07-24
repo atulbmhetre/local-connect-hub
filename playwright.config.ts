@@ -1,16 +1,12 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
-import dotenv from 'dotenv';
+import { loadTestEnv } from './tests/helpers/testEnv';
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 function loadEnvAndResolveBrowsersPath(): void {
-  dotenv.config({ path: path.join(projectRoot, '.env.local'), override: true });
-  const env = process.env.TEST_ENV || 'test';
-  // Load the selected test env before defineConfig builds webServer.env.
-  // It is authoritative, so stale inherited shell values cannot win.
-  dotenv.config({ path: path.join(projectRoot, `.env.${env}`), override: true });
+  loadTestEnv();
 
   const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH?.trim();
   if (browsersPath?.startsWith('.')) {

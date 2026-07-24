@@ -6,6 +6,7 @@ import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
+  resolveRequestServiceMode,
 } from './helpers/setup';
 import { strings } from '../src/lib/strings';
 
@@ -95,6 +96,10 @@ async function seedRequest(
   message: string,
   fields: Record<string, unknown> = {},
 ) {
+  const service_mode = await resolveRequestServiceMode(
+    vendorId,
+    typeof fields.service_mode === 'string' ? fields.service_mode : null,
+  );
   const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
@@ -104,6 +109,7 @@ async function seedRequest(
       message,
       status: 'sent',
       ...fields,
+      service_mode,
     })
     .select('id')
     .single();

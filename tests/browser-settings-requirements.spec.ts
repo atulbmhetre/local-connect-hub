@@ -22,7 +22,7 @@ const DEVICE_ID = `device_set_${T}`;
 const VENDOR_DEVICE_ID = `device_set_vendor_${T}`;
 
 /** Whitelist length in Settings.tsx ADMIN_CONFIG_WHITELIST (incl. 7 ops keys). */
-const ADMIN_CONFIG_ROW_COUNT = 37;
+const ADMIN_CONFIG_ROW_COUNT = 36;
 
 const L = {
   myAccount: 'My Account',
@@ -436,7 +436,7 @@ test('SET-REQ-15 — Admin sees Admin tab in Settings', async ({ page }) => {
   await expect(page.getByTestId('admin-panel')).toBeVisible();
 });
 
-test('SET-REQ-16 — Admin App Config shows all 37 whitelisted keys', async ({ page }) => {
+test('SET-REQ-16 — Admin App Config shows all 36 whitelisted keys', async ({ page }) => {
   await loginAsAdmin(page, DEVICE_ID);
 
   await page.getByRole('button', { name: L.appConfig }).click();
@@ -501,10 +501,10 @@ test('SET-REQ-16b — Admin App Config shows defaults for 7 ops keys (never blan
   }
 });
 
-test('SET-REQ-17 — Admin config UPSERT — saves new key that does not exist in DB', async ({
+test('SET-REQ-17 — Admin config UPSERT — non-whitelisted probe key is rejected', async ({
   page,
 }) => {
-  // Isolated probe key — never touch real settings like vendor_trial_days (safe on PROD).
+  // Isolated probe key — whitelist must reject arbitrary keys (key_not_allowed).
   const probeKey = `test_config_probe_${T}`;
   try {
     await supabaseAdmin.from('app_config').delete().eq('key', probeKey);
@@ -519,18 +519,14 @@ test('SET-REQ-17 — Admin config UPSERT — saves new key that does not exist i
       p_key: probeKey,
       p_value: '21',
     });
-    expect(error, error?.message ?? undefined).toBeNull();
+    expect(error?.message ?? '').toMatch(/key_not_allowed/i);
 
-    await expect
-      .poll(async () => {
-        const { data } = await supabaseAdmin
-          .from('app_config')
-          .select('value')
-          .eq('key', probeKey)
-          .maybeSingle();
-        return data?.value ?? null;
-      })
-      .toBe('21');
+    const { data } = await supabaseAdmin
+      .from('app_config')
+      .select('value')
+      .eq('key', probeKey)
+      .maybeSingle();
+    expect(data).toBeNull();
   } finally {
     await supabaseAdmin.from('app_config').delete().eq('key', probeKey);
   }
