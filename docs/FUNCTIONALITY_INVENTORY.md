@@ -78,18 +78,18 @@
 - **Suspicious:** Comment encoding glitch in emergency panel; `app-settings:` on web; complex dual-fetch race guarded by `fetchSeqRef`.
 
 ### Radar vendor card (shared)
-- **What it does:** Primary vendor result card: photo, verification tier, reputation, menu preview, save/unsave neighbour, AI-Bridge call, order/book via `ParchiSheet`, resolution helped/delivered, rate-card sheet, photo lightbox, session caching.
+- **What it does:** Primary vendor result card: photo, binary trust banner + accent ring (`vendorBinaryTrustTier`), reputation, menu preview, save/unsave neighbour, AI-Bridge call, order/book via `ParchiSheet`, resolution helped/delivered, rate-card sheet, photo lightbox, session caching.
 - **Files:** `src/components/RadarVendorCard.tsx`, nested `PhoneEntrySheet`, `ParchiSheet`, `AiBridgeSheet`
 - **DB:** `vendor_menu_items`, `requests`, `saved_vendors`, `vendors`, `vendor_reviews`; RPCs `save_saved_vendor`, `unsave_saved_vendor`, `increment_vendor_delivered`, `increment_vendor_helped`
-- **Status:** Fully implemented (shared component—single implementation for radar lists).
+- **Status:** Fully implemented (shared component—single implementation for radar lists). Audited CLOSED (TEST + PROD).
 - **Suspicious:** Resolution + `RatingSheet` may double-count stats; `resolutionSessionTick` anti-flicker hack.
 
 ### Legacy vendor card (unused)
-- **What it does:** Simple card with stub “AI-Bridge Call” toast only.
-- **Files:** `src/components/VendorCard.tsx`
+- **What it does:** Was a simple card with stub “AI-Bridge Call” toast only (also exposed plaintext UPI and pre-binary `vendorTier()` yellow trust).
+- **Files:** Deleted — was `src/components/VendorCard.tsx`
 - **DB:** None
-- **Status:** Present but unreachable — **zero imports** elsewhere in `src/`.
-- **Suspicious:** Superseded by `RadarVendorCard`.
+- **Status:** Removed in `1ec1170` (2026-07-18) during an earlier Radar audit; superseded by `RadarVendorCard`. Inventory line kept only so the Phase 2 tally stays 66 `###` entries.
+- **Suspicious:** None (deleted).
 
 ---
 
@@ -273,10 +273,10 @@
 - **Suspicious:** Some hardcoded English in khata detail sheet.
 
 ### Khata settings (vendor)
-- **What it does:** Toggle khata credit, set amber/red limits; blocked when outstanding balance > 0.
+- **What it does:** Toggle khata credit, set amber/red limits; blocked when outstanding balance > 0; server rejects `red ≤ amber` (`khata_limits_invalid`).
 - **Files:** `src/components/settings/VendorSettings.tsx`
 - **DB:** `vendor_update_own`; reads `khata_ledger`
-- **Status:** Fully implemented.
+- **Status:** Fully implemented. Audited CLOSED (TEST + PROD).
 
 ### UPI payment confirm / dispute (vendor)
 - **What it does:** Vendor confirms or disputes customer UPI payment claim on order.
@@ -497,9 +497,9 @@
 - **Status:** Fully implemented (shared).
 
 ### Trust warning banner
-- **What it does:** Context-specific yellow/red/green banners for radar, bridge, tracking.
-- **Files:** `TrustWarningBanner.tsx`
-- **Status:** Fully implemented (shared).
+- **What it does:** Binary Verified/Unverified warning for radar, AiBridge, and Neighbour→Parchi (`vendorBinaryTrustTier`); tracking keeps its own path. Shared incomplete-verification copy; fail-open messaging when trust fetch cannot confirm.
+- **Files:** `TrustWarningBanner.tsx`, `vendorBinaryTrust.ts`
+- **Status:** Fully implemented (shared). Audited CLOSED (TEST + PROD).
 
 ### Verification badge
 - **What it does:** Green/yellow/red tier chip from vendor fields; exports `vendorTier`, `getVerificationCopy`.

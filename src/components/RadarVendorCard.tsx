@@ -21,6 +21,7 @@ import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
+import { captureError } from "@/lib/sentry";
 import {
   NetworkExhaustedError,
   throwOnSupabaseNetworkError,
@@ -525,10 +526,12 @@ export function RadarVendorCard({
   const showUnsaveRow = isNeighbourSaved;
 
   const accentRing =
-    businessTrust.is_manual_verified === true &&
-    vendor.upi_verified === true &&
-    vendor.photo_selfie != null &&
-    vendor.latitude != null
+    vendorBinaryTrustTier({
+      is_manual_verified: businessTrust.is_manual_verified,
+      upi_verified: vendor.upi_verified,
+      photo_selfie: vendor.photo_selfie,
+      latitude: vendor.latitude,
+    }) === "green"
       ? "ring-brand/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
       : "ring-destructive/30";
 
@@ -586,6 +589,10 @@ export function RadarVendorCard({
           toast.success(`✅ ${s.radar_saved_success}`);
           return;
         }
+        captureError(error, {
+          scope: "radarVendorCard.saveSavedVendor",
+          vendorId: vendor.id,
+        });
         toast.error(s.radar_could_not_save, { description: error.message });
         return;
       }
@@ -596,6 +603,10 @@ export function RadarVendorCard({
     } catch (err) {
       dismissNetworkRetryingToast();
       if (err instanceof NetworkExhaustedError) {
+        captureError(err, {
+          scope: "radarVendorCard.saveSavedVendor",
+          vendorId: vendor.id,
+        });
         showNetworkFailedToast(() => void handleSaveVendor(), {
           failed: s.network_failed,
           retryBtn: s.network_retry_btn,
@@ -629,6 +640,10 @@ export function RadarVendorCard({
       );
       dismissNetworkRetryingToast();
       if (error) {
+        captureError(error, {
+          scope: "radarVendorCard.unsaveSavedVendor",
+          vendorId: vendor.id,
+        });
         toast.error(s.couldNotRemove, { description: error.message });
         return;
       }
@@ -639,6 +654,10 @@ export function RadarVendorCard({
     } catch (err) {
       dismissNetworkRetryingToast();
       if (err instanceof NetworkExhaustedError) {
+        captureError(err, {
+          scope: "radarVendorCard.unsaveSavedVendor",
+          vendorId: vendor.id,
+        });
         showNetworkFailedToast(() => void handleUnsaveVendor(), {
           failed: s.network_failed,
           retryBtn: s.network_retry_btn,
@@ -684,6 +703,11 @@ export function RadarVendorCard({
       );
       dismissNetworkRetryingToast();
       if (error) {
+        captureError(error, {
+          scope: "radarVendorCard.resolution",
+          vendorId: vendor.id,
+          rpc,
+        });
         toast.error(s.radar_could_not_save, { description: error.message });
         return;
       }
@@ -695,6 +719,10 @@ export function RadarVendorCard({
     } catch (err) {
       dismissNetworkRetryingToast();
       if (err instanceof NetworkExhaustedError) {
+        captureError(err, {
+          scope: "radarVendorCard.resolution",
+          vendorId: vendor.id,
+        });
         showNetworkFailedToast(() => void handleResolution(), {
           failed: s.network_failed,
           retryBtn: s.network_retry_btn,
@@ -796,7 +824,7 @@ export function RadarVendorCard({
                 {vendor.is_active === true && (
                   <span
                     className="h-2 w-2 rounded-full bg-brand shrink-0"
-                    aria-label="Online"
+                    aria-label={s.radar_vendor_online_aria}
                   />
                 )}
                 {vendor.is_active === false && (
@@ -806,7 +834,9 @@ export function RadarVendorCard({
                 )}
               </h3>
               {readIsOwnVendorCard(vendor.id, vendor.phone) && (
-                <span className="text-[10px] font-medium text-muted-foreground">• You</span>
+                <span className="text-[10px] font-medium text-muted-foreground">
+                  {s.radar_own_vendor_label}
+                </span>
               )}
             </div>
             <span className="inline-flex items-center gap-1 shrink-0 flex-wrap justify-end">
