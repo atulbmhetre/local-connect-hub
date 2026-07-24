@@ -12,6 +12,7 @@ import {
   shouldShowIveStartedButton,
   shouldStartTrackingOnOrderAccept,
   vendorOffersHelp,
+  customerOrderShowsLiveLocation,
 } from "@/lib/vendorTrackingPolicy";
 
 const store = new Map<string, string>();
@@ -110,6 +111,59 @@ describe("vendorTrackingPolicy — 5 cases", () => {
   it("help accept never starts order-scoped tracking", () => {
     expect(
       shouldStartTrackingOnOrderAccept({ id: "h2", status: "accepted" }),
+    ).toBe(false);
+  });
+
+  it("customer live-location: help + instant D/A only; scheduled never", () => {
+    const created = "2026-07-11T10:00:00.000Z";
+    const instantAppt = new Date(new Date(created).getTime() + 2 * 60 * 60 * 1000).toISOString();
+    expect(
+      customerOrderShowsLiveLocation({
+        id: "h",
+        status: "accepted",
+        service_mode: "help",
+      }),
+    ).toBe(true);
+    expect(
+      customerOrderShowsLiveLocation({
+        id: "d-asap",
+        status: "accepted",
+        service_mode: "delivery",
+        delivery_slot: "asap",
+      }),
+    ).toBe(true);
+    expect(
+      customerOrderShowsLiveLocation({
+        id: "d-sched",
+        status: "accepted",
+        service_mode: "delivery",
+        delivery_slot: "tomorrow",
+      }),
+    ).toBe(false);
+    expect(
+      customerOrderShowsLiveLocation({
+        id: "a-inst",
+        status: "accepted",
+        service_mode: "appointment",
+        created_at: created,
+        appointment_time: instantAppt,
+      }),
+    ).toBe(true);
+    expect(
+      customerOrderShowsLiveLocation({
+        id: "a-sched",
+        status: "accepted",
+        service_mode: "appointment",
+        created_at: created,
+        appointment_time: "2026-07-20T15:00:00.000Z",
+      }),
+    ).toBe(false);
+    expect(
+      customerOrderShowsLiveLocation({
+        id: "sent",
+        status: "sent",
+        service_mode: "help",
+      }),
     ).toBe(false);
   });
 

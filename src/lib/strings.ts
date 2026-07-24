@@ -56,8 +56,8 @@ export const strings = {
     recovery_welcome_title: 'Welcome back!',
     recovery_welcome_body:
       'We found your account with {count} orders. Your history is restored.',
-    home_help_ontheway: 'Help is on the way!',
-    home_help_vendor_stopped: 'Your helper seems to have stopped. Tap to check.',
+    home_help_ontheway: 'On the way!',
+    home_help_vendor_stopped: 'Your vendor seems to have stopped. Tap to check.',
     home_saved_vendor_removed_title: 'Updates to your neighbourhood',
     home_saved_vendor_category_removed: (shop: string, category: string) =>
       `${shop} — no longer offers ${category}`,
@@ -78,7 +78,7 @@ export const strings = {
     home_saved_neighbours_load_error: 'Couldn\'t load your saved neighbourhood. Please try again.',
     home_categories_load_error: 'Couldn\'t load service categories. Please try again.',
     home_active_orders_load_error: 'Couldn\'t load your active order count.',
-    home_help_banner_load_error: 'Couldn\'t load your active help update.',
+    home_help_banner_load_error: 'Couldn\'t load your active order update.',
     findingMatch: 'Finding best match...',
     search_fallback: 'Couldn\'t find that service. Try browsing categories below 👇',
     home_suggest_title: 'Did you mean one of these?',
@@ -796,7 +796,7 @@ export const strings = {
     myOrders_vendorCancelledDefault: 'Vendor cancelled this order',
     myOrders_youCancelledDefault: 'You cancelled this order',
     vendor_stopped_warning:
-      'Your helper seems to have stopped. Are they okay? Try calling them.',
+      'Your vendor seems to have stopped. Are they okay? Try calling them.',
     vendor_distance: 'Vendor is away',
     vendor_last_updated: 'Updated',
     user_vendor_offline_title: 'Your vendor has gone offline',
@@ -1678,8 +1678,8 @@ export const strings = {
     recovery_welcome_title: 'वापसी पर स्वागत है!',
     recovery_welcome_body:
       'हमें आपका खाता {count} ऑर्डर के साथ मिला। आपका इतिहास पुनर्स्थापित हो गया है।',
-    home_help_ontheway: 'मदद आ रही है!',
-    home_help_vendor_stopped: 'आपका सहायक रुका हुआ लगता है। जांचें।',
+    home_help_ontheway: 'आ रहे हैं!',
+    home_help_vendor_stopped: 'आपका विक्रेता रुका हुआ लगता है। जांचें।',
     home_saved_vendor_removed_title: 'आपके पड़ोस में बदलाव',
     home_saved_vendor_category_removed: (shop: string, category: string) =>
       `${shop} — अब ${category} नहीं देते`,
@@ -1700,7 +1700,7 @@ export const strings = {
     home_saved_neighbours_load_error: 'आपकी सेव की गई पड़ोस सूची लोड नहीं हो सकी। फिर कोशिश करें।',
     home_categories_load_error: 'सेवा श्रेणियां लोड नहीं हो सकीं। फिर कोशिश करें।',
     home_active_orders_load_error: 'आपके सक्रिय ऑर्डर की संख्या लोड नहीं हो सकी।',
-    home_help_banner_load_error: 'आपकी सक्रिय मदद की जानकारी लोड नहीं हो सकी।',
+    home_help_banner_load_error: 'आपकी सक्रिय ऑर्डर की जानकारी लोड नहीं हो सकी।',
     findingMatch: 'सबसे बेहतरीन विकल्प ढूंढ रहे हैं...',
     search_fallback: 'यह सेवा नहीं मिली। नीचे श्रेणियां देखें 👇',
     home_suggest_title: 'क्या आपका मतलब इनमें से कोई था?',
@@ -2415,7 +2415,7 @@ export const strings = {
     myOrders_vendorCancelledDefault: 'विक्रेता ने यह ऑर्डर रद्द कर दिया',
     myOrders_youCancelledDefault: 'आपने यह ऑर्डर रद्द कर दिया',
     vendor_stopped_warning:
-      'आपका सहायक रुक गया लगता है। क्या वे ठीक हैं? उन्हें कॉल करें।',
+      'आपका विक्रेता रुक गया लगता है। क्या वे ठीक हैं? उन्हें कॉल करें।',
     vendor_distance: 'विक्रेता दूर है',
     vendor_last_updated: 'अपडेट',
     user_vendor_offline_title: 'आपका विक्रेता ऑफलाइन हो गया',
@@ -3297,8 +3297,8 @@ export const strings = {
     recovery_welcome_title: 'परत स्वागत आहे!',
     recovery_welcome_body:
       'आम्हाला तुमचे खाते {count} ऑर्डरसह सापडले. तुमचा इतिहास पुनर्स्थापित झाला आहे.',
-    home_help_ontheway: 'मदत येत आहे!',
-    home_help_vendor_stopped: 'तुमचा मदतनीस थांबलेला दिसतो. तपासा.',
+    home_help_ontheway: 'येत आहेत!',
+    home_help_vendor_stopped: 'तुमचा विक्रेता थांबलेला दिसतो. तपासा.',
     home_saved_vendor_removed_title: 'तुमच्या शेजारीपणात बदल',
     home_saved_vendor_category_removed: (shop: string, category: string) =>
       `${shop} — आता ${category} देत नाहीत`,
@@ -3319,7 +3319,7 @@ export const strings = {
     home_saved_neighbours_load_error: 'तुमची सेव्ह केलेली शेजार यादी लोड झाली नाही. पुन्हा प्रयत्न करा.',
     home_categories_load_error: 'सेवा श्रेणी लोड झाल्या नाहीत. पुन्हा प्रयत्न करा.',
     home_active_orders_load_error: 'तुमच्या सक्रिय ऑर्डरची संख्या लोड झाली नाही.',
-    home_help_banner_load_error: 'तुमच्या सक्रिय मदतीची माहिती लोड झाली नाही.',
+    home_help_banner_load_error: 'तुमच्या सक्रिय ऑर्डरची माहिती लोड झाली नाही.',
     findingMatch: 'उत्तम पर्याय शोधत आहोत...',
     search_fallback: 'ही सेवा सापडली नाही. खाली श्रेणी पहा 👇',
     home_suggest_title: 'तुम्हाला यापैकी काही म्हणायचे होते का?',
@@ -4034,7 +4034,7 @@ export const strings = {
     myOrders_vendorCancelledDefault: 'विक्रेत्याने हा ऑर्डर रद्द केला',
     myOrders_youCancelledDefault: 'तुम्ही हा ऑर्डर रद्द केला',
     vendor_stopped_warning:
-      'तुमचा मदतनीस थांबला असल्यासारखे वाटते. ते ठीक आहेत का? कॉल करा.',
+      'तुमचा विक्रेता थांबला असल्यासारखे वाटते. ते ठीक आहेत का? कॉल करा.',
     vendor_distance: 'विक्रेता दूर आहे',
     vendor_last_updated: 'अपडेट',
     user_vendor_offline_title: 'तुमचा विक्रेता ऑफलाइन झाला',

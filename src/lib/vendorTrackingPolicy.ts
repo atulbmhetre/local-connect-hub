@@ -109,6 +109,24 @@ export function shouldRestoreOrderTracking(order: OrderTrackingSlice): boolean {
   return false;
 }
 
+/**
+ * Customer live-location surfaces (Home stale banner, My Orders distance/stopped):
+ * Help accepted continuously; instant Delivery/Appointment while accepted;
+ * scheduled Delivery/Appointment never.
+ */
+export function customerOrderShowsLiveLocation(
+  order: OrderTrackingSlice & { service_mode?: string | null },
+): boolean {
+  if (String(order.status ?? "").toLowerCase() !== "accepted") return false;
+  const mode = String(order.service_mode ?? "").trim().toLowerCase();
+  if (mode === "help") return true;
+  if (mode === "delivery" || mode === "appointment") {
+    return shouldRestoreOrderTracking(order);
+  }
+  // Mode unknown: only slot/time signals (same as Capgo order-scoped restore).
+  return shouldRestoreOrderTracking(order);
+}
+
 export const IVE_STARTED_STORAGE_PREFIX = "aaspaas:ive_started:";
 
 export function iveStartedStorageKey(orderId: string): string {

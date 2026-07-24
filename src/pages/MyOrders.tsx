@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { isHelpAcceptDelayed, formatHelpDelayedWarning } from "@/lib/orderHelpDelay";
+import { customerOrderShowsLiveLocation } from "@/lib/vendorTrackingPolicy";
 import {
   Sheet,
   SheetContent,
@@ -404,10 +405,19 @@ const MyOrders = () => {
   const mounted = useRef(true);
   const vendorLocationHistoryRef = useRef<Map<string, VendorLocationPoint[]>>(new Map());
 
+  /** Help + instant Delivery/Appointment (accepted); scheduled never. */
   const acceptedHelpOrders = useMemo(
     () =>
-      rows.filter(
-        (r) => r.status === "accepted" && r.vendors?.service_mode === "help",
+      rows.filter((r) =>
+        customerOrderShowsLiveLocation({
+          id: r.id,
+          status: r.status,
+          created_at: r.created_at,
+          delivery_slot: r.delivery_slot,
+          appointment_time: r.appointment_time,
+          appointment_status: r.appointment_status,
+          service_mode: r.service_mode ?? r.vendors?.service_mode,
+        }),
       ),
     [rows],
   );
@@ -1724,8 +1734,15 @@ const MyOrders = () => {
                     </div>
                   );
                 })()}
-              {r.status === "accepted" &&
-                r.vendors?.service_mode === "help" &&
+              {customerOrderShowsLiveLocation({
+                id: r.id,
+                status: r.status,
+                created_at: r.created_at,
+                delivery_slot: r.delivery_slot,
+                appointment_time: r.appointment_time,
+                appointment_status: r.appointment_status,
+                service_mode: r.service_mode ?? r.vendors?.service_mode,
+              }) &&
                 (() => {
                   const live = vendorLiveById[r.vendor_id];
                   const distM =
@@ -1736,6 +1753,10 @@ const MyOrders = () => {
                         )
                       : null;
                   void locationTick;
+                  const isHelpOrder =
+                    String(r.service_mode ?? r.vendors?.service_mode ?? "")
+                      .trim()
+                      .toLowerCase() === "help";
                   return (
                     <>
                       {live && distM != null && (
@@ -1769,7 +1790,8 @@ const MyOrders = () => {
                           )}
                         </div>
                       )}
-                      {isHelpAcceptDelayedRow(r, config.helpAcceptTimeoutHours) && (
+                      {isHelpOrder &&
+                        isHelpAcceptDelayedRow(r, config.helpAcceptTimeoutHours) && (
                         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
                           <p className="text-[11px] text-amber-400 text-center leading-snug">
                             {formatHelpDelayedWarning(

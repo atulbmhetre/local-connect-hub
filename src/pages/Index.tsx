@@ -33,6 +33,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { FirstOpenFlow } from "@/components/FirstOpenFlow";
 import { cn } from "@/lib/utils";
 import { captureError } from "@/lib/sentry";
+import { customerOrderShowsLiveLocation } from "@/lib/vendorTrackingPolicy";
 
 type SavedNeighbourTile = {
   savedId: string;
@@ -269,12 +270,23 @@ const Index = () => {
       id: string;
       status: string;
       updated_at: string;
+      created_at?: string | null;
+      delivery_slot?: string | null;
+      appointment_time?: string | null;
       vendor_shop_name: string | null;
       vendor_service_mode: string | null;
       vendor_last_updated: string | null;
     };
-    const match = ((data ?? []) as HelpRow[]).find(
-      (row) => String(row.vendor_service_mode ?? "").trim().toLowerCase() === "help",
+    // Live-location scope: Help continuous; instant Delivery/Appointment only.
+    const match = ((data ?? []) as HelpRow[]).find((row) =>
+      customerOrderShowsLiveLocation({
+        id: row.id,
+        status: row.status,
+        created_at: row.created_at,
+        delivery_slot: row.delivery_slot,
+        appointment_time: row.appointment_time,
+        service_mode: row.vendor_service_mode,
+      }),
     );
     if (!match) {
       setHelpOrderBanner(null);

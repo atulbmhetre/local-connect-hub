@@ -156,6 +156,9 @@ test('CRH-01 — get_my_help_banner_orders: accepted orders in 48h window with v
     id: string;
     vendor_shop_name: string | null;
     vendor_service_mode: string | null;
+    created_at?: string | null;
+    delivery_slot?: string | null;
+    appointment_time?: string | null;
   }>;
   const ids = rows.map((r) => r.id);
   expect(ids).toContain(acceptedId);
@@ -164,12 +167,70 @@ test('CRH-01 — get_my_help_banner_orders: accepted orders in 48h window with v
   const row = rows.find((r) => r.id === acceptedId)!;
   expect(row.vendor_shop_name).toBe(`!CRH01-help-${T}`);
   expect(row.vendor_service_mode).toBe('help');
+  expect(row.created_at).toBeTruthy();
+  expect(row).toHaveProperty('delivery_slot');
+  expect(row).toHaveProperty('appointment_time');
 
   // Missing identity → identity_required.
   const { error: noIdErr } = await supabase.rpc('get_my_help_banner_orders', {
     p_user_phone: '',
   });
   expect(noIdErr?.message ?? '').toContain('identity_required');
+});
+
+test('CRH-01b — banner RPC returns instant delivery fields; scheduled excluded by client live-scope', async () => {
+  const { customerOrderShowsLiveLocation } = await import(
+    '../src/lib/vendorTrackingPolicy'
+  );
+  const deliveryVendorId = await seedVendor(`!CRH01b-del-${T}`, 'delivery');
+  const phone = nextPhone('88091');
+  const device = trackDevice(`devCRH01b_${T}`);
+
+  const asapId = await seedRequest(deliveryVendorId, phone, device, {
+    status: 'accepted',
+    service_mode: 'delivery',
+    delivery_slot: 'asap',
+  });
+  const scheduledId = await seedRequest(deliveryVendorId, phone, device, {
+    status: 'accepted',
+    service_mode: 'delivery',
+    delivery_slot: 'tomorrow',
+  });
+
+  const { data, error } = await supabase.rpc('get_my_help_banner_orders', {
+    p_user_phone: phone,
+  });
+  expect(error, error?.message).toBeNull();
+  const rows = (data ?? []) as Array<{
+    id: string;
+    status: string;
+    created_at: string | null;
+    delivery_slot: string | null;
+    appointment_time: string | null;
+    vendor_service_mode: string | null;
+    vendor_last_updated: string | null;
+  }>;
+  // RPC still returns all accepted-in-window rows (filter is client-side).
+  expect(rows.map((r) => r.id)).toEqual(expect.arrayContaining([asapId, scheduledId]));
+
+  const liveScoped = rows.filter((row) =>
+    customerOrderShowsLiveLocation({
+      id: row.id,
+      status: row.status,
+      created_at: row.created_at,
+      delivery_slot: row.delivery_slot,
+      appointment_time: row.appointment_time,
+      service_mode: row.vendor_service_mode,
+    }),
+  );
+  expect(liveScoped.map((r) => r.id)).toContain(asapId);
+  expect(liveScoped.map((r) => r.id)).not.toContain(scheduledId);
+
+  // Legacy Help-only filter would miss the asap delivery row.
+  const helpOnly = rows.filter(
+    (r) => String(r.vendor_service_mode ?? '').trim().toLowerCase() === 'help',
+  );
+  expect(helpOnly.map((r) => r.id)).not.toContain(asapId);
 });
 
 test('CRH-02 — get_my_active_order_count matches the user-role active window', async () => {
