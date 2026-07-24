@@ -1,5 +1,33 @@
 # Prelaunch Audit
 
+## FULL INVENTORY CLOSED — 66 of 66 (2026-07-24)
+
+| Field | Detail |
+|-------|--------|
+| Status | **Complete.** All **66** `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` are closed as CLOSED (TEST + PROD) under Phase 2 audit sections (or cross-cutting closures tracked separately above the Phase 2 divider). |
+| Discipline | Every closure in this sprint was verified **TEST first, then PROD**, with real evidence (RPC/probe output, vitest forced-failure `captureError` scopes, Playwright where applicable, and production Vite bundle string/scope checks — including localized Devanagari/Marathi copy confirmed present in compiled `dist/`, not source alone). |
+| Not in the tally | Phase A (admin session auth remaining dimensions), the app-wide OTP-off sweep, the service-role key-rotation incident, and Vendor Trust Tier remain cross-cutting / separately tracked. |
+
+### Standing open items outside the inventory (do not block inventory closure)
+
+These remain real launch/ops follow-ups; they are **not** open functionality-inventory rows:
+
+| Item | Notes |
+|------|-------|
+| Razorpay KYC / live payments | Payments stay behind `payments_enabled`; checkout gated “coming soon” until KYC clears (same class as Exotel / UPI PSP). |
+| Exotel KYC / masked secure calling | `exotel_secure_calling_enabled` remains `false`; honest “coming soon” on AiBridge + Live Tracking until KYC clears. |
+| Real UPI PSP / bank penny-drop | Badge still reflects attestation + admin checks, not bank-verified ownership. |
+| Real-device GPS tracking | Locked-phone / background reliability via Capgo background geolocation was never end-to-end tested on a physical device this sprint. |
+| Fresh APK / device build | Accumulated app-bundle-only fixes from this sprint (identity, trust UI, RAD-09, reply/admin/badge observability, neighbours, etc.) need `npm run build` → `npx cap sync android` → Android Studio. **No Capgo/OTA** updater is wired. Tester APKs may still carry the pre-rotation anon key (see Critical Incident residual). |
+| Password-recovery Site URL | Supabase Auth recovery URL still points at localhost — fix before launch (Phase A open follow-up). |
+| `src/lib/supabase.ts` PROD fallback URL/key | Remove hardcoded PROD fallback before launch (Phase A open follow-up). |
+| Playwright admin session auth | Admin E2E still needs full session-based auth updates (Phase A open follow-up). |
+| Deferred FCM cron migration | `20260711180001` remains in `migrations-deferred/`; recurring PROD `db push` friction until Part L is verified and the migration returns to active. |
+| Shared OrderCard | Architectural debt — customer/vendor cards diverge; both work; unify only if a future pass needs one surface. |
+| Phone-only vendor identity | Systemic OTP-off architecture remains blocked on Exotel KYC — not inventory-specific. |
+
+---
+
 ## CRITICAL INCIDENT — Service Role Key Exposure (RESOLVED)
 
 | Field | Status |
@@ -29,10 +57,10 @@ Ran the complete ~700+ Playwright/Vitest suite for the first time this session. 
 | Item | Status |
 |------|--------|
 | Phase A — Admin Session Auth | SECURITY/INTEGRITY FIXED (TEST + PROD) — Performance/Reliability/Device/Localization/Observability/UI-Layout NOT YET REVIEWED |
-| Phase 2 progress | **61 of 66 functionality-inventory entries fully closed** (named list and section-to-entries mapping directly below this table). The denominator is the number of `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` — **66** in both the current file and the originally committed version (`41e6519`); the earlier `~52` was an undocumented approximation from early in the audit, now corrected (no inventory items were discovered, added, or removed — only the denominator was made accurate). The numerator is derived by mapping each fully-CLOSED Phase 2 `##` audit section to the distinct `###` inventory entries it wholly closes. Phase A, the app-wide OTP-off sweep, the service-role key-rotation incident, and the Vendor Trust Tier closure (which sits above the Phase 2 divider) are tracked separately as cross-cutting closures and are **not** part of this tally. |
-| Next planned Phase 2 target | Resume at the remaining **5**: Home help-order banner; Neighbour (saved vendor) sheet; Vendor reply to reviews; Admin delete low reviews; Verification badge. |
+| Phase 2 progress | **66 of 66 functionality-inventory entries fully closed** (named list and section-to-entries mapping directly below this table). The denominator is the number of `###` entries in `docs/FUNCTIONALITY_INVENTORY.md` — **66** in both the current file and the originally committed version (`41e6519`); the earlier `~52` was an undocumented approximation from early in the audit, now corrected (no inventory items were discovered, added, or removed — only the denominator was made accurate). The numerator is derived by mapping each fully-CLOSED Phase 2 `##` audit section to the distinct `###` inventory entries it wholly closes. Phase A, the app-wide OTP-off sweep, the service-role key-rotation incident, and the Vendor Trust Tier closure (which sits above the Phase 2 divider) are tracked separately as cross-cutting closures and are **not** part of this tally. |
+| Next planned Phase 2 target | **None — full inventory closed (2026-07-24).** Remaining work is outside the inventory (KYC blockers, fresh APK, password-recovery Site URL, etc. — see **FULL INVENTORY CLOSED** summary at top). |
 
-### Phase 2 fully-closed inventory entries (61 of 66)
+### Phase 2 fully-closed inventory entries (66 of 66)
 
 Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial", not "NOT YET REVIEWED") to the distinct `docs/FUNCTIONALITY_INVENTORY.md` `###` entries it wholly closes. Only whole, user-facing inventory entries are counted; dead-code / duplication meta-entries and entries whose core still lives under a partial section are excluded.
 
@@ -58,14 +86,20 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | First-open / Phone Entry / Session Identity | First-open / phone restore; Phone entry sheet (mid-flow); Session identity (client) |
 | Khata Settings & Trust Warning Banner | Khata settings (vendor); Trust warning banner |
 | Radar Vendor Card & Legacy Vendor Card | Radar vendor card (shared); Legacy vendor card (unused) |
+| Home Help-Order Banner & Neighbour Sheet | Home help-order banner; Neighbour (saved vendor) sheet |
+| Vendor Reply, Admin Delete Low Reviews & Verification Badge | Vendor reply to reviews; Admin delete low reviews; Verification badge |
 
-**Total: 1 + 6 + 4 + 3 + 2 + 3 + 9 + 1 + 3 + 3 + 1 + 1 + 1 + 3 + 5 + 6 + 2 + 3 + 2 + 2 = 61 distinct inventory entries.** Vendor Configuration (CLOSED) still contributes 0 additional whole entries — its availability-modes work overlaps the already-counted Geo vendor search entry. **Notifications** (backend entry, distinct from Notifications Client Surfaces) likewise contributes **0** additional inventory entries — the three notification `###` rows were already wholly closed under Notifications Client Surfaces.
+**Total: 1 + 6 + 4 + 3 + 2 + 3 + 9 + 1 + 3 + 3 + 1 + 1 + 1 + 3 + 5 + 6 + 2 + 3 + 2 + 2 + 2 + 3 = 66 distinct inventory entries.** Vendor Configuration (CLOSED) still contributes 0 additional whole entries — its availability-modes work overlaps the already-counted Geo vendor search entry. **Notifications** (backend entry, distinct from Notifications Client Surfaces) likewise contributes **0** additional inventory entries — the three notification `###` rows were already wholly closed under Notifications Client Surfaces.
 
 **Tracker note — Help/Delivery/Appointment placement + Dev menu / Admin gate (not a net-new inventory discovery):** This pass closes **8** inventory rows that were still open after the prior remaining-dimensions upgrade (**46 → 54** = +6 placement/order-card + +2 dev-menu/admin-gate). Migrations: `20260723120001`, `20260723120002`, `20260723120003`, `20260723140001`. Side-effect (not an inventory row): restored PROD `app_config.anon_key` (publishable) and re-verified `feed_post_after_insert` after the July 18 key-rotation deletion had left feed notify silently no-op.
 
 **Tracker note — First-open / Phone entry / Session identity (54 → 57):** Closes **3** Auth & Session inventory rows. Migrations: `20260723150001` (rate limits on `migrate_device_requests_phone` + `ensure_user_device_link`), `20260723160001` (`user_devices.is_current` + current-only readers). Edge: `notify-user` / `notify-admin` filter `is_current`. App commit `6152c66` (ban-on-restore, i18n, `captureError`, client identity helpers) — **server live on PROD; app-bundle not yet in a device build** (see standing item below).
 
 **Tracker note — Khata settings + Trust warning banner + Radar / Legacy vendor cards (57 → 61):** Closes **4** inventory rows in one session (two paired closures). Migration: `20260724090001` (server `khata_limits_invalid` CHECK via `vendor_update_own`). App: binary `TrustWarningBanner` / `vendorBinaryTrustTier`, MyOrders→AiBridge real trust fields, Neighbour→Parchi banner + Parchi trust-fetch retry/fail-open, `RadarVendorCard` `captureError` + accent-ring helper + Online/• You i18n; Legacy `VendorCard.tsx` confirmed deleted at `1ec1170` (inventory stale line removed). Verified TEST then PROD; production Vite build includes the Radar card scopes/strings.
+
+**Tracker note — Home help-order banner + Neighbour sheet (61 → 63):** Closes **2** inventory rows. Migration: `20260724110001` (partial unique `(user_phone, vendor_id)`, advisory-locked max-20 in `save_saved_vendor`, `update_saved_vendor_nickname`). App: Index active-order RPC uses `getUserPhone()` + `getDeviceId()` (OTP-off parity with Radar); Home unsave → `markNeighboursDirty` + `captureError`; nickname set/edit/clear + `savedNeighbourDisplayName`; NeighbourSheet category via `useCategoryLabel`; NEG-NEIGH-01/02/03. Verified TEST then PROD (PROD probe 6/6).
+
+**Tracker note — Vendor reply + Admin delete low reviews + Verification badge (63 → 66):** Closes **3** inventory rows — **full functionality inventory closed.** App: RAD-09 progressive disclosure on AiBridgeSheet + LiveTracking (TrustBadge sole verification-status signal; legacy G/Y/R duplicate copy removed); `captureError` on vendor reply-submit, admin low-review load/delete, TrustBadge tier-fetch; admin delete-confirm dialog EN/HI/MR; `BACKEND_INVENTORY.md` corrected to `is_admin_session()` for `admin_delete_review`. Verified TEST then PROD (forced-failure scopes + Devanagari/Marathi strings confirmed in compiled PROD bundle).
 
 ## Lessons for future audit passes
 
@@ -114,7 +148,7 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 
 ## Phase 2
 
-> **Scope correction (as of this update):** 57 functionality-inventory entries are closed, including Vendor Configuration (CLOSED — no open items), the prior remaining-dimensions upgrades through Settings, Help/Delivery/Appointment placement & order-card (6), Dev menu / Admin access gate (2), and First-open / Phone entry / Session identity (3). Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
+> **Scope correction (as of 2026-07-24):** **66 of 66** functionality-inventory entries are closed. Earlier entries were reviewed primarily against Functionality, Security, DB Integrity, and Test Coverage; do not infer that all 10 dimensions were completed unless a section explicitly says so. Phase A, the app-wide OTP-off sweep, and the key-rotation incident are separate cross-cutting closures.
 
 ## Bill/UPI/Khata Payment Flow — CLOSED (TEST + PROD)
 
@@ -568,6 +602,45 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | `captureError` on card RPCs | Wired on save / unsave / resolution failures (`radarVendorCard.saveSavedVendor`, `radarVendorCard.unsaveSavedVendor`, `radarVendorCard.resolution`), including `NetworkExhaustedError` paths. |
 | Accent ring duplicate gate | Inline four-signal check replaced with `vendorBinaryTrustTier` (same helper as the banner). Green accent only when all four signals pass — no visual/behavior change expected; verified via unit + Radar/trust-badge Playwright on TEST and production-build bundle checks on PROD. |
 | Hardcoded English | “Online” (`aria-label`) and “• You” (own-vendor chip) moved to `strings.ts` EN/HI/MR (`radar_vendor_online_aria`, `radar_own_vendor_label`). |
+
+## Home Help-Order Banner & Neighbour Sheet — CLOSED (TEST + PROD)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD, all 10 dimensions) |
+| Scope | Home active help-order banner (`Index.tsx`); Neighbour (saved vendor) sheet (`NeighbourSheet.tsx`) + saved-vendor RPCs |
+| Review | Closes **Home help-order banner** and **Neighbour (saved vendor) sheet**. Distinct from **Home & Discovery Entry** (Index shell already closed) and **Radar vendor card** (save CTA already closed). |
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| Active-order identity | Home banner `get_my_active_request_vendor_ids` now passes `getUserPhone()` + `getDeviceId()` (OTP-off parity with Radar; prior leftover `p_user_phone: null` from OTP-off migration). |
+| Saved-vendor uniqueness + cap | Migration `20260724110001` — partial unique `(user_phone, vendor_id)`, advisory-locked max-20 in `save_saved_vendor`, `update_saved_vendor_nickname`. |
+| Nickname | Set on Radar save sheet; edit/clear on NeighbourSheet; display via `savedNeighbourDisplayName` (`src/lib/savedVendors.ts`). |
+| Dirty refresh | Home unsave → `markNeighboursDirty()` + `captureError` (`neighbourSheet.unsaveSavedVendor`). |
+| Localization | NeighbourSheet category label via `useCategoryLabel`. |
+| Tests / PROD | NEG-NEIGH-01/02 un-skipped (RPC-based); NEG-NEIGH-03 nickname; PROD probe 6/6 PASS. |
+
+## Vendor Reply, Admin Delete Low Reviews & Verification Badge — CLOSED (TEST + PROD)
+
+| Field | Detail |
+|-------|--------|
+| Status | CLOSED (TEST + PROD, all 10 dimensions) |
+| Scope | Vendor Settings review reply; Admin Settings low-ratings delete; customer TrustBadge / progressive-disclosure on AiBridge + LiveTracking |
+| Review | Closes **Vendor reply to reviews**, **Admin delete low reviews**, and **Verification badge**. Distinct from **Ratings & Reviews** (post-order RatingSheet already closed) and **Vendor Trust Tier** / **Trust warning banner** (binary incomplete-verification strip already closed). |
+
+### Fixed
+
+| Item | Notes |
+|------|-------|
+| RAD-09 progressive disclosure | AiBridgeSheet + LiveTracking no longer show TrustBadge beside legacy `vendorTier` / `getVerificationCopy` G/Y/R labels. Unverified → TrustBadge only; verified → TrustBadge with tier. Tracking privacy `TrustWarningBanner` and binary incomplete-verification banner left intact (separate systems). |
+| Reply observability | `sendVendorReviewReply` → `captureError` scope `vendorSettings.replyToReview` on RPC failure (was toast-only). |
+| Admin low-ratings observability | `loadAdminLowRatings` / `deleteAdminLowRating` → scopes `settings.loadLowRatings` / `settings.deleteLowRating`. |
+| Admin delete confirm i18n | Title / body / Cancel / Delete moved to `admin_lowRatings_*` + `settings_cancel` EN/HI/MR; shop fallback uses `radar_vendor_fallback`. |
+| TrustBadge tier fetch | `captureError` scope `trustBadge.vendorVerification` (was `console.error` only). |
+| Docs | `BACKEND_INVENTORY.md` — `admin_delete_review` auth gate corrected from phone-based `is_admin_phone` to live `is_admin_session()`. |
+| PROD evidence | Forced-failure vitest (all four scopes); EN/HI/MR confirm dialog; compiled PROD bundle contains scopes + Devanagari/Marathi confirm strings (`यह समीक्षा हटाएं?`, `ही समीक्षा हटवायची?`). |
 
 ## Vendor Configuration (Menu Items, Availability Modes, Cancel Reasons) — CLOSED — no open items
 

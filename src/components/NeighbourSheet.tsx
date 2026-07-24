@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Phone } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -12,10 +13,13 @@ import {
   supabase,
   type Category,
   type Vendor,
+  useCategoryLabel,
 } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
+import { captureError } from "@/lib/sentry";
+import { savedNeighbourDisplayName, markNeighboursDirty } from "@/lib/savedVendors";
 import {
   NetworkExhaustedError,
   throwOnSupabaseNetworkError,
@@ -39,6 +43,8 @@ type NeighbourSheetProps = {
   isOpen: boolean;
   onClose: () => void;
   onRemove: () => void;
+  /** Called after nickname set/clear so Home tiles can refresh. */
+  onNicknameChanged?: (nickname: string) => void;
   activeDeliveryOrder: boolean;
   activeAppointmentOrder: boolean;
   categories: Category[];
@@ -49,10 +55,11 @@ type NeighbourSheetProps = {
 
 export function NeighbourSheet({
   vendor,
-  savedVendor: _savedVendor,
+  savedVendor,
   isOpen,
   onClose,
   onRemove,
+  onNicknameChanged,
   activeDeliveryOrder,
   activeAppointmentOrder,
   categories,
@@ -61,6 +68,26 @@ export function NeighbourSheet({
   onNavigateOrders,
 }: NeighbourSheetProps) {
   const { s } = useLanguage();
+  const getLabel = useCategoryLabel();
+  const [nicknameDraft, setNicknameDraft] = useState("");
+  const [editingNickname, setEditingNickname] = useState(false);
+  const [nicknameBusy, setNicknameBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setEditingNickname(false);
+      return;
+    }
+    setNicknameDraft((savedVendor?.nickname ?? "").trim());
+  }, [isOpen, savedVendor?.nickname, vendor?.id]);
+
+  const displayName = savedNeighbourDisplayName(
+    savedVendor?.nickname,
+    vendor?.shop_name,
+  );
+  const categoryLabel = getLabel(vendor?.category ?? savedVendor?.category ?? "") ||
+    vendor?.category ||
+    "";
 
   const handleRemove = async () => {
     if (!vendor) return;
@@ -85,6 +112,10 @@ export function NeighbourSheet({
       );
       dismissNetworkRetryingToast();
       if (error) {
+        captureError(error, {
+          scope: "neighbourSheet.unsaveSavedVendor",
+          vendorId: vendor.id,
+        });
         toast.error(s.couldNotRemove, { description: error.message });
         return;
       }
@@ -93,12 +124,17 @@ export function NeighbourSheet({
       } catch {
         /* ignore */
       }
+      markNeighboursDirty();
       onClose();
       onRemove();
       toast.success(s.removedFromNeighbourhood);
     } catch (err) {
       dismissNetworkRetryingToast();
       if (err instanceof NetworkExhaustedError) {
+        captureError(err, {
+          scope: "neighbourSheet.unsaveSavedVendor",
+          vendorId: vendor.id,
+        });
         showNetworkFailedToast(() => void handleRemove(), {
           failed: s.network_failed,
           retryBtn: s.network_retry_btn,
@@ -106,6 +142,65 @@ export function NeighbourSheet({
       } else {
         throw err;
       }
+    }
+  };
+
+  const persistNickname = async (next: string) => {
+    if (!vendor || nicknameBusy) return;
+    setNicknameBusy(true);
+    const device_id = getDeviceId();
+    const userPhone = getUserPhone();
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("update_saved_vendor_nickname", {
+              p_vendor_id: vendor.id,
+              p_nickname: next,
+              p_device_id: device_id,
+              p_user_phone: userPhone ?? null,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        captureError(error, {
+          scope: "neighbourSheet.updateNickname",
+          vendorId: vendor.id,
+        });
+        toast.error(s.neighbours_nickname_could_not_update, {
+          description: error.message,
+        });
+        return;
+      }
+      markNeighboursDirty();
+      setEditingNickname(false);
+      onNicknameChanged?.(next.trim());
+      toast.success(
+        next.trim() ? s.neighbours_nickname_updated : s.neighbours_nickname_cleared,
+      );
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        captureError(err, {
+          scope: "neighbourSheet.updateNickname",
+          vendorId: vendor.id,
+        });
+        showNetworkFailedToast(() => void persistNickname(next), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setNicknameBusy(false);
     }
   };
 
@@ -142,8 +237,17 @@ export function NeighbourSheet({
                   </div>
                 </div>
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <SheetTitle className="text-left font-display text-lg">{vendor.shop_name}</SheetTitle>
-                  <p className="text-sm text-muted-foreground">{vendor.category}</p>
+                  <SheetTitle className="text-left font-display text-lg">
+                    {displayName}
+                  </SheetTitle>
+                  {(savedVendor?.nickname ?? "").trim() &&
+                    (savedVendor?.nickname ?? "").trim() !==
+                      (vendor.shop_name ?? "").trim() && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {vendor.shop_name}
+                      </p>
+                    )}
+                  <p className="text-sm text-muted-foreground">{categoryLabel}</p>
                   <p className="text-xs text-muted-foreground">
                     {vendor.is_active ? (
                       <span className="text-brand font-medium">{s.online}</span>
@@ -157,6 +261,65 @@ export function NeighbourSheet({
                 {s.home_saved_vendor_sheet_description}
               </SheetDescription>
             </SheetHeader>
+
+            <div className="mt-4 space-y-2">
+              {editingNickname ? (
+                <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {s.neighbours_nickname_label}
+                  </label>
+                  <input
+                    data-testid="neighbour-nickname-input"
+                    type="text"
+                    value={nicknameDraft}
+                    onChange={(e) => setNicknameDraft(e.target.value)}
+                    placeholder={s.neighbours_nickname_placeholder}
+                    maxLength={40}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      data-testid="neighbour-nickname-save-btn"
+                      disabled={nicknameBusy}
+                      className="rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-[#0b1f14] disabled:opacity-60"
+                      onClick={() => void persistNickname(nicknameDraft)}
+                    >
+                      {s.neighbours_nickname_apply}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="neighbour-nickname-clear-btn"
+                      disabled={nicknameBusy}
+                      className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground disabled:opacity-60"
+                      onClick={() => void persistNickname("")}
+                    >
+                      {s.neighbours_nickname_clear}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={nicknameBusy}
+                      className="rounded-lg px-3 py-2 text-sm text-muted-foreground"
+                      onClick={() => {
+                        setEditingNickname(false);
+                        setNicknameDraft((savedVendor?.nickname ?? "").trim());
+                      }}
+                    >
+                      {s.cancel}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="neighbour-nickname-edit-btn"
+                  className="w-full text-left text-sm text-muted-foreground underline underline-offset-2 py-1"
+                  onClick={() => setEditingNickname(true)}
+                >
+                  {s.neighbours_nickname_edit}
+                </button>
+              )}
+            </div>
 
             <div className="mt-6 flex flex-col gap-2">
               {String(vendor.service_mode ?? "")

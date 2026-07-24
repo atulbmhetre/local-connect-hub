@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ShieldCheck, AlertTriangle, CheckCircle2, XCircle, CircleDashed } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
 import {
@@ -118,6 +119,7 @@ export function TrustBadge({
       if (cancelled) return;
       if (error) {
         // Degrade: badge stays "Verified"/"Unverified", sheet shows pending.
+        captureError(error, { scope: "trustBadge.vendorVerification", vendorId });
         console.error("trustBadge/vendor_verification", error);
         setRows([]);
         return;

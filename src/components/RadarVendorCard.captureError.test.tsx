@@ -167,6 +167,7 @@ describe("RadarVendorCard captureError wiring", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Save as My Plumber/i }),
     );
+    fireEvent.click(screen.getByTestId("radar-save-nickname-confirm"));
 
     await waitFor(() => {
       expect(captureErrorMock).toHaveBeenCalledWith(

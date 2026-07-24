@@ -154,16 +154,16 @@
 
 ### `admin_delete_review(p_admin_phone text, p_review_id uuid)`
 
-- **Latest migration:** `20260626000001_admin_delete_review_recalc_rating.sql`
+- **Latest migration:** `20260708000002_admin_session_auth.sql` (auth gate; rating recalc from `20260626000001`)
 - **Language:** plpgsql; **SECURITY DEFINER:** yes; **search_path:** public
-- **What it does:** IF NOT public.is_admin_phone(p_admin_phone) THEN RAISE EXCEPTION 'unauthorized'; SELECT vendor_id INTO v_vendor_id IF v_vendor_id IS NULL THEN RAISE EXCEPTION 'review not found'; PERFORM set_config('app.via_admin_rpc', 'true', true); DELETE FROM public.vendor_reviews WHERE id = p_review_id; SELECT COUNT(*)::integer, ROUND(AVG(rating)::numeric, 1)
+- **What it does:** IF NOT public.is_admin_session() THEN RAISE EXCEPTION 'unauthorized'; SELECT vendor_id INTO v_vendor_id; IF v_vendor_id IS NULL THEN RAISE EXCEPTION 'review not found'; PERFORM set_config('app.via_admin_rpc', 'true', true); DELETE FROM public.vendor_reviews WHERE id = p_review_id; recalculate vendors.avg_rating / review_count
 - **Tables read:** vendor_reviews
 - **Tables written:** vendor_reviews, vendors
-- **Identity verification:** Admin phone guard. WHERE samples: `WHERE id = p_review_id` | `WHERE id = p_review_id`
-- **Grants:** **FLAG: no REVOKE ALL FROM PUBLIC**; **FLAG: no GRANT to anon/authenticated**
+- **Identity verification:** Admin JWT session via `is_admin_session()` (not phone). `p_admin_phone` is retained for call-site compatibility / audit labeling only. WHERE samples: `WHERE id = p_review_id`
+- **Grants:** REVOKE ALL FROM PUBLIC / anon; GRANT EXECUTE TO authenticated (`20260708000002`)
 - **Transactional integrity:** Multi-write (vendor_reviews, vendors) in one function body → atomic unless exception mid-function. **FLAG:** SELECT-then-write pattern; no `FOR UPDATE` detected in preview — possible race on concurrent calls.
 - **Called from src/:** src/pages/Settings.tsx
-- **Suspicious:** Missing REVOKE ALL FROM PUBLIC
+- **Suspicious:** —
 
 ### `admin_get_user_lang(p_admin_phone text, p_user_phone text)`
 

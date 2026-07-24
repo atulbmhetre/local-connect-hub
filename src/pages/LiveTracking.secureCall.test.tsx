@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { strings } from "@/lib/strings";
 import type { Vendor } from "@/lib/supabase";
@@ -146,6 +146,7 @@ describe("LiveTracking secure call honesty", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
   });
 

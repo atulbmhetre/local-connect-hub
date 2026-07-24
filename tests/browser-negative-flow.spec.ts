@@ -61,68 +61,156 @@ test('NEG-BAN-03: banned vendor sees suspension screen in vendor mode', async ({
 });
 
 // ─── MAX NEIGHBOURS ────────────────────────────────────────────────────────
+// Replaced Phase D skipped stubs: OTP-off callers cannot direct-insert into
+// saved_vendors (RLS). Cap + phone-vendor uniqueness are enforced in
+// save_saved_vendor / unique index — assert via anon RPC.
 
-test('NEG-NEIGH-01: max 20 saved vendors enforced — DB count check', async () => {
-  test.skip(true, PHASE_D_TEST_DEBT);
-  const vendors = [];
-  for (let i = 0; i < 20; i++) {
-    const { data } = await supabaseAdmin.from('vendors').insert({
-      name: `Neighbour Vendor ${i} ${TEST_SESSION}`,
-      shop_name: `Neighbour Shop ${i} ${TEST_SESSION}`,
-      phone: `96${String(i).padStart(3, '0')}${Date.now().toString().slice(-5)}`,
-      category: 'Grocery',
-      service_mode: 'delivery',
-      latitude: 18.5204,
-      longitude: 73.8567,
-      is_active: true,
-      vendor_note: `test_session:${TEST_SESSION}`,
-    }).select().single();
-    vendors.push(data);
+test('NEG-NEIGH-01: max 20 saved vendors enforced by save_saved_vendor', async () => {
+  const vendors: { id: string }[] = [];
+  const base = Date.now() % 100000000;
+  for (let i = 0; i < 21; i++) {
+    const phone = `9${String(base + i).padStart(9, '0')}`;
+    const { data, error } = await supabaseAdmin
+      .from('vendors')
+      .insert({
+        name: `Neighbour Vendor ${i} ${TEST_SESSION}`,
+        shop_name: `Neighbour Shop ${i} ${TEST_SESSION}`,
+        phone,
+        category: 'Grocery',
+        service_mode: 'delivery',
+        latitude: 18.5204,
+        longitude: 73.8567,
+        is_active: true,
+        profile_status: 'complete',
+        vendor_note: `test_session:${TEST_SESSION}`,
+      })
+      .select('id')
+      .single();
+    if (error) throw error;
+    vendors.push(data!);
   }
 
+  const phone = `88091${String(TEST_SESSION).slice(-5)}`;
+  const device = `${TEST_DEVICE_ID}_cap`;
+  const errors: (string | null)[] = [];
   for (const v of vendors) {
-    await supabaseAdmin.from('saved_vendors').insert({
-      device_id: TEST_DEVICE_ID,
-      vendor_id: v!.id,
-      category: 'Grocery',
-      nickname: v!.shop_name,
-      user_phone: TEST_CUSTOMER_PHONE,
+    const { error } = await supabase.rpc('save_saved_vendor', {
+      p_vendor_id: v.id,
+      p_category: 'Grocery',
+      p_nickname: '',
+      p_device_id: device,
+      p_user_phone: phone,
     });
+    errors.push(error?.message ?? null);
   }
+
+  expect(errors.slice(0, 20).every((e) => e === null)).toBe(true);
+  expect(errors[20]).toContain('saved_vendors_limit_exceeded');
 
   const { count } = await supabaseAdmin
     .from('saved_vendors')
     .select('id', { count: 'exact', head: true })
-    .or(`user_phone.eq.${TEST_CUSTOMER_PHONE},device_id.eq.${TEST_DEVICE_ID}`);
+    .eq('user_phone', phone);
   expect(count).toBe(20);
 
-  for (const v of vendors) {
-    await supabaseAdmin.from('saved_vendors').delete()
-      .eq('device_id', TEST_DEVICE_ID).eq('vendor_id', v!.id);
-    await supabaseAdmin.from('vendors').delete().eq('id', v!.id);
-  }
+  await supabaseAdmin.from('saved_vendors').delete().eq('user_phone', phone);
+  await supabaseAdmin.from('vendors').delete().in(
+    'id',
+    vendors.map((v) => v.id),
+  );
 });
 
-test('NEG-NEIGH-02: duplicate saved vendor blocked by unique constraint', async () => {
-  test.skip(true, PHASE_D_TEST_DEBT);
-  await supabaseAdmin.from('saved_vendors').insert({
-    device_id: TEST_DEVICE_ID,
+test('NEG-NEIGH-02: same phone cannot save same vendor twice as two rows', async () => {
+  const phone = `88092${String(TEST_SESSION).slice(-5)}`;
+  const deviceA = `${TEST_DEVICE_ID}_a`;
+  const deviceB = `${TEST_DEVICE_ID}_b`;
+
+  const { error: firstErr } = await supabase.rpc('save_saved_vendor', {
+    p_vendor_id: testVendor.id,
+    p_category: 'Grocery',
+    p_nickname: 'One',
+    p_device_id: deviceA,
+    p_user_phone: phone,
+  });
+  expect(firstErr).toBeNull();
+
+  // Second device, same phone + vendor → upserts (does not create a second row).
+  const { error: secondErr } = await supabase.rpc('save_saved_vendor', {
+    p_vendor_id: testVendor.id,
+    p_category: 'Grocery',
+    p_nickname: 'Two',
+    p_device_id: deviceB,
+    p_user_phone: phone,
+  });
+  expect(secondErr).toBeNull();
+
+  const { data: rows } = await supabaseAdmin
+    .from('saved_vendors')
+    .select('id, nickname, device_id')
+    .eq('user_phone', phone)
+    .eq('vendor_id', testVendor.id);
+  expect(rows?.length).toBe(1);
+  expect(rows![0].nickname).toBe('Two');
+
+  // Direct anon insert still blocked by RLS (and would hit unique if it got through).
+  const { error: directErr } = await supabase.from('saved_vendors').insert({
+    device_id: deviceA,
     vendor_id: testVendor.id,
     category: 'Grocery',
-    nickname: testVendor.shop_name,
-    user_phone: TEST_CUSTOMER_PHONE,
+    nickname: 'Hack',
+    user_phone: phone,
   });
-  const { error } = await supabase.from('saved_vendors').insert({
-    device_id: TEST_DEVICE_ID,
-    vendor_id: testVendor.id,
-    category: 'Grocery',
-    nickname: testVendor.shop_name,
-    user_phone: TEST_CUSTOMER_PHONE,
+  expect(directErr).not.toBeNull();
+
+  await supabaseAdmin.from('saved_vendors').delete().eq('user_phone', phone);
+});
+
+test('NEG-NEIGH-03: update_saved_vendor_nickname set and clear', async () => {
+  const phone = `88093${String(TEST_SESSION).slice(-5)}`;
+  const device = `${TEST_DEVICE_ID}_nick`;
+
+  const { error: saveErr } = await supabase.rpc('save_saved_vendor', {
+    p_vendor_id: testVendor.id,
+    p_category: 'Grocery',
+    p_nickname: '',
+    p_device_id: device,
+    p_user_phone: phone,
   });
-  expect(error).not.toBeNull();
-  expect(error!.code).toBe('23505');
-  await supabaseAdmin.from('saved_vendors').delete()
-    .eq('device_id', TEST_DEVICE_ID).eq('vendor_id', testVendor.id);
+  expect(saveErr).toBeNull();
+
+  const { error: setErr } = await supabase.rpc('update_saved_vendor_nickname', {
+    p_vendor_id: testVendor.id,
+    p_nickname: 'My nick',
+    p_device_id: device,
+    p_user_phone: phone,
+  });
+  expect(setErr).toBeNull();
+
+  const { data: afterSet } = await supabaseAdmin
+    .from('saved_vendors')
+    .select('nickname')
+    .eq('user_phone', phone)
+    .eq('vendor_id', testVendor.id)
+    .maybeSingle();
+  expect(afterSet?.nickname).toBe('My nick');
+
+  const { error: clearErr } = await supabase.rpc('update_saved_vendor_nickname', {
+    p_vendor_id: testVendor.id,
+    p_nickname: '',
+    p_device_id: device,
+    p_user_phone: phone,
+  });
+  expect(clearErr).toBeNull();
+
+  const { data: afterClear } = await supabaseAdmin
+    .from('saved_vendors')
+    .select('nickname')
+    .eq('user_phone', phone)
+    .eq('vendor_id', testVendor.id)
+    .maybeSingle();
+  expect(afterClear?.nickname).toBe('');
+
+  await supabaseAdmin.from('saved_vendors').delete().eq('user_phone', phone);
 });
 
 // ─── EDIT ORDER BLOCKED ────────────────────────────────────────────────────

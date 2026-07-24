@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { cleanup, render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { strings } from "@/lib/strings";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 
@@ -27,16 +27,6 @@ vi.mock("@/lib/language", () => ({
 
 vi.mock("@/hooks/useAppConfig", () => ({
   useAppConfig: () => ({ config: mockConfig, loading: false }),
-}));
-
-vi.mock("@/components/VerificationBadge", () => ({
-  VerificationBadge: () => null,
-  vendorTier: () => "yellow" as const,
-  getVerificationCopy: () => ({
-    green: { label: "Verified" },
-    yellow: { label: "Pending" },
-    red: { label: "Unverified" },
-  }),
 }));
 
 vi.mock("@/components/TrustBadge", () => ({
@@ -84,6 +74,10 @@ describe("AiBridgeSheet secure call honesty", () => {
     mockBuildVendorBrief.mockResolvedValue({ ok: true, brief: "Test brief for call." });
     mockInvokeInitiateCall.mockResolvedValue({ success: true, call_sid: "CA_OK" });
     vi.spyOn(window, "open").mockImplementation(() => null);
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("with exotel_secure_calling_enabled=false shows coming soon and never initiates a call", async () => {

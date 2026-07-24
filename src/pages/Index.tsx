@@ -34,6 +34,7 @@ import { FirstOpenFlow } from "@/components/FirstOpenFlow";
 import { cn } from "@/lib/utils";
 import { captureError } from "@/lib/sentry";
 import { customerOrderShowsLiveLocation } from "@/lib/vendorTrackingPolicy";
+import { savedNeighbourDisplayName } from "@/lib/savedVendors";
 
 type SavedNeighbourTile = {
   savedId: string;
@@ -378,10 +379,11 @@ const Index = () => {
     }
     let cancelled = false;
     const run = async () => {
-      // Device-scoped (matches the old direct read); RPC because direct
-      // requests reads are RLS-blocked for OTP-off callers.
+      // Phone when present, else device — same identity pattern as get_saved_vendors
+      // / RadarVendorCard (not device-only; that was a leftover from the OTP-off
+      // migration that mirrored the old direct device filter).
       const { data } = await supabase.rpc("get_my_active_request_vendor_ids", {
-        p_user_phone: null,
+        p_user_phone: getUserPhone(),
         p_device_id: getDeviceId(),
         p_vendor_ids: [neighbourSheetVendor.id],
       });
@@ -405,10 +407,10 @@ const Index = () => {
     }
     let cancelled = false;
     const run = async () => {
-      // Device-scoped (matches the old direct read); RPC because direct
-      // requests reads are RLS-blocked for OTP-off callers.
+      // Phone when present, else device — same identity pattern as get_saved_vendors
+      // / RadarVendorCard (not device-only leftover from OTP-off migration).
       const { data } = await supabase.rpc("get_my_active_request_vendor_ids", {
-        p_user_phone: null,
+        p_user_phone: getUserPhone(),
         p_device_id: getDeviceId(),
         p_vendor_ids: [neighbourSheetVendor.id],
       });
@@ -774,7 +776,9 @@ const Index = () => {
                 </div>
                 <div className="min-w-0 flex-1 py-0.5">
                   <p className="font-semibold text-sm truncate inline-flex items-center gap-1.5 max-w-full">
-                    <span className="truncate">{nickname}</span>
+                    <span className="truncate">
+                      {savedNeighbourDisplayName(nickname, vendor.shop_name)}
+                    </span>
                     {vendor.is_active === true && (
                       <span
                         className="h-2 w-2 rounded-full bg-brand shrink-0"
@@ -823,6 +827,12 @@ const Index = () => {
           setNeighbourSheetSaved(null);
         }}
         onRemove={() => {
+          void loadSavedNeighbours();
+        }}
+        onNicknameChanged={(nickname) => {
+          setNeighbourSheetSaved((prev) =>
+            prev ? { ...prev, nickname } : prev,
+          );
           void loadSavedNeighbours();
         }}
         activeDeliveryOrder={neighbourDeliveryActiveOrder}

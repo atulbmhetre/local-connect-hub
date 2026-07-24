@@ -619,12 +619,7 @@ const LiveTracking = () => {
             {vendor.shop_name} · {getLabel(vendor.category)}
           </p>
           <p className="text-[10px] uppercase tracking-[0.2em] text-brand mt-0.5 font-bold">
-            {s.liveTracking_readyToHelp} ·{" "}
-            {vendorTier(vendor) === "green"
-              ? s.vendor_verified_pro
-              : vendorTier(vendor) === "yellow"
-                ? s.liveTracking_pendingAdmin
-                : `${s.settings_unverified} — ${s.liveTracking_callWithCare}`}
+            {s.liveTracking_readyToHelp}
           </p>
         </div>
       </section>

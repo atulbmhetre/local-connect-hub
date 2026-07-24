@@ -18,7 +18,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { vendorTier, getVerificationCopy } from "@/components/VerificationBadge";
 import { TrustBadge } from "@/components/TrustBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
@@ -105,9 +104,7 @@ export function AiBridgeSheet({
   const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
   const vendorRow = useMemo(() => asVendor(vendor), [vendor]);
-  const badgeTier = vendorTier(vendorRow);
   const bannerTier = vendorBinaryTrustTier(vendorRow);
-  const verificationCopy = getVerificationCopy(s);
   const secureCallingLive = config.exotelSecureCallingEnabled;
   const vendorDisplayName = vendor.name?.trim() || vendor.shop_name || "vendor";
 
@@ -259,9 +256,6 @@ export function AiBridgeSheet({
                 isManualVerified={vendorRow.is_manual_verified}
                 showLabel
               />
-              <span className="text-[10px] text-gray-500">
-                {verificationCopy[badgeTier].label}
-              </span>
             </div>
           </div>
 

@@ -54,6 +54,7 @@ import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
 import { FeedReachChips } from "@/components/FeedReachChips";
 import { DEFAULT_FEED_REACH_KM, normalizeFeedReachKm, VENDOR_FEED_REACH_CHIP_OPTIONS } from "@/lib/feedReach";
 import { captureError } from "@/lib/sentry";
+import { sendVendorReviewReply } from "@/lib/vendorReviewReply";
 
 export type MenuItem = {
   id: string;
@@ -1009,27 +1010,26 @@ export function VendorSettings({
     const text = replyDraft.trim();
     if (!text || sendingReplyId) return;
     setSendingReplyId(reviewId);
-    const respondedAt = new Date().toISOString();
     if (!vendorPhone) {
       setSendingReplyId(null);
       toast.error(s.incoming_errCouldNotUpdate);
       return;
     }
-    const { error } = await supabase.rpc("vendor_reply_to_review", {
-      p_vendor_id: vendor.id,
-      p_vendor_phone: vendorPhone,
-      p_review_id: reviewId,
-      p_response: text,
+    const result = await sendVendorReviewReply({
+      vendorId: vendor.id,
+      vendorPhone,
+      reviewId,
+      response: text,
     });
     setSendingReplyId(null);
-    if (error) {
-      toast.error(error.message);
+    if (result.ok === false) {
+      toast.error(result.error.message);
       return;
     }
     setReviews((prev) =>
       prev.map((r) =>
         r.id === reviewId
-          ? { ...r, vendor_response: text, vendor_responded_at: respondedAt }
+          ? { ...r, vendor_response: text, vendor_responded_at: result.respondedAt }
           : r,
       ),
     );

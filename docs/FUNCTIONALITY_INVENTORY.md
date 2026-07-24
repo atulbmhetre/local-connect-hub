@@ -173,15 +173,14 @@
 ### Home help-order banner
 - **What it does:** If accepted help-mode order in 48h, banner on home links to My Orders; stale location warning; realtime updates.
 - **Files:** `src/pages/Index.tsx`
-- **DB:** `requests` filter + realtime
-- **Status:** Fully implemented.
+- **DB:** `requests` filter + realtime; active-order RPC uses phone + device (OTP-off)
+- **Status:** Fully implemented. Audited CLOSED (TEST + PROD).
 
 ### Neighbour (saved vendor) sheet
-- **What it does:** Bottom sheet for saved vendor: mode-specific CTAs (order, book, AI-Bridge), remove neighbour.
-- **Files:** `NeighbourSheet.tsx`, `Index.tsx`
-- **DB:** RPC `unsave_saved_vendor`
-- **Status:** Fully implemented.
-- **Suspicious:** `savedVendor` prop ignored; nickname not shown.
+- **What it does:** Bottom sheet for saved vendor: mode-specific CTAs (order, book, AI-Bridge), nickname edit/clear, remove neighbour.
+- **Files:** `NeighbourSheet.tsx`, `Index.tsx`, `src/lib/savedVendors.ts`
+- **DB:** RPCs `unsave_saved_vendor`, `save_saved_vendor`, `update_saved_vendor_nickname`
+- **Status:** Fully implemented. Audited CLOSED (TEST + PROD).
 
 ---
 
@@ -331,15 +330,15 @@
 
 ### Vendor reply to reviews
 - **What it does:** In Settings → MY SHOP → Reviews: load reviews, reply (`vendor_reply_to_review`), call customer via `AiBridgeSheet`.
-- **Files:** `VendorSettings.tsx`
+- **Files:** `VendorSettings.tsx`, `src/lib/vendorReviewReply.ts`
 - **DB:** `vendor_reviews`; RPC `vendor_reply_to_review`
-- **Status:** Fully implemented (settings path—not separate page).
+- **Status:** Fully implemented (settings path—not separate page). Audited CLOSED (TEST + PROD).
 
 ### Admin delete low reviews
-- **What it does:** Admin tab lists low ratings; delete via `admin_delete_review`.
-- **Files:** `src/pages/Settings.tsx` (admin section)
+- **What it does:** Admin tab lists low ratings; delete via `admin_delete_review` (`is_admin_session` gate).
+- **Files:** `src/pages/Settings.tsx` (admin section), `src/lib/adminLowRatings.ts`
 - **DB:** RPC `admin_delete_review`
-- **Status:** Fully implemented (admin-only).
+- **Status:** Fully implemented (admin-only). Audited CLOSED (TEST + PROD).
 
 ---
 
@@ -502,9 +501,9 @@
 - **Status:** Fully implemented (shared). Audited CLOSED (TEST + PROD).
 
 ### Verification badge
-- **What it does:** Green/yellow/red tier chip from vendor fields; exports `vendorTier`, `getVerificationCopy`.
-- **Files:** `VerificationBadge.tsx`
-- **Status:** Fully implemented (shared).
+- **What it does:** Customer-facing TrustBadge — `is_manual_verified=false` → Unverified only; `true` → Verified · tier (from `trustLevel.ts`). RAD-09: never shown beside legacy `vendorTier` / `getVerificationCopy` G/Y/R labels on Radar, VendorMode, AiBridge, or LiveTracking.
+- **Files:** `TrustBadge.tsx`, `VerificationBadge.tsx` (legacy helpers retained where still needed for tracking privacy banner prop), `trustLevel.ts`
+- **Status:** Fully implemented (shared). Audited CLOSED (TEST + PROD).
 
 ### SOS button
 - **What it does:** Pulsing home emergency button → parent handler (radar/category).

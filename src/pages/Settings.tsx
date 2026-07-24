@@ -53,6 +53,7 @@ import { getUserPhone, clearUserPhone, ensureUserDeviceLink, saveUserPhone } fro
 import { fetchVendorOwn } from "@/lib/vendorRead";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { logAdminAction } from "@/lib/adminAudit";
+import { deleteAdminLowRating, loadAdminLowRatings } from "@/lib/adminLowRatings";
 import { warnFlaggedUser as runWarnFlaggedUser } from "@/lib/warnFlaggedUser";
 import { applyVendorWaiveoff as runApplyVendorWaiveoff } from "@/lib/applyVendorWaiveoff";
 import { getDeviceId } from "@/lib/deviceId";
@@ -1616,34 +1617,8 @@ const Settings = () => {
   }, [isAdmin]);
 
   const loadLowRatings = async () => {
-    const { data, error } = await supabase
-      .from("vendor_reviews")
-      .select("id, vendor_id, rating, review_text, user_phone, created_at, vendors(shop_name)")
-      .lte("rating", 2)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    if (error) {
-      console.error("loadLowRatings", error);
-      setLowRatings([]);
-      return;
-    }
-
-    setLowRatings(
-      (data ?? []).map((row) => {
-        const vendorRaw = row.vendors as { shop_name: string | null } | { shop_name: string | null }[] | null;
-        const vendor = Array.isArray(vendorRaw) ? vendorRaw[0] : vendorRaw;
-        return {
-          id: row.id,
-          vendor_id: row.vendor_id,
-          shop_name: vendor?.shop_name?.trim() || "Vendor",
-          rating: row.rating,
-          review_text: row.review_text,
-          user_phone: row.user_phone,
-          created_at: row.created_at,
-        };
-      }),
-    );
+    const rows = await loadAdminLowRatings(s.radar_vendor_fallback);
+    setLowRatings(rows);
   };
 
   useEffect(() => {
@@ -1731,13 +1706,10 @@ const Settings = () => {
     setLowRatingDeletingId(row.id);
     setLowRatings((prev) => prev.filter((r) => r.id !== row.id));
 
-    const { error } = await supabase.rpc("admin_delete_review", {
-      p_admin_phone: adminRpcLabel(),
-      p_review_id: row.id,
-    });
-    if (error) {
-      console.error("deleteLowRating", error);
-      toast.error(error.message);
+    const result = await deleteAdminLowRating(row, adminRpcLabel());
+    if (result.ok === false) {
+      console.error("deleteLowRating", result.error);
+      toast.error(result.error.message);
       setLowRatingDeletingId(null);
       void loadLowRatings();
       return;
@@ -4180,15 +4152,18 @@ const Settings = () => {
           >
             <AlertDialogContent className="rounded-2xl border border-border bg-card">
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete this review?</AlertDialogTitle>
+                <AlertDialogTitle>{s.admin_lowRatings_deleteConfirmTitle}</AlertDialogTitle>
                 <AlertDialogDescription>
                   {reviewDeleteDialog.review
-                    ? `Rating: ${"★".repeat(reviewDeleteDialog.review.rating)} — this cannot be undone.`
+                    ? s.admin_lowRatings_deleteConfirmBody.replace(
+                        "{stars}",
+                        "★".repeat(reviewDeleteDialog.review.rating),
+                      )
                     : null}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
-                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   disabled={!reviewDeleteDialog.review || lowRatingDeletingId !== null}
@@ -4198,7 +4173,7 @@ const Settings = () => {
                     if (row) void deleteLowRating(row);
                   }}
                 >
-                  Delete review
+                  {s.admin_lowRatings_delete}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

@@ -185,37 +185,17 @@ test('HR-04 — save/unsave/migrate saved-vendor RPCs are rate limited (30 / 60s
   const cat = await getActiveCategoryByLabel('Electrician');
   const vendorId = await seedVendor(`!HR-RL-${T}`, cat);
 
-  // save_saved_vendor — bucketed by phone. saved_vendors has unique(user_phone,vendor_id)
-  // and unique(device_id,vendor_id), so use 31 distinct vendors to stay in one phone bucket
-  // without tripping either uniqueness constraint.
-  const saveVendorRows = Array.from({ length: 31 }, (_, i) => ({
-    name: 'HR RL Owner',
-    shop_name: `!HR-RLV-${T}-${i}`,
-    phone: nextPhone('99072'),
-    category: cat.label,
-    service_mode: cat.service_mode,
-    latitude: 18.5204,
-    longitude: 73.8567,
-    is_active: true,
-    profile_status: 'complete',
-    service_radius_km: 9999,
-  }));
-  const { data: saveVendors, error: svErr } = await supabaseAdmin
-    .from('vendors')
-    .insert(saveVendorRows)
-    .select('id');
-  if (svErr) throw svErr;
-  for (const row of saveVendors ?? []) createdVendorIds.push(row.id);
-
   const savePhone = nextPhone('88075');
   rlIdentifiers.push(savePhone);
   const saveErrors: (string | null)[] = [];
+  // Same vendor repeatedly — save upserts under advisory lock, so the 20-cap
+  // does not fire; this isolates the 30/60s rate-limit bucket.
   for (let i = 0; i < 31; i++) {
     const { error } = await supabase.rpc('save_saved_vendor', {
-      p_vendor_id: saveVendors![i].id,
+      p_vendor_id: vendorId,
       p_category: cat.label,
-      p_nickname: 'RL save',
-      p_device_id: `dev_${savePhone}_${i}`,
+      p_nickname: `RL save ${i}`,
+      p_device_id: `dev_${savePhone}`,
       p_user_phone: savePhone,
     });
     saveErrors.push(error?.message ?? null);

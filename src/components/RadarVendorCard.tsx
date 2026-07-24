@@ -33,6 +33,9 @@ import {
   showNetworkFailedToast,
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
+import { markNeighboursDirty } from "@/lib/savedVendors";
+
+export { markNeighboursDirty, consumeNeighboursDirty } from "@/lib/savedVendors";
 import type { TrustLevel } from "@/lib/trustLevel";
 import {
   resolveCategoryBrandName,
@@ -59,29 +62,7 @@ function writeResolutionMarked(vendorId: string) {
 }
 
 const SAVED_SESSION_PREFIX = "aaspaas:saved:";
-const NEIGHBOURS_DIRTY_KEY = "aaspaas:neighbours_dirty";
 const MAX_SAVED_NEIGHBOURS = 20;
-
-export function markNeighboursDirty(): void {
-  try {
-    localStorage.setItem(NEIGHBOURS_DIRTY_KEY, "true");
-  } catch {
-    /* ignore */
-  }
-}
-
-/** Clears the neighbours_dirty flag after Home save/unsave; returns whether it was set. */
-export function consumeNeighboursDirty(): boolean {
-  try {
-    if (localStorage.getItem(NEIGHBOURS_DIRTY_KEY) === "true") {
-      localStorage.removeItem(NEIGHBOURS_DIRTY_KEY);
-      return true;
-    }
-  } catch {
-    /* ignore */
-  }
-  return false;
-}
 
 export function readSessionSaved(vendorId: string): boolean {
   try {
@@ -363,6 +344,8 @@ export function RadarVendorCard({
     fulfilledRequestId,
   );
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
+  const [saveNicknameSheetOpen, setSaveNicknameSheetOpen] = useState(false);
+  const [saveNicknameDraft, setSaveNicknameDraft] = useState("");
   const [rateCardOpen, setRateCardOpen] = useState(false);
   const [rateCardLoading, setRateCardLoading] = useState(false);
   const [rateCardItems, setRateCardItems] = useState<
@@ -548,7 +531,18 @@ export function RadarVendorCard({
     setAiSheetOpen(true);
   }, [vendor, s.radar_vendorWentOffline]);
 
-  const handleSaveVendor = useCallback(async () => {
+  const beginSaveVendor = useCallback(() => {
+    if (savedVendorLocked || isSaved) return;
+    const userPhone = getUserPhone();
+    if (userPhone === null) {
+      setPhoneSheetOpen(true);
+      return;
+    }
+    setSaveNicknameDraft("");
+    setSaveNicknameSheetOpen(true);
+  }, [savedVendorLocked, isSaved]);
+
+  const handleSaveVendor = useCallback(async (nicknameInput = "") => {
     if (savedVendorLocked || isSaved) return;
     const userPhone = getUserPhone();
     if (userPhone === null) {
@@ -561,6 +555,7 @@ export function RadarVendorCard({
       return;
     }
     const device_id = getDeviceId();
+    const nickname = nicknameInput.trim();
     try {
       const { error } = await withNetworkRetry(
         async () =>
@@ -568,7 +563,7 @@ export function RadarVendorCard({
             await supabase.rpc("save_saved_vendor", {
               p_vendor_id: vendor.id,
               p_category: vendor.category,
-              p_nickname: vendor.shop_name,
+              p_nickname: nickname,
               p_device_id: device_id,
               p_user_phone: userPhone,
             }),
@@ -585,8 +580,14 @@ export function RadarVendorCard({
         if (error.code === "23505") {
           writeSessionSaved(vendor.id);
           setSavedVendorLocked(true);
+          setSaveNicknameSheetOpen(false);
           markNeighboursDirty();
           toast.success(`✅ ${s.radar_saved_success}`);
+          return;
+        }
+        const msg = String(error.message ?? "");
+        if (msg.includes("saved_vendors_limit_exceeded")) {
+          toast.error(s.neighbours_max_reached);
           return;
         }
         captureError(error, {
@@ -598,6 +599,7 @@ export function RadarVendorCard({
       }
       writeSessionSaved(vendor.id);
       setSavedVendorLocked(true);
+      setSaveNicknameSheetOpen(false);
       markNeighboursDirty();
       toast.success(`✅ ${s.radar_saved_success}`);
     } catch (err) {
@@ -607,7 +609,7 @@ export function RadarVendorCard({
           scope: "radarVendorCard.saveSavedVendor",
           vendorId: vendor.id,
         });
-        showNetworkFailedToast(() => void handleSaveVendor(), {
+        showNetworkFailedToast(() => void handleSaveVendor(nicknameInput), {
           failed: s.network_failed,
           retryBtn: s.network_retry_btn,
         });
@@ -1087,7 +1089,7 @@ export function RadarVendorCard({
       {showSaveRow && (
         <button
           type="button"
-          onClick={() => void handleSaveVendor()}
+          onClick={() => beginSaveVendor()}
           className={cn(
             "mt-2 w-full rounded-xl border py-2.5 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
             "border-border text-foreground bg-muted/40 hover:bg-muted/60",
@@ -1128,9 +1130,56 @@ export function RadarVendorCard({
         onConfirmed={async (phone) => {
           setPhoneSheetOpen(false);
           await migrateUserPhone(phone, getDeviceId());
-          void handleSaveVendor();
+          setSaveNicknameDraft("");
+          setSaveNicknameSheetOpen(true);
         }}
       />
+      <Sheet
+        open={saveNicknameSheetOpen}
+        onOpenChange={(open) => {
+          if (!open) setSaveNicknameSheetOpen(false);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="bg-card border-t border-border rounded-t-2xl"
+        >
+          <SheetHeader className="text-left pr-8">
+            <SheetTitle>
+              {`🔖 ${s.radar_save_as}${getLabel(vendor.category) || s.radar_vendor_fallback}`}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-3">
+            <label className="text-xs font-medium text-muted-foreground">
+              {s.neighbours_nickname_label}
+            </label>
+            <input
+              data-testid="radar-save-nickname-input"
+              type="text"
+              value={saveNicknameDraft}
+              onChange={(e) => setSaveNicknameDraft(e.target.value)}
+              placeholder={s.neighbours_nickname_placeholder}
+              maxLength={40}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              data-testid="radar-save-nickname-confirm"
+              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold active:scale-[0.98]"
+              onClick={() => void handleSaveVendor(saveNicknameDraft)}
+            >
+              {s.neighbours_nickname_save}
+            </button>
+            <button
+              type="button"
+              className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
+              onClick={() => setSaveNicknameSheetOpen(false)}
+            >
+              {s.cancel}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
     {lightboxOpen && (
       <div
