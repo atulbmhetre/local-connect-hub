@@ -902,23 +902,40 @@ const MyOrders = () => {
             )
           : null;
 
+      const { data: visibleVendors, error: vendorFetchError } =
+        await fetchVendorsVisibleToCustomer([order.vendor_id], {
+          userPhone: getUserPhone(),
+          deviceId: getDeviceId(),
+        });
+      if (vendorFetchError) {
+        captureError(vendorFetchError, {
+          scope: "myOrders.openHelpVendorCall.fetchVendor",
+          vendorId: order.vendor_id,
+        });
+      }
+      const liveVendor = visibleVendors[0];
+
       setHelpCallVendor({
         vendor: {
           id: order.vendor_id,
           name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
           shop_name: order.vendors?.shop_name ?? s.myOrders_shopFallback,
           category: "help",
-          vendor_note: null,
+          vendor_note: liveVendor?.vendor_note ?? null,
           phone,
           service_mode: (order.vendors?.service_mode ?? "help") as
             | "help"
             | "delivery"
             | "appointment"
             | "booking",
-          verification_status: "unverified",
-          is_manual_verified: false,
-          total_helped: 0,
-          on_time_rate: null,
+          verification_status: liveVendor?.verification_status ?? "unverified",
+          is_manual_verified: liveVendor?.is_manual_verified === true,
+          shop_photo_url: liveVendor?.shop_photo_url ?? null,
+          upi_verified: liveVendor?.upi_verified === true,
+          photo_selfie: liveVendor?.photo_selfie ?? null,
+          latitude: liveVendor?.latitude ?? order.vendors?.latitude ?? null,
+          total_helped: liveVendor?.total_helped ?? 0,
+          on_time_rate: liveVendor?.on_time_rate ?? null,
         },
         userNeed: stripLocationTag(order.message),
         distanceKm: distM != null ? distM / 1000 : null,

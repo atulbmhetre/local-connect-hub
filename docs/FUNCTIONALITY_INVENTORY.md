@@ -273,7 +273,7 @@
 - **Suspicious:** Some hardcoded English in khata detail sheet.
 
 ### Khata settings (vendor)
-- **What it does:** Toggle khata credit, set amber/red limits; blocked if ledger rows exist.
+- **What it does:** Toggle khata credit, set amber/red limits; blocked when outstanding balance > 0.
 - **Files:** `src/components/settings/VendorSettings.tsx`
 - **DB:** `vendor_update_own`; reads `khata_ledger`
 - **Status:** Fully implemented.

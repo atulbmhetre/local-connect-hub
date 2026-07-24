@@ -17,6 +17,7 @@ import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { TrustBadge } from "@/components/TrustBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
+import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
@@ -872,14 +873,12 @@ export function RadarVendorCard({
       </div>
 
       <TrustWarningBanner
-        tier={
-          businessTrust.is_manual_verified === true &&
-          vendor.upi_verified === true &&
-          !!vendor.photo_selfie &&
-          vendor.latitude != null
-            ? "green"
-            : "red"
-        }
+        tier={vendorBinaryTrustTier({
+          is_manual_verified: businessTrust.is_manual_verified,
+          upi_verified: vendor.upi_verified,
+          photo_selfie: vendor.photo_selfie,
+          latitude: vendor.latitude,
+        })}
         context="radar"
       />
 

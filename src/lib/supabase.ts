@@ -123,28 +123,24 @@ export async function fetchUserTrust(phone: string): Promise<{
   total_orders: number;
   is_banned: boolean;
 } | null> {
-  try {
-    // Direct users reads are RLS-blocked for OTP-off callers (auth_user_phone()
-    // NULL), so the pre-order trust/ban gate silently never fired. Reuse the
-    // existing rate-limited identity RPC instead of a direct table read.
-    const { data, error } = await supabase.rpc("lookup_user_by_phone", {
-      p_phone: phone,
-    });
-    if (error) {
-      console.error("fetchUserTrust", error);
-      return null;
-    }
-    const row = data?.[0];
-    if (!row) return null;
-    return {
-      trust_score: row.trust_score,
-      total_orders: row.total_orders,
-      is_banned: row.is_banned,
-    };
-  } catch (err) {
-    console.error("fetchUserTrust", err);
-    return null;
+  // Direct users reads are RLS-blocked for OTP-off callers (auth_user_phone()
+  // NULL), so the pre-order trust/ban gate silently never fired. Reuse the
+  // existing rate-limited identity RPC instead of a direct table read.
+  // Throws on RPC/network failure so callers can retry; returns null when
+  // the phone has no users row yet.
+  const { data, error } = await supabase.rpc("lookup_user_by_phone", {
+    p_phone: phone,
+  });
+  if (error) {
+    throw new Error(error.message || "lookup_user_by_phone failed");
   }
+  const row = data?.[0];
+  if (!row) return null;
+  return {
+    trust_score: row.trust_score,
+    total_orders: row.total_orders,
+    is_banned: row.is_banned,
+  };
 }
 
 export async function invokecalculateTrustScore(

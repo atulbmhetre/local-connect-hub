@@ -1,11 +1,12 @@
-import { AlertTriangle, ShieldAlert, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
 import type { VerificationDisplayTier } from "@/components/VerificationBadge";
 
-export type TrustWarningContext = "radar" | "bridge" | "tracking";
+export type TrustWarningContext = "radar" | "bridge" | "tracking" | "parchi";
 
 type TrustWarningBannerProps = {
+  /** For radar/bridge/parchi: only "green" (hide) vs anything else (unverified warning). Yellow is ignored. */
   tier: VerificationDisplayTier;
   context: TrustWarningContext;
   className?: string;
@@ -14,6 +15,7 @@ type TrustWarningBannerProps = {
 export function TrustWarningBanner({ tier, context, className }: TrustWarningBannerProps) {
   const { s } = useLanguage();
 
+  // Live Tracking privacy banner — leave untouched (page currently unreachable from order flows).
   if (context === "tracking") {
     return (
       <div
@@ -37,31 +39,13 @@ export function TrustWarningBanner({ tier, context, className }: TrustWarningBan
 
   if (tier === "green") return null;
 
-  if (tier === "yellow") {
-    return (
-      <div
-        className={cn(
-          "rounded-xl bg-warning/10 border border-warning/60 px-3 py-2 flex items-start gap-2",
-          context === "radar" ? "mt-3" : undefined,
-          className,
-        )}
-      >
-        {context === "radar" && (
-          <span className="inline-flex items-center gap-1 shrink-0 mt-0.5">
-            <ShieldAlert className="h-4 w-4 text-warning" />
-            <span className="text-xs text-warning font-semibold">{s.radar_trustPending}</span>
-          </span>
-        )}
-        <p className="text-xs text-warning font-semibold">{s.trust_warning_yellow}</p>
-      </div>
-    );
-  }
-
+  // radar / bridge / parchi: strict binary — yellow retired; any non-green is unverified.
   return (
     <div
+      data-testid={`trust-warning-banner-${context}`}
       className={cn(
         "rounded-xl bg-amber-950/40 border border-amber-800/50 px-3 py-2 flex items-start gap-2",
-        context === "radar" ? "mt-3" : undefined,
+        context === "radar" || context === "parchi" ? "mt-3" : undefined,
         className,
       )}
     >

@@ -149,4 +149,52 @@ describe("ParchiSheet trust flows", () => {
       );
     });
   });
+
+  it("shows binary TrustWarningBanner for unverified Neighbour→Parchi vendor", () => {
+    render(<ParchiSheet vendor={vendor} isOpen onClose={() => {}} />);
+    expect(screen.getByTestId("trust-warning-banner-parchi")).toHaveTextContent(
+      strings.en.trust_warning_red,
+    );
+  });
+
+  it("hides TrustWarningBanner when vendor meets binary verified signals", () => {
+    const verified = {
+      ...vendor,
+      is_manual_verified: true,
+      upi_verified: true,
+      photo_selfie: "https://example.com/selfie.jpg",
+      latitude: 18.5,
+    } as Vendor;
+    render(<ParchiSheet vendor={verified} isOpen onClose={() => {}} />);
+    expect(screen.queryByTestId("trust-warning-banner-parchi")).not.toBeInTheDocument();
+  });
+
+  it("on trust fetch failure after retries, warns and allows continue without trust gates", async () => {
+    const sonner = await import("sonner");
+    const spy = vi.spyOn(sonner.toast, "warning").mockImplementation(() => "id");
+
+    mockFetchUserTrust
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    render(<ParchiSheet vendor={vendor} isOpen onClose={() => {}} />);
+    fireEvent.change(screen.getByTestId("parchi-message-input"), {
+      target: { value: "Need groceries" },
+    });
+    fireEvent.change(screen.getByTestId("parchi-address-input"), {
+      target: { value: "12 Test Street" },
+    });
+    fireEvent.click(screen.getByTestId("parchi-submit-btn"));
+
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith(strings.en.parchi_trust_fetch_failed);
+    });
+    await waitFor(() => {
+      expect(mockRpc).toHaveBeenCalledWith(
+        "create_customer_request",
+        expect.objectContaining({ p_vendor_id: "vendor-1" }),
+      );
+    });
+    spy.mockRestore();
+  });
 });

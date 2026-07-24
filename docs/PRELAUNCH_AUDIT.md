@@ -151,6 +151,7 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 | `payment_claimed` vendor notification | Was titled "Pay Now" in the customer's language. New `notifyVendor_paymentClaimed_*` copy (EN/HI/MR); language resolved via `resolve_user_lang` on the vendor phone (same recipient-language pattern as referrals). |
 | Bill line-item `unit` input | Data model had `unit` with no UI. Added localized select (kg/litre/pc/…) in BillSheet + BillEditSheet; historical bills without a unit still render correctly. |
 | Silent empty / false-zero states | BillSheet khata outstanding no longer defaults to ₹0 on fetch failure (unknown/error state); bill-replace checks `vendor_void_unpaid_bills` return and blocks send on void failure; MyOrders `loadBills` / `loadMyKhata` toast on error and keep last-good data. |
+| Khata disable gate | Blocked when **outstanding balance > 0** (not merely if ledger rows exist); server also enforces `khata_red_limit = 0 OR (red > amber AND amber >= 0)` via `vendor_update_own`. |
 | Observability | `captureError` wired on BillSheet, BillEditSheet, BillEditHistorySheet, `billEdit.ts`, UpiPaymentPanel claim path, LedgerView load paths. |
 | Localization | Payment tab labels + QR empty state; MyOrders bill Paid/Unpaid; `khataPaymentModeLabel` Unpaid/Paid — all EN/HI/MR. |
 | Performance | LedgerView customer-open lazy-loads full khata history only when requested (cycle-only first). |

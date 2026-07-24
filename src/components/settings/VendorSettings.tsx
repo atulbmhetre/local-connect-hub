@@ -1230,6 +1230,7 @@ export function VendorSettings({
     );
 
     if (error) {
+      captureError(error, { scope: "vendorSettings.khataDisableCheck", vendorId: vendor.id });
       toast.error(error.message);
       return;
     }
@@ -1246,6 +1247,7 @@ export function VendorSettings({
     setSavingKhataLimits(false);
 
     if (updateError) {
+      captureError(updateError, { scope: "vendorSettings.khataDisable", vendorId: vendor.id });
       toast.error(updateError.message);
       return;
     }
@@ -1270,6 +1272,7 @@ export function VendorSettings({
     setSavingKhataLimits(false);
 
     if (error) {
+      captureError(error, { scope: "vendorSettings.khataSaveLimits", vendorId: vendor.id });
       toast.error(error.message);
       return;
     }

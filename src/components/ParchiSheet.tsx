@@ -5,6 +5,8 @@ import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getVoiceLang } from "@/lib/voiceUtils";
 import { captureError } from "@/lib/sentry";
 import { UpiPaymentPanel } from "@/components/payment/UpiPaymentPanel";
+import { TrustWarningBanner } from "@/components/TrustWarningBanner";
+import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
 import {
   Sheet,
   SheetContent,
@@ -728,7 +730,19 @@ export function ParchiSheet({
       const phone = overridePhone ?? getUserPhone()!;
 
       setSending(true);
-      const trust = await fetchUserTrust(phone);
+      let trust: Awaited<ReturnType<typeof fetchUserTrust>> = null;
+      try {
+        trust = await withNetworkRetry(() => fetchUserTrust(phone), {
+          maxAttempts: 2,
+          baseDelayMs: 500,
+          shouldRetry: () => getNavigatorOnline(),
+        });
+      } catch (err) {
+        captureError(err, { scope: "parchiSheet.fetchUserTrust" });
+        toast.warning(s.parchi_trust_fetch_failed);
+        // Fail-open after retry: allow continue without trust gates.
+        trust = null;
+      }
 
       if (trust?.is_banned) {
         setSending(false);
@@ -878,6 +892,10 @@ export function ParchiSheet({
                 {effectiveVendor.vendor_note}
               </p>
             )}
+            <TrustWarningBanner
+              tier={vendorBinaryTrustTier(effectiveVendor)}
+              context="parchi"
+            />
           </div>
 
           <div className="mt-5 space-y-3 px-4">

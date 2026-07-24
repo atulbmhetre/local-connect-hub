@@ -21,6 +21,7 @@ import {
 import { vendorTier, getVerificationCopy } from "@/components/VerificationBadge";
 import { TrustBadge } from "@/components/TrustBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
+import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
 import {
   emojiForVendorCategory,
   buildVendorBrief,
@@ -47,6 +48,8 @@ export type AiBridgeVendor = Pick<
 > & {
   shop_photo_url?: string | null;
   upi_verified?: boolean;
+  photo_selfie?: string | null;
+  latitude?: number | null;
 };
 
 type AiBridgeSheetProps = {
@@ -69,7 +72,7 @@ function asVendor(v: AiBridgeVendor): Vendor {
     upi_id: "",
     phone: v.phone,
     is_active: true,
-    latitude: null,
+    latitude: v.latitude ?? null,
     longitude: null,
     verification_status: v.verification_status,
     shop_photo_url: v.shop_photo_url ?? null,
@@ -85,6 +88,7 @@ function asVendor(v: AiBridgeVendor): Vendor {
     total_helped: v.total_helped,
     on_time_rate: v.on_time_rate,
     service_radius_km: 15,
+    photo_selfie: v.photo_selfie ?? null,
   };
 }
 
@@ -101,7 +105,8 @@ export function AiBridgeSheet({
   const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
   const vendorRow = useMemo(() => asVendor(vendor), [vendor]);
-  const tier = vendorTier(vendorRow);
+  const badgeTier = vendorTier(vendorRow);
+  const bannerTier = vendorBinaryTrustTier(vendorRow);
   const verificationCopy = getVerificationCopy(s);
   const secureCallingLive = config.exotelSecureCallingEnabled;
   const vendorDisplayName = vendor.name?.trim() || vendor.shop_name || "vendor";
@@ -255,12 +260,12 @@ export function AiBridgeSheet({
                 showLabel
               />
               <span className="text-[10px] text-gray-500">
-                {verificationCopy[tier].label}
+                {verificationCopy[badgeTier].label}
               </span>
             </div>
           </div>
 
-          <TrustWarningBanner tier={tier} context="bridge" />
+          <TrustWarningBanner tier={bannerTier} context="bridge" />
 
           {vendor.vendor_note?.trim() && (
             <div className="rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-green-700 dark:text-brand">
