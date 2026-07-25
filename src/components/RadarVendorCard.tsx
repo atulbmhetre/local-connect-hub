@@ -245,7 +245,7 @@ type Props = {
   /** Fulfilled request id for this customer+vendor pair (batch-fetched by parent). */
   fulfilledRequestId?: string | null;
   /** Menu preview (first 5 available items), batch-fetched by the parent. */
-  menuItems: { name: string; price: number; unit: string | null; is_available: boolean }[];
+  menuItems: { name: string; price: number; unit: string | null; is_available: boolean; image_url?: string | null }[];
   categories: {
     label: string;
     emoji: string;
@@ -349,7 +349,7 @@ export function RadarVendorCard({
   const [rateCardOpen, setRateCardOpen] = useState(false);
   const [rateCardLoading, setRateCardLoading] = useState(false);
   const [rateCardItems, setRateCardItems] = useState<
-    { name: string; price: number; unit: string | null }[]
+    { name: string; price: number; unit: string | null; image_url?: string | null }[]
   >([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -361,7 +361,7 @@ export function RadarVendorCard({
     const matchedCategoryId = categories[0]?.category_id ?? null;
     let q = supabase
       .from("vendor_menu_items")
-      .select("name, price, unit, category_id")
+      .select("name, price, unit, category_id, image_url")
       .eq("vendor_id", vendor.id)
       .eq("is_available", true)
       .order("sort_order", { ascending: true });
@@ -927,6 +927,13 @@ export function RadarVendorCard({
           </p>
           {menuItems.slice(0, 3).map((item, i) => (
             <div key={i} className="flex justify-between items-center gap-2">
+              {item.image_url ? (
+                <img
+                  src={item.image_url}
+                  alt=""
+                  className="h-9 w-9 rounded-md object-cover shrink-0 border border-surface-border"
+                />
+              ) : null}
               <span className="text-foreground text-sm flex-1 truncate">{item.name}</span>
               <span className="text-sm shrink-0 text-muted-foreground">
                 ₹{item.price}
@@ -969,12 +976,19 @@ export function RadarVendorCard({
                   <div
                     key={`${item.name}-${idx}`}
                     className={cn(
-                      "flex items-center justify-between px-3 py-2 text-sm",
+                      "flex items-center justify-between gap-2 px-3 py-2 text-sm",
                       idx !== 0 && "border-t border-border",
                     )}
                   >
-                    <span className="text-foreground">{item.name}</span>
-                    <span className="text-brand font-semibold tabular-nums">
+                    {item.image_url ? (
+                      <img
+                        src={item.image_url}
+                        alt=""
+                        className="h-10 w-10 rounded-md object-cover shrink-0 border border-border"
+                      />
+                    ) : null}
+                    <span className="text-foreground flex-1 min-w-0">{item.name}</span>
+                    <span className="text-brand font-semibold tabular-nums shrink-0">
                       ₹{item.price}
                       {item.unit ? `/${item.unit}` : ""}
                     </span>

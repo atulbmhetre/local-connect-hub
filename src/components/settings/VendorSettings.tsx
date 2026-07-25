@@ -55,6 +55,12 @@ import { FeedReachChips } from "@/components/FeedReachChips";
 import { DEFAULT_FEED_REACH_KM, normalizeFeedReachKm, VENDOR_FEED_REACH_CHIP_OPTIONS } from "@/lib/feedReach";
 import { captureError } from "@/lib/sentry";
 import { sendVendorReviewReply } from "@/lib/vendorReviewReply";
+import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
+import {
+  bestEffortDeleteMenuPhotoByUrl,
+  MenuPhotoValidationError,
+  uploadMenuPhoto,
+} from "@/lib/menuPhotoUpload";
 
 export type MenuItem = {
   id: string;
@@ -65,6 +71,7 @@ export type MenuItem = {
   is_available: boolean;
   sort_order: number;
   category_id?: string | null;
+  image_url?: string | null;
 };
 
 type ApprovedCategoryChip = {
@@ -800,6 +807,7 @@ export function VendorSettings({
     unit: "",
     description: "",
     category_id: "" as string,
+    image_url: null as string | null,
   });
   const [newItem, setNewItem] = useState({
     name: "",
@@ -807,8 +815,13 @@ export function VendorSettings({
     unit: "",
     description: "",
     category_id: "" as string,
+    image_url: null as string | null,
   });
   const [addingItem, setAddingItem] = useState(false);
+  const [menuPhotoCameraTarget, setMenuPhotoCameraTarget] = useState<"new" | "edit" | null>(
+    null,
+  );
+  const [menuPhotoUploading, setMenuPhotoUploading] = useState(false);
   const [isListeningMenu, setIsListeningMenu] = useState(false);
   const [isProcessingImageMenu, setIsProcessingImageMenu] = useState(false);
   const [reviews, setReviews] = useState<VendorReview[]>([]);
@@ -1161,6 +1174,42 @@ export function VendorSettings({
     setMenuLoadFailed(initialMenuItemsFailed);
   }, [initialMenuItemsFailed]);
 
+  const menuPhotoErrorToast = (err: unknown) => {
+    if (err instanceof MenuPhotoValidationError) {
+      if (err.message === "menu_photo_too_large") toast.error(s.menu_photoTooLarge);
+      else if (err.message === "unsupported_menu_photo_type")
+        toast.error(s.menu_photoUnsupportedType);
+      else toast.error(s.menu_photoUploadFailed);
+      return;
+    }
+    captureError(err, { scope: "vendorSettings.menuPhotoUpload", vendorId: vendor.id });
+    toast.error(s.menu_photoUploadFailed);
+  };
+
+  const onMenuPhotoCaptured = async (shot: CapturedShot, target: "new" | "edit") => {
+    setMenuPhotoUploading(true);
+    try {
+      const uploaded = await uploadMenuPhoto(vendor.id, shot.blob);
+      if (target === "new") {
+        setNewItem((p) => {
+          if (p.image_url) void bestEffortDeleteMenuPhotoByUrl(p.image_url);
+          return { ...p, image_url: uploaded.publicUrl };
+        });
+      } else {
+        setEditDraft((p) => {
+          if (p.image_url && p.image_url !== editingMenuItem?.image_url) {
+            void bestEffortDeleteMenuPhotoByUrl(p.image_url);
+          }
+          return { ...p, image_url: uploaded.publicUrl };
+        });
+      }
+    } catch (err) {
+      menuPhotoErrorToast(err);
+    } finally {
+      setMenuPhotoUploading(false);
+    }
+  };
+
   // Zero approved categories: account columns are the storage, keep in sync.
   // Vendors with an approved category load/save category-level rows instead
   // (the cancellation flow resolves those first, so account edits would be
@@ -1342,6 +1391,7 @@ export function VendorSettings({
           description: newItem.description.trim() || null,
           sort_order: menuItems.length,
           category_id: categoryId,
+          image_url: newItem.image_url || null,
         },
       ],
     });
@@ -1349,7 +1399,14 @@ export function VendorSettings({
       toast.error(error.message);
       return;
     }
-    setNewItem({ name: "", price: "", unit: "", description: "", category_id: "" });
+    setNewItem({
+      name: "",
+      price: "",
+      unit: "",
+      description: "",
+      category_id: "",
+      image_url: null,
+    });
     setAddingItem(false);
     void loadMenu();
   };
@@ -1363,6 +1420,7 @@ export function VendorSettings({
       toast.error(s.menu_pick_category);
       return;
     }
+    const previousImageUrl = editingMenuItem.image_url;
     const { error } = await supabase.rpc("vendor_update_menu_item", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
@@ -1372,10 +1430,14 @@ export function VendorSettings({
       p_unit: editDraft.unit.trim() || null,
       p_description: editDraft.description.trim() || null,
       p_category_id: categoryId,
+      p_image_url: editDraft.image_url ?? "",
     });
     if (error) {
       toast.error(error.message);
       return;
+    }
+    if (previousImageUrl && previousImageUrl !== editDraft.image_url) {
+      void bestEffortDeleteMenuPhotoByUrl(previousImageUrl);
     }
     setEditingMenuItem(null);
     void loadMenu();
@@ -1397,6 +1459,7 @@ export function VendorSettings({
 
   const deleteMenuItem = async (id: string) => {
     if (!vendorPhone) return;
+    const item = menuItems.find((m) => m.id === id);
     const { error } = await supabase.rpc("vendor_delete_menu_item", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
@@ -1406,6 +1469,7 @@ export function VendorSettings({
       toast.error(error.message);
       return;
     }
+    if (item?.image_url) void bestEffortDeleteMenuPhotoByUrl(item.image_url);
     void loadMenu();
   };
 
@@ -1742,7 +1806,18 @@ export function VendorSettings({
         {menuItems.map((item) => (
           <SettingsRow
             key={item.id}
-            label={item.name}
+            label={
+              <span className="flex items-center gap-2 min-w-0">
+                {item.image_url ? (
+                  <img
+                    src={item.image_url}
+                    alt=""
+                    className="h-10 w-10 rounded-lg object-cover shrink-0 border border-surface-border"
+                  />
+                ) : null}
+                <span className="truncate">{item.name}</span>
+              </span>
+            }
             sublabel={
               <>
                 {isMultiCategory && item.category_id && (
@@ -1786,6 +1861,7 @@ export function VendorSettings({
                     unit: item.unit ?? "",
                     description: item.description ?? "",
                     category_id: item.category_id ?? "",
+                    image_url: item.image_url ?? null,
                   });
                 }}
                 className="p-1.5 text-muted-foreground active:text-brand"
@@ -1862,6 +1938,38 @@ export function VendorSettings({
               placeholder={s.menu_description}
               className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
             />
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">{s.menu_photoOptional}</p>
+              {newItem.image_url && (
+                <img
+                  src={newItem.image_url}
+                  alt=""
+                  className="h-20 w-20 rounded-lg object-cover border border-surface-border"
+                />
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={menuPhotoUploading}
+                  onClick={() => setMenuPhotoCameraTarget("new")}
+                  className="rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-semibold text-foreground disabled:opacity-50"
+                >
+                  {newItem.image_url ? s.menu_photoChange : s.menu_photoAdd}
+                </button>
+                {newItem.image_url && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void bestEffortDeleteMenuPhotoByUrl(newItem.image_url);
+                      setNewItem((p) => ({ ...p, image_url: null }));
+                    }}
+                    className="rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground"
+                  >
+                    {s.menu_photoRemove}
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -1874,7 +1982,14 @@ export function VendorSettings({
                 type="button"
                 onClick={() => {
                   setAddingItem(false);
-                  setNewItem({ name: "", price: "", unit: "", description: "", category_id: "" });
+                  setNewItem({
+                    name: "",
+                    price: "",
+                    unit: "",
+                    description: "",
+                    category_id: "",
+                    image_url: null,
+                  });
                 }}
                 className="flex-1 rounded-lg border border-surface-border text-sm py-2 text-foreground"
               >
@@ -1960,6 +2075,38 @@ export function VendorSettings({
                 placeholder={s.menu_description}
                 className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
               />
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">{s.menu_photoOptional}</p>
+                {editDraft.image_url && (
+                  <img
+                    src={editDraft.image_url}
+                    alt=""
+                    className="h-20 w-20 rounded-lg object-cover border border-surface-border"
+                  />
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={menuPhotoUploading}
+                    onClick={() => setMenuPhotoCameraTarget("edit")}
+                    className="rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-semibold text-foreground disabled:opacity-50"
+                  >
+                    {editDraft.image_url ? s.menu_photoChange : s.menu_photoAdd}
+                  </button>
+                  {editDraft.image_url && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void bestEffortDeleteMenuPhotoByUrl(editDraft.image_url);
+                        setEditDraft((p) => ({ ...p, image_url: null }));
+                      }}
+                      className="rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground"
+                    >
+                      {s.menu_photoRemove}
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -2346,6 +2493,16 @@ export function VendorSettings({
         />
       )}
     </SettingsParentCollapsible>
+      <LiveCamera
+        open={menuPhotoCameraTarget !== null}
+        onClose={() => setMenuPhotoCameraTarget(null)}
+        requireLocation={false}
+        onCapture={(shot) => {
+          const target = menuPhotoCameraTarget;
+          setMenuPhotoCameraTarget(null);
+          if (target) void onMenuPhotoCaptured(shot, target);
+        }}
+      />
     </>
   );
 }

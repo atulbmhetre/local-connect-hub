@@ -899,7 +899,7 @@ const RadarSearch = () => {
                 .eq("status", "approved"),
               supabase
                 .from("vendor_menu_items")
-                .select("vendor_id, name, price, unit, is_available, category_id")
+                .select("vendor_id, name, price, unit, is_available, category_id, image_url")
                 .in("vendor_id", vendorIds)
                 .eq("is_available", true)
                 .order("sort_order", { ascending: true }),

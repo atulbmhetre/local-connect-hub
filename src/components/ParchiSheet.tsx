@@ -62,6 +62,7 @@ type VendorMenuItem = {
   unit?: string | null;
   is_available: boolean;
   category_id?: string | null;
+  image_url?: string | null;
 };
 
 export type ParchiPaymentOrder = {
@@ -266,7 +267,7 @@ export function ParchiSheet({
     void (async () => {
       const { data, error } = await supabase
         .from("vendor_menu_items")
-        .select("id, name, description, price, unit, is_available, category_id")
+        .select("id, name, description, price, unit, is_available, category_id, image_url")
         .eq("vendor_id", resolvedVendorId)
         .eq("is_available", true)
         .order("name", { ascending: true });
@@ -1152,6 +1153,13 @@ export function ParchiSheet({
                                 : "border-surface-border bg-surface/50",
                             )}
                           >
+                            {item.image_url ? (
+                              <img
+                                src={item.image_url}
+                                alt=""
+                                className="h-10 w-10 rounded-lg object-cover shrink-0 border border-surface-border"
+                              />
+                            ) : null}
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-medium text-white break-words">
                                 {label}
@@ -1227,6 +1235,13 @@ export function ParchiSheet({
                             tabIndex={-1}
                             aria-hidden
                           />
+                          {item.image_url ? (
+                            <img
+                              src={item.image_url}
+                              alt=""
+                              className="h-10 w-10 rounded-lg object-cover shrink-0 border border-surface-border"
+                            />
+                          ) : null}
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-white break-words">
                               {label}
