@@ -59,6 +59,46 @@ This sweep was **TEST-only**. Frontend fix (`VendorMyBusiness` default modes) sh
 
 ---
 
+## Post-Audit Hardening & Data Reset (2026-07-25 / 2026-07-26)
+
+Separate from the 66/66 functionality inventory and the post-inventory regression sweep — does **not** reopen the tracker. After inventory close, a structural TEST/PROD pass, feature ship, PROD-suite bugfixes, OTP prep docs, and a dual-environment data wipe brought both projects to an identical clean baseline.
+
+### 1. Structural TEST/PROD drift (invisible to functional tests)
+
+A full schema/config comparison found real gaps that per-item functional tests never exercised. Fixed and verified identical on both environments (migrations **`20260725160001` through `20260726080001`**):
+
+| Finding | Impact | Resolution |
+|---------|--------|------------|
+| Missing `order_bills` void-status CHECK on PROD | Live bug: order cancellations silently failed constraint checks | Added void-status allowance; applied both envs |
+| Open `shop-photos` storage policy | Arbitrary anonymous uploads with no size/type limits | Hardened bucket policies; **confirmed no actual exploitation** in live objects |
+| Missing `requests` realtime publication | Client realtime subscriptions could not receive request updates | Published + replica identity; full product benefit still pending OTP-on sessions |
+| Risky FK `CASCADE` on `vendor_reviews` / `requests` / `vendor_menu_items` (and remaining feed / `order_bills` drift) | Hard deletes could silently destroy history | Fail-safe: `SET NULL` / plain `NO ACTION` instead of destructive cascade; **confirmed no data was ever lost** via those cascades |
+| Smaller config / CHECK alignments | TEST drifted (e.g. stopped-distance, CHECKs, leftover AMH probe keys) | Aligned to PROD-safe targets; final FK-parity migration `20260726080001` |
+
+### 2. Features shipped
+
+| Feature | Notes |
+|---------|--------|
+| Vendor menu-item photos | Optional images on menu rows (`vendor_menu_items.image_url` + `menu-photos` bucket) |
+| Announcements / recommendations notification toggle | Customer opt-out for A&R feed push; **vendor offers deliberately carved out** so offer notifications still always reach customers |
+
+### 3. Bugs found via full PROD Playwright suite
+
+| Bug | Fix |
+|-----|-----|
+| Overly strict shop-name gibberish check rejected legitimate names containing digit runs (e.g. “Shop 0001”) | Repeated-char check limited to letters (`looksLikeGibberish`) |
+| Vendor go-offline warning missed appointments that crossed midnight (+2h near IST midnight) | Warn when appointment is today **or** within a near-term window (`vendorOfflineGate`) |
+
+### 4. OTP migration checklist
+
+`docs/OTP_MIGRATION_CHECKLIST.md` consolidates every phone/device-based identity check across the codebase so OTP-on can be a clean one-pass fix once Exotel / Auth is ready — not scattered rediscovery.
+
+### 5. Dual-environment data wipe
+
+Both **TEST** and **PROD** were fully wiped of user/business data via rebuilt `scripts/full-data-wipe-v2.mjs` (replaces the outdated Session 65 `scripts/full-data-wipe.mjs`). Preserved: schema, `app_config`, `categories`, `category_translations`, `notification_i18n`, and both admin logins per environment (real admin + Playwright harness). Storage buckets emptied. Post-wipe: wipe tables empty, preserves intact, admin session proven on PROD via live magic-link verify. **Both environments now start from an identical, clean, fully-audited baseline.**
+
+---
+
 ## CRITICAL INCIDENT — Service Role Key Exposure (RESOLVED)
 
 | Field | Status |
