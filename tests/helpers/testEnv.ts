@@ -8,13 +8,37 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 let envLoaded = false;
 let serviceClient: SupabaseClient | null = null;
 
-/** Same load order as playwright.config.ts — .env.local then .env.{TEST_ENV}. */
+/**
+ * Same load order as playwright.config.ts — .env.local then .env.{TEST_ENV}.
+ * Preserves PW_APP_URL (set by playwright*.config.ts) so dotenv cannot retarget
+ * absolute page.goto helpers to a stale VITE_APP_URL port (e.g. .env.test.prod → :8081
+ * while prod-full webServer is on :8082).
+ */
 export function loadTestEnv(): void {
   if (envLoaded) return;
+  // Capture before dotenv: env files (e.g. .env.test.prod) may set TEST_ENV=test
+  // and would otherwise cause a second load of .env.test, retargeting away from PROD.
+  const requestedEnv = process.env.TEST_ENV || 'test';
+  const pinnedAppUrl = (process.env.PW_APP_URL ?? '').trim();
   dotenv.config({ path: path.join(projectRoot, '.env.local'), override: true });
-  const envName = process.env.TEST_ENV || 'test';
-  dotenv.config({ path: path.join(projectRoot, `.env.${envName}`), override: true });
+  dotenv.config({ path: path.join(projectRoot, `.env.${requestedEnv}`), override: true });
+  if ((process.env.TEST_ENV || 'test') !== requestedEnv) {
+    process.env.TEST_ENV = requestedEnv;
+    dotenv.config({ path: path.join(projectRoot, `.env.${requestedEnv}`), override: true });
+    process.env.TEST_ENV = requestedEnv;
+  }
+  if (pinnedAppUrl) {
+    process.env.PW_APP_URL = pinnedAppUrl;
+    process.env.VITE_APP_URL = pinnedAppUrl;
+  }
   envLoaded = true;
+}
+
+/** App origin for absolute navigations — prefers PW_APP_URL from the active Playwright config. */
+export function getAppUrl(): string {
+  loadTestEnv();
+  const raw = (process.env.PW_APP_URL || process.env.VITE_APP_URL || 'http://localhost:8081').trim();
+  return raw.replace(/\/$/, '');
 }
 
 export function getSupabaseUrl(): string {

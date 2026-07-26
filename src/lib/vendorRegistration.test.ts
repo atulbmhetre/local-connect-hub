@@ -12,9 +12,16 @@ describe("looksLikeGibberish", () => {
     expect(looksLikeGibberish("qwrtstt")).toBe(true);
   });
 
-  it("flags repeated-char spam regardless of script", () => {
+  it("flags repeated-letter spam regardless of script", () => {
     expect(looksLikeGibberish("aaaa")).toBe(true);
     expect(looksLikeGibberish("hiiii")).toBe(true);
+  });
+
+  it("does not flag repeated digits (shop/plot/phone numbers)", () => {
+    expect(looksLikeGibberish("Shop 0001")).toBe(false);
+    expect(looksLikeGibberish("!VE-REMOVE-1785000000000")).toBe(false);
+    expect(looksLikeGibberish("!SyncedShop-1785000000000")).toBe(false);
+    expect(looksLikeGibberish("Plot 1111")).toBe(false);
   });
 
   it("flags keyboard-mash rows for Latin-only strings", () => {

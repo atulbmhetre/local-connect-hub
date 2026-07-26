@@ -106,7 +106,7 @@ test('REF-LINK-02: /r/CODE redirects to home page', async ({ page }) => {
   await page.goto(`${APP_URL}/r/${TEST_REFERRAL_CODE}`);
   await page.waitForTimeout(1500);
 
-  expect(page.url()).toMatch(/localhost:\d+\/?$/);
+  expect(page.url()).toMatch(/^(https?:\/\/)?(localhost|127\.0\.0\.1):\d+\/?$/);
 });
 
 test('REF-LINK-03: code stored uppercased regardless of input case', async ({ page }) => {

@@ -7,6 +7,8 @@ const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(projectRoot, '.env.test.prod'), override: true });
 
 const previewUrl = 'http://127.0.0.1:4173';
+process.env.PW_APP_URL = previewUrl;
+process.env.VITE_APP_URL = previewUrl;
 
 /**
  * PROD wizard smoke — production Vite build + PROD Supabase.

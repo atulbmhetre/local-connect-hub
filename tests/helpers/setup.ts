@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import {
   getAnonKey,
+  getAppUrl,
   getServiceRoleClient,
   getSupabaseUrl,
   loadTestEnv,
@@ -14,7 +15,7 @@ import {
 
 loadTestEnv();
 
-const APP_URL = process.env.VITE_APP_URL || 'http://localhost:8080';
+const APP_URL = getAppUrl();
 
 export const supabase = createClient(getSupabaseUrl(), getAnonKey());
 

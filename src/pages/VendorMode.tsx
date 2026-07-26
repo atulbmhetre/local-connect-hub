@@ -156,6 +156,7 @@ import {
   MAX_REG_CATEGORIES,
   resolveRegistrationShopName,
 } from "@/lib/vendorRegistration";
+import { appointmentWarnsGoingOffline } from "@/lib/vendorOfflineGate";
 import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
 import { parseUpiPayeeIdFromQrPayload, decodeUpiPayeeIdFromImageFile } from "@/lib/upiQrDecode";
 
@@ -191,17 +192,6 @@ function categoryServiceModeChipLabel(
   }
 }
 
-function isAppointmentToday(iso: string): boolean {
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return false;
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
-}
-
 function orderBlocksGoingOffline(
   order: { delivery_slot: string | null; appointment_time: string | null },
   serviceMode: string | null | undefined,
@@ -212,7 +202,9 @@ function orderBlocksGoingOffline(
     return (order.delivery_slot ?? "").trim().toLowerCase() !== "tomorrow";
   }
   if (mode === "appointment") {
-    return order.appointment_time != null && isAppointmentToday(order.appointment_time);
+    return (
+      order.appointment_time != null && appointmentWarnsGoingOffline(order.appointment_time)
+    );
   }
   return false;
 }

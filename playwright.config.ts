@@ -16,6 +16,10 @@ function loadEnvAndResolveBrowsersPath(): void {
 
 loadEnvAndResolveBrowsersPath();
 
+const defaultBaseURL = (process.env.VITE_APP_URL || 'http://localhost:8081').replace(/\/$/, '');
+process.env.PW_APP_URL = process.env.PW_APP_URL || defaultBaseURL;
+process.env.VITE_APP_URL = defaultBaseURL;
+
 export default defineConfig({
   testDir: './tests',
   timeout: 45000,
@@ -24,10 +28,10 @@ export default defineConfig({
   },
   retries: 1,
   workers: 1,
-  // Prod smoke needs :4173 + .env.test.prod — run via playwright.prod-smoke.config.ts
-  testIgnore: ['**/prod-vendor-wizard-smoke.spec.ts'],
+  // Prod-only specs: run via playwright.prod-smoke / playwright.prod-full configs.
+  testIgnore: ['**/prod-vendor-wizard-smoke.spec.ts', '**/prod-full-connect.spec.ts'],
   use: {
-    baseURL: process.env.VITE_APP_URL || 'http://localhost:8081',
+    baseURL: process.env.PW_APP_URL || defaultBaseURL,
     headless: true,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

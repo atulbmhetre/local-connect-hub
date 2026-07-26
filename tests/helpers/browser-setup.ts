@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { loginAsCustomer, mintBrowserSupabaseSession } from './setup';
 import {
   getAnonKey,
+  getAppUrl,
   getServiceRoleClient,
   getSupabaseUrl,
   loadTestEnv,
@@ -11,7 +12,7 @@ import {
 
 loadTestEnv();
 
-export const APP_URL = process.env.VITE_APP_URL || 'http://localhost:8080';
+export const APP_URL = getAppUrl();
 export const RADAR_DELIVERY_URL = `${APP_URL}/radar?mode=delivery`;
 
 /** Radar with delivery mode selected (default /radar is help-only). */

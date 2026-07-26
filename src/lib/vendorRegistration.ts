@@ -77,7 +77,8 @@ export function looksLikeGibberish(s: string): boolean {
   if (t.length < 2) return true;
   const nonLatin = hasSignificantNonLatinScript(raw);
   if (!nonLatin && !/[aeiouy]/.test(t)) return true;
-  if (/(.)\1{3,}/.test(t)) return true;
+  // Repeated letters only — shop/plot/phone numbers often contain digit runs (0000, 1111).
+  if (/(\p{L})\1{3,}/u.test(raw)) return true;
   if (!nonLatin) {
     if (/^[asdfghjkl;]+$/.test(t) && t.length > 4) return true;
     if (/^[qwertyuiop]+$/.test(t) && t.length > 4) return true;

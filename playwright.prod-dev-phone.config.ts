@@ -5,9 +5,9 @@ import dotenv from 'dotenv';
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(projectRoot, '.env.test.prod'), override: true });
-process.env.VITE_APP_URL = 'http://127.0.0.1:4173';
-
 const previewUrl = 'http://127.0.0.1:4173';
+process.env.PW_APP_URL = previewUrl;
+process.env.VITE_APP_URL = previewUrl;
 
 /**
  * PROD verification for admin-gated Settings phone override (DEV-PHONE-01/02).
