@@ -4371,8 +4371,10 @@ const Settings = () => {
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
             <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
             <AlertDialogAction
+              data-testid="settings-clear-data-confirm"
               onClick={(e) => {
                 e.preventDefault();
+                setClearDataOpen(false);
                 void reset();
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
