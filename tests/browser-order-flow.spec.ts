@@ -476,5 +476,7 @@ test('UI-SETTINGS-03: language select visible after expanding preferences', asyn
 test('UI-SETTINGS-04: account standing row visible for customer', async ({ page }) => {
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await expect(page.getByTestId('settings-account-standing-toggle')).toBeVisible({ timeout: 8000 });
+  await page.getByTestId('settings-account-standing-toggle').click();
   await expect(page.getByTestId('account-standing-row')).toBeVisible({ timeout: 8000 });
 });

@@ -1219,31 +1219,17 @@ const VendorMode = () => {
 
       {!vendorId && !alreadyRegistered && (
         <>
-          <VendorRegistrationWizard
-            onRegistered={(id, phone) => void handleWizardRegistered(id, phone)}
-            onDuplicatePhone={handleDuplicateRegistrationPhone}
-            setParentError={setError}
-          />
-
           <div
             ref={alreadyRegisteredRef}
             className={cn(
-              "rounded-2xl transition-colors",
+              "rounded-2xl transition-colors mb-2",
               highlightAlreadyRegistered &&
                 "ring-2 ring-amber-500 border border-amber-500/50 bg-amber-500/10 animate-pulse px-2 -mx-2",
             )}
           >
-            <div className="relative py-6 animate-fade-up">
-              <div className="absolute inset-0 flex items-center" aria-hidden>
-                <span className="w-full border-t border-border" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase tracking-wider">
-                <span className="bg-background px-3 text-muted-foreground">{s.vendor_or}</span>
-              </div>
-            </div>
-
             <button
               type="button"
+              data-testid="vendor-already-registered-link"
               onClick={() => {
                 setAlreadyRegistered(true);
                 setLookupError(null);
@@ -1252,7 +1238,22 @@ const VendorMode = () => {
             >
               {s.vendor_already_registered}
             </button>
+
+            <div className="relative py-4 animate-fade-up">
+              <div className="absolute inset-0 flex items-center" aria-hidden>
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase tracking-wider">
+                <span className="bg-background px-3 text-muted-foreground">{s.vendor_or}</span>
+              </div>
+            </div>
           </div>
+
+          <VendorRegistrationWizard
+            onRegistered={(id, phone) => void handleWizardRegistered(id, phone)}
+            onDuplicatePhone={handleDuplicateRegistrationPhone}
+            setParentError={setError}
+          />
         </>
       )}
 

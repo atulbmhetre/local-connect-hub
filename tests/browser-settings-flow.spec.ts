@@ -90,12 +90,15 @@ test('SET-06: language selector is interactive and reflects current language', a
 test('SET-07: account standing row visible for customer', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await expect(page.getByTestId('settings-account-standing-toggle')).toBeVisible({ timeout: 8000 });
+  await page.getByTestId('settings-account-standing-toggle').click();
   await expect(page.getByTestId('account-standing-row')).toBeVisible({ timeout: 8000 });
 });
 
 test('SET-08: account standing shows good status for new user', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await page.getByTestId('settings-account-standing-toggle').click();
   const standingRow = page.getByTestId('account-standing-row');
   await expect(standingRow).toBeVisible({ timeout: 8000 });
   const text = await standingRow.textContent();

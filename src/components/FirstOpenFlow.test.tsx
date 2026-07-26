@@ -220,7 +220,7 @@ describe("FirstOpenFlow restore", () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 3000 });
   });
 
-  it("shows no account found and completes for unknown phone", async () => {
+  it("shows no account found and requires a Continue tap (does not auto-advance)", async () => {
     const onComplete = vi.fn();
 
     render(<FirstOpenFlow onComplete={onComplete} />);
@@ -231,8 +231,22 @@ describe("FirstOpenFlow restore", () => {
     });
     fireEvent.click(screen.getByTestId("firstopen-restore-cta"));
 
-    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(screen.getByTestId("firstopen-restore-message")).toHaveTextContent(
+        strings.en.firstopen_no_account,
+      );
+    });
+    expect(screen.getByTestId("firstopen-no-account-continue")).toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+
+    // Former auto-advance was 800ms — stay put well past that without a tap.
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(screen.getByTestId("firstopen-restore-message")).toBeInTheDocument();
     expect(localStorage.getItem("aaspaas:user_phone")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("firstopen-no-account-continue"));
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
   }, 10_000);
 
   it("restores vendor session for active vendor phone", async () => {

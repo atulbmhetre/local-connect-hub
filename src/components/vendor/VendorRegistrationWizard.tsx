@@ -932,7 +932,11 @@ export function VendorRegistrationWizard({
     upiBlurred && upi.trim().length > 0 && !upiFmtOk ? s.vendor_upi_id_format_invalid : undefined;
 
   return (
-    <form onSubmit={register} className="space-y-4 animate-fade-up">
+    <form
+      onSubmit={register}
+      className="space-y-4 animate-fade-up"
+      data-testid="vendor-registration-wizard"
+    >
       <p className="text-xs text-center text-muted-foreground uppercase tracking-wider">
         {s.reg_wizard_step(regPage, 2)}
       </p>

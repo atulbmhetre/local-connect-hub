@@ -102,6 +102,28 @@
 
 ## 2. Identity / account / session binding — do second
 
+### HIGH PRIORITY — Client identity writes vs OTP (not a config flip)
+
+> **Turning `OTP_ENABLED` on affects only `FirstOpenFlow`'s restore path today.**  
+> Every other identity-write location in the app remains completely unverified regardless of that flag. Real development work (not configuration) is required across `PhoneEntrySheet` and `VendorMode` before OTP is meaningfully “on” anywhere that matters. Repo-wide, `requestPhoneOtp` / `verifyPhoneOtp` are only imported by FirstOpen; PhoneEntrySheet and VendorMode never call them.
+
+#### Class A — No OTP wiring at all (more severe than FirstOpen ordering)
+
+Highest-traffic and vendor paths write `saveUserPhone` / `aaspaas:vendor_id` with **zero** OTP UI or helpers. Flipping FirstOpen’s flag leaves these untouched.
+
+| Done | Surface | Trusts today | Post-OTP fix |
+|:---:|---|---|---|
+| ☐ | **`PhoneEntrySheet`** (`src/components/PhoneEntrySheet.tsx`) — highest-traffic customer identity write | `completePhoneFlow` → `saveUserPhone` immediately (also on lookup error / “Welcome back” continue). **No** `OTP_ENABLED`, **no** `requestPhoneOtp` / `verifyPhoneOtp`, **no** verify UI. Prod call sites both use `skipRecovery`: **ParchiSheet** (first order) and **RadarVendorCard** (first save-vendor); each then runs `migrateUserPhone` after the sheet already saved the phone. | Build real verification UI from scratch on this sheet (request → verify → only then `saveUserPhone` / `onConfirmed`). Gate parent `migrateUserPhone` / order / save on verified session. Do not treat FirstOpen’s flag as covering this path. |
+| ☐ | **`VendorMode` registration** (`handleWizardRegistered` after `VendorRegistrationWizard`) | `saveUserPhone(vendorPhone)` + `localStorage` `aaspaas:vendor_id` on success; no OTP | Require verified session (or post-registration OTP) before writing phone / vendor_id; align with session-vendor model |
+| ☐ | **`VendorMode` “Find my account” login** (`lookupVendorByPhone` → `get_vendor_by_phone_login`) | Knowing the phone → `saveUserPhone` + set `vendor_id`; no OTP | OTP (or equivalent) before session restore; stop treating phone string alone as credential |
+| ☐ | **`VendorMode` legacy phone backfill** (stored `vendor_id`, missing phone → public `vendors` read) | `saveUserPhone(ownPhone)` from discoverable row; no OTP | Do not backfill identity from a public read; require session / verified login |
+
+#### Class B — OTP wired, but identity written before / regardless of OTP outcome
+
+| Done | Surface | Trusts today | Post-OTP fix |
+|:---:|---|---|---|
+| ☐ | **`FirstOpenFlow` restore path** (`src/components/FirstOpenFlow.tsx`) | On `hasAccount`, writes local identity **before** any OTP step: `saveUserPhone` → `migrateUserPhone` → `restoreVendorSession`, then (if `OTP_ENABLED`) may move to `otp_pending`. Flow still completes on OTP **success, request failure, or Skip**. Only place the flag does anything — and it still does not close impersonation. | **Reorder:** request + verify OTP **first**; only on successful `verifyPhoneOtp` run identity writes. Do not write identity on OTP fail or Skip. Hard-gate skip/fallback for real cutover. |
+
 | Done | RPC | Trusts today | Post-OTP fix |
 |:---:|---|---|---|
 | ☐ | `ensure_user_device_link` | Caller supplies phone + device; links them | Session phone only; device attaches to `auth.uid()` |
@@ -272,7 +294,7 @@
 1. ☐ Land Auth OTP so real users have `auth.uid()` + phone claim.  
 2. ☐ Ship §0 helper changes (feature-flag or hard cut).  
 3. ☐ Migrate §1 money RPCs + client bill/khata/order call sites.  
-4. ☐ Migrate §2 identity/account RPCs + FirstOpen / device link.  
+4. ☐ Migrate §2 identity/account RPCs + **client identity OTP work** (PhoneEntrySheet + VendorMode Class A from scratch; FirstOpen Class B reorder) — not an `OTP_ENABLED` flip.  
 5. ☐ Migrate §3 reads/social.  
 6. ☐ Migrate §4 storage to signed or path-scoped session uploads; remove bucket-wide `TO anon` INSERT/UPDATE.  
 7. ☐ Strip phone/device **credentials** from client RPC payloads (keep only where still needed as non-auth data).  
@@ -288,7 +310,7 @@
 |---|---|
 | §0 Helpers | 6 |
 | §1 Money-adjacent | ~40 |
-| §2 Identity/account | ~35 |
+| §2 Identity/account | ~40 (incl. Class A PhoneEntrySheet/VendorMode + Class B FirstOpen) |
 | §3 Lower-stakes | ~55 |
 | §4 Storage + app upload sites | ~10 |
 | §5 Client identity | 4 |

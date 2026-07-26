@@ -217,6 +217,8 @@ test('SET-REQ-01 — Customer Settings shows correct sections', async ({ page })
   await gotoSettings(page);
 
   await expect(page.getByRole('button', { name: L.myAccount })).toBeVisible();
+  await expect(page.getByTestId('settings-account-standing-toggle')).toBeVisible();
+  await page.getByTestId('settings-account-standing-toggle').click();
   await expect(page.getByTestId('account-standing-row')).toBeVisible();
   await expect(page.getByText(L.accountStanding)).toBeVisible();
   await expect(page.getByRole('button', { name: /My Delivery Addresses/ })).toBeVisible();
@@ -243,6 +245,7 @@ test('SET-REQ-03 — Account standing shows good status for new customer', async
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await gotoSettings(page);
 
+  await page.getByTestId('settings-account-standing-toggle').click();
   const row = page.getByTestId('account-standing-row');
   await expect(row.getByText(L.goodStanding)).toBeVisible();
   await expect(row.getByText(L.banned)).not.toBeVisible();
@@ -257,6 +260,7 @@ test('SET-REQ-04 — Banned customer sees banned indicator in account standing',
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await gotoSettings(page);
 
+  await page.getByTestId('settings-account-standing-toggle').click();
   const row = page.getByTestId('account-standing-row');
   await expect(row.getByText(L.banned)).toBeVisible();
   await expect(row.getByText(L.goodStanding)).not.toBeVisible();
@@ -270,6 +274,7 @@ test('SET-REQ-05 — Warned customer (warn_count=2) sees warning indicator', asy
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await gotoSettings(page);
 
+  await page.getByTestId('settings-account-standing-toggle').click();
   const row = page.getByTestId('account-standing-row');
   await expect(row.getByText(L.fairStanding)).toBeVisible();
   await expect(row.getByText(L.goodStanding)).not.toBeVisible();

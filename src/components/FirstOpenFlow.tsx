@@ -82,6 +82,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const [inlineTone, setInlineTone] = useState<"success" | "error" | "muted" | "warning">(
     "muted",
   );
+  const [awaitingNoAccountContinue, setAwaitingNoAccountContinue] = useState(false);
   const [otpValue, setOtpValue] = useState("");
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
@@ -100,6 +101,31 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
     onComplete();
   }, [step, onComplete]);
 
+  const proceedAfterRestoreLookup = (digits: string) => {
+    if (OTP_ENABLED) {
+      void (async () => {
+        const otpResult = await requestPhoneOtp(digits);
+        if (otpResult.success) {
+          setOtpPhone(digits);
+          setStep("otp_pending");
+        } else {
+          console.warn('[Phase D] OTP fallback to localStorage path — no Supabase session established');
+          console.warn("[Phase B] OTP request failed, falling back:", otpResult.error);
+          goToNotificationStep();
+        }
+      })();
+    } else {
+      goToNotificationStep();
+    }
+  };
+
+  const handleNoAccountContinue = () => {
+    const digits = normalizePhoneDigits(phoneValue);
+    setAwaitingNoAccountContinue(false);
+    setInlineMessage(null);
+    proceedAfterRestoreLookup(digits);
+  };
+
   const handleRestore = async () => {
     const digits = normalizePhoneDigits(phoneValue);
     if (digits.length !== 10 || !/^[6-9]/.test(digits)) {
@@ -110,6 +136,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
     setRestoreLoading(true);
     setInlineMessage(null);
+    setAwaitingNoAccountContinue(false);
 
     try {
       const [usersResult, vendorStatusResult] = await Promise.all([
@@ -183,21 +210,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
         setRestoreLoading(false);
         window.setTimeout(() => {
-          if (OTP_ENABLED) {
-            void (async () => {
-              const otpResult = await requestPhoneOtp(digits);
-              if (otpResult.success) {
-                setOtpPhone(digits);
-                setStep("otp_pending");
-              } else {
-                console.warn('[Phase D] OTP fallback to localStorage path — no Supabase session established');
-                console.warn("[Phase B] OTP request failed, falling back:", otpResult.error);
-                goToNotificationStep();
-              }
-            })();
-          } else {
-            goToNotificationStep();
-          }
+          proceedAfterRestoreLookup(digits);
         }, 1200);
         return;
       }
@@ -206,23 +219,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       setInlineMessage(s.firstopen_no_account);
       setInlineTone("muted");
       setRestoreLoading(false);
-      window.setTimeout(() => {
-        if (OTP_ENABLED) {
-          void (async () => {
-            const otpResult = await requestPhoneOtp(digits);
-            if (otpResult.success) {
-              setOtpPhone(digits);
-              setStep("otp_pending");
-            } else {
-              console.warn('[Phase D] OTP fallback to localStorage path — no Supabase session established');
-              console.warn("[Phase B] OTP request failed, falling back:", otpResult.error);
-              goToNotificationStep();
-            }
-          })();
-        } else {
-          goToNotificationStep();
-        }
-      }, 800);
+      setAwaitingNoAccountContinue(true);
       return;
     } catch (err) {
       captureError(err, { scope: "firstOpen.restore", phoneSuffix: digits.slice(-4) });
@@ -336,8 +333,9 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
               onChange={(e) => {
                 setPhoneValue(e.target.value.replace(/\D/g, "").slice(0, 10));
                 setInlineMessage(null);
+                setAwaitingNoAccountContinue(false);
               }}
-              disabled={restoreLoading}
+              disabled={restoreLoading || awaitingNoAccountContinue}
               className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground/50"
               autoFocus
             />
@@ -358,21 +356,32 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             </p>
           )}
 
-          <button
-            type="button"
-            data-testid="firstopen-restore-cta"
-            disabled={restoreLoading}
-            onClick={() => void handleRestore()}
-            className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
-          >
-            {restoreLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              </>
-            ) : (
-              s.firstopen_restore_cta
-            )}
-          </button>
+          {awaitingNoAccountContinue ? (
+            <button
+              type="button"
+              data-testid="firstopen-no-account-continue"
+              onClick={handleNoAccountContinue}
+              className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+            >
+              {s.firstopen_no_account_continue}
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="firstopen-restore-cta"
+              disabled={restoreLoading}
+              onClick={() => void handleRestore()}
+              className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
+            >
+              {restoreLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                </>
+              ) : (
+                s.firstopen_restore_cta
+              )}
+            </button>
+          )}
 
           <button
             type="button"
@@ -380,6 +389,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             disabled={restoreLoading}
             onClick={() => {
               setInlineMessage(null);
+              setAwaitingNoAccountContinue(false);
               setStep("chooser");
             }}
             className="mt-4 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"

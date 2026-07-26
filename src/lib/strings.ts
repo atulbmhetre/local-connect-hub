@@ -28,6 +28,7 @@ export const strings = {
     firstopen_restore_partial:
       'Account restored, but some of your saved data could not be linked. Pull to refresh or try again later.',
     firstopen_no_account: 'No account found. Starting fresh.',
+    firstopen_no_account_continue: 'Continue',
     firstopen_restore_error: 'Something went wrong. Please try again.',
     firstopen_notif_title: 'Stay updated on your orders',
     firstopen_notif_body:
@@ -358,7 +359,7 @@ export const strings = {
     vendor_golive_prompt_body:
       "Tap the power button above to go live. Customers can only find you when you're live.",
     vendor_duplicate_phone:
-      "This number is already registered. Use 'Already registered?' below to find your shop.",
+      "This number is already registered. Use 'Already registered?' above to find your shop.",
     vendor_registration_rate_limited:
       'Too many attempts. Please wait a few minutes and try again.',
     vendor_admin_notify_title: '🏪 New vendor registered',
@@ -1672,6 +1673,7 @@ export const strings = {
     firstopen_restore_partial:
       'खाता पुनर्स्थापित हो गया, लेकिन कुछ सहेजा डेटा लिंक नहीं हो सका। बाद में पुनः प्रयास करें।',
     firstopen_no_account: 'कोई खाता नहीं मिला। नए सिरे से शुरू कर रहे हैं।',
+    firstopen_no_account_continue: 'जारी रखें',
     firstopen_restore_error: 'कुछ गलत हो गया। कृपया पुनः प्रयास करें।',
     firstopen_notif_title: 'अपने ऑर्डर पर अपडेट रहें',
     firstopen_notif_body:
@@ -2002,7 +2004,7 @@ export const strings = {
     vendor_golive_prompt_body:
       'लाइव होने के लिए ऊपर पावर बटन दबाएं। जब आप लाइव हों तभी ग्राहक आपको खोज सकते हैं।',
     vendor_duplicate_phone:
-      "यह नंबर पहले से पंजीकृत है। अपनी दुकान खोजने के लिए नीचे 'पहले से पंजीकृत?' उपयोग करें।",
+      "यह नंबर पहले से पंजीकृत है। अपनी दुकान खोजने के लिए ऊपर 'पहले से पंजीकृत?' उपयोग करें।",
     vendor_registration_rate_limited:
       'बहुत अधिक प्रयास। कृपया कुछ मिनट प्रतीक्षा करें और पुनः प्रयास करें।',
     vendor_admin_notify_title: '🏪 नया दुकानदार रजिस्टर हुआ',
@@ -3313,6 +3315,7 @@ export const strings = {
     firstopen_restore_partial:
       'खाते पुनर्स्थापित झाले, पण काही जतन केलेला डेटा लिंक होऊ शकला नाही. नंतर पुन्हा प्रयत्न करा.',
     firstopen_no_account: 'खाते सापडले नाही. नव्याने सुरू करत आहोत.',
+    firstopen_no_account_continue: 'सुरू ठेवा',
     firstopen_restore_error: 'काहीतरी चुकले. कृपया पुन्हा प्रयत्न करा.',
     firstopen_notif_title: 'तुमच्या ऑर्डरवर अपडेट राहा',
     firstopen_notif_body:
@@ -3643,7 +3646,7 @@ export const strings = {
     vendor_golive_prompt_body:
       'लाइव होण्यासाठी वरील पॉवर बटण दाबा. तुम्ही लाइव्ह असतानाच ग्राहक तुम्हाला शोधू शकतात.',
     vendor_duplicate_phone:
-      "हा नंबर आधीच नोंदणीकृत आहे. तुमचे दुकान शोधण्यासाठी खाली 'आधीच नोंदणी केली?' वापरा.",
+      "हा नंबर आधीच नोंदणीकृत आहे. तुमचे दुकान शोधण्यासाठी वर 'आधीच नोंदणी केली?' वापरा.",
     vendor_registration_rate_limited:
       'खूप प्रयत्न झाले. कृपया काही मिनिटे थांबा आणि पुन्हा प्रयत्न करा.',
     vendor_admin_notify_title: '🏪 नवीन विक्रेता नोंदणी झाली',

@@ -50,6 +50,7 @@ import {
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { stopAllVendorLocationTracking } from "@/lib/vendorBackgroundLocation";
 import { getUserPhone, clearUserPhone, ensureUserDeviceLink, saveUserPhone } from "@/lib/userIdentity";
+import { showClearMyDataSuccessThenReload } from "@/lib/clearMyDataFeedback";
 import { fetchVendorOwn } from "@/lib/vendorRead";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { logAdminAction } from "@/lib/adminAudit";
@@ -899,6 +900,7 @@ const Settings = () => {
   });
   const [addressesOpen, setAddressesOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
+  const [accountStandingOpen, setAccountStandingOpen] = useState(false);
   const [userTrust, setUserTrust] = useState<{
     trust_score: number | null;
     warn_count: number | null;
@@ -2403,8 +2405,10 @@ const Settings = () => {
       if (key?.startsWith("aaspaas:")) sessionStorage.removeItem(key);
     }
 
-    toast.success(s.settings_localDataCleared);
-    window.location.reload();
+    showClearMyDataSuccessThenReload({
+      message: s.settings_localDataCleared,
+      toastSuccess: (message) => toast.success(message),
+    });
   };
 
   const startEditAddress = (addr: (typeof addresses)[number]) => {
@@ -2699,26 +2703,33 @@ const Settings = () => {
           </div>
         </SettingsCollapsible>
 
-        <div className="px-4 py-3.5 border-b border-surface-border" data-testid="account-standing-row">
-          <p className="text-sm font-medium text-foreground">{s.settings_accountStanding}</p>
-          <span
-            className={cn(
-              "mt-2 inline-block rounded-full border px-3 py-1.5 text-xs font-semibold leading-snug",
-              accountStanding.tone === "banned" &&
-                "bg-destructive/10 text-destructive border-destructive/30",
-              accountStanding.tone === "complaints" &&
-                "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
-              accountStanding.tone === "fair" &&
-                "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
-              accountStanding.tone === "good" &&
-                "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30",
-              accountStanding.tone === "unavailable" &&
-                "bg-muted text-muted-foreground border-surface-border",
-            )}
-          >
-            {accountStanding.label}
-          </span>
-        </div>
+        <SettingsCollapsible
+          label={s.settings_accountStanding}
+          open={accountStandingOpen}
+          onToggle={() => setAccountStandingOpen((o) => !o)}
+          nested
+          testId="settings-account-standing-toggle"
+        >
+          <div className="px-4 py-3.5" data-testid="account-standing-row">
+            <span
+              className={cn(
+                "inline-block rounded-full border px-3 py-1.5 text-xs font-semibold leading-snug",
+                accountStanding.tone === "banned" &&
+                  "bg-destructive/10 text-destructive border-destructive/30",
+                accountStanding.tone === "complaints" &&
+                  "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
+                accountStanding.tone === "fair" &&
+                  "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
+                accountStanding.tone === "good" &&
+                  "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30",
+                accountStanding.tone === "unavailable" &&
+                  "bg-muted text-muted-foreground border-surface-border",
+              )}
+            >
+              {accountStanding.label}
+            </span>
+          </div>
+        </SettingsCollapsible>
 
         <SettingsCollapsible
           label={
