@@ -45,12 +45,37 @@ Pass phones from `getUserPhone()` / vendor session — never rely on RLS + JWT f
 
 ## Migrations
 
-Add new RPCs under `supabase/migrations/<timestamp>_<description>.sql`, then link and push:
+Add new RPCs under `supabase/migrations/<timestamp>_<description>.sql`, then push via the enforced wrappers (see below).
+
+### Deferred migrations (hard rule)
+
+A migration is either ready for **both** TEST and PROD, or it must **not** exist under `supabase/migrations/`.
+
+| Location | CLI behavior |
+|----------|----------------|
+| `supabase/migrations/` | Applied by `supabase db push` in strict timestamp order |
+| `supabase/migrations-deferred/` | **Ignored** by the CLI — quarantine only |
+
+**Do not** leave a version in `migrations/` that one environment must skip. That forces direct SQL + `migration repair` for every later push.
+
+Track holds in `supabase/deferred-migrations.json` (version, path, reason, unblock criteria, which envs already applied it).
+
+**Unblock path:** when the hold clears, add a **new** idempotent migration with a **fresh** timestamp. Do **not** move the deferred file back under the old version stamp (TEST may already have that stamp recorded; reusing it recreates chronological holes on PROD).
+
+**Standing ban:** do not use `migration repair` + direct SQL to skip a pending local file as routine practice — keep deferred work out of `migrations/` instead.
+
+### Enforced push (use these, not bare `db push`)
 
 ```bash
-supabase link --project-ref hhdylnhqdzfabsolwxdz --yes   # TEST
-supabase db push --yes
-
-supabase link --project-ref rpxsyeqskvhjmbkxnpmd --yes   # PROD
-supabase db push --yes
+npm run db:push:test    # link TEST + preflight + db push
+npm run db:push:prod    # link PROD + preflight + db push
 ```
+
+`scripts/db-push.mjs` refuses to push if any version listed in `supabase/deferred-migrations.json` appears under `supabase/migrations/`. Preflight only:
+
+```bash
+node scripts/db-push.mjs test --preflight-only
+node scripts/db-push.mjs prod --preflight-only
+```
+
+Project refs: TEST `hhdylnhqdzfabsolwxdz` · PROD `rpxsyeqskvhjmbkxnpmd`.

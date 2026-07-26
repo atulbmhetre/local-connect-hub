@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "deferred": [
+    {
+      "version": "20260711180001",
+      "file": "supabase/migrations-deferred/20260711180001_retire_location_ping_cron_test.sql",
+      "reason": "Retire FCM location-ping cron (superseded by Capgo background-geolocation). Must not land on PROD until Capgo real-device GPS tracking is verified (Part L).",
+      "unblock": "After Part L Capgo real-device GPS verification: add a NEW idempotent migration with a fresh timestamp (unschedule job if present; delete location_ping_seconds). Do not move this version stamp back into supabase/migrations/.",
+      "applied_on": ["test"]
+    }
+  ]
+}

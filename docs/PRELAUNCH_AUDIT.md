@@ -22,9 +22,11 @@ These remain real launch/ops follow-ups; they are **not** open functionality-inv
 | Password-recovery Site URL | Supabase Auth recovery URL still points at localhost — fix before launch (Phase A open follow-up). |
 | `src/lib/supabase.ts` PROD fallback URL/key | Remove hardcoded PROD fallback before launch (Phase A open follow-up). |
 | Playwright admin session auth | Admin E2E still needs full session-based auth updates (Phase A open follow-up). |
-| Deferred FCM cron migration | `20260711180001` remains in `migrations-deferred/`; recurring PROD `db push` friction until Part L is verified and the migration returns to active. |
+| Deferred FCM cron (Part L only) | `20260711180001` stays in `migrations-deferred/` until Capgo real-device GPS is verified — **push-ordering friction itself is resolved** (see closing note below). |
 | Shared OrderCard | Architectural debt — customer/vendor cards diverge; both work; unify only if a future pass needs one surface. |
 | Phone-only vendor identity | Systemic OTP-off architecture remains blocked on Exotel KYC — not inventory-specific. |
+
+**Closing note (2026-07-26) — resolved follow-ups:** (1) **Khata mid-cycle guard** — `vendor_update_own` now raises `ledger_cycle_change_blocked` when changing `ledger_cycle_start` while any of that vendor’s `khata_ledger.total_outstanding > 0` (migration `20260726190001`; credit-limit edits intentionally remain unrestricted). (2) **FCM deferred-migration push friction** — fixed structurally via `docs/db-conventions.md` hard rule, `supabase/deferred-migrations.json`, and enforced `npm run db:push:test` / `db:push:prod` (wrapper refuses if a manifest version appears under `migrations/`). Do not reintroduce one-off `migration repair` skip dances for deferred holds.
 
 ---
 
@@ -192,8 +194,8 @@ Computed by mapping each Phase 2 `##` section marked fully CLOSED (not "partial"
 
 | Note | Detail |
 |------|--------|
-| `supabase/migrations-deferred/` ordering friction | Causes recurring `db push` friction against PROD — CLI enforces strict chronological application. Each push after the deferred migration's timestamp needs a manual workaround (direct SQL apply + `migration repair`). Revisit once Part L (FCM cron replacement) is verified and `20260711180001` can move back to active migrations. **This session alone: five separate PROD pushes hit the same workaround — this needs a structural decision next session, not another one-off workaround.** |
-| Confirm the linked Supabase project before every push/deploy | Run an explicit project-ref check before every `supabase db push` and `supabase functions deploy`, with no exceptions. A rate-limit migration and two edge functions were pushed to PROD before TEST verification this session because the CLI retained a stale PROD link. The outcome was low-risk and both environments were subsequently verified in sync, but the sequence violated the standing TEST-then-PROD rule. |
+| `supabase/migrations-deferred/` ordering friction | **Resolved (2026-07-26).** Hard rule in `docs/db-conventions.md` + `supabase/deferred-migrations.json` + enforced `npm run db:push:test` / `db:push:prod`. Deferred versions must not sit under `supabase/migrations/`; unblock with a fresh timestamp, never by reuse/`repair` skip. |
+| Confirm the linked Supabase project before every push/deploy | Run an explicit project-ref check before every `supabase db push` and `supabase functions deploy`, with no exceptions. A rate-limit migration and two edge functions were pushed to PROD before TEST verification this session because the CLI retained a stale PROD link. The outcome was low-risk and both environments were subsequently verified in sync, but the sequence violated the standing TEST-then-PROD rule. Prefer `npm run db:push:*` which also asserts the expected project-ref. |
 
 ## Process — Parallel Cursor Window Risk (standing rule, permanent)
 
