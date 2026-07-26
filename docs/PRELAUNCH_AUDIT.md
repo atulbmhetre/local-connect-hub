@@ -913,9 +913,9 @@ Atul reported real recurring routing and duplicate-inbox issues that the initial
 
 | Item | Notes |
 |------|-------|
-| NOTIF-RATE-01 | Investigated via real A/B; pre-existing test-harness bug — mismatched service/anon key header pairing against TEST's `sb_`-style keys causes an early 401 before rate-limit logic runs. Not a product regression; flagged for future test-infra cleanup. |
 | IO-DEL-02 | Investigated via real A/B against pre-session code; fails identically (`incoming-accept-btn` not found) — same class as IO-DEL-01/05. Confirmed pre-existing / unrelated; not fixed in this pass. |
-| NR-TEST-03 | **A/B-confirmed 2026-07-22:** `network-retry.spec.ts` TEST 3 (My Business service radius retries) — both cases fail identically on clean HEAD (`155e3c3`, full Batch 2 stash) and with Batch 2 applied. Failure: Sonner retry/exhausted toasts never appear after `my-business-save` + aborted `vendor_update_own` route mock (`Connection is slow — still trying…` / `Couldn't connect…`). Not caused by Clear My Data / Settings vendor-load retry changes; flagged for future triage (likely My Business save path or toast wiring vs route abort harness). |
+
+Previously standing here and now closed (post-inventory regression sweep, 2026-07-24 / 2026-07-25): **NOTIF-RATE-01** (`invokeNotifyUser` pairs both headers with the service key — no more Conflicting API keys 401) and **NR-TEST-03** (`network-retry.spec.ts` TEST 3 aborts `vendor_update_profile_and_categories`, matching My Business save).
 
 ## App Shell & Bottom Navigation, 404, Privacy Page, Network Error Banner — CLOSED (TEST + PROD, frontend-only)
 
