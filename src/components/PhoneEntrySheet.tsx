@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Sheet,
@@ -11,6 +11,7 @@ import {
   migrateUserPhone,
   restoreVendorSession,
   saveUserPhone,
+  getUserPhone,
 } from "@/lib/userIdentity";
 import { recordUserReferral } from "@/lib/referral";
 import { getDeviceId } from "@/lib/deviceId";
@@ -18,7 +19,7 @@ import { useLanguage } from "@/lib/language";
 import { captureError } from "@/lib/sentry";
 import { supabase } from "@/lib/supabase";
 
-export type PhoneEntryContext = "order" | "save";
+export type PhoneEntryContext = "order" | "save" | "settings";
 
 type Props = {
   isOpen: boolean;
@@ -115,8 +116,21 @@ export function PhoneEntrySheet({
   const [isChecking, setIsChecking] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setValue("");
+    setError("");
+    setExistingAccount(null);
+    setIsChecking(false);
+    setIsRestoring(false);
+  }, [isOpen]);
+
   const contextLine =
-    context === "save" ? s.phone_entry_save_context : s.phone_entry_order_context;
+    context === "save"
+      ? s.phone_entry_save_context
+      : context === "settings"
+        ? s.phone_entry_settings_context
+        : s.phone_entry_order_context;
 
   const completePhoneFlow = (normalized: string) => {
     saveUserPhone(normalized);
@@ -134,6 +148,11 @@ export function PhoneEntrySheet({
     setIsChecking(true);
     setError("");
     try {
+      // Same number already on this device — no need to re-run safety net.
+      if (digits === getUserPhone()?.trim()) {
+        onConfirmed(digits);
+        return;
+      }
       const { banned, hit, error: lookupFailed } = await lookupExistingAccount(digits);
       if (banned) {
         setError(s.customer_account_banned);

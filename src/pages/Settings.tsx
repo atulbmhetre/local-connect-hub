@@ -49,8 +49,9 @@ import {
 } from "@/lib/withNetworkRetry";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { stopAllVendorLocationTracking } from "@/lib/vendorBackgroundLocation";
-import { getUserPhone, clearUserPhone, ensureUserDeviceLink, saveUserPhone } from "@/lib/userIdentity";
+import { getUserPhone, clearUserPhone, ensureUserDeviceLink, saveUserPhone, migrateUserPhone } from "@/lib/userIdentity";
 import { showClearMyDataSuccessThenReload } from "@/lib/clearMyDataFeedback";
+import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { fetchVendorOwn } from "@/lib/vendorRead";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { logAdminAction } from "@/lib/adminAudit";
@@ -736,10 +737,13 @@ const Settings = () => {
   const getServiceModeLabel = useServiceModeLabel();
   const [titleTaps, setTitleTaps] = useState(0);
   const [adminTabRevealed, setAdminTabRevealed] = useState(false);
+  const [identityNonce, setIdentityNonce] = useState(0);
   const userPhone = getUserPhone();
+  void identityNonce;
   const deviceId = getDeviceId();
   const vendorId = localStorage.getItem("aaspaas:vendor_id");
   const isVendor = Boolean(vendorId?.trim());
+  const [phoneEntryOpen, setPhoneEntryOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminAuthChecked, setAdminAuthChecked] = useState(false);
   const [adminLoginEmail, setAdminLoginEmail] = useState("");
@@ -901,6 +905,7 @@ const Settings = () => {
   const [addressesOpen, setAddressesOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
   const [accountStandingOpen, setAccountStandingOpen] = useState(false);
+  const [feedDiscoveryOpen, setFeedDiscoveryOpen] = useState(false);
   const [userTrust, setUserTrust] = useState<{
     trust_score: number | null;
     warn_count: number | null;
@@ -2681,7 +2686,38 @@ const Settings = () => {
           testId="settings-identity-toggle"
         >
           <div className="px-4 py-3.5">
-            {identityPhone != null ? (
+            {!vendorId ? (
+              (userPhone ?? "").trim() ? (
+                <div>
+                  <p className="text-sm font-medium text-foreground" data-testid="settings-identity-phone">
+                    {s.settings_phonePrefix}
+                    {(userPhone ?? "").trim()}
+                  </p>
+                  <p className="text-xs text-brand mt-1">{s.settings_registered}</p>
+                  <button
+                    type="button"
+                    data-testid="settings-change-phone"
+                    onClick={() => setPhoneEntryOpen(true)}
+                    className="mt-3 text-sm font-semibold text-brand active:opacity-80"
+                  >
+                    {s.settings_changePhone}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm font-medium text-foreground">{s.settings_noPhone}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{s.settings_noPhoneHint}</p>
+                  <button
+                    type="button"
+                    data-testid="settings-add-phone"
+                    onClick={() => setPhoneEntryOpen(true)}
+                    className="mt-3 w-full rounded-xl border border-brand/40 bg-brand/10 py-2.5 text-sm font-semibold text-brand active:opacity-90"
+                  >
+                    {s.settings_addPhone}
+                  </button>
+                </div>
+              )
+            ) : identityPhone != null ? (
               <div>
                 <p className="text-sm font-medium text-foreground">
                   {s.settings_phonePrefix}
@@ -2915,6 +2951,47 @@ const Settings = () => {
           />
         </SettingsRow>
         </SettingsCollapsible>
+
+        <SettingsCollapsible
+          label={s.nav_feed}
+          open={feedDiscoveryOpen}
+          onToggle={() => setFeedDiscoveryOpen((o) => !o)}
+          nested
+          testId="settings-feed-discovery-toggle"
+        >
+          <div data-testid="settings-feed-discovery">
+            {/* Account-level only (app_users.feed_discovery_radius_km) — never per-category. */}
+            <SettingsRow
+              label={s.settings_feedDiscoveryRadius}
+              sublabel={s.settings_feedDiscoveryRadiusHint}
+            />
+            <div className="px-4 pb-3.5">
+              <FeedReachChips
+                mode="reader"
+                value={feedDiscoveryRadiusKm}
+                onChange={(km) => void onFeedDiscoveryRadiusChange(km)}
+                disabled={!userPhone}
+              />
+            </div>
+            {/*
+              Feed push notifications use FCM, which is not available on web. This toggle
+              controls push notification preference and is meaningless on a platform that
+              cannot receive push notifications. Native-only by design.
+            */}
+            {Capacitor.isNativePlatform() && (
+              <SettingsRow
+                label={s.settings_feedNotifications}
+                sublabel={s.settings_feedNotificationsHint}
+              >
+                <Switch
+                  className="data-[state=checked]:bg-brand"
+                  checked={feedNotificationsEnabled}
+                  onCheckedChange={onFeedNotificationsChange}
+                />
+              </SettingsRow>
+            )}
+          </div>
+        </SettingsCollapsible>
       </SettingsParentCollapsible>
 
       {vendorId && (
@@ -3087,39 +3164,6 @@ const Settings = () => {
           </AlertDialog>
         </>
       )}
-
-      <SettingsCard className="mx-4 mb-3 border-surface-border" data-testid="settings-feed-discovery">
-        {/* Account-level only (app_users.feed_discovery_radius_km) — never per-category. */}
-        <SettingsRow
-          label={s.settings_feedDiscoveryRadius}
-          sublabel={s.settings_feedDiscoveryRadiusHint}
-        />
-        <div className="px-4 pb-3.5">
-          <FeedReachChips
-            mode="reader"
-            value={feedDiscoveryRadiusKm}
-            onChange={(km) => void onFeedDiscoveryRadiusChange(km)}
-            disabled={!userPhone}
-          />
-        </div>
-        {/*
-          Feed push notifications use FCM, which is not available on web. This toggle
-          controls push notification preference and is meaningless on a platform that
-          cannot receive push notifications. Native-only by design.
-        */}
-        {Capacitor.isNativePlatform() && (
-          <SettingsRow
-            label={s.settings_feedNotifications}
-            sublabel={s.settings_feedNotificationsHint}
-          >
-            <Switch
-              className="data-[state=checked]:bg-brand"
-              checked={feedNotificationsEnabled}
-              onCheckedChange={onFeedNotificationsChange}
-            />
-          </SettingsRow>
-        )}
-      </SettingsCard>
 
       <SettingsParentCollapsible
         label={s.settings_connection_privacy}
@@ -4674,6 +4718,22 @@ const Settings = () => {
         </div>
       )}
       </div>
+
+      <PhoneEntrySheet
+        isOpen={phoneEntryOpen}
+        onClose={() => setPhoneEntryOpen(false)}
+        context="settings"
+        skipRecovery
+        onConfirmed={(phone) => {
+          void (async () => {
+            await migrateUserPhone(phone, getDeviceId());
+            void ensureUserDeviceLink(phone);
+            setPhoneEntryOpen(false);
+            setIdentityNonce((n) => n + 1);
+            toast.success(s.settings_phoneSaved);
+          })();
+        }}
+      />
     </AppShell>
   );
 };

@@ -145,4 +145,32 @@ describe("PhoneEntrySheet existing-account safety net", () => {
       expect(screen.getByTestId("phone-entry-existing-restore")).toBeInTheDocument();
     });
   });
+
+  it("settings context shows settings helper copy and still offers restore", async () => {
+    mockUsersData.set({ total_orders: 2 });
+
+    render(
+      <PhoneEntrySheet
+        isOpen
+        onClose={() => {}}
+        onConfirmed={vi.fn()}
+        context="settings"
+        skipRecovery
+      />,
+    );
+
+    expect(screen.getByText(strings.en.phone_entry_settings_context)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(strings.en.phone_entry_placeholder), {
+      target: { value: "9876543210" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: strings.en.phone_entry_continue }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("phone-entry-existing-title")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("phone-entry-existing-continue")).toHaveTextContent(
+      strings.en.firstopen_existing_continue,
+    );
+  });
 });

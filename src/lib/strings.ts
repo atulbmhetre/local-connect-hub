@@ -53,6 +53,8 @@ export const strings = {
       'Your number helps the vendor contact you and track your order.',
     phone_entry_save_context:
       'Save your number to keep your neighbourhood list across devices.',
+    phone_entry_settings_context:
+      'Add your number so orders and Local Feed posts stay linked to you.',
     phone_entry_title: 'Enter your mobile number',
     phone_entry_subtitle:
       'So the vendor can reach you and your orders are saved across devices.',
@@ -843,7 +845,10 @@ export const strings = {
     settings_phonePrefix: '📞 ',
     settings_registered: 'Registered — orders sync across devices',
     settings_noPhone: 'No phone registered yet',
-    settings_noPhoneHint: 'Save a vendor or send an order to register',
+    settings_noPhoneHint: 'Add your number here, or save a vendor / place an order.',
+    settings_addPhone: 'Add phone number',
+    settings_changePhone: 'Change phone number',
+    settings_phoneSaved: 'Phone number saved',
     settings_devicePrefix: 'Device: ',
     settings_deviceEllipsis: '…',
     settings_myDeliveryAddresses: '📍 My Delivery Addresses',
@@ -1706,6 +1711,8 @@ export const strings = {
       'आपका नंबर विक्रेता को आपसे संपर्क करने और ऑर्डर ट्रैक करने में मदद करता है।',
     phone_entry_save_context:
       'अपने पड़ोस की सूची सभी डिवाइस पर रखने के लिए अपना नंबर सेव करें।',
+    phone_entry_settings_context:
+      'अपना नंबर जोड़ें ताकि ऑर्डर और लोकल फ़ीड पोस्ट आपके से जुड़ी रहें।',
     phone_entry_title: 'अपना मोबाइल नंबर दर्ज करें',
     phone_entry_subtitle:
       'ताकि विक्रेता आपसे संपर्क कर सके और आपके ऑर्डर सभी डिवाइस पर सुरक्षित रहें।',
@@ -2493,7 +2500,10 @@ export const strings = {
     settings_phonePrefix: '📞 ',
     settings_registered: 'पंजीकृत — ऑर्डर सभी डिवाइस पर दिखेंगे',
     settings_noPhone: 'अभी तक फोन नंबर नहीं जुड़ा',
-    settings_noPhoneHint: 'पंजीकरण के लिए कोई दुकानदार सेव करें या ऑर्डर भेजें',
+    settings_noPhoneHint: 'यहाँ अपना नंबर जोड़ें, या दुकानदार सेव / ऑर्डर भेजें।',
+    settings_addPhone: 'फोन नंबर जोड़ें',
+    settings_changePhone: 'फोन नंबर बदलें',
+    settings_phoneSaved: 'फोन नंबर सेव हो गया',
     settings_devicePrefix: 'डिवाइस: ',
     settings_deviceEllipsis: '…',
     settings_myDeliveryAddresses: '📍 मेरे डिलीवरी पते',
@@ -3356,6 +3366,8 @@ export const strings = {
       'तुमचा नंबर विक्रेत्याला तुमच्याशी संपर्क साधण्यास आणि ऑर्डर ट्रॅक करण्यास मदत करतो.',
     phone_entry_save_context:
       'तुमची शेजारची यादी सर्व डिव्हाइसवर ठेवण्यासाठी तुमचा नंबर सेव करा.',
+    phone_entry_settings_context:
+      'तुमचा नंबर जोडा जेणेकरून ऑर्डर आणि लोकल फीड पोस्ट तुमच्याशी जोडल्या राहतील.',
     phone_entry_title: 'तुमचा मोबाइल नंबर प्रविष्ट करा',
     phone_entry_subtitle:
       'जेणेकरून विक्रेता तुमच्याशी संपर्क साधू शकेल आणि तुमच्या ऑर्डर सर्व डिव्हाइसवर सुरक्षित राहतील.',
@@ -4143,7 +4155,10 @@ export const strings = {
     settings_phonePrefix: '📞 ',
     settings_registered: 'नोंदणीकृत — ऑर्डर सर्व डिव्हाइसवर दिसतील',
     settings_noPhone: 'अद्याप फोन नोंदणी नाही',
-    settings_noPhoneHint: 'नोंदणीसाठी विक्रेता जतन करा किंवा ऑर्डर पाठवा',
+    settings_noPhoneHint: 'येथे तुमचा नंबर जोडा, किंवा विक्रेता जतन / ऑर्डर पाठवा.',
+    settings_addPhone: 'फोन नंबर जोडा',
+    settings_changePhone: 'फोन नंबर बदला',
+    settings_phoneSaved: 'फोन नंबर जतन झाला',
     settings_devicePrefix: 'डिव्हाइस: ',
     settings_deviceEllipsis: '…',
     settings_myDeliveryAddresses: '📍 माझे डिलिव्हरी पत्ते',
