@@ -3,11 +3,18 @@ import { gotoRadarDelivery, clickRadarOrderCard } from './browser-setup';
 import { mintBrowserSupabaseSession } from './setup';
 
 export async function dismissWelcomeIfVisible(page: Page) {
-  const explore = page.getByTestId('firstopen-restore-skip');
-  if (await explore.isVisible().catch(() => false)) {
-    await explore.click();
-    await expect(page.getByTestId('first-open-flow')).not.toBeVisible({ timeout: 5000 });
+  const flow = page.getByTestId('first-open-flow');
+  if (!(await flow.isVisible().catch(() => false))) return;
+
+  const imNew = page.getByTestId('firstopen-im-new');
+  if (await imNew.isVisible().catch(() => false)) {
+    await imNew.click();
   }
+  const useAsCustomer = page.getByTestId('firstopen-use-as-customer');
+  if (await useAsCustomer.isVisible().catch(() => false)) {
+    await useAsCustomer.click();
+  }
+  await expect(page.getByTestId('first-open-flow')).not.toBeVisible({ timeout: 5000 });
 }
 
 /** Opens Parchi and triggers phone entry (fresh user, no phone in localStorage). */
@@ -18,6 +25,8 @@ export async function openPhoneEntrySheet(
   await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
   await page.context().grantPermissions(['geolocation']);
   await gotoRadarDelivery(page);
+  // URL mode can race with RadarSearch defaulting to help — pin delivery explicitly.
+  await page.getByTestId('radar-mode-delivery').click();
   if (options?.deviceId) {
     await page.evaluate((deviceId) => {
       localStorage.setItem('aaspaas:device_id', deviceId);

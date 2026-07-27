@@ -18,6 +18,7 @@ import LocalFeed from "./pages/LocalFeed.tsx";
 import LiveTracking from "./pages/LiveTracking.tsx";
 import { ReferralRedirect } from "@/components/ReferralRedirect";
 import { PushNavigationBridge } from "@/components/PushNavigationBridge";
+import { tryHandleFirstOpenBack } from "@/lib/firstOpenBackBridge";
 
 const SettingsPage = lazy(() => import("./pages/Settings.tsx"));
 const LedgerView = lazy(() => import("./pages/LedgerView.tsx"));
@@ -81,6 +82,7 @@ function NativeBackButtonHandler() {
     let removeListener: (() => void) | undefined;
 
     void CapacitorApp.addListener("backButton", () => {
+      if (tryHandleFirstOpenBack()) return;
       const path = window.location.pathname;
       if (path === "/" || path === "") {
         void CapacitorApp.exitApp();

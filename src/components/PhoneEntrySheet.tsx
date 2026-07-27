@@ -7,7 +7,11 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { saveUserPhone } from "@/lib/userIdentity";
+import {
+  migrateUserPhone,
+  restoreVendorSession,
+  saveUserPhone,
+} from "@/lib/userIdentity";
 import { recordUserReferral } from "@/lib/referral";
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
@@ -22,30 +26,71 @@ type Props = {
   onConfirmed: (phone: string) => void;
   context?: PhoneEntryContext;
   /**
-   * Bypass the "Welcome back!" account-recovery screen (BR-3) and call
-   * onConfirmed directly after saving the phone. Set when the user is already
-   * mid-flow (ordering, booking, saving a vendor) — the recovery screen there
-   * blocks completion. Recovery should only show on first app open.
+   * When true, mid-flow callers still run the existing-account safety net, but
+   * after restore (or "continue without restoring") they proceed into the
+   * interrupted order/save path via onConfirmed.
    */
   skipRecovery?: boolean;
 };
 
-async function checkExistingAccount(
-  phone: string,
-): Promise<{ total_orders: number; completed_orders: number } | null> {
-  const { data, error } = await supabase.rpc("lookup_user_by_phone", { p_phone: phone });
-  if (error) {
-    captureError(error, {
-      scope: "phoneEntry.checkExistingAccount",
+type VendorRestoreStatus = {
+  found: boolean;
+  vendor_id: string | null;
+  is_banned: boolean;
+  restore_allowed: boolean;
+  deny_reason: string | null;
+};
+
+type ExistingAccountHit = {
+  hasCustomer: boolean;
+  hasVendor: boolean;
+  vendorId: string | null;
+  vendorRestorable: boolean;
+  totalOrders: number;
+};
+
+async function lookupExistingAccount(phone: string): Promise<{
+  banned: boolean;
+  hit: ExistingAccountHit | null;
+  error: boolean;
+}> {
+  const [usersResult, vendorStatusResult] = await Promise.all([
+    supabase.rpc("lookup_user_by_phone", { p_phone: phone }),
+    supabase.rpc("get_vendor_restore_status", { p_phone: phone }),
+  ]);
+
+  if (usersResult.error || vendorStatusResult.error) {
+    captureError(usersResult.error ?? vendorStatusResult.error, {
+      scope: "phoneEntry.lookupExistingAccount",
       phoneSuffix: phone.slice(-4),
     });
-    return null;
+    return { banned: false, hit: null, error: true };
   }
-  const row = data?.[0];
-  if (!row) return null;
+
+  const customerRow = usersResult.data?.[0] ?? null;
+  const vendorStatus = (vendorStatusResult.data ?? null) as VendorRestoreStatus | null;
+  if (customerRow?.is_banned === true) {
+    return { banned: true, hit: null, error: false };
+  }
+
+  const hasCustomer = customerRow != null;
+  const hasVendor = vendorStatus?.found === true;
+  if (!hasCustomer && !hasVendor) {
+    return { banned: false, hit: null, error: false };
+  }
+
   return {
-    total_orders: row.total_orders ?? 0,
-    completed_orders: row.completed_orders ?? 0,
+    banned: false,
+    hit: {
+      hasCustomer,
+      hasVendor,
+      vendorId: vendorStatus?.vendor_id ?? null,
+      vendorRestorable: Boolean(
+        hasVendor && vendorStatus?.restore_allowed === true && vendorStatus?.vendor_id,
+      ),
+      totalOrders: Number(customerRow?.total_orders ?? 0),
+    },
+    error: false,
   };
 }
 
@@ -66,11 +111,9 @@ export function PhoneEntrySheet({
   const { s } = useLanguage();
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
-  const [existingAccount, setExistingAccount] = useState<{
-    total_orders: number;
-    completed_orders: number;
-  } | null>(null);
+  const [existingAccount, setExistingAccount] = useState<ExistingAccountHit | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   const contextLine =
     context === "save" ? s.phone_entry_save_context : s.phone_entry_order_context;
@@ -88,16 +131,22 @@ export function PhoneEntrySheet({
       return;
     }
 
-    if (skipRecovery) {
-      completePhoneFlow(digits);
-      return;
-    }
-
     setIsChecking(true);
+    setError("");
     try {
-      const result = await checkExistingAccount(digits);
-      if (result && result.total_orders > 0) {
-        setExistingAccount(result);
+      const { banned, hit, error: lookupFailed } = await lookupExistingAccount(digits);
+      if (banned) {
+        setError(s.customer_account_banned);
+        return;
+      }
+      if (hit) {
+        // Real dual lookup (customer + vendor) — offer restore instead of silent fresh identity.
+        setExistingAccount(hit);
+        return;
+      }
+      if (lookupFailed) {
+        // Fail open for mid-flow: don't block ordering on a lookup blip.
+        completePhoneFlow(digits);
         return;
       }
       completePhoneFlow(digits);
@@ -112,7 +161,32 @@ export function PhoneEntrySheet({
     }
   };
 
-  const handleRecoveryContinue = () => {
+  const handleRestoreExisting = async () => {
+    const digits = normalizePhoneDigits(value);
+    if (!existingAccount || digits.length !== 10) return;
+    setIsRestoring(true);
+    try {
+      saveUserPhone(digits);
+      await migrateUserPhone(digits, getDeviceId());
+      if (existingAccount.vendorRestorable && existingAccount.vendorId) {
+        restoreVendorSession(existingAccount.vendorId);
+      }
+      void recordUserReferral(digits, getDeviceId());
+      setExistingAccount(null);
+      onConfirmed(digits);
+    } catch (err) {
+      captureError(err, {
+        scope: "phoneEntry.restoreExisting",
+        phoneSuffix: digits.slice(-4),
+      });
+      completePhoneFlow(digits);
+      setExistingAccount(null);
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
+  const handleContinueWithoutRestore = () => {
     const digits = normalizePhoneDigits(value);
     completePhoneFlow(digits);
     setExistingAccount(null);
@@ -122,6 +196,7 @@ export function PhoneEntrySheet({
     if (!open) {
       setExistingAccount(null);
       setIsChecking(false);
+      setIsRestoring(false);
       onClose();
     }
   };
@@ -135,24 +210,43 @@ export function PhoneEntrySheet({
         {existingAccount ? (
           <>
             <SheetHeader className="text-left space-y-1 pr-8">
-              <SheetTitle className="font-display text-lg">
-                {s.recovery_welcome_title}
+              <SheetTitle className="font-display text-lg" data-testid="phone-entry-existing-title">
+                {s.firstopen_existing_title}
               </SheetTitle>
               <SheetDescription className="text-sm text-muted-foreground">
-                {s.recovery_welcome_body.replace(
-                  "{count}",
-                  String(existingAccount.total_orders),
-                )}
+                {existingAccount.totalOrders > 0
+                  ? s.recovery_welcome_body.replace(
+                      "{count}",
+                      String(existingAccount.totalOrders),
+                    )
+                  : s.firstopen_existing_body}
               </SheetDescription>
             </SheetHeader>
 
             <div className="mt-5 space-y-3">
               <button
                 type="button"
-                onClick={handleRecoveryContinue}
-                className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+                data-testid="phone-entry-existing-restore"
+                disabled={isRestoring}
+                onClick={() => void handleRestoreExisting()}
+                className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
               >
-                {s.phone_entry_continue}
+                {isRestoring ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  s.firstopen_existing_restore
+                )}
+              </button>
+              <button
+                type="button"
+                data-testid="phone-entry-existing-continue"
+                disabled={isRestoring}
+                onClick={handleContinueWithoutRestore}
+                className="w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
+              >
+                {skipRecovery
+                  ? s.firstopen_existing_continue
+                  : s.phone_entry_continue}
               </button>
             </div>
           </>
@@ -212,12 +306,12 @@ export function PhoneEntrySheet({
                 type="button"
                 onClick={onClose}
                 disabled={isChecking}
-                className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground disabled:opacity-70"
+                className="w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
               >
                 {s.cancel}
               </button>
 
-              <p className="text-center text-[11px] text-muted-foreground/70 pb-1">
+              <p className="text-xs text-muted-foreground text-center px-2 leading-relaxed">
                 {s.phone_entry_privacy}
               </p>
             </div>

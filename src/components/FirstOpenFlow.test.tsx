@@ -131,13 +131,14 @@ vi.mock("@/lib/sentry", () => ({
 }));
 
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => false },
+  Capacitor: { isNativePlatform: vi.fn(() => false) },
 }));
 
 vi.mock("@capacitor/push-notifications", () => ({
   PushNotifications: {
-    requestPermissions: vi.fn(),
+    requestPermissions: vi.fn(async () => ({ receive: "granted" })),
     register: vi.fn(),
+    addListener: vi.fn(async () => ({ remove: vi.fn() })),
   },
 }));
 
@@ -170,12 +171,12 @@ describe("first open welcome gate", () => {
     vi.clearAllMocks();
   });
 
-  it("shows restore prompt on first open when not welcomed", () => {
+  it("shows two-tier chooser on first open when not welcomed", () => {
     render(<WelcomeGate />);
     expect(screen.getByTestId("first-open-flow")).toBeInTheDocument();
-    expect(screen.getByTestId("firstopen-vendor-btn")).toBeInTheDocument();
-    expect(screen.getByTestId("firstopen-restore-skip")).toBeInTheDocument();
-    expect(screen.getByTestId("firstopen-restore-entry")).toBeInTheDocument();
+    expect(screen.getByTestId("firstopen-im-new")).toBeInTheDocument();
+    expect(screen.getByTestId("firstopen-returning")).toBeInTheDocument();
+    expect(screen.queryByTestId("firstopen-vendor-btn")).not.toBeInTheDocument();
   });
 
   it("does not show restore prompt after markWelcomed()", () => {
@@ -185,6 +186,10 @@ describe("first open welcome gate", () => {
     expect(screen.getByTestId("home-screen")).toBeInTheDocument();
   });
 });
+
+function openRestore() {
+  fireEvent.click(screen.getByTestId("firstopen-returning"));
+}
 
 describe("FirstOpenFlow restore", () => {
   beforeEach(() => {
@@ -204,7 +209,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={onComplete} />);
 
-    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });
@@ -225,7 +230,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={onComplete} />);
 
-    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9123456789" },
     });
@@ -263,7 +268,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={onComplete} />);
 
-    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });
@@ -293,7 +298,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={onComplete} />);
 
-    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });
@@ -322,7 +327,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={vi.fn()} />);
 
-    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });
@@ -350,7 +355,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={vi.fn()} />);
 
-    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });
@@ -389,7 +394,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={onComplete} />);
 
-    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });
@@ -437,7 +442,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={vi.fn()} />);
 
-    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });
@@ -495,7 +500,7 @@ describe("FirstOpenFlow restore", () => {
 
     render(<FirstOpenFlow onComplete={vi.fn()} />);
 
-    fireEvent.click(screen.getByTestId("firstopen-restore-entry"));
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
     fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
       target: { value: "9876543210" },
     });
@@ -525,5 +530,129 @@ describe("orphan firstopen_restore_skip", () => {
     expect("firstopen_restore_skip" in strings.en).toBe(false);
     expect("firstopen_restore_skip" in strings.hi).toBe(false);
     expect("firstopen_restore_skip" in strings.mr).toBe(false);
+  });
+});
+
+describe("FirstOpenFlow two-tier navigation", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockUsersData.set(null);
+    mockVendorStatus.set(null);
+    vi.clearAllMocks();
+  });
+
+  it("new → use as customer completes without phone", async () => {
+    const onComplete = vi.fn();
+    render(<FirstOpenFlow onComplete={onComplete} />);
+
+    fireEvent.click(screen.getByTestId("firstopen-im-new"));
+    expect(screen.getByTestId("firstopen-vendor-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("firstopen-use-as-customer")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("firstopen-use-as-customer"));
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    expect(localStorage.getItem("aaspaas:user_phone")).toBeNull();
+  });
+
+  it("new → register business calls onVendorRegister", () => {
+    const onVendorRegister = vi.fn();
+    render(<FirstOpenFlow onComplete={vi.fn()} onVendorRegister={onVendorRegister} />);
+
+    fireEvent.click(screen.getByTestId("firstopen-im-new"));
+    fireEvent.click(screen.getByTestId("firstopen-vendor-btn"));
+    expect(onVendorRegister).toHaveBeenCalled();
+  });
+
+  it("hardware-style back pops new_options to chooser without completing", () => {
+    const onComplete = vi.fn();
+    render(<FirstOpenFlow onComplete={onComplete} />);
+
+    fireEvent.click(screen.getByTestId("firstopen-im-new"));
+    expect(screen.getByTestId("firstopen-use-as-customer")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("firstopen-new-options-back"));
+    expect(screen.getByTestId("firstopen-im-new")).toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(hasBeenWelcomed()).toBe(false);
+  });
+
+  it("restore back returns to chooser without marking welcomed", () => {
+    render(<FirstOpenFlow onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
+    expect(screen.getByTestId("firstopen-restore-cta")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("firstopen-restore-back"));
+    expect(screen.getByTestId("firstopen-im-new")).toBeInTheDocument();
+    expect(hasBeenWelcomed()).toBe(false);
+  });
+
+  it("restore copy asks for mobile number without OTP wording", () => {
+    render(<FirstOpenFlow onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
+    expect(screen.getByText(strings.en.firstopen_restore_body)).toBeInTheDocument();
+    expect(strings.en.firstopen_restore_body.toLowerCase()).not.toContain("otp");
+    expect(strings.en.firstopen_restore_title.toLowerCase()).not.toContain("otp");
+  });
+});
+
+describe("FirstOpenFlow notification permission", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it("Allow always calls OS requestPermissions even without a phone", async () => {
+    const { Capacitor } = await import("@capacitor/core");
+    const { PushNotifications } = await import("@capacitor/push-notifications");
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(PushNotifications.requestPermissions).mockResolvedValue({
+      receive: "granted",
+    } as never);
+
+    const onComplete = vi.fn();
+    render(<FirstOpenFlow onComplete={onComplete} />);
+
+    fireEvent.click(screen.getByTestId("firstopen-im-new"));
+    fireEvent.click(screen.getByTestId("firstopen-use-as-customer"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("firstopen-notif-allow")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("firstopen-notif-allow"));
+
+    await waitFor(() => {
+      expect(PushNotifications.requestPermissions).toHaveBeenCalled();
+    });
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    expect(getUserPhone()).toBeNull();
+
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+  });
+});
+
+describe("FirstOpenFlow back bridge", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("tryHandleFirstOpenBack pops stack instead of leaving a blank done state", async () => {
+    const { act } = await import("@testing-library/react");
+    const { tryHandleFirstOpenBack } = await import("@/lib/firstOpenBackBridge");
+    const onComplete = vi.fn();
+    render(<FirstOpenFlow onComplete={onComplete} />);
+
+    fireEvent.click(screen.getByTestId("firstopen-im-new"));
+    expect(screen.getByTestId("firstopen-use-as-customer")).toBeInTheDocument();
+
+    await act(async () => {
+      expect(tryHandleFirstOpenBack()).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("firstopen-im-new")).toBeInTheDocument();
+    });
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(screen.getByTestId("first-open-flow")).toBeInTheDocument();
+    expect(screen.queryByTestId("firstopen-use-as-customer")).not.toBeInTheDocument();
   });
 });

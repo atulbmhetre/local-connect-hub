@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/language";
@@ -11,7 +11,11 @@ import {
   verifyPhoneOtp,
 } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
-import { registerUserPushToken } from "@/lib/pushNotifications";
+import {
+  registerUserPushToken,
+  requestPushPermissionFromOs,
+} from "@/lib/pushNotifications";
+import { setFirstOpenBackHandler } from "@/lib/firstOpenBackBridge";
 import { captureError } from "@/lib/sentry";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -21,6 +25,7 @@ const OTP_ENABLED = false;
 
 type FlowStep =
   | "chooser"
+  | "new_options"
   | "restore"
   | "otp_pending"
   | "notification_permission"
@@ -74,7 +79,9 @@ function logRestoreOutcome(outcome: string) {
 
 export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const { s } = useLanguage();
-  const [step, setStep] = useState<FlowStep>("chooser");
+  const [stack, setStack] = useState<FlowStep[]>(["chooser"]);
+  const step = stack[stack.length - 1] ?? "chooser";
+
   const [phoneValue, setPhoneValue] = useState("");
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [notifLoading, setNotifLoading] = useState(false);
@@ -88,18 +95,47 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [otpPhone, setOtpPhone] = useState("");
 
-  const goToNotificationStep = () => {
+  const pushStep = useCallback((next: FlowStep) => {
+    setStack((prev) => [...prev, next]);
+  }, []);
+
+  const resetTransient = useCallback(() => {
+    setInlineMessage(null);
+    setAwaitingNoAccountContinue(false);
+    setOtpError(null);
+  }, []);
+
+  const popStep = useCallback(() => {
+    resetTransient();
+    setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
+  }, [resetTransient]);
+
+  const goToNotificationStep = useCallback(() => {
     if (Capacitor.isNativePlatform()) {
-      setStep("notification_permission");
+      pushStep("notification_permission");
     } else {
-      setStep("done");
+      setStack(["done"]);
     }
-  };
+  }, [pushStep]);
 
   useEffect(() => {
     if (step !== "done") return;
     onComplete();
   }, [step, onComplete]);
+
+  // Hardware back: step within FirstOpen; never leave a blank overlay state.
+  useEffect(() => {
+    setFirstOpenBackHandler(() => {
+      if (step === "done") return true;
+      if (stack.length > 1) {
+        popStep();
+        return true;
+      }
+      // Root chooser — let App exit. Welcomed stays false so reopen shows chooser again.
+      return false;
+    });
+    return () => setFirstOpenBackHandler(null);
+  }, [step, stack.length, popStep]);
 
   const proceedAfterRestoreLookup = (digits: string) => {
     if (OTP_ENABLED) {
@@ -107,9 +143,11 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         const otpResult = await requestPhoneOtp(digits);
         if (otpResult.success) {
           setOtpPhone(digits);
-          setStep("otp_pending");
+          pushStep("otp_pending");
         } else {
-          console.warn('[Phase D] OTP fallback to localStorage path — no Supabase session established');
+          console.warn(
+            "[Phase D] OTP fallback to localStorage path — no Supabase session established",
+          );
           console.warn("[Phase B] OTP request failed, falling back:", otpResult.error);
           goToNotificationStep();
         }
@@ -169,7 +207,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       const vendorRestorable = vendorFound && vendorStatus?.restore_allowed === true;
       const hasAccount = hasCustomer || vendorFound;
 
-      // Match vendor deny_reason === "banned": do not grant identity; show denial and stay.
       if (customerBanned) {
         logRestoreOutcome("denied_banned");
         setInlineMessage(s.customer_account_banned);
@@ -241,7 +278,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
     const result = await verifyPhoneOtp(otpPhone, token);
     setOtpLoading(false);
     if (result.success) {
-      console.info('[Phase D] Supabase session established for phone:', otpPhone);
+      console.info("[Phase D] Supabase session established for phone:", otpPhone);
       goToNotificationStep();
     } else {
       setOtpError(s.firstopen_otp_wrong);
@@ -250,28 +287,32 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
   const handleSkipOtp = () => {
     if (!OTP_ENABLED) return;
-    console.warn('[Phase D] OTP fallback to localStorage path — no Supabase session established');
+    console.warn(
+      "[Phase D] OTP fallback to localStorage path — no Supabase session established",
+    );
     console.warn("[Phase B] OTP skipped by user");
     goToNotificationStep();
   };
 
   const handleAllowNotifications = async () => {
     if (!Capacitor.isNativePlatform()) {
-      setStep("done");
+      setStack(["done"]);
       return;
     }
 
     setNotifLoading(true);
     try {
+      // Always hit the real OS prompt so Settings matches OS permission state.
+      const granted = await requestPushPermissionFromOs();
       const phone = getUserPhone();
-      if (phone) {
-        await registerUserPushToken(phone);
+      if (granted && phone) {
+        await registerUserPushToken(phone, { skipPermissionRequest: true });
       }
     } catch {
       /* proceed regardless */
     } finally {
       setNotifLoading(false);
-      setStep("done");
+      setStack(["done"]);
     }
   };
 
@@ -288,6 +329,34 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         <div className="flex flex-1 flex-col justify-center px-6 py-10 max-w-md mx-auto w-full gap-3">
           <button
             type="button"
+            data-testid="firstopen-im-new"
+            onClick={() => pushStep("new_options")}
+            className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+          >
+            {s.welcome_im_new}
+          </button>
+          <button
+            type="button"
+            data-testid="firstopen-returning"
+            onClick={() => {
+              resetTransient();
+              setPhoneValue("");
+              pushStep("restore");
+            }}
+            className="w-full rounded-xl border border-border py-3.5 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
+          >
+            {s.welcome_returning}
+          </button>
+        </div>
+      )}
+
+      {step === "new_options" && (
+        <div className="flex flex-1 flex-col justify-center px-6 py-10 max-w-md mx-auto w-full gap-3">
+          <h1 className="font-display text-2xl font-bold text-foreground leading-tight mb-2">
+            {s.welcome_new_options_title}
+          </h1>
+          <button
+            type="button"
             data-testid="firstopen-vendor-btn"
             onClick={() => onVendorRegister?.()}
             className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
@@ -296,19 +365,19 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
           </button>
           <button
             type="button"
-            data-testid="firstopen-restore-skip"
+            data-testid="firstopen-use-as-customer"
             onClick={goToNotificationStep}
             className="w-full rounded-xl border border-border py-3.5 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
           >
-            {s.welcome_skip_registration}
+            {s.welcome_use_as_customer}
           </button>
           <button
             type="button"
-            data-testid="firstopen-restore-entry"
-            onClick={() => setStep("restore")}
-            className="w-full rounded-xl border border-border py-3.5 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
+            data-testid="firstopen-new-options-back"
+            onClick={popStep}
+            className="mt-2 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80"
           >
-            {s.welcome_restore_account}
+            {s.firstopen_restore_back}
           </button>
         </div>
       )}
@@ -374,9 +443,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
               className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
             >
               {restoreLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                </>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               ) : (
                 s.firstopen_restore_cta
               )}
@@ -387,11 +454,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             type="button"
             data-testid="firstopen-restore-back"
             disabled={restoreLoading}
-            onClick={() => {
-              setInlineMessage(null);
-              setAwaitingNoAccountContinue(false);
-              setStep("chooser");
-            }}
+            onClick={popStep}
             className="mt-4 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
           >
             {s.firstopen_restore_back}
@@ -399,8 +462,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         </div>
       )}
 
-      {/* Phase D: OTP verification is the primary auth path.
-          On failure or skip, falls back to localStorage identity (no lockout). */}
       {OTP_ENABLED && step === "otp_pending" && (
         <div
           className="flex flex-col flex-1 justify-center px-6 gap-6"
@@ -484,7 +545,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             type="button"
             data-testid="firstopen-notif-skip"
             disabled={notifLoading}
-            onClick={() => setStep("done")}
+            onClick={() => setStack(["done"])}
             className="mt-4 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
           >
             {s.firstopen_notif_skip}

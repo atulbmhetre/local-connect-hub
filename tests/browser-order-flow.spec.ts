@@ -63,7 +63,8 @@ test('CO-02: welcome card hidden when already welcomed', async ({ page }) => {
 test('CO-03: welcome explore button dismisses welcome card', async ({ page }) => {
   await loginAsFreshUser(page);
   await expect(page.getByTestId('first-open-flow')).toBeVisible({ timeout: 8000 });
-  await page.getByTestId('firstopen-restore-skip').click();
+  await page.getByTestId('firstopen-im-new').click();
+  await page.getByTestId('firstopen-use-as-customer').click();
   // Welcome card should be gone and welcomed flag set
   await expect(page.getByTestId('first-open-flow')).not.toBeVisible({ timeout: 5000 });
   const welcomed = await page.evaluate(() => localStorage.getItem('aaspaas:welcomed'));
@@ -73,6 +74,7 @@ test('CO-03: welcome explore button dismisses welcome card', async ({ page }) =>
 test('CO-04: welcome vendor button navigates to vendor registration', async ({ page }) => {
   await loginAsFreshUser(page);
   await expect(page.getByTestId('first-open-flow')).toBeVisible({ timeout: 8000 });
+  await page.getByTestId('firstopen-im-new').click();
   await page.getByTestId('firstopen-vendor-btn').click();
   // Should navigate to vendor tab or registration flow
   await expect(page).toHaveURL(/vendor/);

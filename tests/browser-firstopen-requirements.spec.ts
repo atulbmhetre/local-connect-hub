@@ -101,7 +101,7 @@ async function lsGet(page: Page, key: string): Promise<string | null> {
 }
 
 async function openRestoreFlow(page: Page) {
-  await page.getByTestId('firstopen-restore-entry').click();
+  await page.getByTestId('firstopen-returning').click();
   await expect(page.getByTestId('firstopen-restore-cta')).toBeVisible({ timeout: 8000 });
 }
 
@@ -120,7 +120,8 @@ async function waitForFlowComplete(page: Page) {
 }
 
 async function skipFirstOpenFlow(page: Page) {
-  await page.getByTestId('firstopen-restore-skip').click();
+  await page.getByTestId('firstopen-im-new').click();
+  await page.getByTestId('firstopen-use-as-customer').click();
   await waitForFlowComplete(page);
 }
 
@@ -167,8 +168,25 @@ test('FO-REQ-02 — No account found — starts fresh', async ({ page }) => {
   await expect(page.getByTestId('firstopen-restore-cta')).toBeVisible({ timeout: 10000 });
   await tapRestore(page);
 
+  await expect(page.getByTestId('firstopen-restore-message')).toContainText(
+    EN.firstopen_no_account,
+    { timeout: 10000 },
+  );
+  await expect(page.getByTestId('firstopen-no-account-continue')).toBeVisible();
+
+  // Former auto-advance was 800ms — stay put well past that without a tap.
+  await page.waitForTimeout(1500);
+  await expect(page.getByTestId('first-open-flow')).toBeVisible();
+  await expect(page.getByTestId('firstopen-restore-message')).toBeVisible();
+  await expect(page.getByTestId('firstopen-no-account-continue')).toBeVisible();
+  expect(await lsGet(page, 'aaspaas:welcomed')).toBeNull();
+  expect(await lsGet(page, 'aaspaas:user_phone')).toBeNull();
+
+  await page.getByTestId('firstopen-no-account-continue').click();
+
   await waitForFlowComplete(page);
   expect(await lsGet(page, 'aaspaas:user_phone')).toBeNull();
+  expect(await lsGet(page, 'aaspaas:welcomed')).toBe('true');
 });
 
 test('FO-REQ-02b — Banned customer restore is blocked (no phone saved)', async ({ page }) => {
@@ -319,6 +337,7 @@ test('FO-REQ-07 — Skip restore — starts fresh, no identity set', async ({ pa
 
 test('FO-REQ-08 — Vendor registration button navigates correctly', async ({ page }) => {
   await loginAsFreshUser(page);
+  await page.getByTestId('firstopen-im-new').click();
   await expect(page.getByTestId('firstopen-vendor-btn')).toBeVisible({ timeout: 8000 });
   await page.getByTestId('firstopen-vendor-btn').click();
 
@@ -351,4 +370,36 @@ test('FO-REQ-10 — Phone input validates 10-digit Indian format', async ({ page
   await expect(page.getByText(EN.vendor_phone_invalid_body)).toBeVisible({ timeout: 5000 });
   await expect(page.getByTestId('first-open-flow')).toBeVisible();
   expect(await lsGet(page, 'aaspaas:user_phone')).toBeNull();
+});
+
+// ─── TWO-TIER NAV + COPY ─────────────────────────────────────────────────────
+
+test('FO-REQ-11 — Two-tier chooser: new → customer / business; returning → restore', async ({
+  page,
+}) => {
+  await loginAsFreshUser(page);
+  await expect(page.getByTestId('first-open-flow')).toBeVisible({ timeout: 8000 });
+
+  await expect(page.getByTestId('firstopen-im-new')).toHaveText(EN.welcome_im_new);
+  await expect(page.getByTestId('firstopen-returning')).toHaveText(EN.welcome_returning);
+  await expect(page.getByTestId('firstopen-im-new')).toBeVisible();
+  await expect(page.getByTestId('firstopen-use-as-customer')).not.toBeVisible();
+
+  await page.getByTestId('firstopen-im-new').click();
+  await expect(page.getByTestId('firstopen-use-as-customer')).toHaveText(
+    EN.welcome_use_as_customer,
+  );
+  await expect(page.getByTestId('firstopen-vendor-btn')).toHaveText(
+    EN.welcome_register_business,
+  );
+  await expect(page.getByTestId('firstopen-new-options-back')).toBeVisible();
+
+  await page.getByTestId('firstopen-new-options-back').click();
+  await expect(page.getByTestId('firstopen-im-new')).toBeVisible();
+
+  await page.getByTestId('firstopen-returning').click();
+  await expect(page.getByTestId('firstopen-restore-cta')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByText(EN.firstopen_restore_body)).toBeVisible();
+  await expect(page.getByText(/OTP/i)).toHaveCount(0);
+  expect(await lsGet(page, 'aaspaas:welcomed')).toBeNull();
 });

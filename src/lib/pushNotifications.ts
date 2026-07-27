@@ -206,18 +206,33 @@ async function saveUserDeviceLocationSilently(userPhone: string, deviceId: strin
   }
 }
 
-export async function registerUserPushToken(userPhone: string) {
+/**
+ * Always invoke the OS notification permission prompt on native.
+ * Call this from FirstOpen "Allow" even when no phone is on file yet so Settings
+ * reflects real OS state (fixes checkbox / permission mismatch).
+ */
+export async function requestPushPermissionFromOs(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false;
+  const permission = await PushNotifications.requestPermissions();
+  return permission.receive === "granted";
+}
+
+export async function registerUserPushToken(
+  userPhone: string,
+  options?: { skipPermissionRequest?: boolean },
+) {
   if (!Capacitor.isNativePlatform()) return;
 
-  const permission = await PushNotifications.requestPermissions();
-  if (permission.receive !== "granted") {
-    captureError(new Error("push_permission_denied"), {
-      pushSurface: "registration",
-      operation: "registerUserPushToken",
-      reason: "permission_denied",
-      receive: permission.receive,
-    });
-    return;
+  if (!options?.skipPermissionRequest) {
+    const granted = await requestPushPermissionFromOs();
+    if (!granted) {
+      captureError(new Error("push_permission_denied"), {
+        pushSurface: "registration",
+        operation: "registerUserPushToken",
+        reason: "permission_denied",
+      });
+      return;
+    }
   }
 
   const deviceId = getDeviceId();

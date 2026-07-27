@@ -1,39 +1,71 @@
 import { test, expect } from '@playwright/test';
-import { loginAsFreshUser } from './helpers/browser-setup';
+import { APP_URL } from './helpers/browser-setup';
 import {
-  createTestVendor,
-  cleanupTestData, cleanupTestVendors,
+  cleanupTestData,
+  cleanupTestVendors,
+  getActiveCategoryByServiceMode,
+  seedVendorCategory,
+  supabaseAdmin,
   TEST_SESSION,
 } from './helpers/setup';
 import {
   cleanupBrowserSession38Data,
-  supabaseAdmin,
   uniqueBrowserPhone,
 } from './helpers/session38';
 import { openPhoneEntrySheet, submitPhoneNumber } from './helpers/browser-recovery';
 import { mintBrowserSupabaseSession } from './helpers/setup';
+import { strings } from '../src/lib/strings';
 
 const TEST_DEVICE_ID = `device_reco_${TEST_SESSION}`;
 const FRESH_PHONE = uniqueBrowserPhone('8801');
 const EXISTING_PHONE = uniqueBrowserPhone('8802');
+const EN = strings.en;
+const T = Date.now();
 
 let testVendor: { id: string; shop_name: string };
 
+/** Welcomed customer with no phone — matches post–"Use as customer" browsing. */
+async function loginAsBrowsingCustomer(page: import('@playwright/test').Page) {
+  // Avoid loginAsFreshUser: its addInitScript clears storage on every navigation.
+  await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
+  await page.evaluate((deviceId) => {
+    localStorage.clear();
+    sessionStorage.clear();
+    localStorage.setItem('aaspaas:device_id', deviceId);
+    localStorage.setItem('aaspaas:welcomed', 'true');
+  }, TEST_DEVICE_ID);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('first-open-flow')).not.toBeVisible();
+}
+
 test.beforeAll(async () => {
-  // Delivery empty-browse requires customer-place reach (same as SLOT-01 / RA-01).
-  testVendor = await createTestVendor({
-    service_mode: 'delivery',
-    serves_at_customer_place: true,
-    is_active: true,
-  });
-  await supabaseAdmin
+  // Same seed pattern as FO-REQ / RA-01 — huge radius + customer-place reach.
+  const category = await getActiveCategoryByServiceMode('delivery');
+  const { data: vendor, error } = await supabaseAdmin
     .from('vendors')
-    .update({ serves_at_customer_place: true, service_mode: 'delivery', is_active: true })
-    .eq('id', testVendor.id);
-  await supabaseAdmin
-    .from('vendor_categories')
-    .update({ serves_at_customer_place: true })
-    .eq('vendor_id', testVendor.id);
+    .insert({
+      name: 'RECOV Vendor',
+      shop_name: `!RECOV-${T}`,
+      phone: uniqueBrowserPhone('9908'),
+      category: category.label,
+      service_mode: 'delivery',
+      latitude: 18.5204,
+      longitude: 73.8567,
+      is_active: true,
+      profile_status: 'complete',
+      service_radius_km: 9999,
+      serves_at_customer_place: true,
+      serves_at_vendor_place: true,
+    })
+    .select('id, shop_name')
+    .single();
+  if (error) throw error;
+  await seedVendorCategory(vendor!.id, category, {
+    serves_at_customer_place: true,
+    serves_at_vendor_place: true,
+  });
+  testVendor = vendor!;
 });
 
 test.afterEach(async () => {
@@ -41,16 +73,16 @@ test.afterEach(async () => {
 });
 
 test.afterAll(async () => {
+  if (testVendor?.id) {
+    await supabaseAdmin.from('vendor_categories').delete().eq('vendor_id', testVendor.id);
+    await supabaseAdmin.from('vendors').delete().eq('id', testVendor.id);
+  }
   await cleanupTestVendors();
   await cleanupTestData();
 });
 
-test('RECOV-01: fresh user with no order history skips welcome back screen', async ({ page }) => {
-  await loginAsFreshUser(page);
-  await page.evaluate(({ deviceId }) => {
-    localStorage.setItem('aaspaas:device_id', deviceId);
-    localStorage.setItem('aaspaas:welcomed', 'true');
-  }, { deviceId: TEST_DEVICE_ID });
+test('RECOV-01: fresh user with no order history skips existing-account offer', async ({ page }) => {
+  await loginAsBrowsingCustomer(page);
 
   await openPhoneEntrySheet(page, {
     shopName: testVendor.shop_name,
@@ -59,24 +91,20 @@ test('RECOV-01: fresh user with no order history skips welcome back screen', asy
   });
   await submitPhoneNumber(page, FRESH_PHONE);
 
-  await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 3000 });
+  await expect(page.getByTestId('phone-entry-existing-title')).not.toBeVisible({ timeout: 3000 });
 
   const savedPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
   expect(savedPhone).toBe(FRESH_PHONE);
 });
 
-test('RECOV-02: returning user with orders skips welcome back during parchi order flow', async ({ page }) => {
+test('RECOV-02: known phone under new-path customer offers restore safety net', async ({ page }) => {
   await supabaseAdmin.from('users').upsert({
     phone: EXISTING_PHONE,
     total_orders: 4,
     completed_orders: 2,
   });
 
-  await loginAsFreshUser(page);
-  await page.evaluate(({ deviceId }) => {
-    localStorage.setItem('aaspaas:device_id', deviceId);
-    localStorage.setItem('aaspaas:welcomed', 'true');
-  }, { deviceId: TEST_DEVICE_ID });
+  await loginAsBrowsingCustomer(page);
 
   await openPhoneEntrySheet(page, {
     shopName: testVendor.shop_name,
@@ -85,23 +113,31 @@ test('RECOV-02: returning user with orders skips welcome back during parchi orde
   });
   await submitPhoneNumber(page, EXISTING_PHONE);
 
-  await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 3000 });
+  await expect(page.getByTestId('phone-entry-existing-title')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('phone-entry-existing-title')).toHaveText(
+    EN.firstopen_existing_title,
+  );
+  await expect(page.getByTestId('phone-entry-existing-restore')).toBeVisible();
+  await expect(page.getByTestId('phone-entry-existing-continue')).toHaveText(
+    EN.firstopen_existing_continue,
+  );
+
+  // Before choosing, phone must not be silently saved as a fresh identity.
+  expect(await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'))).toBeNull();
+
+  await page.getByTestId('phone-entry-existing-continue').click();
   const savedPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
   expect(savedPhone).toBe(EXISTING_PHONE);
 });
 
-test('RECOV-03: returning user phone saved and order proceeds without recovery screen', async ({ page }) => {
+test('RECOV-03: restore from safety net proceeds with order', async ({ page }) => {
   await supabaseAdmin.from('users').upsert({
     phone: EXISTING_PHONE,
     total_orders: 2,
     completed_orders: 1,
   });
 
-  await loginAsFreshUser(page);
-  await page.evaluate(({ deviceId }) => {
-    localStorage.setItem('aaspaas:device_id', deviceId);
-    localStorage.setItem('aaspaas:welcomed', 'true');
-  }, { deviceId: TEST_DEVICE_ID });
+  await loginAsBrowsingCustomer(page);
 
   await openPhoneEntrySheet(page, {
     shopName: testVendor.shop_name,
@@ -111,7 +147,8 @@ test('RECOV-03: returning user phone saved and order proceeds without recovery s
   await mintBrowserSupabaseSession(page, EXISTING_PHONE, 'RECOV-03');
   await submitPhoneNumber(page, EXISTING_PHONE);
 
-  await expect(page.getByText('Welcome back!')).not.toBeVisible({ timeout: 3000 });
+  await expect(page.getByTestId('phone-entry-existing-title')).toBeVisible({ timeout: 10000 });
+  await page.getByTestId('phone-entry-existing-restore').click();
 
   const savedPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
   expect(savedPhone).toBe(EXISTING_PHONE);
