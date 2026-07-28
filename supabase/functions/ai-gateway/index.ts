@@ -116,11 +116,32 @@ async function fetchActiveCategories(
   return { categories: (data ?? []) as DbCategoryRow[], error: null };
 }
 
+async function fetchConfidenceThreshold(
+  supabase: ReturnType<typeof createClient>,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("app_config")
+    .select("value")
+    .eq("key", "ai_category_confidence_threshold")
+    .maybeSingle();
+  if (error) {
+    console.error("ai-gateway threshold load failed", error);
+    return 0.85;
+  }
+  const n = Number((data as { value?: string } | null)?.value);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : 0.85;
+}
+
+function noConfidentMatchResponse(action: GatewayAction) {
+  return jsonResponse({
+    action,
+    result: { candidates: [], no_confident_match: true },
+  });
+}
+
 /**
- * Resilience fallback when Groq is unavailable or returns garbage: ask the
- * suggest-category classifier for its single best match and surface it as a
- * one-item candidate list (still user-confirmed on the client, never
- * auto-navigated).
+ * Last-resort when Groq is down: only surface suggest-category's high-confidence
+ * existing match. Never force a medium/low nearest-neighbour guess.
  */
 async function invokeSuggestCategory(
   supabaseUrl: string,
@@ -128,6 +149,7 @@ async function invokeSuggestCategory(
   input: string,
   action: GatewayAction,
   dbCategories: DbCategoryRow[],
+  threshold: number,
 ) {
   try {
     const resp = await fetch(`${supabaseUrl}/functions/v1/suggest-category`, {
@@ -141,45 +163,47 @@ async function invokeSuggestCategory(
 
     if (!resp.ok) {
       console.error("ai-gateway suggest-category failed", resp.status, await resp.text());
-      return jsonResponse({ action, result: { candidates: [] } });
+      return noConfidentMatchResponse(action);
     }
 
     const data = (await resp.json()) as {
       success?: boolean;
+      outcome?: string;
       category_name?: string;
       service_mode?: string;
       emoji?: string | null;
+      confidence?: number;
     };
 
-    if (data.success && typeof data.category_name === "string" && data.category_name.trim()) {
-      const name = data.category_name.trim();
-      const dbRow = findDbCategory(dbCategories, name);
-      if (dbRow) {
-        return jsonResponse({ action, result: { candidates: [candidateFromDbRow(dbRow)] } });
-      }
-      // Category list unavailable — trust the suggestion rather than dead-end.
-      if (dbCategories.length === 0) {
-        return jsonResponse({
-          action,
-          result: {
-            candidates: [
-              {
-                label: name,
-                emoji: data.emoji?.trim() || "✨",
-                mode: normalizeServiceMode(data.service_mode),
-              },
-            ],
-          },
-        });
-      }
-      // Suggestion is a not-yet-active category — nothing searchable on Radar.
-      return jsonResponse({ action, result: { candidates: [] } });
+    const confidence = Number(data.confidence);
+    const confident =
+      data.success === true &&
+      data.outcome === "high_existing" &&
+      Number.isFinite(confidence) &&
+      confidence >= threshold &&
+      typeof data.category_name === "string" &&
+      data.category_name.trim();
+
+    if (!confident) {
+      return noConfidentMatchResponse(action);
     }
 
-    return jsonResponse({ action, result: { candidates: [] } });
+    const name = data.category_name!.trim();
+    const dbRow = findDbCategory(dbCategories, name);
+    if (dbRow) {
+      return jsonResponse({
+        action,
+        result: {
+          candidates: [candidateFromDbRow(dbRow)],
+          confidence,
+        },
+      });
+    }
+
+    return noConfidentMatchResponse(action);
   } catch (err) {
     console.error("ai-gateway suggest-category invoke failed", err);
-    return jsonResponse({ action, result: { candidates: [] } });
+    return noConfidentMatchResponse(action);
   }
 }
 
@@ -222,6 +246,8 @@ Deno.serve(async (req) => {
         ? await fetchActiveCategories(supabase)
         : { categories: [] as DbCategoryRow[], error: "missing_service_role" };
 
+      const threshold = supabase ? await fetchConfidenceThreshold(supabase) : 0.85;
+
       const lower = input.toLowerCase();
       if (/\bhospitals?\b/.test(lower)) {
         return jsonResponse({
@@ -246,13 +272,14 @@ Deno.serve(async (req) => {
                 ? candidateFromDbRow(fireRow)
                 : { label: "Fire Brigade", emoji: "🔥", mode: "help" as ServiceMode },
             ],
+            confidence: 1,
           },
         });
       }
 
       if (catError || dbCategories.length === 0) {
         if (!supabaseUrl || !serviceRoleKey) {
-          return jsonResponse({ action, result: { candidates: [] } });
+          return noConfidentMatchResponse(action);
         }
         return await invokeSuggestCategory(
           supabaseUrl,
@@ -260,6 +287,7 @@ Deno.serve(async (req) => {
           input,
           action,
           dbCategories,
+          threshold,
         );
       }
 
@@ -275,18 +303,20 @@ A customer typed this free-text search (English, Hindi, Marathi, or a full sente
 Active service categories (label (mode)):
 ${categoryLines}
 
-Rank the categories that could plausibly help with the customer's need, most relevant first.
+Rank ONLY categories that are a clear, genuine fit for the customer's need, most relevant first.
 
 Rules:
 1. Return ONLY valid JSON, no other text.
-2. "candidates" is an ordered array of category labels copied EXACTLY from the list above — most relevant first, at most ${MAX_CANDIDATES}. Include a category only if it could plausibly serve the need; omit clearly irrelevant ones. It is fine to return fewer, or an empty array if nothing fits.
-3. If the input asks for a government or emergency service (police, fire, hospital), set "is_government": true and write one short helpful "message"; "candidates" may be empty.
-4. NEVER invent labels that are not in the list.
-5. Therapist and Beautician are permanently distinct categories, and BOTH plausibly serve wellness / body-care needs (massage, spa, therapy, physiotherapy, relaxation, salon-style body treatments). For any such wellness-adjacent query, include BOTH "Therapist" and "Beautician" as candidates when they appear in the list above — never pick just one; the customer chooses.
+2. "candidates" is an ordered array of category labels copied EXACTLY from the list above — most relevant first, at most ${MAX_CANDIDATES}. Include a category only when it clearly serves the need. Prefer an empty array over a weak or tangential guess (e.g. do NOT map shoe repair / cobbler to Mechanic or Beautician).
+3. "confidence" is a number from 0.0 to 1.0 for how sure you are that the top candidates truly match. Use < ${threshold} when the need is not covered by any listed category or when you are guessing.
+4. If the input asks for a government or emergency service (police, fire, hospital), set "is_government": true and write one short helpful "message"; "candidates" may be empty; set confidence to 1.
+5. NEVER invent labels that are not in the list.
+6. Therapist and Beautician are permanently distinct categories, and BOTH can serve wellness / body-care needs (massage, spa, therapy, physiotherapy, relaxation, salon-style body treatments). For any such wellness-adjacent query that clearly fits those services, include BOTH "Therapist" and "Beautician" when they appear in the list — never pick just one; the customer chooses. If the query is NOT wellness/body-care (e.g. cobbler, shoe repair), do not include them.
 
 Response format:
 {
   "candidates": ["<label>", "<label>"],
+  "confidence": 0.0,
   "is_government": false,
   "message": "only if is_government is true"
 }`;
@@ -295,6 +325,7 @@ Response format:
         const { text } = await callGroq(system, input, 0.08);
         const parsed = extractJson<{
           candidates?: unknown;
+          confidence?: unknown;
           is_government?: boolean;
           message?: string;
         }>(text);
@@ -306,6 +337,7 @@ Response format:
             input,
             action,
             dbCategories,
+            threshold,
           );
         }
 
@@ -316,7 +348,7 @@ Response format:
               : "This is a government or emergency service — use official helplines.";
           return jsonResponse({
             action,
-            result: { candidates: [], is_government: true, message },
+            result: { candidates: [], is_government: true, message, confidence: 1 },
           });
         }
 
@@ -332,17 +364,22 @@ Response format:
           if (candidates.length >= MAX_CANDIDATES) break;
         }
 
-        if (candidates.length > 0) {
-          return jsonResponse({ action, result: { candidates } });
+        const confidenceRaw = Number(parsed.confidence);
+        const confidence = Number.isFinite(confidenceRaw)
+          ? Math.min(1, Math.max(0, confidenceRaw))
+          : candidates.length > 0
+            ? 0
+            : 0;
+
+        // No candidates, or model is not confident enough → do not force a guess.
+        if (candidates.length === 0 || confidence < threshold) {
+          return noConfidentMatchResponse(action);
         }
 
-        return await invokeSuggestCategory(
-          supabaseUrl!,
-          serviceRoleKey!,
-          input,
+        return jsonResponse({
           action,
-          dbCategories,
-        );
+          result: { candidates, confidence },
+        });
       } catch {
         return await invokeSuggestCategory(
           supabaseUrl!,
@@ -350,6 +387,7 @@ Response format:
           input,
           action,
           dbCategories,
+          threshold,
         );
       }
     }

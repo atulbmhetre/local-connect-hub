@@ -47,7 +47,7 @@ describe("classifySearchTermForRadar", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("returns candidates from the gateway, never an auto-accepted single guess", async () => {
+  it("returns candidates from the gateway when confidence clears the gate", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -57,6 +57,7 @@ describe("classifySearchTermForRadar", () => {
             { label: "Security", emoji: "🛡️", mode: "help" },
             { label: "Nursing", emoji: "🩺", mode: "help" },
           ],
+          confidence: 0.92,
         },
       }),
     });
@@ -82,6 +83,35 @@ describe("classifySearchTermForRadar", () => {
         }),
       }),
     );
+  });
+
+  it("returns fallback when gateway reports no_confident_match", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        action: "classify_category",
+        result: { candidates: [], no_confident_match: true },
+      }),
+    });
+
+    const r = await classifySearchTermForRadar("shoe repair cobbler", cats);
+    expect(r).toEqual({ outcome: "fallback" });
+  });
+
+  it("returns fallback when confidence is below the client gate even if candidates exist", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        action: "classify_category",
+        result: {
+          candidates: [{ label: "Mechanic", emoji: "🔧", mode: "help" }],
+          confidence: 0.4,
+        },
+      }),
+    });
+
+    const r = await classifySearchTermForRadar("shoe repair", cats);
+    expect(r).toEqual({ outcome: "fallback" });
   });
 
   it("returns hint for a government-service response", async () => {

@@ -1,5 +1,5 @@
 import { ExternalLink, ShieldCheck } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useLanguage } from "@/lib/language";
 
 /** Single canonical policy; legal text is not duplicated in the React bundle. */
@@ -8,6 +8,11 @@ export const CANONICAL_PRIVACY_POLICY_URL =
 
 const PrivacyPolicy = () => {
   const { s } = useLanguage();
+  const location = useLocation();
+  const returnTo =
+    (location.state as { returnTo?: string } | null)?.returnTo === "/settings"
+      ? "/settings"
+      : "/";
 
   return (
     <main className="min-h-screen bg-background text-foreground px-5 py-8 grid place-items-center">
@@ -27,8 +32,12 @@ const PrivacyPolicy = () => {
           {s.privacy_policy_open}
           <ExternalLink className="h-4 w-4" aria-hidden />
         </a>
-        <Link to="/" className="inline-block text-sm text-primary underline">
-          {s.not_found_home}
+        <Link
+          to={returnTo}
+          data-testid="privacy-policy-back-link"
+          className="inline-block text-sm text-primary underline"
+        >
+          {returnTo === "/settings" ? s.privacy_policy_back_to_settings : s.not_found_home}
         </Link>
       </div>
     </main>

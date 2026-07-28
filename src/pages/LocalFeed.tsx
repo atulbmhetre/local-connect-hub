@@ -15,7 +15,7 @@ import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { distanceKm, fetchActiveVendorCategoryLabels, isValidPhone, supabase } from "@/lib/supabase";
+import { distanceKm, fetchActiveVendorCategoryLabelMap, isValidPhone, supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { captureError } from "@/lib/sentry";
@@ -58,24 +58,7 @@ type FeedCachePayload = {
 
 type GeoCoords = { lat: number; lng: number };
 
-const CATEGORY_ALIASES: Record<string, string> = {
-  "Grocery Store": "Kirana Store",
-  "Kirana Store": "Grocery Store",
-};
-
-function categoryHasActiveVendor(label: string, activeLabels: Set<string>): boolean {
-  if (activeLabels.has(label)) return true;
-  const alias = CATEGORY_ALIASES[label];
-  return alias != null && activeLabels.has(alias);
-}
-
-function offerMatchesCategory(vendorCategory: string | null | undefined, chipLabel: string): boolean {
-  if (!vendorCategory) return false;
-  if (vendorCategory === chipLabel) return true;
-  const alias = CATEGORY_ALIASES[chipLabel];
-  return alias != null && vendorCategory === alias;
-}
-
+import { categoryHasActiveVendor, offerMatchesCategory } from "@/lib/feedCategoryMatch";
 type PostType = "announcement" | "recommendation";
 
 type FeedPost = {
@@ -342,6 +325,9 @@ export default function LocalFeed() {
   const [readerDiscoveryRadiusKm, setReaderDiscoveryRadiusKm] = useState<number | null>(5);
 
   const [categories, setCategories] = useState<FeedCategory[]>([]);
+  const [vendorCategoryLabels, setVendorCategoryLabels] = useState<Map<string, Set<string>>>(
+    () => new Map(),
+  );
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [vendor, setVendor] = useState<{
     phone: string | null;
@@ -586,21 +572,27 @@ export default function LocalFeed() {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      const [catsRes, activeLabels] = await Promise.all([
+      const [catsRes, labelMap] = await Promise.all([
         supabase.from("categories").select("id, label, emoji").eq("is_active", true).order("sort_order", { ascending: true }),
-        fetchActiveVendorCategoryLabels(),
+        fetchActiveVendorCategoryLabelMap(),
       ]);
       if (cancelled) return;
       if (catsRes.error) {
         console.error("fetch categories", catsRes.error);
         captureError(catsRes.error, { scope: "localFeed.fetchCategories" });
         setCategories([]);
+        setVendorCategoryLabels(new Map());
         return;
+      }
+      const activeLabels = new Set<string>();
+      for (const set of labelMap.values()) {
+        for (const label of set) activeLabels.add(label);
       }
       const filtered = ((catsRes.data ?? []) as FeedCategory[]).filter((c) =>
         categoryHasActiveVendor(c.label, activeLabels),
       );
       setCategories(filtered);
+      setVendorCategoryLabels(labelMap);
     };
     void run();
     return () => {
@@ -636,9 +628,14 @@ export default function LocalFeed() {
     // pass through — otherwise selecting a chip would hide all of them.
     return posts.filter((post) => {
       if (post.type !== "offer") return true;
-      return offerMatchesCategory(post.vendors?.category, chipLabel);
+      return offerMatchesCategory(
+        post.vendor_id,
+        post.vendors?.category,
+        chipLabel,
+        vendorCategoryLabels,
+      );
     });
-  }, [posts, selectedCategoryMeta]);
+  }, [posts, selectedCategoryMeta, vendorCategoryLabels]);
 
   // Replies are never geo-filtered — readers see all replies on a visible post.
   const loadReplies = async (postId: string) => {

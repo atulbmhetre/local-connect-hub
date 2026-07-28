@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Index from "./Index";
 import type { ClassifySearchForRadarResult } from "@/lib/supabase";
+import { strings } from "@/lib/strings";
 
 const mocks = vi.hoisted(() => ({
   classifySearchTermForRadar: vi.fn(),
@@ -273,75 +274,76 @@ describe("Home tiered AI search suggestions", () => {
     expect(screen.queryByTestId("search-suggest-sheet")).toBeNull();
   });
 
-  it("rephrasing after Tier 2 rejection restarts classification with the new text", async () => {
-    mocks.classifySearchTermForRadar
-      .mockResolvedValueOnce({
-        outcome: "candidates",
-        candidates: TEN_CANDIDATES.slice(0, 3),
-      } satisfies ClassifySearchForRadarResult)
-      .mockResolvedValueOnce({
-        outcome: "candidates",
-        candidates: [
-          { label: "Mechanic", emoji: "🔧", mode: "help" },
-          { label: "Towing", emoji: "🚛", mode: "help" },
-        ],
-      } satisfies ClassifySearchForRadarResult);
+  it("rephrasing is not offered after rejecting all suggestion tiers — shows unavailable", async () => {
+    mocks.classifySearchTermForRadar.mockResolvedValue({
+      outcome: "candidates",
+      candidates: TEN_CANDIDATES.slice(0, 3),
+    } satisfies ClassifySearchForRadarResult);
 
     await renderHome();
-    await submitSearch(LOST);
+    await submitSearch("body care");
 
     const sheet = await screen.findByTestId("search-suggest-sheet");
-    // Only 3 candidates → "None of these" skips Tier 2 and opens rephrase.
     fireEvent.click(within(sheet).getByTestId("search-suggest-none"));
-
-    const rephrase = await screen.findByTestId("search-suggest-rephrase-input");
-    fireEvent.change(rephrase, { target: { value: "broken bike engine" } });
-    fireEvent.click(screen.getByTestId("search-suggest-rephrase-submit"));
-
-    await waitFor(() =>
-      expect(mocks.classifySearchTermForRadar).toHaveBeenCalledWith(
-        "broken bike engine",
-        expect.any(Array),
-      ),
-    );
-    const nextSheet = await screen.findByTestId("search-suggest-sheet");
-    expect(within(nextSheet).getByTestId("search-suggest-original-text")).toHaveTextContent(
-      "broken bike engine",
-    );
-    expect(within(nextSheet).getByText("Mechanic")).toBeVisible();
-  });
-
-  it("exhausting both tiers on a rephrased search falls through to browse-categories", async () => {
-    mocks.classifySearchTermForRadar
-      .mockResolvedValueOnce({
-        outcome: "candidates",
-        candidates: TEN_CANDIDATES.slice(0, 2),
-      } satisfies ClassifySearchForRadarResult)
-      .mockResolvedValueOnce({
-        outcome: "candidates",
-        candidates: TEN_CANDIDATES.slice(0, 2),
-      } satisfies ClassifySearchForRadarResult);
-
-    await renderHome();
-    await submitSearch(LOST);
-
-    fireEvent.click((await screen.findByTestId("search-suggest-none")));
-    const rephrase = await screen.findByTestId("search-suggest-rephrase-input");
-    fireEvent.change(rephrase, { target: { value: "still lost in the jungle" } });
-    fireEvent.click(screen.getByTestId("search-suggest-rephrase-submit"));
-
-    const nextSheet = await screen.findByTestId("search-suggest-sheet");
-    fireEvent.click(within(nextSheet).getByTestId("search-suggest-none"));
 
     await waitFor(() =>
       expect(mocks.toastInfo).toHaveBeenCalledWith(
-        "Couldn't find that service. Try browsing categories below 👇",
-        { duration: 3000 },
+        strings.en.search_category_unavailable,
+        { duration: 4000 },
       ),
     );
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     expect(screen.queryByTestId("search-suggest-sheet")).toBeNull();
+    expect(screen.queryByTestId("search-suggest-rephrase-input")).toBeNull();
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("rejecting Tier 1 then Tier 2 twice ends on unavailable (no infinite loop)", async () => {
+    mocks.classifySearchTermForRadar.mockResolvedValue({
+      outcome: "candidates",
+      candidates: TEN_CANDIDATES,
+    } satisfies ClassifySearchForRadarResult);
+
+    await renderHome();
+    await submitSearch("body care");
+
+    const sheet = await screen.findByTestId("search-suggest-sheet");
+    fireEvent.click(within(sheet).getByTestId("search-suggest-none"));
+    await waitFor(() =>
+      expect(within(sheet).getAllByTestId("search-suggest-option")).toHaveLength(10),
+    );
+    fireEvent.click(within(sheet).getByTestId("search-suggest-none"));
+
+    await waitFor(() =>
+      expect(mocks.toastInfo).toHaveBeenCalledWith(
+        strings.en.search_category_unavailable,
+        { duration: 4000 },
+      ),
+    );
+    expect(screen.queryByTestId("search-suggest-sheet")).toBeNull();
+    expect(mocks.classifySearchTermForRadar).toHaveBeenCalledTimes(1);
+  });
+
+  it("no-confident-match fallback shows growth unavailable message, not browse-below", async () => {
+    mocks.classifySearchTermForRadar.mockResolvedValue({
+      outcome: "fallback",
+    } satisfies ClassifySearchForRadarResult);
+
+    await renderHome();
+    await submitSearch("shoe repair");
+
+    await waitFor(() =>
+      expect(mocks.toastInfo).toHaveBeenCalledWith(
+        strings.en.search_category_unavailable,
+        { duration: 4000 },
+      ),
+    );
+    expect(mocks.toastInfo).not.toHaveBeenCalledWith(
+      expect.stringContaining("browsing categories"),
+      expect.anything(),
+    );
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("search-suggest-sheet")).toBeNull();
   });
 
   it("government-service hint still toasts on Home without navigating", async () => {

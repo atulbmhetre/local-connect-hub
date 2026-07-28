@@ -281,6 +281,9 @@ test('UX-NAV-05: Settings privacy link leads to the single canonical policy', as
   );
   await expect(page.getByText('Last updated: May 2026')).not.toBeVisible();
   await expect(page.getByText('privacy@aaspaas.app')).not.toBeVisible();
+
+  await page.getByTestId('privacy-policy-back-link').click();
+  await expect(page).toHaveURL(`${APP_URL}/settings`);
 });
 
 test('UX-NAV-06: 404 Return Home uses client-side routing', async ({ page }) => {

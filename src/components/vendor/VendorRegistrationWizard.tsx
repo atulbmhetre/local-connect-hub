@@ -23,18 +23,28 @@ import {
   invokeRegisterVendor,
   invokeAttachPendingCategory,
   invokeSuggestCategory,
-  GPS_MATCH_TOLERANCE_M,
   SHOP_PHOTOS_BUCKET,
   VENDOR_SELFIES_BUCKET,
   distanceMeters,
   type CategorySuggestionResult,
   type RegisterVendorResult,
 } from "@/lib/supabase";
+import {
+  GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW,
+  evaluateGpsMatch,
+  logGpsMatchFailure,
+  readGeolocationAccuracy,
+  type GpsPoint,
+} from "@/lib/gpsMatch";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import {
   withNetworkRetry,
+  withTimedRetry,
+  applyAbortSignal,
   isNetworkFailure,
+  isNetworkTimeout,
   NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
 } from "@/lib/withNetworkRetry";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import {
@@ -233,7 +243,7 @@ export function VendorRegistrationWizard({
   const [referralCodeInput, setReferralCodeInput] = useState("");
   const [referralEnabled, setReferralEnabled] = useState(false);
 
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [coords, setCoords] = useState<GpsPoint | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationInlineError, setLocationInlineError] = useState<string | null>(null);
   const [showLocationHelp, setShowLocationHelp] = useState(false);
@@ -245,10 +255,16 @@ export function VendorRegistrationWizard({
   const [shopCameraOpen, setShopCameraOpen] = useState(false);
   const [shopPhotoBlob, setShopPhotoBlob] = useState<Blob | null>(null);
   const [shopPhotoDataUrl, setShopPhotoDataUrl] = useState<string | null>(null);
-  const [shopPhotoCoords, setShopPhotoCoords] = useState<{ lat: number; lng: number } | null>(
+  const [shopPhotoCoords, setShopPhotoCoords] = useState<GpsPoint | null>(null);
+  const [shopPhotoGpsDistance, setShopPhotoGpsDistance] = useState(0);
+  const [shopPhotoLocationAccuracy, setShopPhotoLocationAccuracy] = useState<number | null>(
     null,
   );
-  const [shopPhotoGpsDistance, setShopPhotoGpsDistance] = useState(0);
+  const [shopPhotoAccuracy, setShopPhotoAccuracy] = useState<number | null>(null);
+  const [shopPhotoPendingLocationReview, setShopPhotoPendingLocationReview] = useState(false);
+  const [gpsMatchFailCount, setGpsMatchFailCount] = useState(0);
+  const [lastFailedShopShot, setLastFailedShopShot] = useState<CapturedShot | null>(null);
+  const gpsSessionKeyRef = useRef(`reg-${crypto.randomUUID()}`);
 
   useEffect(() => {
     void isReferralEnabled().then(setReferralEnabled);
@@ -328,8 +344,32 @@ export function VendorRegistrationWizard({
     modesOk &&
     shopPhotoCaptured;
 
-  const detectLocation = (opts?: { silent?: boolean }): Promise<{ lat: number; lng: number } | null> => {
+  const detectLocation = (opts?: { silent?: boolean }): Promise<GpsPoint | null> => {
     return new Promise((resolve) => {
+      const e2eGeo =
+        typeof window !== "undefined"
+          ? (
+              window as unknown as {
+                __E2E_MOCK_GEO__?: { lat: number; lng: number; accuracy?: number | null };
+              }
+            ).__E2E_MOCK_GEO__
+          : undefined;
+      if (e2eGeo && Number.isFinite(e2eGeo.lat) && Number.isFinite(e2eGeo.lng)) {
+        const c: GpsPoint = {
+          lat: e2eGeo.lat,
+          lng: e2eGeo.lng,
+          accuracy:
+            e2eGeo.accuracy != null && Number.isFinite(e2eGeo.accuracy)
+              ? e2eGeo.accuracy
+              : null,
+        };
+        setCoords(c);
+        setLocationInlineError(null);
+        setShowLocationHelp(false);
+        if (!opts?.silent) toast.success(s.vendor_location_captured);
+        resolve(c);
+        return;
+      }
       if (!("geolocation" in navigator)) {
         if (!opts?.silent) toast.error(s.vendor_geo_not_supported);
         setLocationInlineError(s.vendor_geo_not_supported);
@@ -340,7 +380,11 @@ export function VendorRegistrationWizard({
       setLocationInlineError(null);
       navigator.geolocation.getCurrentPosition(
         (p) => {
-          const c = { lat: p.coords.latitude, lng: p.coords.longitude };
+          const c: GpsPoint = {
+            lat: p.coords.latitude,
+            lng: p.coords.longitude,
+            accuracy: readGeolocationAccuracy(p.coords),
+          };
           setCoords(c);
           setLocating(false);
           setLocationInlineError(null);
@@ -529,24 +573,79 @@ export function VendorRegistrationWizard({
     toast.success(s.vendor_selfie_captured);
   };
 
-  const handleShopPhotoCapture = (shot: CapturedShot) => {
-    setShopCameraOpen(false);
-    if (coords) {
-      const meters = distanceMeters(coords, shot.coords);
-      if (meters > GPS_MATCH_TOLERANCE_M) {
-        toast.error(s.vendor_mismatch_title, {
-          description: s.vendor_mismatch_distance(Math.round(meters), GPS_MATCH_TOLERANCE_M),
-        });
-        return;
-      }
-      setShopPhotoGpsDistance(Math.round(meters));
-    } else {
-      setShopPhotoGpsDistance(0);
-    }
+  const acceptShopPhoto = (
+    shot: CapturedShot,
+    opts: {
+      distance: number;
+      locationAccuracy: number | null;
+      photoAccuracy: number | null;
+      pendingLocationReview: boolean;
+    },
+  ) => {
+    setShopPhotoGpsDistance(Math.round(opts.distance));
+    setShopPhotoLocationAccuracy(opts.locationAccuracy);
+    setShopPhotoAccuracy(opts.photoAccuracy);
+    setShopPhotoPendingLocationReview(opts.pendingLocationReview);
     setShopPhotoBlob(shot.blob);
     setShopPhotoDataUrl(shot.dataUrl);
     setShopPhotoCoords(shot.coords);
-    toast.success(s.vendor_photo_verified);
+    setLastFailedShopShot(null);
+    if (opts.pendingLocationReview) {
+      toast.success(s.vendor_gps_pending_review_toast);
+    } else {
+      toast.success(s.vendor_photo_verified);
+    }
+  };
+
+  const handleShopPhotoCapture = (shot: CapturedShot) => {
+    setShopCameraOpen(false);
+    if (coords) {
+      const match = evaluateGpsMatch(coords, shot.coords);
+      if (!match.ok) {
+        const nextFails = gpsMatchFailCount + 1;
+        setGpsMatchFailCount(nextFails);
+        setLastFailedShopShot(shot);
+        void logGpsMatchFailure({
+          distanceMeters: match.distanceMeters,
+          locationAccuracy: match.locationAccuracy,
+          photoAccuracy: match.photoAccuracy,
+          effectiveTolerance: match.effectiveTolerance,
+          source: "registration",
+          sessionKey: gpsSessionKeyRef.current,
+        });
+        toast.error(s.vendor_mismatch_title, {
+          description: s.vendor_mismatch_distance(
+            Math.round(match.distanceMeters),
+            Math.round(match.effectiveTolerance),
+          ),
+        });
+        return;
+      }
+      acceptShopPhoto(shot, {
+        distance: match.distanceMeters,
+        locationAccuracy: match.locationAccuracy,
+        photoAccuracy: match.photoAccuracy,
+        pendingLocationReview: false,
+      });
+      return;
+    }
+    acceptShopPhoto(shot, {
+      distance: 0,
+      locationAccuracy: null,
+      photoAccuracy: shot.coords.accuracy,
+      pendingLocationReview: false,
+    });
+  };
+
+  const submitShopPhotoForLocationReview = () => {
+    if (!lastFailedShopShot || !coords) return;
+    const match = evaluateGpsMatch(coords, lastFailedShopShot.coords);
+    acceptShopPhoto(lastFailedShopShot, {
+      distance: match.distanceMeters,
+      locationAccuracy: match.locationAccuracy,
+      photoAccuracy: match.photoAccuracy,
+      pendingLocationReview: true,
+    });
   };
 
   const register = async (e: FormEvent) => {
@@ -685,67 +784,134 @@ export function VendorRegistrationWizard({
     let shopPhotoFailed = false;
 
     if (pendingNewCategoryCreate) {
-      const created = await invokeSuggestCategory({
-        description: pendingNewCategoryCreate.description,
-        vendor_id: newVendorId,
-        create_pending: true,
-      });
-      if (created.success && created.category_id) {
-        resolvedPrimaryServiceMode = pickPrimaryAvailabilityMode(
-          pendingCategoryModes,
-          created.service_mode ?? pendingNewCategoryCreate.service_mode,
+      try {
+        const created = await withTimedRetry(
+          async (signal) => {
+            const result = await invokeSuggestCategory({
+              description: pendingNewCategoryCreate.description,
+              vendor_id: newVendorId,
+              create_pending: true,
+            });
+            if (!result.success && isNetworkFailure({ message: result.error ?? "" })) {
+              throw new Error(result.error ?? "suggest_category_network");
+            }
+            if (signal.aborted) throw new Error("aborted");
+            return result;
+          },
+          {
+            onRetrying: () => showNetworkRetryingToast({ retrying: s.network_retrying }),
+            shouldRetry: () => getNavigatorOnline(),
+          },
         );
-        resolvedCategoryLabel =
-          created.category_name ?? pendingNewCategoryCreate.category_name;
-        resolvedCategoryId = created.category_id;
+        dismissNetworkRetryingToast();
+        if (created.success && created.category_id) {
+          resolvedPrimaryServiceMode = pickPrimaryAvailabilityMode(
+            pendingCategoryModes,
+            created.service_mode ?? pendingNewCategoryCreate.service_mode,
+          );
+          resolvedCategoryLabel =
+            created.category_name ?? pendingNewCategoryCreate.category_name;
+          resolvedCategoryId = created.category_id;
 
-        const attachResult = await invokeAttachPendingCategory({
-          vendorId: newVendorId,
-          vendorPhone: phone.trim(),
-          categoryId: created.category_id,
-          serviceMode: resolvedPrimaryServiceMode,
-          modes: pendingCategoryModes,
-        });
-        if (attachResult.ok === false) {
-          captureError(new Error(attachResult.error), {
-            scope: "vendorRegistrationWizard.attachPendingCategory",
+          try {
+            const attachResult = await withTimedRetry(
+              async (signal) => {
+                const r = await invokeAttachPendingCategory({
+                  vendorId: newVendorId,
+                  vendorPhone: phone.trim(),
+                  categoryId: created.category_id!,
+                  serviceMode: resolvedPrimaryServiceMode,
+                  modes: pendingCategoryModes,
+                });
+                if (r.ok === false && isNetworkFailure({ message: r.error })) {
+                  throw new Error(r.error);
+                }
+                if (signal.aborted) throw new Error("aborted");
+                return r;
+              },
+              { shouldRetry: () => getNavigatorOnline() },
+            );
+            if (attachResult.ok === false) {
+              captureError(new Error(attachResult.error), {
+                scope: "vendorRegistrationWizard.attachPendingCategory",
+                vendorId: newVendorId,
+              });
+              toast.warning(s.reg_soft_fail_category);
+            } else {
+              try {
+                const { error: attachPatchErr } = await withTimedRetry(async (signal) => {
+                  const r = await patchVendorOwn(newVendorId, phone.trim(), {
+                    category: resolvedCategoryLabel,
+                    service_mode: resolvedPrimaryServiceMode,
+                  });
+                  if (signal.aborted) throw new Error("aborted");
+                  return throwOnSupabaseNetworkError(r);
+                });
+                if (attachPatchErr) {
+                  captureError(attachPatchErr, {
+                    scope: "vendorRegistrationWizard.attachPendingCategoryPatch",
+                    vendorId: newVendorId,
+                  });
+                }
+              } catch (patchErr) {
+                captureError(patchErr, {
+                  scope: "vendorRegistrationWizard.attachPendingCategoryPatch",
+                  vendorId: newVendorId,
+                });
+              }
+            }
+          } catch (attachErr) {
+            captureError(attachErr, {
+              scope: "vendorRegistrationWizard.attachPendingCategory",
+              vendorId: newVendorId,
+            });
+            toast.warning(
+              isNetworkTimeout(attachErr) ? s.network_timeout : s.reg_soft_fail_category,
+            );
+          }
+        } else {
+          shopPhotoFailed = true;
+          captureError(new Error("pending_category_create_failed"), {
+            scope: "vendorRegistrationWizard.pendingCategoryCreate",
             vendorId: newVendorId,
           });
           toast.warning(s.reg_soft_fail_category);
-        } else {
-          const { error: attachPatchErr } = await patchVendorOwn(newVendorId, phone.trim(), {
-            category: resolvedCategoryLabel,
-            service_mode: resolvedPrimaryServiceMode,
-          });
-          if (attachPatchErr) {
-            captureError(attachPatchErr, {
-              scope: "vendorRegistrationWizard.attachPendingCategoryPatch",
-              vendorId: newVendorId,
-            });
-          }
         }
-      } else {
-        // Pending-category creation itself failed — shop photo has nowhere to attach.
+      } catch (pendingErr) {
+        dismissNetworkRetryingToast();
         shopPhotoFailed = true;
-        captureError(new Error("pending_category_create_failed"), {
+        captureError(pendingErr, {
           scope: "vendorRegistrationWizard.pendingCategoryCreate",
           vendorId: newVendorId,
         });
-        toast.warning(s.reg_soft_fail_category);
+        toast.warning(
+          isNetworkTimeout(pendingErr) || pendingErr instanceof NetworkExhaustedError
+            ? s.network_timeout
+            : s.reg_soft_fail_category,
+        );
       }
     }
 
     try {
       const selfiePath = `${newVendorId}/selfie.jpg`;
-      const { error: selfieUpErr } = await supabase.storage
-        .from(VENDOR_SELFIES_BUCKET)
-        .upload(selfiePath, selfieBlob, { contentType: "image/jpeg", upsert: true });
+      const { error: selfieUpErr } = await withTimedRetry(async (signal) => {
+        const r = await supabase.storage
+          .from(VENDOR_SELFIES_BUCKET)
+          .upload(selfiePath, selfieBlob, { contentType: "image/jpeg", upsert: true });
+        if (signal.aborted) throw new Error("aborted");
+        if (r.error && isNetworkFailure(r.error)) throw r.error;
+        return r;
+      });
       if (!selfieUpErr) {
         const { data: selfiePub } = supabase.storage
           .from(VENDOR_SELFIES_BUCKET)
           .getPublicUrl(selfiePath);
-        const { error: selfiePatchErr } = await patchVendorOwn(newVendorId, phone.trim(), {
-          photo_selfie: selfiePub.publicUrl,
+        const { error: selfiePatchErr } = await withTimedRetry(async (signal) => {
+          const r = await patchVendorOwn(newVendorId, phone.trim(), {
+            photo_selfie: selfiePub.publicUrl,
+          });
+          if (signal.aborted) throw new Error("aborted");
+          return throwOnSupabaseNetworkError(r);
         });
         if (selfiePatchErr) {
           selfiePhotoFailed = true;
@@ -754,15 +920,19 @@ export function VendorRegistrationWizard({
             vendorId: newVendorId,
           });
         } else {
-          // Mirrors My Business's selfie flow (submit_vendor_verification).
-          // photo_selfie is already saved — a verification RPC failure here
-          // is non-blocking for the go-live gate.
-          const { error: verifErr } = await supabase.rpc("submit_vendor_verification", {
-            p_vendor_id: newVendorId,
-            p_vendor_phone: phone.trim(),
-            p_check_type: "photo_selfie",
-            p_doc_url: selfiePub.publicUrl,
-          });
+          const { error: verifErr } = await withTimedRetry(async (signal) =>
+            throwOnSupabaseNetworkError(
+              await applyAbortSignal(
+                supabase.rpc("submit_vendor_verification", {
+                  p_vendor_id: newVendorId,
+                  p_vendor_phone: phone.trim(),
+                  p_check_type: "photo_selfie",
+                  p_doc_url: selfiePub.publicUrl,
+                }),
+                signal,
+              ),
+            ),
+          );
           if (verifErr) {
             captureError(verifErr, {
               scope: "vendorRegistrationWizard.submitSelfieVerification",
@@ -783,30 +953,48 @@ export function VendorRegistrationWizard({
         scope: "vendorRegistrationWizard.selfieUpload",
         vendorId: newVendorId,
       });
+      if (isNetworkTimeout(err) || err instanceof NetworkExhaustedError) {
+        toast.warning(s.network_timeout);
+      }
     }
 
     if (resolvedCategoryId && shopPhotoBlob) {
       try {
         const shopPath = `${newVendorId}/${resolvedCategoryId}/${Date.now()}.jpg`;
-        const { error: shopUpErr } = await supabase.storage
-          .from(SHOP_PHOTOS_BUCKET)
-          .upload(shopPath, shopPhotoBlob, { contentType: "image/jpeg", upsert: true });
+        const { error: shopUpErr } = await withTimedRetry(async (signal) => {
+          const r = await supabase.storage
+            .from(SHOP_PHOTOS_BUCKET)
+            .upload(shopPath, shopPhotoBlob, { contentType: "image/jpeg", upsert: true });
+          if (signal.aborted) throw new Error("aborted");
+          if (r.error && isNetworkFailure(r.error)) throw r.error;
+          return r;
+        });
         if (!shopUpErr) {
           const { data: shopPub } = supabase.storage
             .from(SHOP_PHOTOS_BUCKET)
             .getPublicUrl(shopPath);
           const hasAccountCoords = coords != null;
-          const { error: shopSubmitErr } = await supabase.rpc(
-            "vendor_submit_category_shop_photo",
-            {
-              p_vendor_id: newVendorId,
-              p_vendor_phone: phone.trim(),
-              p_category_id: resolvedCategoryId,
-              p_shop_photo_url: shopPub.publicUrl,
-              p_gps_match_distance: shopPhotoGpsDistance,
-              p_set_account_lat: hasAccountCoords ? null : shopPhotoCoords?.lat ?? null,
-              p_set_account_lng: hasAccountCoords ? null : shopPhotoCoords?.lng ?? null,
-            },
+          const { error: shopSubmitErr } = await withTimedRetry(async (signal) =>
+            throwOnSupabaseNetworkError(
+              await applyAbortSignal(
+                supabase.rpc("vendor_submit_category_shop_photo", {
+                  p_vendor_id: newVendorId,
+                  p_vendor_phone: phone.trim(),
+                  p_category_id: resolvedCategoryId,
+                  p_shop_photo_url: shopPub.publicUrl,
+                  p_gps_match_distance: shopPhotoGpsDistance,
+                  p_set_account_lat: hasAccountCoords ? null : shopPhotoCoords?.lat ?? null,
+                  p_set_account_lng: hasAccountCoords ? null : shopPhotoCoords?.lng ?? null,
+                  p_pending_location_review: shopPhotoPendingLocationReview,
+                  p_location_accuracy: shopPhotoLocationAccuracy,
+                  p_photo_accuracy: shopPhotoAccuracy,
+                  p_set_account_location_accuracy: hasAccountCoords
+                    ? coords?.accuracy ?? null
+                    : shopPhotoCoords?.accuracy ?? null,
+                }),
+                signal,
+              ),
+            ),
           );
           if (shopSubmitErr) {
             shopPhotoFailed = true;
@@ -814,6 +1002,20 @@ export function VendorRegistrationWizard({
               scope: "vendorRegistrationWizard.submitShopPhoto",
               vendorId: newVendorId,
             });
+          } else if (hasAccountCoords && coords?.accuracy != null) {
+            const { error: accErr } = await withTimedRetry(async (signal) => {
+              const r = await patchVendorOwn(newVendorId, phone.trim(), {
+                location_accuracy: coords.accuracy,
+              });
+              if (signal.aborted) throw new Error("aborted");
+              return throwOnSupabaseNetworkError(r);
+            });
+            if (accErr) {
+              captureError(accErr, {
+                scope: "vendorRegistrationWizard.locationAccuracy",
+                vendorId: newVendorId,
+              });
+            }
           }
         } else {
           shopPhotoFailed = true;
@@ -828,6 +1030,9 @@ export function VendorRegistrationWizard({
           scope: "vendorRegistrationWizard.shopPhotoUpload",
           vendorId: newVendorId,
         });
+        if (isNetworkTimeout(err) || err instanceof NetworkExhaustedError) {
+          toast.warning(s.network_timeout);
+        }
       }
     } else if (!resolvedCategoryId) {
       shopPhotoFailed = true;
@@ -835,21 +1040,37 @@ export function VendorRegistrationWizard({
 
     const filledReasons = cancelReasons.map((r) => r.trim());
     if (resolvedCategoryId && filledReasons.some((r) => r.length > 0)) {
-      const { error: reasonsErr } = await supabase.rpc(
-        "vendor_upsert_category_cancel_reasons",
-        {
-          p_vendor_id: newVendorId,
-          p_vendor_phone: phone.trim(),
-          p_category_id: resolvedCategoryId,
-          p_reasons: filledReasons,
-        },
-      );
-      if (reasonsErr) {
-        captureError(reasonsErr, {
+      try {
+        const { error: reasonsErr } = await withTimedRetry(async (signal) =>
+          throwOnSupabaseNetworkError(
+            await applyAbortSignal(
+              supabase.rpc("vendor_upsert_category_cancel_reasons", {
+                p_vendor_id: newVendorId,
+                p_vendor_phone: phone.trim(),
+                p_category_id: resolvedCategoryId,
+                p_reasons: filledReasons,
+              }),
+              signal,
+            ),
+          ),
+        );
+        if (reasonsErr) {
+          captureError(reasonsErr, {
+            scope: "vendorRegistrationWizard.cancelReasons",
+            vendorId: newVendorId,
+          });
+          toast.warning(s.reg_soft_fail_cancel_reasons);
+        }
+      } catch (err) {
+        captureError(err, {
           scope: "vendorRegistrationWizard.cancelReasons",
           vendorId: newVendorId,
         });
-        toast.warning(s.reg_soft_fail_cancel_reasons);
+        toast.warning(
+          isNetworkTimeout(err) || err instanceof NetworkExhaustedError
+            ? s.network_timeout
+            : s.reg_soft_fail_cancel_reasons,
+        );
       }
     }
 
@@ -861,20 +1082,38 @@ export function VendorRegistrationWizard({
           serves_at_customer_place: reachFlags.serves_at_customer_place,
           service_radius_km: serviceRadiusKm,
           vendor_note: noteTrim,
-          // shop_name is the single brand source; brand_name is synced server-side.
         };
-        const { error: profileErr } = await supabase.rpc("vendor_update_category_profile", {
-          p_vendor_id: newVendorId,
-          p_vendor_phone: phone.trim(),
-          p_category_id: resolvedCategoryId,
-          p_patch: patch,
-        });
-        if (profileErr) {
-          captureError(profileErr, {
+        try {
+          const { error: profileErr } = await withTimedRetry(async (signal) =>
+            throwOnSupabaseNetworkError(
+              await applyAbortSignal(
+                supabase.rpc("vendor_update_category_profile", {
+                  p_vendor_id: newVendorId,
+                  p_vendor_phone: phone.trim(),
+                  p_category_id: resolvedCategoryId,
+                  p_patch: patch,
+                }),
+                signal,
+              ),
+            ),
+          );
+          if (profileErr) {
+            captureError(profileErr, {
+              scope: "vendorRegistrationWizard.categoryProfile",
+              vendorId: newVendorId,
+            });
+            toast.warning(s.reg_soft_fail_profile);
+          }
+        } catch (err) {
+          captureError(err, {
             scope: "vendorRegistrationWizard.categoryProfile",
             vendorId: newVendorId,
           });
-          toast.warning(s.reg_soft_fail_profile);
+          toast.warning(
+            isNetworkTimeout(err) || err instanceof NetworkExhaustedError
+              ? s.network_timeout
+              : s.reg_soft_fail_profile,
+          );
         }
       }
     }
@@ -891,30 +1130,41 @@ export function VendorRegistrationWizard({
 
     if (referralCodeInput.trim()) {
       try {
-        const referralResp = await fetch(`${SUPABASE_URL}/functions/v1/process-vendor-referral`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({
-            new_vendor_id: newVendorId,
-            referral_code: referralCodeInput.trim(),
-          }),
+        const referralBody = await withTimedRetry(async (signal) => {
+          const referralResp = await fetch(
+            `${SUPABASE_URL}/functions/v1/process-vendor-referral`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              },
+              body: JSON.stringify({
+                new_vendor_id: newVendorId,
+                referral_code: referralCodeInput.trim(),
+              }),
+              signal,
+            },
+          );
+          const body = (await referralResp.json()) as {
+            success?: boolean;
+            reason?: string;
+          };
+          return { ok: referralResp.ok, body };
         });
-        const referralBody = (await referralResp.json()) as {
-          success?: boolean;
-          reason?: string;
-        };
-        if (referralBody.reason === "already_referred") {
+        if (referralBody.body.reason === "already_referred") {
           toast.error(s.referral_already_used);
-        } else if (referralResp.ok && referralBody.success) {
+        } else if (referralBody.ok && referralBody.body.success) {
           toast.success(s.referral_code_applied);
         } else {
           toast.error(s.referral_code_invalid);
         }
-      } catch {
-        toast.error(s.referral_code_invalid);
+      } catch (err) {
+        toast.error(
+          isNetworkTimeout(err) || err instanceof NetworkExhaustedError
+            ? s.network_timeout
+            : s.referral_code_invalid,
+        );
       }
     }
 
@@ -1410,6 +1660,26 @@ export function VendorRegistrationWizard({
               <Camera className="h-4 w-4" />
               {shopPhotoCaptured ? s.vendor_reshoot : s.my_business_verify_now}
             </button>
+            {gpsMatchFailCount >= GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW &&
+              lastFailedShopShot &&
+              !shopPhotoCaptured && (
+                <button
+                  type="button"
+                  data-testid="reg-gps-submit-for-review"
+                  onClick={submitShopPhotoForLocationReview}
+                  className="mt-2 w-full rounded-xl border border-amber-500/50 bg-amber-500/10 py-3 text-sm font-semibold text-amber-800"
+                >
+                  {s.vendor_gps_submit_for_review}
+                </button>
+              )}
+            {shopPhotoPendingLocationReview && shopPhotoCaptured && (
+              <p
+                data-testid="reg-gps-pending-review-note"
+                className="mt-2 text-xs text-amber-700"
+              >
+                {s.vendor_gps_pending_review_note}
+              </p>
+            )}
             {shopPhotoDataUrl && (
               <img
                 src={shopPhotoDataUrl}

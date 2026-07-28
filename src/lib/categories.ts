@@ -40,7 +40,7 @@ export const KNOWN_CATEGORIES: Record<string, KnownCategoryDef> = {
   },
   mechanic: {
     label: "Mechanic",
-    aliases: ["mikanik", "mechanic", "garage", "repair", "engine", "car repair", "bike repair"],
+    aliases: ["mikanik", "mechanic", "garage", "engine", "car repair", "bike repair"],
     service_mode: "help",
     isEmergency: true,
   },
@@ -155,8 +155,8 @@ export function resolveCanonicalTerm(rawInput: string): string | null {
 }
 
 /**
- * Ambulance / accident / hospital / standalone "emergency" — 108 gov UI only, no vendor search.
- * Distinct from pharmacy/medical searches which show vendors + 104 helpline hint.
+ * Ambulance / accident / hospital / standalone "emergency" — routes gov help to 108 (medical).
+ * Vendor search still runs; this only affects helpline UI (not pharmacy's 104 path).
  */
 export function isAmbulanceEmergencySearch(term: string): boolean {
   const raw = term.trim().toLowerCase();
@@ -197,8 +197,22 @@ export function termForGovEmergencyHelp(term: string): string {
 
 /** When radar is empty before max radius, show official lines alongside radius expand. */
 export function showGovHelpAlongsideRadiusExpand(term: string): boolean {
-  if (isAmbulanceEmergencySearch(term)) return true;
-  const r = resolveCanonicalTerm(term);
-  if (!r) return false;
-  return r === "Fire Brigade" || r === "Nursing";
+  return govEmergencyHelpLinesForTerm(term) !== null;
+}
+
+/**
+ * Category-keyed government helpline set for a search term.
+ * Returns null when no official line is genuinely relevant (do not default to 112).
+ */
+export type GovEmergencyHelpKind = "fire" | "medical" | "roadside" | "security";
+
+export function govEmergencyHelpLinesForTerm(term: string): GovEmergencyHelpKind | null {
+  if (isAmbulanceEmergencySearch(term)) return "medical";
+  const resolved = resolveCanonicalTerm(termForGovEmergencyHelp(term));
+  if (!resolved) return null;
+  if (FIRE_EMERGENCY_LABELS.has(resolved)) return "fire";
+  if (MEDICAL_EMERGENCY_LABELS.has(resolved)) return "medical";
+  if (ROADSIDE_EMERGENCY_LABELS.has(resolved)) return "roadside";
+  if (resolved === "Security") return "security";
+  return null;
 }

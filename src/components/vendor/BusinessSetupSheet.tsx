@@ -15,10 +15,14 @@ import {
   type Vendor,
   type Category,
   SHOP_PHOTOS_BUCKET,
-  GPS_MATCH_TOLERANCE_M,
-  distanceMeters,
   useCategoryLabel,
 } from "@/lib/supabase";
+import {
+  GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW,
+  evaluateGpsMatch,
+  logGpsMatchFailure,
+  type GpsPoint,
+} from "@/lib/gpsMatch";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { checkAndNotifyAdminCategoryGreenReady } from "@/lib/vendorGreenReady";
@@ -100,9 +104,14 @@ export function BusinessSetupSheet({
   const [shopPhotoBlob, setShopPhotoBlob] = useState<Blob | null>(null);
   const [shopPhotoDataUrl, setShopPhotoDataUrl] = useState<string | null>(null);
   const [shopPhotoGpsDistance, setShopPhotoGpsDistance] = useState(0);
-  const [shopPhotoCoords, setShopPhotoCoords] = useState<{ lat: number; lng: number } | null>(
+  const [shopPhotoCoords, setShopPhotoCoords] = useState<GpsPoint | null>(null);
+  const [shopPhotoLocationAccuracy, setShopPhotoLocationAccuracy] = useState<number | null>(
     null,
   );
+  const [shopPhotoAccuracy, setShopPhotoAccuracy] = useState<number | null>(null);
+  const [shopPhotoPendingLocationReview, setShopPhotoPendingLocationReview] = useState(false);
+  const [gpsMatchFailCount, setGpsMatchFailCount] = useState(0);
+  const [lastFailedShopShot, setLastFailedShopShot] = useState<CapturedShot | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -118,6 +127,11 @@ export function BusinessSetupSheet({
     setShopPhotoDataUrl(null);
     setShopPhotoGpsDistance(0);
     setShopPhotoCoords(null);
+    setShopPhotoLocationAccuracy(null);
+    setShopPhotoAccuracy(null);
+    setShopPhotoPendingLocationReview(false);
+    setGpsMatchFailCount(0);
+    setLastFailedShopShot(null);
     setCategoriesLoading(true);
     void supabase
       .from("categories")
@@ -148,28 +162,94 @@ export function BusinessSetupSheet({
     shopPhotoBlob != null &&
     !atMax;
 
+  const acceptShopPhoto = (
+    shot: CapturedShot,
+    opts: {
+      distance: number;
+      locationAccuracy: number | null;
+      photoAccuracy: number | null;
+      pendingLocationReview: boolean;
+    },
+  ) => {
+    setShopPhotoGpsDistance(Math.round(opts.distance));
+    setShopPhotoLocationAccuracy(opts.locationAccuracy);
+    setShopPhotoAccuracy(opts.photoAccuracy);
+    setShopPhotoPendingLocationReview(opts.pendingLocationReview);
+    setShopPhotoBlob(shot.blob);
+    setShopPhotoDataUrl(shot.dataUrl);
+    setShopPhotoCoords(shot.coords);
+    setLastFailedShopShot(null);
+    if (opts.pendingLocationReview) {
+      toast.success(s.vendor_gps_pending_review_toast);
+    } else {
+      toast.success(s.vendor_photo_verified);
+    }
+  };
+
   const handleShopPhoto = (shot: CapturedShot) => {
     setCameraOpen(false);
     const hasShopLocation = vendor.latitude != null && vendor.longitude != null;
     if (hasShopLocation) {
-      const meters = distanceMeters(
-        { lat: vendor.latitude!, lng: vendor.longitude! },
+      const match = evaluateGpsMatch(
+        {
+          lat: vendor.latitude!,
+          lng: vendor.longitude!,
+          accuracy: vendor.location_accuracy,
+        },
         shot.coords,
       );
-      if (meters > GPS_MATCH_TOLERANCE_M) {
+      if (!match.ok) {
+        const nextFails = gpsMatchFailCount + 1;
+        setGpsMatchFailCount(nextFails);
+        setLastFailedShopShot(shot);
+        void logGpsMatchFailure({
+          distanceMeters: match.distanceMeters,
+          locationAccuracy: match.locationAccuracy,
+          photoAccuracy: match.photoAccuracy,
+          effectiveTolerance: match.effectiveTolerance,
+          source: "add_business",
+          vendorId: vendor.id,
+        });
         toast.error(s.vendor_mismatch_title, {
-          description: s.vendor_mismatch_distance(Math.round(meters), GPS_MATCH_TOLERANCE_M),
+          description: s.vendor_mismatch_distance(
+            Math.round(match.distanceMeters),
+            Math.round(match.effectiveTolerance),
+          ),
         });
         return;
       }
-      setShopPhotoGpsDistance(Math.round(meters));
-    } else {
-      setShopPhotoGpsDistance(0);
+      acceptShopPhoto(shot, {
+        distance: match.distanceMeters,
+        locationAccuracy: match.locationAccuracy,
+        photoAccuracy: match.photoAccuracy,
+        pendingLocationReview: false,
+      });
+      return;
     }
-    setShopPhotoBlob(shot.blob);
-    setShopPhotoDataUrl(shot.dataUrl);
-    setShopPhotoCoords(shot.coords);
-    toast.success(s.vendor_photo_verified);
+    acceptShopPhoto(shot, {
+      distance: 0,
+      locationAccuracy: null,
+      photoAccuracy: shot.coords.accuracy,
+      pendingLocationReview: false,
+    });
+  };
+
+  const submitShopPhotoForLocationReview = () => {
+    if (!lastFailedShopShot || vendor.latitude == null || vendor.longitude == null) return;
+    const match = evaluateGpsMatch(
+      {
+        lat: vendor.latitude,
+        lng: vendor.longitude,
+        accuracy: vendor.location_accuracy,
+      },
+      lastFailedShopShot.coords,
+    );
+    acceptShopPhoto(lastFailedShopShot, {
+      distance: match.distanceMeters,
+      locationAccuracy: match.locationAccuracy,
+      photoAccuracy: match.photoAccuracy,
+      pendingLocationReview: true,
+    });
   };
 
   const submit = async () => {
@@ -272,6 +352,12 @@ export function BusinessSetupSheet({
       p_gps_match_distance: shopPhotoGpsDistance,
       p_set_account_lat: hasShopLocation ? null : shopPhotoCoords?.lat ?? null,
       p_set_account_lng: hasShopLocation ? null : shopPhotoCoords?.lng ?? null,
+      p_pending_location_review: shopPhotoPendingLocationReview,
+      p_location_accuracy: shopPhotoLocationAccuracy,
+      p_photo_accuracy: shopPhotoAccuracy,
+      p_set_account_location_accuracy: hasShopLocation
+        ? null
+        : shopPhotoCoords?.accuracy ?? null,
     });
     if (photoErr) {
       setSubmitting(false);
@@ -481,6 +567,18 @@ export function BusinessSetupSheet({
                     )}
                     {shopPhotoBlob ? s.vendor_reshoot : s.my_business_verify_now}
                   </button>
+                  {gpsMatchFailCount >= GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW &&
+                    lastFailedShopShot &&
+                    !shopPhotoBlob && (
+                      <button
+                        type="button"
+                        data-testid="add-business-gps-submit-for-review"
+                        onClick={submitShopPhotoForLocationReview}
+                        className="mt-2 w-full rounded-xl border border-amber-500/50 bg-amber-500/10 py-3 text-sm font-semibold text-amber-800"
+                      >
+                        {s.vendor_gps_submit_for_review}
+                      </button>
+                    )}
                   {shopPhotoDataUrl && (
                     <img
                       src={shopPhotoDataUrl}

@@ -18,6 +18,18 @@ import {
 import { setFirstOpenBackHandler } from "@/lib/firstOpenBackBridge";
 import { captureError } from "@/lib/sentry";
 import { supabase } from "@/lib/supabase";
+import {
+  applyAbortSignal,
+  isNetworkTimeout,
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withTimedRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 import { cn } from "@/lib/utils";
 
 // Phase D: set to true when Exotel KYC is complete and ExoVerify is live
@@ -177,10 +189,29 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
     setAwaitingNoAccountContinue(false);
 
     try {
-      const [usersResult, vendorStatusResult] = await Promise.all([
-        supabase.rpc("lookup_user_by_phone", { p_phone: digits }),
-        supabase.rpc("get_vendor_restore_status", { p_phone: digits }),
-      ]);
+      const [usersResult, vendorStatusResult] = await withTimedRetry(
+        async (signal) => {
+          const [users, vendorStatus] = await Promise.all([
+            applyAbortSignal(
+              supabase.rpc("lookup_user_by_phone", { p_phone: digits }),
+              signal,
+            ),
+            applyAbortSignal(
+              supabase.rpc("get_vendor_restore_status", { p_phone: digits }),
+              signal,
+            ),
+          ]);
+          throwOnSupabaseNetworkError(users);
+          throwOnSupabaseNetworkError(vendorStatus);
+          return [users, vendorStatus] as const;
+        },
+        {
+          onRetrying: () =>
+            showNetworkRetryingToast({ retrying: s.network_retrying }),
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
 
       if (usersResult.error || vendorStatusResult.error) {
         const rateLimited =
@@ -259,9 +290,16 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       setAwaitingNoAccountContinue(true);
       return;
     } catch (err) {
+      dismissNetworkRetryingToast();
       captureError(err, { scope: "firstOpen.restore", phoneSuffix: digits.slice(-4) });
       logRestoreOutcome("error");
-      setInlineMessage(s.firstopen_restore_error);
+      if (isNetworkTimeout(err) || err instanceof NetworkExhaustedError) {
+        setInlineMessage(
+          isNetworkTimeout(err) ? s.firstopen_restore_timeout : s.network_failed,
+        );
+      } else {
+        setInlineMessage(s.firstopen_restore_error);
+      }
       setInlineTone("error");
       setRestoreLoading(false);
     }

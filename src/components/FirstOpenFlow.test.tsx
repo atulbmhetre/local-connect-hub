@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { useState } from "react";
 import { strings } from "@/lib/strings";
 import { FirstOpenFlow } from "@/components/FirstOpenFlow";
@@ -458,6 +458,38 @@ describe("FirstOpenFlow restore", () => {
       phoneSuffix: "3210",
     });
   });
+
+  it(
+    "shows timeout message when restore lookup hangs (never resolves)",
+    async () => {
+      vi.useFakeTimers();
+      mockRpc.mockImplementation(() => new Promise(() => {}));
+
+      render(<FirstOpenFlow onComplete={vi.fn()} />);
+
+      fireEvent.click(screen.getByTestId("firstopen-returning"));
+      fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
+        target: { value: "9876543210" },
+      });
+      fireEvent.click(screen.getByTestId("firstopen-restore-cta"));
+
+      // 3 attempts × 12s + backoff 1s + 2s
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000);
+        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(12_000);
+        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.advanceTimersByTimeAsync(12_000);
+      });
+
+      expect(screen.getByTestId("firstopen-restore-message")).toHaveTextContent(
+        strings.en.firstopen_restore_timeout,
+      );
+      expect(screen.getByTestId("firstopen-restore-cta")).not.toBeDisabled();
+      vi.useRealTimers();
+    },
+    60_000,
+  );
 
   it("shows partial notice when migration RPCs fail", async () => {
     mockUsersData.set({ total_orders: 2 });

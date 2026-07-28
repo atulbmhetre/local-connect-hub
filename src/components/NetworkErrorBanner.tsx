@@ -3,12 +3,19 @@ import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 
 type NetworkErrorBannerProps = {
-  status: "retrying" | "failed";
+  status: "retrying" | "failed" | "timeout";
   onRetry?: () => void;
   className?: string;
+  /** Override the default failed/timeout copy (e.g. radar categories). */
+  message?: string;
 };
 
-export function NetworkErrorBanner({ status, onRetry, className }: NetworkErrorBannerProps) {
+export function NetworkErrorBanner({
+  status,
+  onRetry,
+  className,
+  message,
+}: NetworkErrorBannerProps) {
   const { s } = useLanguage();
 
   if (status === "retrying") {
@@ -26,6 +33,10 @@ export function NetworkErrorBanner({ status, onRetry, className }: NetworkErrorB
     );
   }
 
+  const body =
+    message ??
+    (status === "timeout" ? s.network_timeout : s.network_failed);
+
   return (
     <div
       className={cn(
@@ -33,10 +44,11 @@ export function NetworkErrorBanner({ status, onRetry, className }: NetworkErrorB
         className,
       )}
       role="alert"
+      data-network-status={status}
     >
       <WifiOff className="h-5 w-5 text-destructive shrink-0 mt-0.5" aria-hidden />
       <div className="min-w-0 flex-1 space-y-3">
-        <p className="text-sm text-destructive">{s.network_failed}</p>
+        <p className="text-sm text-destructive">{body}</p>
         {onRetry && (
           <button
             type="button"

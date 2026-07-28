@@ -35,11 +35,13 @@ export async function resolveRecommendedVendorRadarLink(
   if (!categoryLabel) {
     const { data: vcRows } = await supabase
       .from("vendor_categories")
-      .select("is_primary, categories(label)")
+      .select("is_primary, verification_status, categories(label)")
       .eq("vendor_id", vendorId)
       .eq("status", "approved");
 
-    const rows = vcRows ?? [];
+    const rows = (vcRows ?? []).filter(
+      (row) => row.verification_status !== "pending_location_review",
+    );
     const primary = rows.find((row) => row.is_primary === true) ?? rows[0];
     const cat = primary?.categories;
     const resolved = Array.isArray(cat) ? cat[0] : cat;

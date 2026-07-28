@@ -453,10 +453,9 @@ const Index = () => {
     return null;
   }
 
-  /** Graceful degradation shared by AI-search dead ends: browse the full grid. */
-  const fallThroughToCategoryGrid = () => {
-    toast.info(s.search_fallback, { duration: 3000 });
-    document.getElementById("category-grid")?.scrollIntoView({ behavior: "smooth" });
+  /** No confident category match — growth message, not "browse categories below". */
+  const showCategoryUnavailable = () => {
+    toast.info(s.search_category_unavailable, { duration: 4000 });
   };
 
   /**
@@ -464,7 +463,7 @@ const Index = () => {
    * Only an exact category-label match navigates directly; every AI guess is
    * surfaced as ranked candidates the user must confirm in the suggest sheet.
    */
-  const runFreeTextSearch = async (raw: string, wasRephrased = false) => {
+  const runFreeTextSearch = async (raw: string) => {
     const term = raw.trim();
     if (!term) return;
     setClassifying(true);
@@ -479,7 +478,7 @@ const Index = () => {
         return;
       }
       if (r.outcome === "fallback") {
-        fallThroughToCategoryGrid();
+        showCategoryUnavailable();
         return;
       }
       setSuggest({
@@ -487,7 +486,7 @@ const Index = () => {
         candidates: r.candidates,
         tier: 1,
         rephrasing: false,
-        wasRephrased,
+        wasRephrased: false,
       });
     } finally {
       setClassifying(false);
@@ -505,14 +504,9 @@ const Index = () => {
       setSuggest({ ...suggest, tier: 2 });
       return;
     }
-    // All candidates rejected. First attempt gets a rephrase prompt; a
-    // rephrased attempt falls through to the browse-categories grid.
-    if (suggest.wasRephrased) {
-      setSuggest(null);
-      fallThroughToCategoryGrid();
-      return;
-    }
-    setSuggest({ ...suggest, rephrasing: true });
+    // Cap: after rejecting all suggestion tiers, stop — do not re-loop AI guesses.
+    setSuggest(null);
+    showCategoryUnavailable();
   };
 
   const handleSuggestRephrase = async (text: string) => {
@@ -520,7 +514,7 @@ const Index = () => {
     if (!t) return;
     setSuggest(null);
     setQuery(t);
-    await runFreeTextSearch(t, true);
+    await runFreeTextSearch(t);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

@@ -1,4 +1,9 @@
 import { supabase, type Vendor } from "@/lib/supabase";
+import {
+  applyAbortSignal,
+  throwOnSupabaseNetworkError,
+  withTimedRetry,
+} from "@/lib/withNetworkRetry";
 
 /** Vendor self-read (Settings / VendorMode) — bypasses discoverable RLS. */
 export async function fetchVendorOwn(
@@ -17,14 +22,28 @@ export async function fetchVendorOwn(
 export async function fetchVendorByPhoneLogin(
   phone: string,
 ): Promise<{ data: Vendor | null; error: Error | null }> {
-  const { data, error } = await supabase.rpc("get_vendor_by_phone_login", {
-    p_phone: phone.trim(),
-  });
-  if (error) return { data: null, error: new Error(error.message) };
-  // PostgREST returns a null-filled composite object when SQL RETURNS NULL for a row type.
-  const row = data as Vendor | null;
-  if (!row?.id) return { data: null, error: null };
-  return { data: row, error: null };
+  try {
+    const { data, error } = await withTimedRetry(async (signal) =>
+      throwOnSupabaseNetworkError(
+        await applyAbortSignal(
+          supabase.rpc("get_vendor_by_phone_login", {
+            p_phone: phone.trim(),
+          }),
+          signal,
+        ),
+      ),
+    );
+    if (error) return { data: null, error: new Error(error.message) };
+    // PostgREST returns a null-filled composite object when SQL RETURNS NULL for a row type.
+    const row = data as Vendor | null;
+    if (!row?.id) return { data: null, error: null };
+    return { data: row, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
 }
 
 /** Customer reads vendor(s) for tracking/orders or public discovery. */

@@ -336,6 +336,7 @@ export type VerificationStatus =
   | "identity_linked"
   | "business_verified"
   | "green_pending"
+  | "pending_location_review"
   | "Green"
   | "Yellow"
   | "Red";
@@ -352,6 +353,8 @@ export type Vendor = {
   discoverable?: boolean;
   latitude: number | null;
   longitude: number | null;
+  /** Horizontal accuracy (m) when shop location was last set. */
+  location_accuracy?: number | null;
   verification_status: VerificationStatus;
   shop_photo_url: string | null;
   /** Meters from shop coords at photo capture; 0 = location set from photo with no prior GPS. */
@@ -448,7 +451,18 @@ export function displayName(canonical: string): string {
 
 export const SHOP_PHOTOS_BUCKET = "shop-photos";
 export const VENDOR_SELFIES_BUCKET = "vendor-selfies";
-export const GPS_MATCH_TOLERANCE_M = 75;
+
+export {
+  GPS_MATCH_TOLERANCE_M,
+  GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW,
+  evaluateGpsMatch,
+  gpsEffectiveTolerance,
+  logGpsMatchFailure,
+  readGeolocationAccuracy,
+  type GpsPoint,
+  type GpsMatchEvaluation,
+  type GpsMatchFailureSource,
+} from "@/lib/gpsMatch";
 
 import { resolveCategoryFromDB } from "@/lib/categories";
 
@@ -539,8 +553,19 @@ export async function classifySearchTermForRadar(
       return { outcome: "hint", message: result.message.trim() };
     }
 
+    if (result.no_confident_match === true) {
+      return { outcome: "fallback" };
+    }
+
     const candidates = parseClassifyCandidates(result.candidates);
     if (candidates.length === 0) return { outcome: "fallback" };
+
+    // Defense in depth: gateway should already gate on threshold; drop low scores.
+    const confidence = Number(result.confidence);
+    if (Number.isFinite(confidence) && confidence < 0.85) {
+      return { outcome: "fallback" };
+    }
+
     return { outcome: "candidates", candidates };
   } catch {
     return { outcome: "fallback" };
@@ -732,32 +757,63 @@ export function isGreenLive(v: Vendor) {
   return meetsGreenCriteria(v) && v.is_manual_verified;
 }
 
-export async function fetchActiveVendorCategoryLabels(): Promise<Set<string>> {
-  const [legacyRes, vcRes, activeVendorRes] = await Promise.all([
-    supabase.from("vendors").select("category").eq("is_active", true).eq("discoverable", true),
-    supabase
+export async function fetchActiveVendorCategoryLabelMap(): Promise<Map<string, Set<string>>> {
+  const { data: activeVendors, error } = await supabase
+    .from("vendors")
+    .select("id, category")
+    .eq("is_active", true)
+    .eq("discoverable", true)
+    .eq("is_banned", false)
+    .eq("profile_status", "complete");
+
+  if (error) throw error;
+
+  const map = new Map<string, Set<string>>();
+  const addLabel = (vendorId: string, label: string) => {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const set = map.get(vendorId) ?? new Set<string>();
+    set.add(trimmed);
+    map.set(vendorId, set);
+  };
+
+  const activeVendorIds: string[] = [];
+  for (const row of activeVendors ?? []) {
+    activeVendorIds.push(row.id);
+    if (typeof row.category === "string") addLabel(row.id, row.category);
+  }
+
+  if (activeVendorIds.length > 0) {
+    const { data: vcRows, error: vcError } = await supabase
       .from("vendor_categories")
-      .select("vendor_id, categories(label)")
-      .eq("status", "approved"),
-    supabase.from("vendors").select("id").eq("is_active", true).eq("discoverable", true),
-  ]);
+      .select("vendor_id, verification_status, categories(label)")
+      .eq("status", "approved")
+      .in("vendor_id", activeVendorIds);
+    if (vcError) throw vcError;
 
-  const activeVendorIds = new Set((activeVendorRes.data ?? []).map((v) => v.id));
-  const labels = new Set<string>();
-
-  for (const row of legacyRes.data ?? []) {
-    if (typeof row.category === "string" && row.category.length > 0) {
-      labels.add(row.category);
+    for (const row of vcRows ?? []) {
+      if (
+        (row as { verification_status?: string | null }).verification_status ===
+        "pending_location_review"
+      ) {
+        continue;
+      }
+      const cats = row.categories as { label: string } | { label: string }[] | null;
+      const category = Array.isArray(cats) ? cats[0] : cats;
+      if (category?.label) addLabel(row.vendor_id, category.label);
     }
   }
 
-  for (const row of vcRes.data ?? []) {
-    if (!activeVendorIds.has(row.vendor_id)) continue;
-    const cats = row.categories as { label: string } | { label: string }[] | null;
-    const category = Array.isArray(cats) ? cats[0] : cats;
-    if (category?.label) labels.add(category.label);
-  }
+  return map;
+}
 
+/** Union of vendors.category + approved vendor_categories labels for active discoverable vendors. */
+export async function fetchActiveVendorCategoryLabels(): Promise<Set<string>> {
+  const map = await fetchActiveVendorCategoryLabelMap();
+  const labels = new Set<string>();
+  for (const set of map.values()) {
+    for (const label of set) labels.add(label);
+  }
   return labels;
 }
 

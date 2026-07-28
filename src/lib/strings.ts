@@ -92,6 +92,8 @@ export const strings = {
     home_help_banner_load_error: 'Couldn\'t load your active order update.',
     findingMatch: 'Finding best match...',
     search_fallback: 'Couldn\'t find that service. Try browsing categories below 👇',
+    search_category_unavailable:
+      "This category or vendor isn't available yet — AasPaas is growing",
     home_suggest_title: 'Did you mean one of these?',
     home_suggest_you_searched: 'You searched for',
     home_suggest_none: 'None of these',
@@ -121,6 +123,7 @@ export const strings = {
     not_found_message: 'Oops! Page not found',
     not_found_home: 'Return to Home',
     privacy_policy_title: 'Privacy Policy',
+    privacy_policy_back_to_settings: 'Back to Settings',
     privacy_policy_open: 'Open the current Privacy Policy',
     privacy_policy_canonical_note:
       'The current policy is maintained on the official Aaspaas Pro website.',
@@ -191,7 +194,10 @@ export const strings = {
     radar_connection_error: 'Connection Error',
     network_retrying: 'Connection is slow — still trying...',
     network_failed: "Couldn't connect. Check your internet and try again.",
+    network_timeout: 'Connection is too slow. Please try again.',
     network_retry_btn: 'Try again',
+    firstopen_restore_timeout: 'Connection is too slow. Please try again.',
+    radar_categories_timeout: 'Connection is too slow. Couldn’t load categories — try again.',
     radar_location_required_title: 'Location needed',
     radar_location_required_body:
       'We need your location to find vendors near you. Please enable location access and try again.',
@@ -332,7 +338,8 @@ export const strings = {
     radar_vendor_home_based: '🏠 Home based',
     radar_vendor_visits_you: '🚗 Visits you',
     radar_suggestedCategory: (category: string) => `Showing results for ${category}`,
-    radar_unknownTerm: (term: string) => `We couldn't find '${term}'. Browse categories below.`,
+    radar_unknownTerm: (term: string) =>
+      `We couldn't find '${term}'. This category or vendor isn't available yet — AasPaas is growing.`,
     radar_sos_headline: 'Emergency help nearby',
     radar_sos_subtitle: 'Need delivery or a booking? Search by category above.',
     radar_medical_helpline: 'Need medical advice? Call 104',
@@ -388,6 +395,9 @@ export const strings = {
       "Couldn't check active orders. Stay online and try again.",
     vendor_mismatch_distance: (meters: number, tolerance: number) =>
       `Photo was taken ${meters} m from your shop. Must be within ${tolerance} m.`,
+    vendor_gps_submit_for_review: 'Submit for review anyway',
+    vendor_gps_pending_review_toast: 'Photo submitted for location review',
+    vendor_gps_pending_review_note: 'Location will be checked by admin before verification.',
     customer_account_banned:
       'Your account has been suspended. Please contact aaspaaspro.privacy@gmail.com',
     customer_orders_suspended:
@@ -547,7 +557,7 @@ export const strings = {
     vendor_photo_title_shop: 'Photo of your shop front',
     vendor_photo_title_home: 'Photo of your workspace or kitchen',
     vendor_photo_title_visiting: 'Photo of your work or equipment',
-    vendor_photo_hint_shop: 'Live camera only · within 75 m of shop',
+    vendor_photo_hint_shop: 'Live camera only · photo must be taken near your shop',
     vendor_photo_hint_home: 'Live camera only · taken at your workspace',
     vendor_photo_hint_visiting: 'Live camera only · show your tools or equipment',
     vendor_visiting_location_hint: "We'll use your current location",
@@ -737,7 +747,7 @@ export const strings = {
     vendor_checking: 'Checking…',
     vendor_photo_gps: 'Live shop photo + GPS match',
     vendor_photo_captured: 'Captured & GPS verified',
-    vendor_photo_hint: 'Live camera only · within 75 m of shop',
+    vendor_photo_hint: 'Live camera only · photo must be taken near your shop',
     vendor_reshoot: 'Re-shoot',
     vendor_capture: 'Capture',
     vendor_captured_shop: 'Captured shop',
@@ -833,7 +843,7 @@ export const strings = {
     settings_devMenuUnlocked: 'Developer menu unlocked',
     settings_clearDataTitle: 'Clear All My Data?',
     settings_clearDataDescription:
-      'This clears your saved addresses, notifications, neighbourhood list, feed posts, review text, profile preferences, and device tokens from our servers, and removes your phone number and app preferences from this device. For safety and accounting, your order history, bills, khata records, referrals, and account standing (including any warnings or suspensions) are kept. This cannot be undone.',
+      'This clears your saved addresses, notifications, neighbourhood list, feed posts, review text, profile preferences, and device tokens from our servers, and removes your phone number and app preferences from this device. Camera, microphone, location, and notification permissions are managed by Android and are not cleared here — change them in system Settings → Apps → AasPaas Pro → Permissions. For safety and accounting, your order history, bills, khata records, referrals, and account standing (including any warnings or suspensions) are kept. This cannot be undone.',
     settings_clearDataConfirm: 'Clear Everything',
     settings_clearDataFailed: "Couldn't clear your data. Please try again.",
     settings_localDataCleared: 'Local data cleared',
@@ -1750,6 +1760,8 @@ export const strings = {
     home_help_banner_load_error: 'आपकी सक्रिय ऑर्डर की जानकारी लोड नहीं हो सकी।',
     findingMatch: 'सबसे बेहतरीन विकल्प ढूंढ रहे हैं...',
     search_fallback: 'यह सेवा नहीं मिली। नीचे श्रेणियां देखें 👇',
+    search_category_unavailable:
+      'यह श्रेणी या विक्रेता अभी उपलब्ध नहीं है — AasPaas बढ़ रहा है',
     home_suggest_title: 'क्या आपका मतलब इनमें से कोई था?',
     home_suggest_you_searched: 'आपने खोजा',
     home_suggest_none: 'इनमें से कोई नहीं',
@@ -1779,6 +1791,7 @@ export const strings = {
     not_found_message: 'यह पेज नहीं मिला',
     not_found_home: 'होम पर लौटें',
     privacy_policy_title: 'गोपनीयता नीति',
+    privacy_policy_back_to_settings: 'सेटिंग्स पर वापस जाएँ',
     privacy_policy_open: 'वर्तमान गोपनीयता नीति खोलें',
     privacy_policy_canonical_note:
       'वर्तमान नीति आधिकारिक Aaspaas Pro वेबसाइट पर रखी जाती है।',
@@ -1849,7 +1862,10 @@ export const strings = {
     radar_connection_error: 'कनेक्शन त्रुटी',
     network_retrying: 'कनेक्शन धीमा है — फिर भी कोशिश जारी...',
     network_failed: 'कनेक्ट नहीं हो सका। अपना इंटरनेट जांचें और फिर कोशिश करें।',
+    network_timeout: 'कनेक्शन बहुत धीमा है। कृपया फिर कोशिश करें।',
     network_retry_btn: 'फिर कोशिश करें',
+    firstopen_restore_timeout: 'कनेक्शन बहुत धीमा है। कृपया फिर कोशिश करें।',
+    radar_categories_timeout: 'कनेक्शन बहुत धीमा है। श्रेणियां लोड नहीं हुईं — फिर कोशिश करें।',
     radar_location_required_title: 'स्थान आवश्यक है',
     radar_location_required_body:
       'आपके पास के विक्रेता खोजने के लिए हमें आपका स्थान चाहिए। कृपया स्थान पहुंच सक्षम करें और पुनः प्रयास करें।',
@@ -1990,7 +2006,8 @@ export const strings = {
     radar_vendor_home_based: '🏠 घर से',
     radar_vendor_visits_you: '🚗 आपके पास आते हैं',
     radar_suggestedCategory: (category: string) => `${category} के लिए परिणाम दिखा रहे हैं`,
-    radar_unknownTerm: (term: string) => `'${term}' नहीं मिला। नीचे श्रेणियां देखें।`,
+    radar_unknownTerm: (term: string) =>
+      `'${term}' नहीं मिला। यह श्रेणी या विक्रेता अभी उपलब्ध नहीं है — AasPaas बढ़ रहा है।`,
     radar_sos_headline: 'पास में आपातकालीन मदद',
     radar_sos_subtitle: 'डिलीवरी या बुकिंग चाहिए? ऊपर श्रेणी से खोजें।',
     radar_medical_helpline: 'चिकित्सा सलाह चाहिए? 104 पर कॉल करें',
@@ -2046,6 +2063,9 @@ export const strings = {
       'सक्रिय ऑर्डर जाँच नहीं हो सकी। ऑनलाइन रहें और फिर कोशिश करें।',
     vendor_mismatch_distance: (meters: number, tolerance: number) =>
       `फोटो आपकी दुकान से ${meters} मी दूर ली गई। ${tolerance} मी के अंदर होना चाहिए।`,
+    vendor_gps_submit_for_review: 'फिर भी समीक्षा के लिए भेजें',
+    vendor_gps_pending_review_toast: 'फोटो लोकेशन समीक्षा के लिए भेजी गई',
+    vendor_gps_pending_review_note: 'सत्यापन से पहले एडमिन लोकेशन जाँच करेगा।',
     customer_account_banned:
       'आपका खाता निलंबित कर दिया गया है। कृपया aaspaaspro.privacy@gmail.com पर संपर्क करें',
     customer_orders_suspended:
@@ -2204,7 +2224,7 @@ export const strings = {
     vendor_photo_title_shop: 'दुकान का सामने का फोटो',
     vendor_photo_title_home: 'workspace या kitchen का फोटो',
     vendor_photo_title_visiting: 'काम या equipment का फोटो',
-    vendor_photo_hint_shop: 'सिर्फ लाइव कैमरा · दुकान से 75 मी. के अंदर',
+    vendor_photo_hint_shop: 'सिर्फ लाइव कैमरा · दुकान के पास फोटो लें',
     vendor_photo_hint_home: 'सिर्फ लाइव कैमरा · workspace पर लिया गया',
     vendor_photo_hint_visiting: 'सिर्फ लाइव कैमरा · tools या vehicle दिखाएं',
     vendor_visiting_location_hint: 'हम आपका current location इस्तेमाल करेंगे',
@@ -2392,7 +2412,7 @@ export const strings = {
     vendor_checking: 'चेक हो रहा है…',
     vendor_photo_gps: 'लाइव दुकान फोटो + GPS मिलान',
     vendor_photo_captured: 'फोटो लिया और GPS वेरिफाइड',
-    vendor_photo_hint: 'सिर्फ लाइव कैमरा · दुकान से 75 मी. के अंदर',
+    vendor_photo_hint: 'सिर्फ लाइव कैमरा · दुकान के पास फोटो लें',
     vendor_reshoot: 'फिर से फोटो लें',
     vendor_capture: 'फोटो लें',
     vendor_captured_shop: 'दुकान की फोटो ली',
@@ -2488,7 +2508,7 @@ export const strings = {
     settings_devMenuUnlocked: 'डेवलपर मेनू अनलॉक हुआ',
     settings_clearDataTitle: 'सभी डेटा हटाएं?',
     settings_clearDataDescription:
-      'यह आपके सहेजे गए पते, सूचनाएं, पड़ोसी सूची, फ़ीड पोस्ट, समीक्षा पाठ, प्रोफ़ाइल प्राथमिकताएं और डिवाइस टोकन सर्वर से हटाता है, और इस डिवाइस से आपका फोन नंबर व ऐप प्राथमिकताएं साफ करता है। सुरक्षा और लेखा के लिए, आपका ऑर्डर इतिहास, बिल, खाता रिकॉर्ड, रेफरल और खाता स्थिति (चेतावनी या निलंबन सहित) रखी जाती है। यह पूर्ववत नहीं किया जा सकता।',
+      'यह आपके सहेजे गए पते, सूचनाएं, पड़ोसी सूची, फ़ीड पोस्ट, समीक्षा पाठ, प्रोफ़ाइल प्राथमिकताएं और डिवाइस टोकन सर्वर से हटाता है, और इस डिवाइस से आपका फोन नंबर व ऐप प्राथमिकताएं साफ करता है। कैमरा, माइक्रोफ़ोन, लोकेशन और सूचना अनुमतियाँ Android द्वारा नियंत्रित होती हैं — यहाँ साफ नहीं होतीं; सिस्टम Settings → Apps → AasPaas Pro → Permissions में बदलें। सुरक्षा और लेखा के लिए, आपका ऑर्डर इतिहास, बिल, खाता रिकॉर्ड, रेफरल और खाता स्थिति (चेतावनी या निलंबन सहित) रखी जाती है। यह पूर्ववत नहीं किया जा सकता।',
     settings_clearDataConfirm: 'सब कुछ हटाएं',
     settings_clearDataFailed: 'डेटा साफ नहीं हो सका। कृपया फिर कोशिश करें।',
     settings_localDataCleared: 'लोकल डेटा साफ हुआ',
@@ -3405,6 +3425,8 @@ export const strings = {
     home_help_banner_load_error: 'तुमच्या सक्रिय ऑर्डरची माहिती लोड झाली नाही.',
     findingMatch: 'उत्तम पर्याय शोधत आहोत...',
     search_fallback: 'ही सेवा सापडली नाही. खाली श्रेणी पहा 👇',
+    search_category_unavailable:
+      'ही श्रेणी किंवा विक्रेता अजून उपलब्ध नाही — AasPaas वाढत आहे',
     home_suggest_title: 'तुम्हाला यापैकी काही म्हणायचे होते का?',
     home_suggest_you_searched: 'तुम्ही शोधले',
     home_suggest_none: 'यापैकी काहीही नाही',
@@ -3434,6 +3456,7 @@ export const strings = {
     not_found_message: 'हे पान सापडले नाही',
     not_found_home: 'होमवर परत जा',
     privacy_policy_title: 'गोपनीयता धोरण',
+    privacy_policy_back_to_settings: 'सेटिंग्जवर परत जा',
     privacy_policy_open: 'सध्याचे गोपनीयता धोरण उघडा',
     privacy_policy_canonical_note:
       'सध्याचे धोरण अधिकृत Aaspaas Pro वेबसाइटवर राखले जाते.',
@@ -3504,7 +3527,10 @@ export const strings = {
     radar_connection_error: 'कनेक्शन त्रुटी',
     network_retrying: 'कनेक्शन हळू आहे — अजून प्रयत्न करत आहोत...',
     network_failed: 'कनेक्ट होऊ शकले नाही. तुमचे इंटरनेट तपासा आणि पुन्हा प्रयत्न करा.',
+    network_timeout: 'कनेक्शन खूप हळू आहे. कृपया पुन्हा प्रयत्न करा.',
     network_retry_btn: 'पुन्हा प्रयत्न करा',
+    firstopen_restore_timeout: 'कनेक्शन खूप हळू आहे. कृपया पुन्हा प्रयत्न करा.',
+    radar_categories_timeout: 'कनेक्शन खूप हळू आहे. श्रेणी लोड झाल्या नाहीत — पुन्हा प्रयत्न करा.',
     radar_location_required_title: 'स्थान आवश्यक आहे',
     radar_location_required_body:
       'तुमच्या जवळचे विक्रेते शोधण्यासाठी आम्हाला तुमचे स्थान हवे आहे. कृपया स्थान प्रवेश सक्षम करा आणि पुन्हा प्रयत्न करा.',
@@ -3645,7 +3671,8 @@ export const strings = {
     radar_vendor_home_based: '🏠 घरून',
     radar_vendor_visits_you: '🚗 तुमच्याकडे येतात',
     radar_suggestedCategory: (category: string) => `${category} साठी परिणाम दाखवत आहोत`,
-    radar_unknownTerm: (term: string) => `'${term}' सापडले नाही. खाली श्रेणी पाहा.`,
+    radar_unknownTerm: (term: string) =>
+      `'${term}' सापडले नाही. ही श्रेणी किंवा विक्रेता अजून उपलब्ध नाही — AasPaas वाढत आहे.`,
     radar_sos_headline: 'जवळपास आणीबाणी मदत',
     radar_sos_subtitle: 'डिलिव्हरी किंवा बुकिंग हवी? वर श्रेणीने शोधा.',
     radar_medical_helpline: 'वैद्यकीय सल्ला हवा? 104 वर कॉल करा',
@@ -3701,6 +3728,9 @@ export const strings = {
       'सक्रिय ऑर्डर तपासता आले नाहीत. ऑनलाइन रहा आणि पुन्हा प्रयत्न करा.',
     vendor_mismatch_distance: (meters: number, tolerance: number) =>
       `फोटो तुमच्या दुकानापासून ${meters} मी दूर घेतला. ${tolerance} मी मध्ये असावा.`,
+    vendor_gps_submit_for_review: 'तरीही पुनरावलोकनासाठी पाठवा',
+    vendor_gps_pending_review_toast: 'फोटो स्थान पुनरावलोकनासाठी पाठवला',
+    vendor_gps_pending_review_note: 'पडताळणीपूर्वी प्रशासक स्थान तपासेल.',
     customer_account_banned:
       'तुमचे खाते निलंबित केले आहे. कृपया aaspaaspro.privacy@gmail.com वर संपर्क करा',
     customer_orders_suspended:
@@ -3859,7 +3889,7 @@ export const strings = {
     vendor_photo_title_shop: 'दुकानाच्या समोरचा फोटो',
     vendor_photo_title_home: 'workspace किंवा kitchen चा फोटो',
     vendor_photo_title_visiting: 'काम किंवा equipment चा फोटो',
-    vendor_photo_hint_shop: 'फक्त लाइव्ह कॅमेरा · दुकानापासून 75 मी. आत',
+    vendor_photo_hint_shop: 'फक्त लाइव्ह कॅमेरा · दुकानाजवळ फोटो घ्या',
     vendor_photo_hint_home: 'फक्त लाइव्ह कॅमेरा · workspace वर घेतलेला',
     vendor_photo_hint_visiting: 'फक्त लाइव्ह कॅमेरा · साधने किंवा वाहन दाखवा',
     vendor_visiting_location_hint: 'आम्ही तुमचे current location वापरू',
@@ -4047,7 +4077,7 @@ export const strings = {
     vendor_checking: 'तपासत आहे…',
     vendor_photo_gps: 'थेट दुकान फोटो + GPS जुळणी',
     vendor_photo_captured: 'फोटो घेतला आणि GPS व्हेरिफाइड',
-    vendor_photo_hint: 'फक्त लाइव्ह कॅमेरा · दुकानापासून 75 मी. आत',
+    vendor_photo_hint: 'फक्त लाइव्ह कॅमेरा · दुकानाजवळ फोटो घ्या',
     vendor_reshoot: 'पुन्हा फोटो घ्या',
     vendor_capture: 'फोटो घ्या',
     vendor_captured_shop: 'दुकानाचा फोटो घेतला',
@@ -4143,7 +4173,7 @@ export const strings = {
     settings_devMenuUnlocked: 'डेव्हलपर मेनू अनलॉक झाला',
     settings_clearDataTitle: 'सर्व डेटा हटवायचा?',
     settings_clearDataDescription:
-      'हे तुमचे जतन केलेले पत्ते, सूचना, शेजारी यादी, फीड पोस्ट, समीक्षा मजकूर, प्रोफाइल प्राधान्ये आणि डिव्हाइस टोकन सर्व्हरवरून साफ करते, आणि या डिव्हाइसवरून तुमचा फोन नंबर व अॅप प्राधान्ये काढते. सुरक्षितता व लेखा-जोखा साठी, तुमचा ऑर्डर इतिहास, बिल, खाता नोंदी, रेफरल आणि खाते स्थिती (चेतावणी किंवा निलंबनासह) ठेवली जाते. हे पूर्ववत केले जाऊ शकत नाही.',
+      'हे तुमचे जतन केलेले पत्ते, सूचना, शेजारी यादी, फीड पोस्ट, समीक्षा मजकूर, प्रोफाइल प्राधान्ये आणि डिव्हाइस टोकन सर्व्हरवरून साफ करते, आणि या डिव्हाइसवरून तुमचा फोन नंबर व अॅप प्राधान्ये काढते. कॅमेरा, मायक्रोफोन, लोकेशन आणि सूचना परवानग्या Android व्यवस्थापित करते — येथे साफ होत नाहीत; सिस्टम Settings → Apps → AasPaas Pro → Permissions मध्ये बदला. सुरक्षितता व लेखा-जोखा साठी, तुमचा ऑर्डर इतिहास, बिल, खाता नोंदी, रेफरल आणि खाते स्थिती (चेतावणी किंवा निलंबनासह) ठेवली जाते. हे पूर्ववत केले जाऊ शकत नाही.',
     settings_clearDataConfirm: 'सर्व हटवा',
     settings_clearDataFailed: 'डेटा साफ होऊ शकला नाही. कृपया पुन्हा प्रयत्न करा.',
     settings_localDataCleared: 'स्थानिक डेटा साफ झाला',

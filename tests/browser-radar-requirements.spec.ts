@@ -376,11 +376,29 @@ test('RAD-10 — Active order badge shows on vendor card', async ({ page }) => {
 
 // ─── AMBULANCE SEARCH ──────────────────────────────────────────────────────
 
-test('RAD-06a — Search "ambulance" shows emergency panel, no vendor cards', async ({ page }) => {
+test('RAD-06a — Search "ambulance" shows 108 gov panel and matching vendor cards', async ({
+  page,
+}) => {
+  const ambulanceVendor = await createNearbyVendor('help', 'Ambulance', 'ambulance-match');
   await createNearbyVendor('help', 'Mechanic', 'ambulance-noise');
   await gotoRadar(page, { q: 'ambulance' });
-  await expect(page.getByText(L.govAmbulance)).toBeVisible({ timeout: 15000 });
-  await expect(page.getByTestId('radar-vendor-card')).not.toBeVisible();
+  await waitForVendorCard(page, ambulanceVendor.shop_name);
+  await expect(page.getByText(/Tap to open.*108/i)).toBeVisible({ timeout: 15000 });
+  await page.getByText(/Tap to open/i).click();
+  await expect(page.getByText(L.govAmbulance)).toBeVisible();
+  await expect(page.getByTestId('radar-vendor-card').filter({ hasText: 'Mechanic' })).not.toBeVisible();
+  await expect(page.getByRole('button', { name: /Within 15 km/i })).toBeVisible();
+  await page.getByRole('button', { name: /Within 50 km/i }).click();
+  await waitForScanComplete(page);
+  await expect(page.getByRole('button', { name: /Within 50 km/i })).toHaveClass(/ring-brand/);
+});
+
+test('RAD-06b — Pharmacy search shows vendor results and soft 104 helpline hint', async ({ page }) => {
+  const pharmacyVendor = await createNearbyVendor('delivery', 'Pharmacy', 'pharm-match');
+  await gotoRadar(page, { q: 'medicine', mode: 'delivery' });
+  await waitForVendorCard(page, pharmacyVendor.shop_name);
+  await expect(page.getByRole('link', { name: /Call 104/i })).toBeVisible();
+  await expect(page.getByText(/Tap to open.*108/i)).not.toBeVisible();
 });
 
 // ─── SERVICE RADIUS ────────────────────────────────────────────────────────

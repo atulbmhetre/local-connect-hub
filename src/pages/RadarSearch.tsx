@@ -41,7 +41,19 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { useLanguage } from "@/lib/language";
-import { isNetworkFailure } from "@/lib/withNetworkRetry";
+import {
+  applyAbortSignal,
+  isNetworkFailure,
+  isNetworkTimeout,
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withTimedRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import {
   compareRadarResults,
@@ -68,15 +80,11 @@ import {
   resolveCategoryServiceRadius,
 } from "@/lib/categoryScopedVendor";
 import {
-  FIRE_EMERGENCY_LABELS,
-  MEDICAL_EMERGENCY_LABELS,
-  ROADSIDE_EMERGENCY_LABELS,
+  govEmergencyHelpLinesForTerm,
   isOfficialEmergencyCategory,
-  isAmbulanceEmergencySearch,
   isPharmacyMedicalSearch,
   resolveCanonicalTerm,
   showGovHelpAlongsideRadiusExpand,
-  termForGovEmergencyHelp,
 } from "@/lib/categories";
 
 const RADAR_SUBSCRIPTION_OR =
@@ -437,6 +445,7 @@ const RadarSearch = () => {
   const [results, setResults] = useState<Ranked[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [networkSearchFailed, setNetworkSearchFailed] = useState(false);
+  const [networkSearchTimedOut, setNetworkSearchTimedOut] = useState(false);
   const [resultsTruncated, setResultsTruncated] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   /**
@@ -445,36 +454,66 @@ const RadarSearch = () => {
    * early-return setResults([]), flashing "0 results" before the real fetch.
    */
   const [categoriesLoaded, setCategoriesLoaded] = useState(false);
+  const [categoriesNetworkStatus, setCategoriesNetworkStatus] = useState<
+    "failed" | "timeout" | null
+  >(null);
   /** Bumped when neighbours_dirty is consumed so isSaved re-reads session flags. */
   const [neighboursSyncTick, setNeighboursSyncTick] = useState(0);
   const [suggestedCategoryName, setSuggestedCategoryName] = useState<string | null>(null);
   const [unknownTermBrowse, setUnknownTermBrowse] = useState(false);
-  const [ambulanceEmergencyOnly, setAmbulanceEmergencyOnly] = useState(false);
   /** Monotonic id so a stale in-flight fetch can never overwrite newer results. */
   const fetchSeqRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    void supabase
-      .from("categories")
-      .select("id, label, emoji, service_mode, is_active, sort_order")
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .then(({ data, error: catError }) => {
-        if (cancelled) return;
-        if (catError) {
-          console.error("radar categories load", catError);
-          setCategories([]);
-          setCategoriesLoaded(true);
-          return;
-        }
-        setCategories((data ?? []) as Category[]);
+  const loadCategories = useCallback(async () => {
+    setCategoriesNetworkStatus(null);
+    try {
+      const { data, error: catError } = await withTimedRetry(
+        async (signal) =>
+          throwOnSupabaseNetworkError(
+            await applyAbortSignal(
+              supabase
+                .from("categories")
+                .select("id, label, emoji, service_mode, is_active, sort_order")
+                .eq("is_active", true)
+                .order("sort_order", { ascending: true }),
+              signal,
+            ),
+          ),
+        {
+          onRetrying: () =>
+            showNetworkRetryingToast({ retrying: s.network_retrying }),
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (catError) {
+        console.error("radar categories load", catError);
+        setCategories([]);
+        setCategoriesNetworkStatus("failed");
         setCategoriesLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+        return;
+      }
+      setCategories((data ?? []) as Category[]);
+      setCategoriesLoaded(true);
+      setCategoriesNetworkStatus(null);
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      console.error("radar categories load", err);
+      setCategories([]);
+      setCategoriesLoaded(true);
+      setCategoriesNetworkStatus(
+        isNetworkTimeout(err) || err instanceof NetworkExhaustedError
+          ? isNetworkTimeout(err)
+            ? "timeout"
+            : "failed"
+          : "failed",
+      );
+    }
+  }, [s.network_retrying]);
+
+  useEffect(() => {
+    void loadCategories();
+  }, [loadCategories]);
 
   const isPanIndiaBracket = searchRadiusKm === PAN_INDIA_RADIUS_KM;
   const locating = !coordsTried;
@@ -505,7 +544,6 @@ const RadarSearch = () => {
     setSearchRadiusKm(DEFAULT_SERVICE_RADIUS_KM);
     setSuggestedCategoryName(null);
     setUnknownTermBrowse(false);
-    setAmbulanceEmergencyOnly(false);
     setModeMismatchHint(null);
     setForcedCategoryId(null);
   }, [term]);
@@ -518,7 +556,6 @@ const RadarSearch = () => {
       setSearchDraft("");
       setSuggestedCategoryName(null);
       setUnknownTermBrowse(false);
-      setAmbulanceEmergencyOnly(false);
       setModeMismatchHint(null);
       setForcedCategoryId(null);
     },
@@ -561,7 +598,8 @@ const RadarSearch = () => {
     setResults([]);
     setSuggestedCategoryName(null);
     setUnknownTermBrowse(false);
-    setAmbulanceEmergencyOnly(false);
+    setModeMismatchHint(null);
+    setForcedCategoryId(null);
 
     if (!("geolocation" in navigator)) {
       setCoordsTried(true);
@@ -617,23 +655,13 @@ const RadarSearch = () => {
         setScanning(true);
         setError(null);
         setNetworkSearchFailed(false);
+        setNetworkSearchTimedOut(false);
         setResultsTruncated(false);
       }
       try {
         let vendorIdFilter: string[] | null = null;
         let matchedCategoryIdsByVendor: Map<string, Set<string>> | undefined;
         if (term) {
-          if (isAmbulanceEmergencySearch(term)) {
-            if (isCurrent()) {
-              setResults([]);
-              setAmbulanceEmergencyOnly(true);
-              setUnknownTermBrowse(false);
-              setSuggestedCategoryName(null);
-            }
-            return;
-          }
-
-          if (isCurrent()) setAmbulanceEmergencyOnly(false);
           setModeMismatchHint(null);
 
           let categoryIds = resolveCategoryIdsForTerm(term, categories, selectedMode);
@@ -701,9 +729,18 @@ const RadarSearch = () => {
           if (forcedCategoryId && categoryIds.includes(forcedCategoryId) && isCurrent()) {
             setForcedCategoryId(null);
           }
-          const { data: modeMatchRows, error: modeMatchError } = await supabase.rpc(
-            "get_radar_category_mode_matches",
-            { p_mode: selectedMode, p_category_ids: categoryIds },
+          const { data: modeMatchRows, error: modeMatchError } = await withTimedRetry(
+            async (signal) =>
+              throwOnSupabaseNetworkError(
+                await applyAbortSignal(
+                  supabase.rpc("get_radar_category_mode_matches", {
+                    p_mode: selectedMode,
+                    p_category_ids: categoryIds,
+                  }),
+                  signal,
+                ),
+              ),
+            { shouldRetry: () => getNavigatorOnline() },
           );
           if (modeMatchError) throw modeMatchError;
           const modeMatches = (modeMatchRows ?? []) as RadarCategoryModeMatch[];
@@ -715,13 +752,21 @@ const RadarSearch = () => {
           }
         } else {
           if (isCurrent()) {
-            setAmbulanceEmergencyOnly(false);
             setUnknownTermBrowse(false);
             setSuggestedCategoryName(null);
           }
-          const { data: modeMatchRows, error: modeMatchError } = await supabase.rpc(
-            "get_radar_category_mode_matches",
-            { p_mode: selectedMode, p_category_ids: null },
+          const { data: modeMatchRows, error: modeMatchError } = await withTimedRetry(
+            async (signal) =>
+              throwOnSupabaseNetworkError(
+                await applyAbortSignal(
+                  supabase.rpc("get_radar_category_mode_matches", {
+                    p_mode: selectedMode,
+                    p_category_ids: null,
+                  }),
+                  signal,
+                ),
+              ),
+            { shouldRetry: () => getNavigatorOnline() },
           );
           if (modeMatchError) throw modeMatchError;
           vendorIdFilter = [
@@ -793,13 +838,24 @@ const RadarSearch = () => {
         if (qTrackAWide) qTrackAWide = qTrackAWide.eq("discoverable", true);
         qTrackB = qTrackB.eq("discoverable", true);
 
-        const [trackAResult, trackAWideResult, trackBResult] = await Promise.all([
-          qTrackA ? qTrackA.limit(TRACK_A_LIMIT) : Promise.resolve({ data: [], error: null }),
-          qTrackAWide
-            ? qTrackAWide.limit(TRACK_A_LIMIT)
-            : Promise.resolve({ data: [], error: null }),
-          qTrackB.limit(TRACK_B_LIMIT),
-        ]);
+        const [trackAResult, trackAWideResult, trackBResult] = await withTimedRetry(
+          async (signal) => {
+            const [a, aWide, b] = await Promise.all([
+              qTrackA
+                ? applyAbortSignal(qTrackA.limit(TRACK_A_LIMIT), signal)
+                : Promise.resolve({ data: [], error: null }),
+              qTrackAWide
+                ? applyAbortSignal(qTrackAWide.limit(TRACK_A_LIMIT), signal)
+                : Promise.resolve({ data: [], error: null }),
+              applyAbortSignal(qTrackB.limit(TRACK_B_LIMIT), signal),
+            ]);
+            throwOnSupabaseNetworkError(a);
+            throwOnSupabaseNetworkError(aWide);
+            throwOnSupabaseNetworkError(b);
+            return [a, aWide, b] as const;
+          },
+          { shouldRetry: () => getNavigatorOnline() },
+        );
 
         if (trackAResult.error) throw trackAResult.error;
         if (trackAWideResult.error) throw trackAWideResult.error;
@@ -866,47 +922,62 @@ const RadarSearch = () => {
           // callers (auth_user_phone() NULL in RLS); use the identity RPCs.
           // get_saved_vendors mirrors the old scoping (phone when present,
           // else device); the vendor_id filter moves client-side.
-          const savedQuery = supabase.rpc("get_saved_vendors", {
-            p_user_phone: userPhone,
-            p_device_id: deviceId,
-          });
+          const [activeResult, fulfilledResult, savedResult] = await withTimedRetry(
+            async (signal) => {
+              const [active, fulfilled, saved] = await Promise.all([
+                applyAbortSignal(
+                  supabase.rpc("get_my_active_request_vendor_ids", {
+                    p_user_phone: userPhone,
+                    p_device_id: deviceId,
+                    p_vendor_ids: vendorIds,
+                  }),
+                  signal,
+                ),
+                applyAbortSignal(
+                  supabase.rpc("get_my_fulfilled_request_ids", {
+                    p_user_phone: userPhone,
+                    p_device_id: deviceId,
+                    p_vendor_ids: vendorIds,
+                  }),
+                  signal,
+                ),
+                applyAbortSignal(
+                  supabase.rpc("get_saved_vendors", {
+                    p_user_phone: userPhone,
+                    p_device_id: deviceId,
+                  }),
+                  signal,
+                ),
+              ]);
+              throwOnSupabaseNetworkError(active);
+              throwOnSupabaseNetworkError(fulfilled);
+              throwOnSupabaseNetworkError(saved);
+              return [active, fulfilled, saved] as const;
+            },
+            { shouldRetry: () => getNavigatorOnline() },
+          );
 
-          const activeQuery = supabase.rpc("get_my_active_request_vendor_ids", {
-            p_user_phone: userPhone,
-            p_device_id: deviceId,
-            p_vendor_ids: vendorIds,
-          });
-
-          const fulfilledQuery = supabase.rpc("get_my_fulfilled_request_ids", {
-            p_user_phone: userPhone,
-            p_device_id: deviceId,
-            p_vendor_ids: vendorIds,
-          });
-
-          const [verResult, vcResult, menuResult, activeResult, fulfilledResult, savedResult] =
-            await Promise.all([
-              supabase
-                .from("vendor_verification")
-                .select("vendor_id, check_type, status, is_latest")
-                .in("vendor_id", vendorIds)
-                .eq("is_latest", true),
-              supabase
-                .from("vendor_categories")
-                .select(
-                  "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, is_manual_verified, shop_photo_url, verification_status, categories(label, emoji)",
-                )
-                .in("vendor_id", vendorIds)
-                .eq("status", "approved"),
-              supabase
-                .from("vendor_menu_items")
-                .select("vendor_id, name, price, unit, is_available, category_id, image_url")
-                .in("vendor_id", vendorIds)
-                .eq("is_available", true)
-                .order("sort_order", { ascending: true }),
-              activeQuery,
-              fulfilledQuery,
-              savedQuery,
-            ]);
+          // Card enrichment (not CRITICAL-tier timed in this pass).
+          const [verResult, vcResult, menuResult] = await Promise.all([
+            supabase
+              .from("vendor_verification")
+              .select("vendor_id, check_type, status, is_latest")
+              .in("vendor_id", vendorIds)
+              .eq("is_latest", true),
+            supabase
+              .from("vendor_categories")
+              .select(
+                "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, is_manual_verified, shop_photo_url, verification_status, categories(label, emoji)",
+              )
+              .in("vendor_id", vendorIds)
+              .eq("status", "approved"),
+            supabase
+              .from("vendor_menu_items")
+              .select("vendor_id, name, price, unit, is_available, category_id, image_url")
+              .in("vendor_id", vendorIds)
+              .eq("is_available", true)
+              .order("sort_order", { ascending: true }),
+          ]);
 
           if (vcResult.error) throw vcResult.error;
           // Menu/order/saved data only enrich the cards; tolerate failures.
@@ -918,7 +989,9 @@ const RadarSearch = () => {
           }
           verificationRows = (verResult.data ?? []) as VendorVerificationRow[];
           categoriesByVendor = buildVendorCategoriesMap(
-            (vcResult.data ?? []) as Parameters<typeof buildVendorCategoriesMap>[0],
+            ((vcResult.data ?? []) as Parameters<typeof buildVendorCategoriesMap>[0]).filter(
+              (row) => row.verification_status !== "pending_location_review",
+            ),
             categoryModeSearch ? matchedCategoryIdsByVendor : undefined,
           );
 
@@ -1059,8 +1132,12 @@ const RadarSearch = () => {
         }
       } catch (e: unknown) {
         if (!opts.silent && isCurrent()) {
-          if (isNetworkFailure(e)) {
+          if (isNetworkTimeout(e) || e instanceof NetworkExhaustedError) {
             setNetworkSearchFailed(true);
+            setNetworkSearchTimedOut(isNetworkTimeout(e));
+          } else if (isNetworkFailure(e)) {
+            setNetworkSearchFailed(true);
+            setNetworkSearchTimedOut(false);
           } else {
             setError(e instanceof Error ? e.message : s.radar_connection_error);
           }
@@ -1270,7 +1347,6 @@ const RadarSearch = () => {
 
       {!locating &&
         !error &&
-        !ambulanceEmergencyOnly &&
         !unknownTermBrowse && (
           <div className="flex gap-2 overflow-x-auto px-4 pb-3 mb-1 scrollbar-hide">
             {RADAR_BRACKET_OPTIONS.map((opt) => (
@@ -1322,10 +1398,26 @@ const RadarSearch = () => {
         </div>
       )}
 
+      {/* Categories load failure (CRITICAL hang site) */}
+      {categoriesNetworkStatus && (
+        <NetworkErrorBanner
+          status={categoriesNetworkStatus === "timeout" ? "timeout" : "failed"}
+          message={
+            categoriesNetworkStatus === "timeout"
+              ? s.radar_categories_timeout
+              : s.home_categories_load_error
+          }
+          onRetry={() => {
+            setCategoriesLoaded(false);
+            void loadCategories();
+          }}
+        />
+      )}
+
       {/* Error */}
       {!locationBlocked && networkSearchFailed && (
         <NetworkErrorBanner
-          status="failed"
+          status={networkSearchTimedOut ? "timeout" : "failed"}
           onRetry={() => void fetchVendors({ silent: false })}
         />
       )}
@@ -1338,13 +1430,6 @@ const RadarSearch = () => {
             <p className="text-sm text-muted-foreground mt-0.5 break-words">{error}</p>
           </div>
         </div>
-      )}
-
-      {/* Ambulance / accident / emergency — 108 only, no vendor search */}
-      {!locationBlocked && !scanning && !error && ambulanceEmergencyOnly && (
-        <section className="mt-4 px-4 pb-4">
-          <GovEmergencyServices term={term} defaultOpen />
-        </section>
       )}
 
       {/* Unknown term — browse categories */}
@@ -1485,7 +1570,6 @@ const RadarSearch = () => {
       {!scanning &&
         !error &&
         !unknownTermBrowse &&
-        !ambulanceEmergencyOnly &&
         !modeMismatchHint &&
         results.length === 0 &&
         (isOfficialEmergencyCategory(term) ? (
@@ -1544,9 +1628,8 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
 };
 
 
-// Collapsible government & emergency services panel rendered below the
-// vendor results. Primary number shifts based on the searched category:
-// Fire â†’ 101, Medical â†’ 108, Roadside â†’ 1033, Security/Default â†’ 112.
+// Collapsible government & emergency services panel. Only for category-keyed
+// helplines — never defaults to 112 for unrelated searches (e.g. AC repair).
 export const GovEmergencyServices = ({
   term,
   defaultOpen = false,
@@ -1556,14 +1639,11 @@ export const GovEmergencyServices = ({
   defaultOpen?: boolean;
 }) => {
   const { s } = useLanguage();
-  const resolved = resolveCanonicalTerm(termForGovEmergencyHelp(term));
-  const isMedical = resolved ? MEDICAL_EMERGENCY_LABELS.has(resolved) : false;
-  const isRoadside = resolved ? ROADSIDE_EMERGENCY_LABELS.has(resolved) : false;
-  const isFire = resolved ? FIRE_EMERGENCY_LABELS.has(resolved) : false;
+  const helpKind = govEmergencyHelpLinesForTerm(term);
 
   type Line = { label: string; number: string; tagline: string; href: string };
   const lines: Line[] = useMemo(() => {
-    if (isFire) {
+    if (helpKind === "fire") {
       return [
         {
           label: s.radar_gov_fire_label,
@@ -1573,7 +1653,7 @@ export const GovEmergencyServices = ({
         },
       ];
     }
-    if (isMedical) {
+    if (helpKind === "medical") {
       return [
         {
           label: s.radar_gov_ambulance_label,
@@ -1583,7 +1663,7 @@ export const GovEmergencyServices = ({
         },
       ];
     }
-    if (isRoadside) {
+    if (helpKind === "roadside") {
       return [
         {
           label: s.radar_gov_highway_label,
@@ -1593,18 +1673,19 @@ export const GovEmergencyServices = ({
         },
       ];
     }
-    return [
-      {
-        label: s.radar_gov_emergency_label,
-        number: "112",
-        tagline: s.radar_gov_emergency_tagline,
-        href: "tel:112",
-      },
-    ];
+    if (helpKind === "security") {
+      return [
+        {
+          label: s.radar_gov_emergency_label,
+          number: "112",
+          tagline: s.radar_gov_emergency_tagline,
+          href: "tel:112",
+        },
+      ];
+    }
+    return [];
   }, [
-    isFire,
-    isMedical,
-    isRoadside,
+    helpKind,
     s.radar_gov_fire_label,
     s.radar_gov_fire_tagline,
     s.radar_gov_ambulance_label,
@@ -1615,7 +1696,10 @@ export const GovEmergencyServices = ({
     s.radar_gov_emergency_tagline,
   ]);
 
+  if (lines.length === 0) return null;
+
   const primary = lines[0];
+  const showPoliceSecondary = helpKind === "security" || helpKind === "medical";
 
   return (
     <Collapsible defaultOpen={defaultOpen}>
@@ -1627,7 +1711,7 @@ export const GovEmergencyServices = ({
               <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
                 {s.radar_govt_help}
               </p>
-              <p className="text-xs text-gray-400 truncate">
+              <p className="text-xs text-gray-400 break-words leading-snug">
                 {s.radar_tap_to_open}{primary.number}
               </p>
             </div>
@@ -1639,33 +1723,35 @@ export const GovEmergencyServices = ({
             <a
               key={l.number}
               href={l.href}
-              className="flex items-center gap-3 rounded-xl bg-page-bg border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+              className="flex items-start gap-3 rounded-xl bg-page-bg border border-destructive/30 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
             >
               <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
                 <PhoneCall className="h-4 w-4 text-destructive" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{l.label}</p>
-                <p className="text-[11px] text-gray-400 truncate">{l.tagline}</p>
+                <p className="text-sm font-semibold text-white break-words leading-snug">{l.label}</p>
+                <p className="text-[11px] text-gray-400 break-words leading-snug">{l.tagline}</p>
               </div>
-              <span className="text-sm font-bold text-destructive">{l.number}</span>
+              <span className="text-sm font-bold text-destructive shrink-0 pt-0.5">{l.number}</span>
             </a>
           ))}
-          <a
-            href="tel:100"
-            className="flex items-center gap-3 rounded-xl bg-page-bg border border-destructive/20 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
-          >
-            <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
-              <PhoneCall className="h-4 w-4 text-destructive" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">{s.radar_local_police}</p>
-              <p className="text-[11px] text-gray-400 truncate">
-                {s.radar_police_tagline}
-              </p>
-            </div>
-            <span className="text-sm font-bold text-destructive">100</span>
-          </a>
+          {showPoliceSecondary && (
+            <a
+              href="tel:100"
+              className="flex items-start gap-3 rounded-xl bg-page-bg border border-destructive/20 hover:border-destructive p-3 transition-colors active:scale-[0.99]"
+            >
+              <div className="h-10 w-10 rounded-lg bg-destructive/15 grid place-items-center shrink-0">
+                <PhoneCall className="h-4 w-4 text-destructive" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white break-words leading-snug">{s.radar_local_police}</p>
+                <p className="text-[11px] text-gray-400 break-words leading-snug">
+                  {s.radar_police_tagline}
+                </p>
+              </div>
+              <span className="text-sm font-bold text-destructive shrink-0 pt-0.5">100</span>
+            </a>
+          )}
         </CollapsibleContent>
       </div>
     </Collapsible>

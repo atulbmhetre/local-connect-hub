@@ -38,6 +38,7 @@ import { vendorOffersHelp } from "@/lib/vendorTrackingPolicy";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import {
   isNetworkFailure,
+  isNetworkTimeout,
   NetworkExhaustedError,
   throwOnSupabaseNetworkError,
   withNetworkRetry,
@@ -952,9 +953,17 @@ const VendorMode = () => {
     setLookupError(null);
     setLookupLoading(true);
     try {
+      showNetworkRetryingToast({ retrying: s.network_retrying });
       const { data: found, error } = await fetchVendorByPhoneLogin(digits);
+      dismissNetworkRetryingToast();
       if (error) {
-        setLookupError(s.vendor_not_found);
+        setLookupError(
+          isNetworkTimeout(error)
+            ? s.network_timeout
+            : isNetworkFailure(error)
+              ? s.network_failed
+              : s.vendor_not_found,
+        );
         return;
       }
       if (found) {
@@ -974,6 +983,15 @@ const VendorMode = () => {
       } else {
         setLookupError(s.vendor_not_found);
       }
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      setLookupError(
+        isNetworkTimeout(err)
+          ? s.network_timeout
+          : isNetworkFailure(err)
+            ? s.network_failed
+            : s.vendor_not_found,
+      );
     } finally {
       setLookupLoading(false);
     }

@@ -2,6 +2,11 @@ import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { captureError } from "@/lib/sentry";
 import { notifyVendorIdChanged, VENDOR_ACTIVE_CHANGED_EVENT } from "@/lib/vendorSessionSync";
+import {
+  applyAbortSignal,
+  throwOnSupabaseNetworkError,
+  withTimedRetry,
+} from "@/lib/withNetworkRetry";
 
 // Phase D: get phone from real Supabase session, strips 91 prefix
 async function getSessionPhone(): Promise<string | null> {
@@ -60,10 +65,17 @@ export async function ensureUserDeviceLink(phone: string): Promise<void> {
   const trimmed = phone.trim();
   if (!trimmed) return;
   try {
-    const { error } = await supabase.rpc("ensure_user_device_link", {
-      p_user_phone: trimmed,
-      p_device_id: getDeviceId(),
-    });
+    const { error } = await withTimedRetry(async (signal) =>
+      throwOnSupabaseNetworkError(
+        await applyAbortSignal(
+          supabase.rpc("ensure_user_device_link", {
+            p_user_phone: trimmed,
+            p_device_id: getDeviceId(),
+          }),
+          signal,
+        ),
+      ),
+    );
     if (error) {
       console.warn("[ensureUserDeviceLink]", error.message);
       captureError(error, {
@@ -140,30 +152,67 @@ export async function migrateUserPhone(
   newPhone: string,
   deviceId: string,
 ): Promise<MigrateUserPhoneResult> {
-  const { error: savedErr } = await supabase.rpc("migrate_saved_vendors_phone", {
-    p_device_id: deviceId,
-    p_user_phone: newPhone,
-  });
-  if (savedErr) {
-    console.warn("[migrateUserPhone] saved_vendors", savedErr.message);
-    captureError(savedErr, {
+  let savedOk = false;
+  let requestsOk = false;
+
+  try {
+    const saved = await withTimedRetry(async (signal) =>
+      throwOnSupabaseNetworkError(
+        await applyAbortSignal(
+          supabase.rpc("migrate_saved_vendors_phone", {
+            p_device_id: deviceId,
+            p_user_phone: newPhone,
+          }),
+          signal,
+        ),
+      ),
+    );
+    if (saved.error) {
+      console.warn("[migrateUserPhone] saved_vendors", saved.error.message);
+      captureError(saved.error, {
+        scope: "userIdentity.migrateUserPhone.saved_vendors",
+        phoneSuffix: newPhone.slice(-4),
+      });
+    } else {
+      savedOk = true;
+    }
+  } catch (err) {
+    console.warn("[migrateUserPhone] saved_vendors", err);
+    captureError(err, {
       scope: "userIdentity.migrateUserPhone.saved_vendors",
       phoneSuffix: newPhone.slice(-4),
     });
   }
-  const { error: reqErr } = await supabase.rpc("migrate_device_requests_phone", {
-    p_device_id: deviceId,
-    p_user_phone: newPhone,
-  });
-  if (reqErr) {
-    console.warn("[migrateUserPhone] requests", reqErr.message);
-    captureError(reqErr, {
+
+  try {
+    const req = await withTimedRetry(async (signal) =>
+      throwOnSupabaseNetworkError(
+        await applyAbortSignal(
+          supabase.rpc("migrate_device_requests_phone", {
+            p_device_id: deviceId,
+            p_user_phone: newPhone,
+          }),
+          signal,
+        ),
+      ),
+    );
+    if (req.error) {
+      console.warn("[migrateUserPhone] requests", req.error.message);
+      captureError(req.error, {
+        scope: "userIdentity.migrateUserPhone.requests",
+        phoneSuffix: newPhone.slice(-4),
+      });
+    } else {
+      requestsOk = true;
+    }
+  } catch (err) {
+    console.warn("[migrateUserPhone] requests", err);
+    captureError(err, {
       scope: "userIdentity.migrateUserPhone.requests",
       phoneSuffix: newPhone.slice(-4),
     });
   }
-  const savedOk = !savedErr;
-  const requestsOk = !reqErr;
+
   return { ok: savedOk && requestsOk, savedOk, requestsOk };
 }
 

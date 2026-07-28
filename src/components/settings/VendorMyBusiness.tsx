@@ -12,13 +12,17 @@ import {
   type VerificationStatus,
   SHOP_PHOTOS_BUCKET,
   VENDOR_SELFIES_BUCKET,
-  GPS_MATCH_TOLERANCE_M,
   isValidPhone,
   isValidUpi,
-  distanceMeters,
   useCategoryLabel,
   invokeNotifyAdmin,
 } from "@/lib/supabase";
+import {
+  GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW,
+  evaluateGpsMatch,
+  logGpsMatchFailure,
+  readGeolocationAccuracy,
+} from "@/lib/gpsMatch";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import {
   checkAndNotifyAdminGreenReady,
@@ -284,6 +288,8 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const [updatingLocation, setUpdatingLocation] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
+  const [gpsMatchFailCount, setGpsMatchFailCount] = useState(0);
+  const [lastFailedShopShot, setLastFailedShopShot] = useState<CapturedShot | null>(null);
 
   const loadSeqRef = useRef(0);
   const selectedCategoryIdsRef = useRef<string[]>([]);
@@ -793,7 +799,10 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     }
   };
 
-  const handleShopPhoto = async (shot: CapturedShot) => {
+  const handleShopPhoto = async (
+    shot: CapturedShot,
+    opts?: { pendingLocationReview?: boolean },
+  ) => {
     setCameraOpen(false);
     const targetCategoryId = photoCategoryId ?? selectedCategoryIds[0] ?? null;
     if (!targetCategoryId) {
@@ -802,18 +811,42 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     }
     const hasShopLocation = vendor.latitude != null && vendor.longitude != null;
     let gpsMatchDistance = 0;
+    let locationAccuracy: number | null = null;
+    let photoAccuracy: number | null = shot.coords.accuracy;
+    let pendingLocationReview = opts?.pendingLocationReview === true;
+
     if (hasShopLocation) {
-      const meters = distanceMeters(
-        { lat: vendor.latitude!, lng: vendor.longitude! },
+      const match = evaluateGpsMatch(
+        {
+          lat: vendor.latitude!,
+          lng: vendor.longitude!,
+          accuracy: vendor.location_accuracy,
+        },
         shot.coords,
       );
-      if (meters > GPS_MATCH_TOLERANCE_M) {
+      locationAccuracy = match.locationAccuracy;
+      photoAccuracy = match.photoAccuracy;
+      if (!match.ok && !pendingLocationReview) {
+        setGpsMatchFailCount((n) => n + 1);
+        setLastFailedShopShot(shot);
+        void logGpsMatchFailure({
+          distanceMeters: match.distanceMeters,
+          locationAccuracy: match.locationAccuracy,
+          photoAccuracy: match.photoAccuracy,
+          effectiveTolerance: match.effectiveTolerance,
+          source: "my_business",
+          vendorId: vendor.id,
+        });
         toast.error(s.vendor_mismatch_title, {
-          description: s.vendor_mismatch_distance(Math.round(meters), GPS_MATCH_TOLERANCE_M),
+          description: s.vendor_mismatch_distance(
+            Math.round(match.distanceMeters),
+            Math.round(match.effectiveTolerance),
+          ),
         });
         return;
       }
-      gpsMatchDistance = Math.round(meters);
+      gpsMatchDistance = Math.round(match.distanceMeters);
+      if (!match.ok) pendingLocationReview = true;
     }
 
     const path = `${vendor.id}/${targetCategoryId}/${Date.now()}.jpg`;
@@ -848,6 +881,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               p_gps_match_distance: gpsMatchDistance,
               p_set_account_lat: hasShopLocation ? null : shot.coords.lat,
               p_set_account_lng: hasShopLocation ? null : shot.coords.lng,
+              p_pending_location_review: pendingLocationReview,
+              p_location_accuracy: locationAccuracy,
+              p_photo_accuracy: photoAccuracy,
+              p_set_account_location_accuracy: hasShopLocation
+                ? null
+                : shot.coords.accuracy,
             }),
           ),
         {
@@ -860,17 +899,23 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         toast.error(s.vendor_save_verification_failed, { description: updErr.message });
         return;
       }
-      void checkAndNotifyAdminCategoryGreenReady(vendor.id, targetCategoryId, {
-        shopName: vendor.shop_name,
-        vendorPhone: vendorPhone || phone.trim(),
-      });
+      setLastFailedShopShot(null);
+      setGpsMatchFailCount(0);
+      if (!pendingLocationReview) {
+        void checkAndNotifyAdminCategoryGreenReady(vendor.id, targetCategoryId, {
+          shopName: vendor.shop_name,
+          vendorPhone: vendorPhone || phone.trim(),
+        });
+      }
       setCategorySettingsById((prev) => ({
         ...prev,
         [targetCategoryId]: {
           ...(prev[targetCategoryId] ?? accountDefaultsForInherit()),
           shop_photo_url: pub.publicUrl,
           gps_match_distance: gpsMatchDistance,
-          verification_status: "business_verified",
+          verification_status: pendingLocationReview
+            ? "pending_location_review"
+            : "business_verified",
           is_manual_verified: false,
         },
       }));
@@ -879,15 +924,19 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           ...vendor,
           latitude: shot.coords.lat,
           longitude: shot.coords.lng,
+          location_accuracy: shot.coords.accuracy,
         });
       }
-      toast.success(s.vendor_photo_verified, {
-        description: s.vendor_awaiting_admin,
-      });
+      toast.success(
+        pendingLocationReview ? s.vendor_gps_pending_review_toast : s.vendor_photo_verified,
+        {
+          description: pendingLocationReview ? undefined : s.vendor_awaiting_admin,
+        },
+      );
     } catch (err) {
       dismissNetworkRetryingToast();
       if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void handleShopPhoto(shot), {
+        showNetworkFailedToast(() => void handleShopPhoto(shot, opts), {
           failed: s.network_failed,
           retryBtn: s.network_retry_btn,
         });
@@ -982,9 +1031,18 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       return;
     }
     setUpdatingLocation(true);
-    const coords = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+    const coords = await new Promise<{
+      lat: number;
+      lng: number;
+      accuracy: number | null;
+    } | null>((resolve) => {
       navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        (p) =>
+          resolve({
+            lat: p.coords.latitude,
+            lng: p.coords.longitude,
+            accuracy: readGeolocationAccuracy(p.coords),
+          }),
         () => {
           toast.error(s.vendor_location_failed);
           resolve(null);
@@ -1004,6 +1062,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     const patch: Partial<Vendor> = {
       latitude: coords.lat,
       longitude: coords.lng,
+      location_accuracy: coords.accuracy,
     };
 
     try {
@@ -1447,6 +1506,18 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           }}
           actionDisabled={!hasLocation && baseType !== "none"}
         >
+          {gpsMatchFailCount >= GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW && lastFailedShopShot && (
+              <button
+                type="button"
+                data-testid="my-business-gps-submit-for-review"
+                onClick={() =>
+                  void handleShopPhoto(lastFailedShopShot, { pendingLocationReview: true })
+                }
+                className="w-full rounded-xl border border-amber-500/50 bg-amber-500/10 py-2.5 text-xs font-semibold text-amber-800"
+              >
+                {s.vendor_gps_submit_for_review}
+              </button>
+            )}
           {selectedCategories.length > 1 && (
             <div className="flex flex-wrap gap-2 mb-2" data-testid="my-business-photo-category-picker">
               {selectedCategories.map((cat) => {

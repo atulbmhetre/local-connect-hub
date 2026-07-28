@@ -21,14 +21,20 @@ import {
   XCircle,
   Store,
   Loader2,
+  ChevronRight,
 } from "lucide-react";
-import { Capacitor, type PermissionState } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
-import { Geolocation } from "@capacitor/geolocation";
-import { Camera as CapacitorCamera } from "@capacitor/camera";
-import { PushNotifications } from "@capacitor/push-notifications";
-import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { toast } from "sonner";
+import {
+  applyPermissionRequestResult,
+  checkNativePermissionStatuses,
+  DEFAULT_NATIVE_PERMISSION_STATUSES,
+  isPermissionGranted,
+  requestNativePermission,
+  type NativePermissionKind,
+  type NativePermissionStatuses,
+} from "@/lib/nativePermissions";
 import {
   supabase,
   invokeNotifyUser,
@@ -126,6 +132,8 @@ type AdminVendorCategory = {
   is_primary: boolean;
   shop_photo_url: string | null;
   gps_match_distance: number | null;
+  location_accuracy: number | null;
+  photo_accuracy: number | null;
   verification_status: string | null;
   is_manual_verified: boolean;
 };
@@ -196,6 +204,8 @@ function buildAdminVendorCategoriesMap(
     service_mode: string | null;
     shop_photo_url?: string | null;
     gps_match_distance?: number | null;
+    location_accuracy?: number | null;
+    photo_accuracy?: number | null;
     verification_status?: string | null;
     is_manual_verified?: boolean | null;
     categories:
@@ -221,6 +231,9 @@ function buildAdminVendorCategoriesMap(
       shop_photo_url: row.shop_photo_url ?? null,
       gps_match_distance:
         row.gps_match_distance != null ? Number(row.gps_match_distance) : null,
+      location_accuracy:
+        row.location_accuracy != null ? Number(row.location_accuracy) : null,
+      photo_accuracy: row.photo_accuracy != null ? Number(row.photo_accuracy) : null,
       verification_status: row.verification_status ?? null,
       is_manual_verified: row.is_manual_verified === true,
     });
@@ -297,6 +310,8 @@ function AdminVendorCategoryChips({
               is_primary: true,
               shop_photo_url: null,
               gps_match_distance: null,
+              location_accuracy: null,
+              photo_accuracy: null,
               verification_status: null,
               is_manual_verified: false,
             } satisfies AdminVendorCategory,
@@ -417,7 +432,7 @@ function adminServiceModeLabel(mode: string | null | undefined): string {
   return "🚶 Help";
 }
 
-const GPS_MATCH_TOLERANCE_M = 75;
+import { gpsEffectiveTolerance } from "@/lib/gpsMatch";
 
 // Client-side mirror of the server whitelist inside admin_update_app_config
 // (supabase/migrations/20260719140001_admin_config_ops_keys_and_fcm_grant.sql;
@@ -604,14 +619,19 @@ function buildVerifyAutoChecks(
   v: {
     shop_photo_url: string | null;
     gps_match_distance: number | null;
+    location_accuracy?: number | null;
+    photo_accuracy?: number | null;
+    verification_status?: string | null;
     upi_verified: boolean;
   },
 ): Record<string, boolean> {
   const autoChecks: Record<string, boolean> = {};
+  const tol = gpsEffectiveTolerance(v.location_accuracy, v.photo_accuracy);
   if (
     v.shop_photo_url?.trim() &&
     v.gps_match_distance != null &&
-    v.gps_match_distance <= GPS_MATCH_TOLERANCE_M
+    v.verification_status !== "pending_location_review" &&
+    v.gps_match_distance <= tol
   ) {
     autoChecks.photo_genuine = true;
     autoChecks.shop_exists = true;
@@ -622,12 +642,27 @@ function buildVerifyAutoChecks(
   return autoChecks;
 }
 
-function gpsMatchAdminLabel(distance: number | null | undefined): {
+function gpsMatchAdminLabel(
+  distance: number | null | undefined,
+  opts?: {
+    locationAccuracy?: number | null;
+    photoAccuracy?: number | null;
+    verificationStatus?: string | null;
+  },
+): {
   text: string;
   className: string;
 } {
   if (distance == null) {
     return { text: "📍 No photo captured yet", className: "text-muted-foreground" };
+  }
+  if (opts?.verificationStatus === "pending_location_review") {
+    const loc = opts.locationAccuracy != null ? Math.round(opts.locationAccuracy) : "?";
+    const photo = opts.photoAccuracy != null ? Math.round(opts.photoAccuracy) : "?";
+    return {
+      text: `⏳ Location review — ${distance}m away (acc ${loc}+${photo} m)`,
+      className: "text-amber-600",
+    };
   }
   if (distance === 0) {
     return {
@@ -635,14 +670,15 @@ function gpsMatchAdminLabel(distance: number | null | undefined): {
       className: "text-amber-600",
     };
   }
-  if (distance <= GPS_MATCH_TOLERANCE_M) {
+  const tol = gpsEffectiveTolerance(opts?.locationAccuracy, opts?.photoAccuracy);
+  if (distance <= tol) {
     return {
-      text: `✅ GPS matched — ${distance}m from shop`,
+      text: `✅ GPS matched — ${distance}m from shop (tol ${Math.round(tol)}m)`,
       className: "text-green-600",
     };
   }
   return {
-    text: `❌ GPS mismatch — ${distance}m away`,
+    text: `❌ GPS mismatch — ${distance}m away (tol ${Math.round(tol)}m)`,
     className: "text-red-600",
   };
 }
@@ -659,58 +695,6 @@ function formatVendorLastUpdated(iso: string | null | undefined): string {
     minute: "2-digit",
     hour12: true,
   });
-}
-
-type NativePermissionKind = "notifications" | "location" | "camera" | "microphone";
-
-type NativePermissionStatuses = {
-  notifications: PermissionState;
-  location: PermissionState;
-  camera: PermissionState | "limited";
-  microphone: PermissionState;
-};
-
-async function checkNativePermissionStatuses(): Promise<NativePermissionStatuses> {
-  const [push, geo, cam, mic] = await Promise.all([
-    PushNotifications.checkPermissions(),
-    Geolocation.checkPermissions().catch(() => ({ location: "denied" as PermissionState })),
-    CapacitorCamera.checkPermissions(),
-    SpeechRecognition.checkPermissions().catch(() => ({
-      speechRecognition: "denied" as PermissionState,
-    })),
-  ]);
-  return {
-    notifications: push.receive,
-    location: geo.location,
-    camera: cam.camera,
-    microphone: mic.speechRecognition,
-  };
-}
-
-async function requestNativePermission(
-  kind: NativePermissionKind,
-): Promise<PermissionState | "limited"> {
-  switch (kind) {
-    case "notifications": {
-      const result = await PushNotifications.requestPermissions();
-      if (result.receive === "granted") {
-        void PushNotifications.register();
-      }
-      return result.receive;
-    }
-    case "location": {
-      const result = await Geolocation.requestPermissions();
-      return result.location;
-    }
-    case "camera": {
-      const result = await CapacitorCamera.requestPermissions();
-      return result.camera;
-    }
-    case "microphone": {
-      const result = await SpeechRecognition.requestPermissions();
-      return result.speechRecognition;
-    }
-  }
 }
 
 const Settings = () => {
@@ -881,12 +865,11 @@ const Settings = () => {
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
   const [vendorDeletionRequestedAt, setVendorDeletionRequestedAt] = useState<string | null>(null);
   const [permissionHint, setPermissionHint] = useState<string | null>(null);
-  const [permissionStatuses, setPermissionStatuses] = useState<NativePermissionStatuses>({
-    notifications: "prompt",
-    location: "prompt",
-    camera: "prompt",
-    microphone: "prompt",
-  });
+  const [permissionStatuses, setPermissionStatuses] = useState<NativePermissionStatuses>(
+    DEFAULT_NATIVE_PERMISSION_STATUSES,
+  );
+  /** Skip resume refresh while an OS permission dialog is open (avoids false ✅). */
+  const permissionRequestInFlightRef = useRef(false);
   const [deletingAddress, setDeletingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [voiceInputLang, setVoiceInputLang] = useState<VoiceInputLang>(() => {
@@ -938,39 +921,58 @@ const Settings = () => {
   const [deviceOpen, setDeviceOpen] = useState(false);
   const [connectionOpen, setConnectionOpen] = useState(false);
 
-  const refreshPermissionStatuses = () => {
+  const refreshPermissionStatuses = useCallback(() => {
+    // Live OS read only — never write/read an app-level permission cache.
     void checkNativePermissionStatuses()
       .then(setPermissionStatuses)
       .catch(() => {
         /* keep last known statuses */
       });
-  };
+  }, []);
 
   const handlePermissionRequest = async (kind: NativePermissionKind, deniedLabel: string) => {
     if (!Capacitor.isNativePlatform()) return;
 
     const current = permissionStatuses[kind];
-    if (current === "granted") return;
+    if (isPermissionGranted(current)) return;
     if (current === "denied") {
       setPermissionHint(deniedLabel);
       return;
     }
 
+    permissionRequestInFlightRef.current = true;
     try {
       const result = await requestNativePermission(kind);
-      refreshPermissionStatuses();
+      // Trust the OS request callback for this kind; never tick ✅ on dismiss alone.
+      let live = DEFAULT_NATIVE_PERMISSION_STATUSES;
+      try {
+        live = await checkNativePermissionStatuses();
+      } catch {
+        /* use defaults + request result below */
+      }
+      setPermissionStatuses(applyPermissionRequestResult(live, kind, result));
       if (result === "denied") {
         setPermissionHint(deniedLabel);
       }
     } catch {
       setPermissionHint(deniedLabel);
+      refreshPermissionStatuses();
+    } finally {
+      permissionRequestInFlightRef.current = false;
     }
   };
 
-  const renderPermissionAction = (status: PermissionState | "limited", onRequest: () => void) => {
-    if (status === "granted" || status === "limited") {
+  const renderPermissionAction = (
+    status: NativePermissionStatuses[NativePermissionKind],
+    onRequest: () => void,
+  ) => {
+    if (isPermissionGranted(status)) {
       return (
-        <span className="shrink-0 text-lg leading-none" aria-label="Granted">
+        <span
+          className="shrink-0 text-lg leading-none"
+          aria-label="Granted"
+          data-testid="settings-permission-granted"
+        >
           ✅
         </span>
       );
@@ -979,6 +981,7 @@ const Settings = () => {
       <button
         type="button"
         onClick={onRequest}
+        data-testid="settings-permission-allow"
         className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
       >
         {s.settings_permission_request}
@@ -1311,19 +1314,38 @@ const Settings = () => {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
-    refreshPermissionStatuses();
+    // Permission badges only — do not navigate, reload, or remount routes on resume.
+    const refreshIfIdle = () => {
+      if (permissionRequestInFlightRef.current) return;
+      refreshPermissionStatuses();
+    };
+
+    refreshIfIdle();
 
     let listener: { remove: () => Promise<void> } | undefined;
     void App.addListener("appStateChange", ({ isActive }) => {
-      if (isActive) refreshPermissionStatuses();
+      if (isActive) refreshIfIdle();
     }).then((handle) => {
       listener = handle;
     });
 
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshIfIdle();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       void listener?.remove();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [refreshPermissionStatuses]);
+
+  // Re-read OS permissions whenever the Device section is opened (post Clear Data / new user).
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || !deviceOpen) return;
+    if (permissionRequestInFlightRef.current) return;
+    refreshPermissionStatuses();
+  }, [deviceOpen, refreshPermissionStatuses]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -1420,7 +1442,7 @@ const Settings = () => {
         supabase
           .from("vendor_categories")
           .select(
-            "vendor_id, category_id, is_primary, service_mode, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, categories(label, emoji)",
+            "vendor_id, category_id, is_primary, service_mode, shop_photo_url, gps_match_distance, location_accuracy, photo_accuracy, verification_status, is_manual_verified, categories(label, emoji)",
           )
           .in("vendor_id", chunk)
           .eq("status", "approved"),
@@ -1456,6 +1478,8 @@ const Settings = () => {
             is_primary: true,
             shop_photo_url: v.shop_photo_url,
             gps_match_distance: v.gps_match_distance,
+            location_accuracy: null,
+            photo_accuracy: null,
             verification_status: null,
             is_manual_verified: v.is_manual_verified,
           },
@@ -1490,12 +1514,11 @@ const Settings = () => {
           `shop_name.ilike.${pattern},name.ilike.${pattern},phone.ilike.${pattern}`,
         );
       } else if (vendorListFilter === "green_ready") {
-        // Ready for admin review: account green_pending, or any business
-        // (vendor_categories row) green_pending without admin approval.
+        // Ready for admin review: green_pending or pending_location_review.
         const { data: catRows } = await supabase
           .from("vendor_categories")
           .select("vendor_id")
-          .eq("verification_status", "green_pending")
+          .in("verification_status", ["green_pending", "pending_location_review"])
           .eq("is_manual_verified", false)
           .limit(500);
         const catVendorIds = [
@@ -2139,6 +2162,9 @@ const Settings = () => {
     const autoChecks = buildVerifyAutoChecks({
       shop_photo_url: category.shop_photo_url ?? vendor.shop_photo_url,
       gps_match_distance: category.gps_match_distance ?? vendor.gps_match_distance,
+      location_accuracy: category.location_accuracy,
+      photo_accuracy: category.photo_accuracy,
+      verification_status: category.verification_status,
       upi_verified: vendor.upi_verified,
     });
     setVerifyAutoTicked(
@@ -2188,6 +2214,8 @@ const Settings = () => {
           is_primary: true,
           shop_photo_url: vendor.shop_photo_url,
           gps_match_distance: vendor.gps_match_distance,
+          location_accuracy: null,
+          photo_accuracy: null,
           verification_status: null,
           is_manual_verified: vendor.is_manual_verified,
         } satisfies AdminVendorCategory);
@@ -3176,13 +3204,13 @@ const Settings = () => {
         <button
           type="button"
           data-testid="settings-privacy-policy-link"
-          onClick={() => navigate("/privacy")}
+          onClick={() => navigate("/privacy", { state: { returnTo: "/settings" } })}
           className="w-full flex items-center justify-between gap-3 px-4 py-3.5 border-b border-surface-border text-left active:opacity-90"
         >
-          <span className="text-sm font-medium text-foreground">
+          <span className="text-sm font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-2">
             {s.privacy_policy_title}
           </span>
-          <Globe className="h-5 w-5 text-brand shrink-0" aria-hidden />
+          <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
         </button>
         <div className="px-4 pb-3.5">
           <p className="text-xs text-brand font-medium">{s.settings_dbConnected}</p>
@@ -4599,6 +4627,11 @@ const Settings = () => {
                   const { text, className } = gpsMatchAdminLabel(
                     verifySheet.category?.gps_match_distance ??
                       verifySheet.vendor.gps_match_distance,
+                    {
+                      locationAccuracy: verifySheet.category?.location_accuracy,
+                      photoAccuracy: verifySheet.category?.photo_accuracy,
+                      verificationStatus: verifySheet.category?.verification_status,
+                    },
                   );
                   return <p className={cn("text-xs font-medium", className)}>{text}</p>;
                 })()}

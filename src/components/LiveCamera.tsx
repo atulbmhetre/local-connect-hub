@@ -11,7 +11,7 @@ import { useLanguage } from "@/lib/language";
 export type CapturedShot = {
   blob: Blob;
   dataUrl: string;
-  coords: { lat: number; lng: number };
+  coords: { lat: number; lng: number; accuracy: number | null };
   takenAt: string;
 };
 
@@ -76,20 +76,44 @@ export const LiveCamera = ({
           return;
         }
 
-        let coords = { lat: 0, lng: 0 };
+        let coords: CapturedShot["coords"] = { lat: 0, lng: 0, accuracy: null };
         if (requireLocation) {
-          const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-            if (!("geolocation" in navigator)) {
-              reject(new Error("Geolocation not supported"));
-              return;
-            }
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 10_000,
-              maximumAge: 0,
+          const e2eGeo =
+            typeof window !== "undefined"
+              ? (
+                  window as unknown as {
+                    __E2E_MOCK_GEO__?: { lat: number; lng: number; accuracy?: number | null };
+                  }
+                ).__E2E_MOCK_GEO__
+              : undefined;
+          if (e2eGeo && Number.isFinite(e2eGeo.lat) && Number.isFinite(e2eGeo.lng)) {
+            coords = {
+              lat: e2eGeo.lat,
+              lng: e2eGeo.lng,
+              accuracy:
+                e2eGeo.accuracy != null && Number.isFinite(e2eGeo.accuracy)
+                  ? e2eGeo.accuracy
+                  : null,
+            };
+          } else {
+            const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+              if (!("geolocation" in navigator)) {
+                reject(new Error("Geolocation not supported"));
+                return;
+              }
+              navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: true,
+                timeout: 10_000,
+                maximumAge: 0,
+              });
             });
-          });
-          coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            const acc = pos.coords.accuracy;
+            coords = {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              accuracy: acc != null && Number.isFinite(acc) && acc >= 0 ? acc : null,
+            };
+          }
         }
 
         const blob = await fetch(dataUrl).then((r) => r.blob());

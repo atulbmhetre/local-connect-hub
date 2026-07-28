@@ -51,6 +51,11 @@ prod_*.json
 canary_*.txt
 test_rls_policies.*
 vitest_results.txt
+vitest-full-output.txt
+vitest-phone-entry.txt
+playwright-full-output.txt
+/tmp/
+full-schema.sql
 bill-edit-rpc-test-results.json
 test_vendor_bloat.txt
 followup_diagnostics_status.txt

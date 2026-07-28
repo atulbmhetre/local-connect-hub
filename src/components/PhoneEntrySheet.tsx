@@ -18,6 +18,18 @@ import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
 import { captureError } from "@/lib/sentry";
 import { supabase } from "@/lib/supabase";
+import {
+  applyAbortSignal,
+  isNetworkTimeout,
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withTimedRetry,
+} from "@/lib/withNetworkRetry";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 
 export type PhoneEntryContext = "order" | "save" | "settings";
 
@@ -54,45 +66,71 @@ async function lookupExistingAccount(phone: string): Promise<{
   banned: boolean;
   hit: ExistingAccountHit | null;
   error: boolean;
+  timedOut: boolean;
 }> {
-  const [usersResult, vendorStatusResult] = await Promise.all([
-    supabase.rpc("lookup_user_by_phone", { p_phone: phone }),
-    supabase.rpc("get_vendor_restore_status", { p_phone: phone }),
-  ]);
+  try {
+    const [usersResult, vendorStatusResult] = await withTimedRetry(
+      async (signal) => {
+        const [users, vendorStatus] = await Promise.all([
+          applyAbortSignal(
+            supabase.rpc("lookup_user_by_phone", { p_phone: phone }),
+            signal,
+          ),
+          applyAbortSignal(
+            supabase.rpc("get_vendor_restore_status", { p_phone: phone }),
+            signal,
+          ),
+        ]);
+        throwOnSupabaseNetworkError(users);
+        throwOnSupabaseNetworkError(vendorStatus);
+        return [users, vendorStatus] as const;
+      },
+      { shouldRetry: () => getNavigatorOnline() },
+    );
 
-  if (usersResult.error || vendorStatusResult.error) {
-    captureError(usersResult.error ?? vendorStatusResult.error, {
+    if (usersResult.error || vendorStatusResult.error) {
+      captureError(usersResult.error ?? vendorStatusResult.error, {
+        scope: "phoneEntry.lookupExistingAccount",
+        phoneSuffix: phone.slice(-4),
+      });
+      return { banned: false, hit: null, error: true, timedOut: false };
+    }
+
+    const customerRow = usersResult.data?.[0] ?? null;
+    const vendorStatus = (vendorStatusResult.data ?? null) as VendorRestoreStatus | null;
+    if (customerRow?.is_banned === true) {
+      return { banned: true, hit: null, error: false, timedOut: false };
+    }
+
+    const hasCustomer = customerRow != null;
+    const hasVendor = vendorStatus?.found === true;
+    if (!hasCustomer && !hasVendor) {
+      return { banned: false, hit: null, error: false, timedOut: false };
+    }
+
+    return {
+      banned: false,
+      hit: {
+        hasCustomer,
+        hasVendor,
+        vendorId: vendorStatus?.vendor_id ?? null,
+        vendorRestorable: Boolean(
+          hasVendor && vendorStatus?.restore_allowed === true && vendorStatus?.vendor_id,
+        ),
+        totalOrders: Number(customerRow?.total_orders ?? 0),
+      },
+      error: false,
+      timedOut: false,
+    };
+  } catch (err) {
+    captureError(err, {
       scope: "phoneEntry.lookupExistingAccount",
       phoneSuffix: phone.slice(-4),
     });
-    return { banned: false, hit: null, error: true };
+    const timedOut =
+      isNetworkTimeout(err) || err instanceof NetworkExhaustedError;
+    return { banned: false, hit: null, error: true, timedOut };
   }
-
-  const customerRow = usersResult.data?.[0] ?? null;
-  const vendorStatus = (vendorStatusResult.data ?? null) as VendorRestoreStatus | null;
-  if (customerRow?.is_banned === true) {
-    return { banned: true, hit: null, error: false };
-  }
-
-  const hasCustomer = customerRow != null;
-  const hasVendor = vendorStatus?.found === true;
-  if (!hasCustomer && !hasVendor) {
-    return { banned: false, hit: null, error: false };
-  }
-
-  return {
-    banned: false,
-    hit: {
-      hasCustomer,
-      hasVendor,
-      vendorId: vendorStatus?.vendor_id ?? null,
-      vendorRestorable: Boolean(
-        hasVendor && vendorStatus?.restore_allowed === true && vendorStatus?.vendor_id,
-      ),
-      totalOrders: Number(customerRow?.total_orders ?? 0),
-    },
-    error: false,
-  };
 }
 
 function normalizePhoneDigits(raw: string): string {
@@ -153,7 +191,14 @@ export function PhoneEntrySheet({
         onConfirmed(digits);
         return;
       }
-      const { banned, hit, error: lookupFailed } = await lookupExistingAccount(digits);
+      showNetworkRetryingToast({ retrying: s.network_retrying });
+      const {
+        banned,
+        hit,
+        error: lookupFailed,
+        timedOut,
+      } = await lookupExistingAccount(digits);
+      dismissNetworkRetryingToast();
       if (banned) {
         setError(s.customer_account_banned);
         return;
@@ -164,16 +209,25 @@ export function PhoneEntrySheet({
         return;
       }
       if (lookupFailed) {
+        if (timedOut) {
+          setError(s.network_timeout);
+          return;
+        }
         // Fail open for mid-flow: don't block ordering on a lookup blip.
         completePhoneFlow(digits);
         return;
       }
       completePhoneFlow(digits);
     } catch (err) {
+      dismissNetworkRetryingToast();
       captureError(err, {
         scope: "phoneEntry.handleConfirm",
         phoneSuffix: digits.slice(-4),
       });
+      if (isNetworkTimeout(err) || err instanceof NetworkExhaustedError) {
+        setError(isNetworkTimeout(err) ? s.network_timeout : s.network_failed);
+        return;
+      }
       completePhoneFlow(digits);
     } finally {
       setIsChecking(false);
