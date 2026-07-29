@@ -824,6 +824,7 @@ const Settings = () => {
     }[]
   >([]);
   const [flaggedAction, setFlaggedAction] = useState<string | null>(null);
+  const adminUserActionLockRef = useRef(new Set<string>());
   const [banDialog, setBanDialog] = useState<{ open: boolean; phone: string | null }>({
     open: false,
     phone: null,
@@ -835,7 +836,9 @@ const Settings = () => {
   }>({ open: false, vendor: null });
   const [vendorBanReason, setVendorBanReason] = useState("");
   const [vendorBanAction, setVendorBanAction] = useState<string | null>(null);
+  const adminVendorActionLockRef = useRef(new Set<string>());
   const [verifying, setVerifying] = useState<string | null>(null);
+  const adminVerifyLockRef = useRef(new Set<string>());
   const [verifySheet, setVerifySheet] = useState<{
     open: boolean;
     vendor: (typeof vendorList)[number] | null;
@@ -1099,6 +1102,7 @@ const Settings = () => {
   const [waivePercent, setWaivePercent] = useState("");
   const [waiveMonths, setWaiveMonths] = useState("");
   const [waiveSubmitting, setWaiveSubmitting] = useState(false);
+  const waiveSubmitLockRef = useRef(false);
   const [waiveConfirm, setWaiveConfirm] = useState<{
     open: boolean;
     vendor: { id: string; shop_name: string; phone: string | null } | null;
@@ -1946,108 +1950,134 @@ const Settings = () => {
   };
 
   const warnFlaggedUser = async (phone: string) => {
+    if (adminUserActionLockRef.current.has(phone)) return;
+    adminUserActionLockRef.current.add(phone);
     setFlaggedAction(phone);
 
-    const result = await runWarnFlaggedUser(
-      phone,
-      {
-        localizationEnabled: config.localizationEnabled,
-        langHindiEnabled: config.langHindiEnabled,
-        langMarathiEnabled: config.langMarathiEnabled,
-      },
-      adminAuditLabel(),
-    );
+    try {
+      const result = await runWarnFlaggedUser(
+        phone,
+        {
+          localizationEnabled: config.localizationEnabled,
+          langHindiEnabled: config.langHindiEnabled,
+          langMarathiEnabled: config.langMarathiEnabled,
+        },
+        adminAuditLabel(),
+      );
 
-    setFlaggedAction(null);
-    if (result.ok === false) {
-      console.error("warnFlaggedUser", result.error);
-      toast.error("Warning sent but count not saved");
-      return;
+      if (result.ok === false) {
+        console.error("warnFlaggedUser", result.error);
+        toast.error("Warning sent but count not saved");
+        return;
+      }
+      toast.success("Warning sent");
+      await loadFlaggedUsers();
+    } finally {
+      adminUserActionLockRef.current.delete(phone);
+      setFlaggedAction((current) => (current === phone ? null : current));
     }
-    toast.success("Warning sent");
-    await loadFlaggedUsers();
   };
 
   const confirmBanVendor = async () => {
     const v = vendorBanDialog.vendor;
     if (!v || !vendorBanReason.trim()) return;
+    if (adminVendorActionLockRef.current.has(v.id)) return;
+    adminVendorActionLockRef.current.add(v.id);
     setVendorBanAction(v.id);
-    const { error } = await supabase.rpc("admin_ban_vendor", {
-      p_admin_phone: adminRpcLabel(),
-      p_vendor_id: v.id,
-      p_reason: vendorBanReason.trim(),
-    });
-    if (error) {
-      console.error("confirmBanVendor", error);
-      setVendorBanAction(null);
-      toast.error("Failed to ban vendor");
-      return;
+
+    try {
+      const { error } = await supabase.rpc("admin_ban_vendor", {
+        p_admin_phone: adminRpcLabel(),
+        p_vendor_id: v.id,
+        p_reason: vendorBanReason.trim(),
+      });
+      if (error) {
+        console.error("confirmBanVendor", error);
+        toast.error("Failed to ban vendor");
+        return;
+      }
+      const title = s.admin_vendor_banned_title;
+      const body = s.admin_vendor_banned_body;
+      void invokeNotifyVendor({
+        vendor_id: v.id,
+        notification_title: title,
+        message: body,
+        type: "account_banned",
+      });
+      logAdminAction("ban_vendor", "vendor", v.id, vendorBanReason.trim(), adminAuditLabel());
+      toast.success("Vendor banned");
+      setVendorBanDialog({ open: false, vendor: null });
+      setVendorBanReason("");
+      await loadVendorList();
+    } finally {
+      adminVendorActionLockRef.current.delete(v.id);
+      setVendorBanAction((current) => (current === v.id ? null : current));
     }
-    const title = s.admin_vendor_banned_title;
-    const body = s.admin_vendor_banned_body;
-    void invokeNotifyVendor({
-      vendor_id: v.id,
-      notification_title: title,
-      message: body,
-      type: "account_banned",
-    });
-    logAdminAction("ban_vendor", "vendor", v.id, vendorBanReason.trim(), adminAuditLabel());
-    setVendorBanAction(null);
-    toast.success("Vendor banned");
-    setVendorBanDialog({ open: false, vendor: null });
-    setVendorBanReason("");
-    await loadVendorList();
   };
 
   const unbanVendor = async (vendorId: string) => {
+    if (adminVendorActionLockRef.current.has(vendorId)) return;
+    adminVendorActionLockRef.current.add(vendorId);
     setVendorBanAction(vendorId);
-    const vendorRow = vendorList.find((v) => v.id === vendorId);
-    const { error } = await supabase.rpc("admin_unban_vendor", {
-      p_admin_phone: adminRpcLabel(),
-      p_vendor_id: vendorId,
-    });
-    setVendorBanAction(null);
-    if (error) {
-      console.error("unbanVendor", error);
-      toast.error("Failed to unban vendor");
-      return;
+
+    try {
+      const vendorRow = vendorList.find((v) => v.id === vendorId);
+      const { error } = await supabase.rpc("admin_unban_vendor", {
+        p_admin_phone: adminRpcLabel(),
+        p_vendor_id: vendorId,
+      });
+      if (error) {
+        console.error("unbanVendor", error);
+        toast.error("Failed to unban vendor");
+        return;
+      }
+      const phone = vendorRow?.phone?.trim();
+      if (phone) {
+        notifyAccountRestored(phone, "vendor", vendorId);
+      }
+      logAdminAction("unban_vendor", "vendor", vendorId, null, adminAuditLabel());
+      toast.success("Vendor unbanned");
+      await loadVendorList();
+    } finally {
+      adminVendorActionLockRef.current.delete(vendorId);
+      setVendorBanAction((current) => (current === vendorId ? null : current));
     }
-    const phone = vendorRow?.phone?.trim();
-    if (phone) {
-      notifyAccountRestored(phone, "vendor", vendorId);
-    }
-    logAdminAction("unban_vendor", "vendor", vendorId, null, adminAuditLabel());
-    toast.success("Vendor unbanned");
-    await loadVendorList();
   };
 
   const confirmBanUser = async () => {
     if (!banDialog.phone || !banReason.trim()) return;
-    setFlaggedAction(banDialog.phone);
-    const { error } = await supabase.rpc("admin_ban_user", {
-      p_admin_phone: adminRpcLabel(),
-      p_user_phone: banDialog.phone,
-      p_reason: banReason.trim(),
-    });
-    setFlaggedAction(null);
-    if (error) {
-      console.error("confirmBanUser", error);
-      toast.error("Failed to ban user: " + error.message);
-      return;
-    }
     const bannedPhone = banDialog.phone;
-    const reason = banReason.trim();
-    void invokeNotifyUser({
-      user_phone: bannedPhone,
-      title: s.user_banned_title,
-      body: s.user_banned_body,
-      type: "account_banned",
-    });
-    logAdminAction("ban_user", "user", bannedPhone, reason, adminAuditLabel());
-    toast.success("User banned");
-    setBanDialog({ open: false, phone: null });
-    setBanReason("");
-    await loadFlaggedUsers();
+    if (adminUserActionLockRef.current.has(bannedPhone)) return;
+    adminUserActionLockRef.current.add(bannedPhone);
+    setFlaggedAction(bannedPhone);
+
+    try {
+      const { error } = await supabase.rpc("admin_ban_user", {
+        p_admin_phone: adminRpcLabel(),
+        p_user_phone: bannedPhone,
+        p_reason: banReason.trim(),
+      });
+      if (error) {
+        console.error("confirmBanUser", error);
+        toast.error("Failed to ban user: " + error.message);
+        return;
+      }
+      const reason = banReason.trim();
+      void invokeNotifyUser({
+        user_phone: bannedPhone,
+        title: s.user_banned_title,
+        body: s.user_banned_body,
+        type: "account_banned",
+      });
+      logAdminAction("ban_user", "user", bannedPhone, reason, adminAuditLabel());
+      toast.success("User banned");
+      setBanDialog({ open: false, phone: null });
+      setBanReason("");
+      await loadFlaggedUsers();
+    } finally {
+      adminUserActionLockRef.current.delete(bannedPhone);
+      setFlaggedAction((current) => (current === bannedPhone ? null : current));
+    }
   };
 
   const unbanFlaggedUser = async (phone: string) => {
@@ -2071,30 +2101,38 @@ const Settings = () => {
   const confirmApplyWaiveoff = async () => {
     const info = waiveConfirm;
     if (!info.vendor) return;
+    if (waiveSubmitLockRef.current) return;
+
+    waiveSubmitLockRef.current = true;
     setWaiveConfirm({ open: false, vendor: null, percent: 0, months: 0 });
     setWaiveSubmitting(true);
-    const result = await runApplyVendorWaiveoff(
-      { id: info.vendor.id, phone: info.vendor.phone },
-      info.percent,
-      info.months,
-      {
-        localizationEnabled: config.localizationEnabled,
-        langHindiEnabled: config.langHindiEnabled,
-        langMarathiEnabled: config.langMarathiEnabled,
-      },
-      adminAuditLabel(),
-    );
-    setWaiveSubmitting(false);
-    if (result.ok === false) {
-      console.error("applyWaiveoff", result.error);
-      toast.error(result.error || "Failed to apply waive-off");
-      return;
+
+    try {
+      const result = await runApplyVendorWaiveoff(
+        { id: info.vendor.id, phone: info.vendor.phone },
+        info.percent,
+        info.months,
+        {
+          localizationEnabled: config.localizationEnabled,
+          langHindiEnabled: config.langHindiEnabled,
+          langMarathiEnabled: config.langMarathiEnabled,
+        },
+        adminAuditLabel(),
+      );
+      if (result.ok === false) {
+        console.error("applyWaiveoff", result.error);
+        toast.error(result.error || "Failed to apply waive-off");
+        return;
+      }
+      toast.success(s.admin_sub_waiveoff_applied);
+      setWaivePhone("");
+      setWaivePercent("");
+      setWaiveMonths("");
+      void loadSubVendors();
+    } finally {
+      waiveSubmitLockRef.current = false;
+      setWaiveSubmitting(false);
     }
-    toast.success(s.admin_sub_waiveoff_applied);
-    setWaivePhone("");
-    setWaivePercent("");
-    setWaiveMonths("");
-    void loadSubVendors();
   };
 
   const approvePendingCategory = async (cat: (typeof pendingCategories)[number]) => {
@@ -2276,28 +2314,34 @@ const Settings = () => {
       return;
     }
     const verifyingKey = `${vendor.id}:${categoryId}`;
+    if (adminVerifyLockRef.current.has(verifyingKey)) return;
+    adminVerifyLockRef.current.add(verifyingKey);
     setVerifying(verifyingKey);
-    const { error } = await supabase.rpc("admin_verify_vendor_category", {
-      p_admin_phone: adminRpcLabel(),
-      p_vendor_id: vendor.id,
-      p_category_id: categoryId,
-    });
-    if (error) {
-      setVerifying(null);
-      toast.error("Update failed: " + error.message);
-      return;
+
+    try {
+      const { error } = await supabase.rpc("admin_verify_vendor_category", {
+        p_admin_phone: adminRpcLabel(),
+        p_vendor_id: vendor.id,
+        p_category_id: categoryId,
+      });
+      if (error) {
+        toast.error("Update failed: " + error.message);
+        return;
+      }
+      notifyVendorVerification(vendor.id, vendor.phone, {
+        type: "account_verified",
+        title: s.vendor_approved_title,
+        body: s.vendor_approved_body,
+      });
+      logAdminAction("verify_vendor_category", "vendor_category", categoryId, null, adminAuditLabel());
+      localStorage.removeItem(verifyProgressKey(verifyingKey));
+      await loadVendorList();
+      closeVerifySheet();
+      toast(s.settings_vendorVerified);
+    } finally {
+      adminVerifyLockRef.current.delete(verifyingKey);
+      setVerifying((current) => (current === verifyingKey ? null : current));
     }
-    notifyVendorVerification(vendor.id, vendor.phone, {
-      type: "account_verified",
-      title: s.vendor_approved_title,
-      body: s.vendor_approved_body,
-    });
-    logAdminAction("verify_vendor_category", "vendor_category", categoryId, null, adminAuditLabel());
-    localStorage.removeItem(verifyProgressKey(verifyingKey));
-    await loadVendorList();
-    setVerifying(null);
-    closeVerifySheet();
-    toast(s.settings_vendorVerified);
   };
 
   const confirmUnverifyCategory = async (

@@ -109,6 +109,7 @@ const LedgerView = () => {
   const [amountSheetMode, setAmountSheetMode] = useState<"payment" | "refund" | null>(null);
   const [amountValue, setAmountValue] = useState("");
   const [savingAmount, setSavingAmount] = useState(false);
+  const savingAmountLockRef = useRef(false);
   const [sheetShowFullHistory, setSheetShowFullHistory] = useState(false);
   const [hasHistoryBeyondCycle, setHasHistoryBeyondCycle] = useState(false);
   const [fullHistoryLoaded, setFullHistoryLoaded] = useState(false);
@@ -494,11 +495,18 @@ const LedgerView = () => {
 
   const savePayment = async () => {
     if (!vendorId || !selectedPhone || !selectedEntry || amountSheetMode !== "payment" || !amountValid) return;
+    if (savingAmountLockRef.current) return;
+
+    savingAmountLockRef.current = true;
+    setSavingAmount(true);
+
+    const releaseSavingAmountLock = () => {
+      savingAmountLockRef.current = false;
+      setSavingAmount(false);
+    };
 
     const amountPaid = parsedAmount;
     const now = new Date().toISOString();
-
-    setSavingAmount(true);
 
     const { data: newOutstandingValue, error: paymentError } = await supabase.rpc(
       "vendor_record_khata_payment",
@@ -512,7 +520,7 @@ const LedgerView = () => {
     );
 
     if (paymentError) {
-      setSavingAmount(false);
+      releaseSavingAmountLock();
       toast.error(paymentError.message);
       return;
     }
@@ -555,7 +563,7 @@ const LedgerView = () => {
       });
     }
 
-    setSavingAmount(false);
+    releaseSavingAmountLock();
     toast.success(s.khata_markedPaid);
     closeAmountSheet();
     void loadTransactions(vendorId, selectedPhone, ledgerCycleStart);
@@ -564,11 +572,18 @@ const LedgerView = () => {
 
   const saveRefund = async () => {
     if (!vendorId || !selectedPhone || !selectedEntry || amountSheetMode !== "refund" || !amountValid) return;
+    if (savingAmountLockRef.current) return;
+
+    savingAmountLockRef.current = true;
+    setSavingAmount(true);
+
+    const releaseSavingAmountLock = () => {
+      savingAmountLockRef.current = false;
+      setSavingAmount(false);
+    };
 
     const refundAmount = parsedAmount;
     const now = new Date().toISOString();
-
-    setSavingAmount(true);
 
     const { data, error: refundError } = await supabase.rpc("vendor_record_khata_refund", {
       p_vendor_id: vendorId,
@@ -578,7 +593,7 @@ const LedgerView = () => {
     });
 
     if (refundError) {
-      setSavingAmount(false);
+      releaseSavingAmountLock();
       toast.error(mapKhataRefundError(refundError.message, s));
       return;
     }
@@ -597,7 +612,7 @@ const LedgerView = () => {
       ),
     );
 
-    setSavingAmount(false);
+    releaseSavingAmountLock();
     toast.success(s.khata_refundSaved);
     closeAmountSheet();
     void loadTransactions(vendorId, selectedPhone, ledgerCycleStart);
@@ -1011,6 +1026,7 @@ const LedgerView = () => {
             </div>
             <button
               type="button"
+              data-testid="ledger-save-amount-btn"
               disabled={savingAmount || !amountValid}
               onClick={() =>
                 void (amountSheetMode === "refund" ? saveRefund() : savePayment())

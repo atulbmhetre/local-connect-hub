@@ -361,6 +361,8 @@ const MyOrders = () => {
   const [loading, setLoading] = useState(true);
   const [networkLoadStatus, setNetworkLoadStatus] = useState<"retrying" | "failed" | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
+  const rowActionLockRef = useRef(new Set<string>());
+  const savingEditLockRef = useRef(false);
   const [ratingSheetOpen, setRatingSheetOpen] = useState(false);
   const [ratingVendor, setRatingVendor] = useState<{
     vendorId: string;
@@ -1000,10 +1002,13 @@ const MyOrders = () => {
 
   const markDone = async (target: RowWithShop | string) => {
     const id = typeof target === "string" ? target : target.id;
+    if (rowActionLockRef.current.has(id)) return;
+    rowActionLockRef.current.add(id);
+    setMarkingId(id);
+
     const row = typeof target === "string" ? null : target;
     const rowPhone = typeof target === "string" ? null : target.user_phone;
     const rowDevice = typeof target === "string" ? null : target.device_id;
-    setMarkingId(id);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     try {
@@ -1053,13 +1058,17 @@ const MyOrders = () => {
         throw err;
       }
     } finally {
-      setMarkingId(null);
+      rowActionLockRef.current.delete(id);
+      setMarkingId((current) => (current === id ? null : current));
     }
   };
 
   const handleRemoveOrder = async (r: RowWithShop) => {
-    const vendorPhone = r.vendors?.phone?.trim();
+    if (rowActionLockRef.current.has(r.id)) return;
+    rowActionLockRef.current.add(r.id);
     setMarkingId(r.id);
+
+    const vendorPhone = r.vendors?.phone?.trim();
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     try {
@@ -1105,13 +1114,17 @@ const MyOrders = () => {
         throw err;
       }
     } finally {
-      setMarkingId(null);
+      rowActionLockRef.current.delete(r.id);
+      setMarkingId((current) => (current === r.id ? null : current));
     }
   };
 
   const cancelAppointment = async (r: RowWithShop) => {
-    const vendorPhone = r.vendors?.phone?.trim();
+    if (rowActionLockRef.current.has(r.id)) return;
+    rowActionLockRef.current.add(r.id);
     setMarkingId(r.id);
+
+    const vendorPhone = r.vendors?.phone?.trim();
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     try {
@@ -1159,7 +1172,8 @@ const MyOrders = () => {
         throw err;
       }
     } finally {
-      setMarkingId(null);
+      rowActionLockRef.current.delete(r.id);
+      setMarkingId((current) => (current === r.id ? null : current));
     }
   };
 
@@ -1252,11 +1266,19 @@ const MyOrders = () => {
     if (!trimmed) return;
     const originalStripped = stripLocationTag(editOrder.message);
     if (trimmed === originalStripped) return;
+    if (savingEditLockRef.current) return;
+
+    savingEditLockRef.current = true;
+    setSavingEdit(true);
+
+    const releaseSavingEditLock = () => {
+      savingEditLockRef.current = false;
+      setSavingEdit(false);
+    };
 
     const newMessage = buildMessageWithTags(trimmed, editOrder.message);
     const oldMessage = editOrder.message;
 
-    setSavingEdit(true);
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
 
@@ -1370,7 +1392,7 @@ const MyOrders = () => {
         throw err;
       }
     } finally {
-      setSavingEdit(false);
+      releaseSavingEditLock();
     }
   };
 

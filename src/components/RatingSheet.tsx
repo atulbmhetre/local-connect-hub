@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   Sheet,
@@ -108,6 +108,7 @@ export function RatingSheet({
   const { s, lang } = useLanguage();
 
   const [loading, setLoading] = useState<false | "rate" | "issue">(false);
+  const submitLockRef = useRef(false);
 
   const [stars, setStars] = useState<number>(0);
 
@@ -120,6 +121,7 @@ export function RatingSheet({
 
     if (!isOpen) {
 
+      submitLockRef.current = false;
       setLoading(false);
 
       setStars(0);
@@ -177,7 +179,15 @@ export function RatingSheet({
 
 
   const handleRate = useCallback(async () => {
+    if (submitLockRef.current) return;
+    // Sync lock before React re-render so rapid multi-tap cannot re-enter.
+    submitLockRef.current = true;
     setLoading("rate");
+
+    const releaseSubmitLock = () => {
+      submitLockRef.current = false;
+      setLoading(false);
+    };
 
     const { data: existingReview } = await supabase
       .from("vendor_reviews")
@@ -188,7 +198,7 @@ export function RatingSheet({
     if (existingReview) {
       // A review for this order already exists — retrying can never succeed,
       // so dismissing (and archiving via onDismiss) is correct here.
-      setLoading(false);
+      releaseSubmitLock();
       toast.error(s.rating_errCouldNotSave);
       onDismiss();
       return;
@@ -199,7 +209,7 @@ export function RatingSheet({
     if (!userPhone) {
       // Failed submission: keep the sheet open (no onDismiss) so the order is
       // NOT marked done and the Rate CTA stays available for retry.
-      setLoading(false);
+      releaseSubmitLock();
       toast.error(s.feed_phoneRequired);
       return;
     }
@@ -222,7 +232,7 @@ export function RatingSheet({
         vendorId,
         requestId,
       });
-      setLoading(false);
+      releaseSubmitLock();
       toast.error(messageForSubmitReviewError(insertError.message, s));
       return;
     }
@@ -240,7 +250,7 @@ export function RatingSheet({
           vendorId,
           requestId,
         });
-        setLoading(false);
+        releaseSubmitLock();
         toast.error(s.rating_errCouldNotSave);
         onDismiss();
         return;
@@ -267,7 +277,7 @@ export function RatingSheet({
       });
     }
 
-    setLoading(false);
+    releaseSubmitLock();
     onDismiss();
   }, [
 

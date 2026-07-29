@@ -291,6 +291,8 @@ export function IncomingOrdersSection({
   const [truncatedRemaining, setTruncatedRemaining] = useState(0);
   const fetchLimitRef = useRef(INCOMING_PAGE_SIZE);
   const [markingId, setMarkingId] = useState<string | null>(null);
+  const rowActionLockRef = useRef(new Set<string>());
+  const cancelOrderLockRef = useRef(new Set<string>());
   const [calledUser, setCalledUser] = useState<Record<string, boolean>>({});
   const [callSheetOpen, setCallSheetOpen] = useState(false);
   const [callTargetPhone, setCallTargetPhone] = useState<string | null>(null);
@@ -368,6 +370,7 @@ export function IncomingOrdersSection({
   const [ledgerOrderNote, setLedgerOrderNote] = useState("");
   const [ledgerVendorNote, setLedgerVendorNote] = useState("");
   const [ledgerSubmitting, setLedgerSubmitting] = useState(false);
+  const ledgerSubmitLockRef = useRef(false);
   const [iveStartedTick, setIveStartedTick] = useState(0);
   const mounted = useRef(true);
 
@@ -1054,13 +1057,18 @@ export function IncomingOrdersSection({
 
   const acceptHelpOrder = async (id: string) => {
     void clearOrderEditedFlag(id);
+    if (rowActionLockRef.current.has(id)) return;
+    rowActionLockRef.current.add(id);
+    setMarkingId(id);
+
     const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
+      rowActionLockRef.current.delete(id);
+      setMarkingId((current) => (current === id ? null : current));
       toast.error(s.incoming_errCouldNotUpdate);
       return;
     }
-    setMarkingId(id);
     try {
       const { data: accepted, error } = await withNetworkRetry(
         async () =>
@@ -1115,18 +1123,24 @@ export function IncomingOrdersSection({
         throw err;
       }
     } finally {
-      setMarkingId(null);
+      rowActionLockRef.current.delete(id);
+      setMarkingId((current) => (current === id ? null : current));
     }
   };
 
   const acceptDeliveryOrder = async (id: string, userPhone: string | null) => {
     void clearOrderEditedFlag(id);
+    if (rowActionLockRef.current.has(id)) return;
+    rowActionLockRef.current.add(id);
+    setMarkingId(id);
+
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
+      rowActionLockRef.current.delete(id);
+      setMarkingId((current) => (current === id ? null : current));
       toast.error(s.incoming_errCouldNotUpdate);
       return;
     }
-    setMarkingId(id);
     try {
       const { data: accepted, error } = await withNetworkRetry(
         async () =>
@@ -1188,7 +1202,8 @@ export function IncomingOrdersSection({
         throw err;
       }
     } finally {
-      setMarkingId(null);
+      rowActionLockRef.current.delete(id);
+      setMarkingId((current) => (current === id ? null : current));
     }
   };
 
@@ -1386,13 +1401,18 @@ export function IncomingOrdersSection({
 
   const handleAppointmentAction = async (id: string, action: "confirmed" | "declined") => {
     if (action === "declined") return;
+    if (rowActionLockRef.current.has(id)) return;
+    rowActionLockRef.current.add(id);
+    setMarkingId(id);
+
     const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
+      rowActionLockRef.current.delete(id);
+      setMarkingId((current) => (current === id ? null : current));
       toast.error(s.incoming_errCouldNotUpdateAppt);
       return;
     }
-    setMarkingId(id);
     try {
       const { error } = await withNetworkRetry(
         async () =>
@@ -1467,7 +1487,8 @@ export function IncomingOrdersSection({
         throw err;
       }
     } finally {
-      setMarkingId(null);
+      rowActionLockRef.current.delete(id);
+      setMarkingId((current) => (current === id ? null : current));
     }
   };
 
@@ -1521,6 +1542,8 @@ export function IncomingOrdersSection({
 
   const confirmDeclineBooking = async () => {
     if (!declineOrderId || !selectedReason) return;
+    if (rowActionLockRef.current.has(declineOrderId)) return;
+
     void clearOrderEditedFlag(declineOrderId);
     const reasonText =
       selectedReason === "Other" ? otherReasonText.trim() : selectedReason;
@@ -1531,12 +1554,14 @@ export function IncomingOrdersSection({
       rows.find((r) => r.id === declineOrderId)?.user_phone?.trim() ||
       "";
 
+    rowActionLockRef.current.add(declineOrderId);
     setDeclining(true);
     setMarkingId(declineOrderId);
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
+      rowActionLockRef.current.delete(declineOrderId);
       setDeclining(false);
-      setMarkingId(null);
+      setMarkingId((current) => (current === declineOrderId ? null : current));
       toast.error(s.incoming_errCouldNotUpdateAppt);
       return;
     }
@@ -1612,8 +1637,9 @@ export function IncomingOrdersSection({
         throw err;
       }
     } finally {
+      rowActionLockRef.current.delete(declineOrderId);
       setDeclining(false);
-      setMarkingId(null);
+      setMarkingId((current) => (current === declineOrderId ? null : current));
     }
   };
 
@@ -1653,9 +1679,18 @@ export function IncomingOrdersSection({
     if (!ledgerOrderId || !ledgerUserPhone) return;
     const amount = parseFloat(ledgerAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
+    if (ledgerSubmitLockRef.current) return;
+
+    // Sync lock before React re-render so rapid multi-tap cannot re-enter.
+    ledgerSubmitLockRef.current = true;
+    setLedgerSubmitting(true);
+
+    const releaseLedgerSubmitLock = () => {
+      ledgerSubmitLockRef.current = false;
+      setLedgerSubmitting(false);
+    };
 
     try {
-      setLedgerSubmitting(true);
       const vendorNote = ledgerVendorNote.trim();
 
       const { data: billId, error } = await supabase.rpc("insert_bill_with_items", {
@@ -1711,7 +1746,7 @@ export function IncomingOrdersSection({
       closeLedgerSheet();
       toast.success(s.khata_entryAdded);
     } finally {
-      setLedgerSubmitting(false);
+      releaseLedgerSubmitLock();
     }
   };
 
@@ -1763,6 +1798,8 @@ export function IncomingOrdersSection({
 
   const confirmCancelOrder = async () => {
     if (!cancelOrderId || !selectedReason) return;
+    if (cancelOrderLockRef.current.has(cancelOrderId)) return;
+
     const reasonText =
       selectedReason === "Other" ? otherReasonText.trim() : selectedReason;
     if (!reasonText) return;
@@ -1771,52 +1808,59 @@ export function IncomingOrdersSection({
     const isAppointmentOrder =
       order?.appointment_status === "confirmed" || !!order?.appointment_time;
 
+    cancelOrderLockRef.current.add(cancelOrderId);
     setCancelling(true);
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
+      cancelOrderLockRef.current.delete(cancelOrderId);
       setCancelling(false);
       toast.error(s.incoming_errCouldNotUpdate);
       return;
     }
-    const { error } = await supabase.rpc("vendor_cancel_order", {
-      p_request_id: cancelOrderId,
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-      p_cancel_reason: reasonText,
-      p_cancel_appointment: isAppointmentOrder,
-    });
-    setCancelling(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    void stopOrderTracking(cancelOrderId);
-    const userPhone = rows.find((r) => r.id === cancelOrderId)?.user_phone?.trim();
-    if (userPhone) {
-      const title = s.incoming_orderCancelledNotifyTitle;
-      const body = s.incoming_orderCancelledNotifyBody(reasonText);
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title,
-        body,
-        type: "order_update",
-        order_id: cancelOrderId,
+
+    try {
+      const { error } = await supabase.rpc("vendor_cancel_order", {
+        p_request_id: cancelOrderId,
+        p_vendor_id: vendorId,
+        p_vendor_phone: vendorPhone,
+        p_cancel_reason: reasonText,
+        p_cancel_appointment: isAppointmentOrder,
       });
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      void stopOrderTracking(cancelOrderId);
+      const userPhone = rows.find((r) => r.id === cancelOrderId)?.user_phone?.trim();
+      if (userPhone) {
+        const title = s.incoming_orderCancelledNotifyTitle;
+        const body = s.incoming_orderCancelledNotifyBody(reasonText);
+        void invokeNotifyUser({
+          user_phone: userPhone,
+          title,
+          body,
+          type: "order_update",
+          order_id: cancelOrderId,
+        });
+      }
+      toast.success(s.orderCancelled);
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === cancelOrderId
+            ? {
+                ...r,
+                status: "cancelled",
+                cancel_reason: reasonText,
+                ...(isAppointmentOrder ? { appointment_status: "cancelled" as const } : {}),
+              }
+            : r,
+        ),
+      );
+      closeCancelSheet();
+    } finally {
+      cancelOrderLockRef.current.delete(cancelOrderId);
+      setCancelling(false);
     }
-    toast.success(s.orderCancelled);
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === cancelOrderId
-          ? {
-              ...r,
-              status: "cancelled",
-              cancel_reason: reasonText,
-              ...(isAppointmentOrder ? { appointment_status: "cancelled" as const } : {}),
-            }
-          : r,
-      ),
-    );
-    closeCancelSheet();
   };
 
   const unread = countUnreadIncomingOrders(rows, serviceMode);
@@ -2768,6 +2812,7 @@ export function IncomingOrdersSection({
             </div>
             <button
               type="button"
+              data-testid="ledger-submit-btn"
               disabled={ledgerSubmitting || !ledgerAmount.trim()}
               onClick={() => void confirmLedgerEntry()}
               className="w-full rounded-xl bg-primary text-primary-foreground py-3 font-semibold disabled:opacity-50"

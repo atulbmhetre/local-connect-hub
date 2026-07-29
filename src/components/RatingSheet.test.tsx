@@ -133,4 +133,37 @@ describe("RatingSheet failed submission", () => {
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
+
+  it("rapid double-tap on submit calls submit_vendor_review only once", async () => {
+    const onDismiss = vi.fn();
+    let resolveSubmit: (() => void) | undefined;
+    const submitGate = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === "submit_vendor_review") {
+        await submitGate;
+        return { data: null, error: null };
+      }
+      return { data: null, error: null };
+    });
+
+    renderSheet(onDismiss);
+    fireEvent.click(screen.getByTestId("rating-star-5"));
+    const submitBtn = screen.getByTestId("rating-submit-btn");
+    fireEvent.click(submitBtn);
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(
+        mockRpc.mock.calls.filter((call) => call[0] === "submit_vendor_review"),
+      ).toHaveLength(1);
+    });
+
+    resolveSubmit?.();
+    await waitFor(() => {
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    });
+  });
 });

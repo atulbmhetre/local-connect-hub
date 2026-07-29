@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FocusEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from "react";
 import { Camera, Loader2, Mic, Trash2 } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
@@ -85,6 +85,7 @@ export function BillSheet({
   const [items, setItems] = useState<BillItem[]>([newBillItem()]);
   const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "khata">("cash");
   const [sending, setSending] = useState(false);
+  const sendingLockRef = useRef(false);
   const [replaceDialogOpen, setReplaceDialogOpen] = useState(false);
   const [confirmSendDialogOpen, setConfirmSendDialogOpen] = useState(false);
   const [notes, setNotes] = useState("");
@@ -369,6 +370,16 @@ export function BillSheet({
   };
 
   const executeSendBill = async (opts?: { isReplace?: boolean }) => {
+    if (sendingLockRef.current) return;
+    // Sync lock before React re-render so rapid multi-tap cannot re-enter.
+    sendingLockRef.current = true;
+    setSending(true);
+
+    const releaseSendingLock = () => {
+      sendingLockRef.current = false;
+      setSending(false);
+    };
+
     const rpcItems = validItems.map((i) => ({
       name: i.description.trim(),
       quantity: parseBillQuantity(i.quantity),
@@ -395,7 +406,7 @@ export function BillSheet({
           s.bill_sendFailed,
         ),
       );
-      setSending(false);
+      releaseSendingLock();
       return;
     }
 
@@ -419,7 +430,7 @@ export function BillSheet({
     }
 
     toast.success(s.bill_sent);
-    setSending(false);
+    releaseSendingLock();
     onClose();
   };
 
@@ -456,19 +467,16 @@ export function BillSheet({
 
   const confirmSendBill = async () => {
     setConfirmSendDialogOpen(false);
-    setSending(true);
     await executeSendBill();
   };
 
   const confirmReplaceBill = async () => {
     setReplaceDialogOpen(false);
-    setSending(true);
     // Block the replacement send if the void failed — otherwise the customer
     // would end up with both the old and the new bill outstanding.
     const voided = await voidExistingUnpaidBills();
     if (!voided) {
       toast.error(s.bill_voidFailed);
-      setSending(false);
       return;
     }
     await executeSendBill({ isReplace: true });
