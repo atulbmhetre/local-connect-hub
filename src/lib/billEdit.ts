@@ -5,9 +5,13 @@ import { formatKhataDate } from "@/lib/khataDisplay";
 export type BillEditLineItem = {
   id: string;
   description: string;
-  quantity: number;
+  /** Draft text while editing; clamped to ≥1 on blur / submit. */
+  quantity: string;
   unit: string;
-  unit_price: number;
+  /** Draft text while editing; parsed on blur / submit. */
+  unit_price: string;
+  /** Present when line was added from vendor menu catalog (UI only). */
+  menu_item_id?: string | null;
 };
 
 export type BillEditAuditRow = {
@@ -60,10 +64,22 @@ export function newBillEditLineItem(): BillEditLineItem {
   return {
     id: crypto.randomUUID(),
     description: "",
-    quantity: 1,
+    quantity: "1",
     unit: "",
-    unit_price: 0,
+    unit_price: "",
   };
+}
+
+export function parseBillQuantity(raw: string): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return n;
+}
+
+export function parseBillUnitPrice(raw: string): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
 }
 
 export async function fetchBillLineItems(
@@ -94,9 +110,12 @@ export async function fetchBillLineItems(
   }) => ({
     id: crypto.randomUUID(),
     description: row.description ?? "",
-    quantity: Number(row.quantity) || 1,
+    quantity: String(Number(row.quantity) || 1),
     unit: row.unit ?? "",
-    unit_price: Number(row.unit_price) || 0,
+    unit_price: (() => {
+      const price = Number(row.unit_price) || 0;
+      return price > 0 ? String(price) : "";
+    })(),
   }));
 }
 
@@ -158,11 +177,11 @@ export function toRpcBillItems(
   items: BillEditLineItem[],
 ): Array<{ name: string; quantity: number; unit_price: number; unit: string | null }> {
   return items
-    .filter((i) => i.description.trim() && i.unit_price > 0)
+    .filter((i) => i.description.trim() && parseBillUnitPrice(i.unit_price) > 0)
     .map((i) => ({
       name: i.description.trim(),
-      quantity: i.quantity,
-      unit_price: i.unit_price,
+      quantity: parseBillQuantity(i.quantity),
+      unit_price: parseBillUnitPrice(i.unit_price),
       unit: i.unit.trim() || null,
     }));
 }

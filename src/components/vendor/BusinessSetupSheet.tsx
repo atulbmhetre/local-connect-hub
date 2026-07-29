@@ -35,8 +35,8 @@ import {
 import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAvailabilityModeSelector";
 import {
   buildCategoryModesPayload,
-  normalizeAvailabilityModes,
   pickPrimaryAvailabilityMode,
+  coerceSingleAvailabilityMode,
 } from "@/lib/categoryAvailabilityModes";
 
 export type BusinessSetupExistingSettings = {
@@ -257,14 +257,14 @@ export function BusinessSetupSheet({
 
     const modesById: Record<string, AvailabilityMode[]> = {};
     for (const id of existingCategoryIds) {
-      const modes = normalizeAvailabilityModes(existingSettings[id]?.availability_modes);
+      const modes = coerceSingleAvailabilityMode(existingSettings[id]?.availability_modes);
       if (modes.length === 0) {
         toast.error(s.vendor_update_failed);
         return;
       }
       modesById[id] = modes;
     }
-    modesById[selectedCategoryId] = normalizeAvailabilityModes(availabilityModes);
+    modesById[selectedCategoryId] = coerceSingleAvailabilityMode(availabilityModes);
 
     const nextIds = [...existingCategoryIds, selectedCategoryId];
     const categoryModesPayload = buildCategoryModesPayload(nextIds, modesById);

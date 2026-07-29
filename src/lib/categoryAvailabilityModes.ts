@@ -43,17 +43,21 @@ export function pickPrimaryAvailabilityMode(
   return normalized[0];
 }
 
+/**
+ * Uniselect: selecting a mode always replaces prior selection (single-element array).
+ * Retapping the same mode keeps it selected (cannot clear via this helper).
+ */
+export function setAvailabilityMode(mode: AvailabilityMode): AvailabilityMode[] {
+  return isAvailabilityMode(mode) ? [mode] : ["help"];
+}
+
+/** @deprecated Use setAvailabilityMode — availability is uniselect. */
 export function toggleAvailabilityMode(
-  modes: readonly AvailabilityMode[],
+  _modes: readonly AvailabilityMode[],
   mode: AvailabilityMode,
-  opts?: { allowEmpty?: boolean },
+  _opts?: { allowEmpty?: boolean },
 ): AvailabilityMode[] {
-  const has = modes.includes(mode);
-  if (has) {
-    if (!opts?.allowEmpty && modes.length <= 1) return [...modes];
-    return normalizeAvailabilityModes(modes.filter((m) => m !== mode));
-  }
-  return normalizeAvailabilityModes([...modes, mode]);
+  return setAvailabilityMode(mode);
 }
 
 export function allCategoriesHaveModes(
@@ -66,16 +70,30 @@ export function allCategoriesHaveModes(
   );
 }
 
-/** JSONB map shape expected by register_vendor / vendor_update_categories. */
+/**
+ * JSONB map shape expected by register_vendor / vendor_update_categories.
+ * Always one mode per category (RPC still accepts text[]).
+ */
 export function buildCategoryModesPayload(
   categoryIds: readonly string[],
   modesById: Record<string, AvailabilityMode[] | undefined>,
+  catalogModeById?: Record<string, string | null | undefined>,
 ): Record<string, AvailabilityMode[]> {
   const out: Record<string, AvailabilityMode[]> = {};
   for (const id of categoryIds) {
-    out[id] = normalizeAvailabilityModes(modesById[id]);
+    out[id] = [
+      pickPrimaryAvailabilityMode(modesById[id], catalogModeById?.[id]),
+    ];
   }
   return out;
+}
+
+/** Coerce any stored mode list to a single-element selection for UI. */
+export function coerceSingleAvailabilityMode(
+  modes: readonly string[] | null | undefined,
+  catalogMode?: string | null,
+): AvailabilityMode[] {
+  return [pickPrimaryAvailabilityMode(modes, catalogMode)];
 }
 
 export function unionAvailabilityModes(

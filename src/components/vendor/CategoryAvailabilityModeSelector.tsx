@@ -1,12 +1,18 @@
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
 import type { AvailabilityMode } from "@/lib/vendorRegistration";
-import { toggleAvailabilityMode } from "@/lib/categoryAvailabilityModes";
+import {
+  pickPrimaryAvailabilityMode,
+  setAvailabilityMode,
+} from "@/lib/categoryAvailabilityModes";
 
 type Props = {
   value: AvailabilityMode[];
   onChange: (next: AvailabilityMode[]) => void;
-  /** When false, the last selected mode cannot be cleared. Default true. */
+  /**
+   * Kept for API compatibility; uniselect never clears via option tap.
+   * @deprecated
+   */
   allowEmpty?: boolean;
   /** Compact pill style (My Business) vs card style (registration). */
   variant?: "cards" | "pills";
@@ -19,7 +25,6 @@ type Props = {
 export function CategoryAvailabilityModeSelector({
   value,
   onChange,
-  allowEmpty = false,
   variant = "cards",
   testIdPrefix = "cat-avail",
   className,
@@ -27,6 +32,7 @@ export function CategoryAvailabilityModeSelector({
   required = false,
 }: Props) {
   const { s } = useLanguage();
+  const selectedMode = pickPrimaryAvailabilityMode(value);
 
   const options = [
     {
@@ -49,8 +55,12 @@ export function CategoryAvailabilityModeSelector({
     },
   ] as const;
 
+  const selectMode = (mode: AvailabilityMode) => {
+    onChange(setAvailabilityMode(mode));
+  };
+
   return (
-    <div className={className}>
+    <div className={className} role="radiogroup" aria-label={label}>
       {label != null && (
         <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
@@ -66,16 +76,16 @@ export function CategoryAvailabilityModeSelector({
         data-testid={`${testIdPrefix}-modes`}
       >
         {options.map((opt) => {
-          const selected = value.includes(opt.mode);
+          const selected = selectedMode === opt.mode;
           if (variant === "pills") {
             return (
               <button
                 key={opt.mode}
                 type="button"
+                role="radio"
+                aria-checked={selected}
                 data-testid={`${testIdPrefix}-${opt.mode}`}
-                onClick={() =>
-                  onChange(toggleAvailabilityMode(value, opt.mode, { allowEmpty }))
-                }
+                onClick={() => selectMode(opt.mode)}
                 className={cn(
                   "rounded-full border px-3 py-1.5 text-sm font-medium",
                   selected ? "border-primary bg-primary/20" : "border-border",
@@ -89,10 +99,10 @@ export function CategoryAvailabilityModeSelector({
             <button
               key={opt.mode}
               type="button"
+              role="radio"
+              aria-checked={selected}
               data-testid={`${testIdPrefix}-${opt.mode}`}
-              onClick={() =>
-                onChange(toggleAvailabilityMode(value, opt.mode, { allowEmpty }))
-              }
+              onClick={() => selectMode(opt.mode)}
               className={cn(
                 "rounded-2xl border-2 p-3 text-left min-w-[140px] flex-1",
                 selected

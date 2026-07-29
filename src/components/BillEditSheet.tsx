@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FocusEvent } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -29,10 +29,14 @@ import {
   fetchBillLineItems,
   newBillEditLineItem,
   parseBillEditErrorCode,
+  parseBillQuantity,
+  parseBillUnitPrice,
   toRpcBillItems,
   type BillEditLineItem,
   type VendorEditBillResult,
 } from "@/lib/billEdit";
+import { applyCatalogItemTap } from "@/lib/billMenuCatalog";
+import { BillMenuCatalogPicker } from "@/components/BillMenuCatalogPicker";
 
 type Props = {
   isOpen: boolean;
@@ -77,12 +81,19 @@ export function BillEditSheet({
   const reasonRequired = paymentStatus === "paid" || paymentMode === "khata";
 
   const validItems = useMemo(
-    () => items.filter((i) => i.description.trim() && i.unit_price > 0),
+    () =>
+      items.filter(
+        (i) => i.description.trim() && parseBillUnitPrice(i.unit_price) > 0,
+      ),
     [items],
   );
 
   const totalAmount = useMemo(
-    () => validItems.reduce((sum, i) => sum + i.quantity * i.unit_price, 0),
+    () =>
+      validItems.reduce(
+        (sum, i) => sum + parseBillQuantity(i.quantity) * parseBillUnitPrice(i.unit_price),
+        0,
+      ),
     [validItems],
   );
 
@@ -127,8 +138,16 @@ export function BillEditSheet({
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
   };
 
+  const selectInputText = (e: FocusEvent<HTMLInputElement>) => {
+    e.currentTarget.select();
+  };
+
   const addItem = () => {
     setItems((prev) => [...prev, newBillEditLineItem()]);
+  };
+
+  const addFromCatalog = (item: Parameters<typeof applyCatalogItemTap>[1]) => {
+    setItems((prev) => applyCatalogItemTap(prev, item, newBillEditLineItem));
   };
 
   const removeItem = (id: string) => {
@@ -310,6 +329,12 @@ export function BillEditSheet({
             <div className="px-4 pt-2 pr-2">
               <SettingsPageHeader title={s.bill_editTitle} subtitle={shopName} />
 
+              <BillMenuCatalogPicker
+                vendorId={vendorId}
+                isOpen={isOpen}
+                onPick={addFromCatalog}
+              />
+
               {loadingItems ? (
                 <div className="flex justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -318,7 +343,9 @@ export function BillEditSheet({
                 <>
                   <SettingsCard className="mx-0 mb-3">
                     {items.map((item, idx) => {
-                      const lineTotal = item.quantity * item.unit_price;
+                      const lineTotal =
+                        parseBillQuantity(item.quantity) *
+                        parseBillUnitPrice(item.unit_price);
                       return (
                         <div
                           key={item.id}
@@ -338,11 +365,16 @@ export function BillEditSheet({
                           />
                           <input
                             type="number"
+                            inputMode="numeric"
                             min={1}
                             value={item.quantity}
+                            onFocus={selectInputText}
                             onChange={(e) =>
+                              updateItem(item.id, { quantity: e.target.value })
+                            }
+                            onBlur={(e) =>
                               updateItem(item.id, {
-                                quantity: Math.max(1, Number(e.target.value) || 1),
+                                quantity: String(parseBillQuantity(e.target.value)),
                               })
                             }
                             className="w-12 rounded-lg border border-surface-border bg-surface px-1 py-1.5 text-sm text-foreground text-center focus:outline-none focus:border-brand"
@@ -371,14 +403,20 @@ export function BillEditSheet({
                             </span>
                             <input
                               type="number"
+                              inputMode="decimal"
                               min={0}
                               step="0.01"
-                              value={item.unit_price || ""}
+                              value={item.unit_price}
+                              onFocus={selectInputText}
                               onChange={(e) =>
-                                updateItem(item.id, {
-                                  unit_price: Math.max(0, Number(e.target.value) || 0),
-                                })
+                                updateItem(item.id, { unit_price: e.target.value })
                               }
+                              onBlur={(e) => {
+                                const parsed = parseBillUnitPrice(e.target.value);
+                                updateItem(item.id, {
+                                  unit_price: parsed > 0 ? String(parsed) : "",
+                                });
+                              }}
                               className="w-full rounded-lg border border-surface-border bg-surface pl-5 pr-1 py-1.5 text-sm text-foreground text-right focus:outline-none focus:border-brand"
                               aria-label="Unit price"
                             />

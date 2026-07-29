@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FocusEvent } from "react";
 import { Camera, Loader2, Mic, Trash2 } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
@@ -27,6 +27,9 @@ import { SettingsPageHeader, SettingsCard } from "@/components/settings/Settings
 import { getVoiceLang } from "@/lib/voiceUtils";
 import { billUnitOptions } from "@/lib/billUnits";
 import { captureError } from "@/lib/sentry";
+import { parseBillQuantity, parseBillUnitPrice } from "@/lib/billEdit";
+import { applyCatalogItemTap } from "@/lib/billMenuCatalog";
+import { BillMenuCatalogPicker } from "@/components/BillMenuCatalogPicker";
 import { messageForKhataChargeError } from "@/lib/khataBillErrors";
 
 type Props = {
@@ -43,19 +46,28 @@ type Props = {
 type BillItem = {
   id: string;
   description: string;
-  quantity: number;
+  /** Draft text while editing; clamped to ≥1 on blur / submit. */
+  quantity: string;
   unit: string;
-  unit_price: number;
+  /** Draft text while editing; parsed on blur / submit. */
+  unit_price: string;
+  /** Present when line was added from vendor menu catalog (UI only). */
+  menu_item_id?: string | null;
 };
 
 function newBillItem(): BillItem {
   return {
     id: crypto.randomUUID(),
     description: "",
-    quantity: 1,
+    quantity: "1",
     unit: "",
-    unit_price: 0,
+    unit_price: "",
+    menu_item_id: null,
   };
+}
+
+function selectInputText(e: FocusEvent<HTMLInputElement>) {
+  e.currentTarget.select();
 }
 
 export function BillSheet({
@@ -82,12 +94,19 @@ export function BillSheet({
   const [loadingOutstanding, setLoadingOutstanding] = useState(false);
   const [outstandingError, setOutstandingError] = useState(false);
   const validItems = useMemo(
-    () => items.filter((i) => i.description.trim() && i.unit_price > 0),
+    () =>
+      items.filter(
+        (i) => i.description.trim() && parseBillUnitPrice(i.unit_price) > 0,
+      ),
     [items],
   );
 
   const totalAmount = useMemo(
-    () => validItems.reduce((sum, i) => sum + i.quantity * i.unit_price, 0),
+    () =>
+      validItems.reduce(
+        (sum, i) => sum + parseBillQuantity(i.quantity) * parseBillUnitPrice(i.unit_price),
+        0,
+      ),
     [validItems],
   );
 
@@ -158,6 +177,10 @@ export function BillSheet({
 
   const addItem = () => {
     setItems((prev) => [...prev, newBillItem()]);
+  };
+
+  const addFromCatalog = (item: Parameters<typeof applyCatalogItemTap>[1]) => {
+    setItems((prev) => applyCatalogItemTap(prev, item, newBillItem));
   };
 
   const removeItem = (id: string) => {
@@ -234,9 +257,12 @@ export function BillSheet({
             }) => ({
               id: crypto.randomUUID(),
               description: i.description ?? "",
-              quantity: i.quantity ?? 1,
+              quantity: String(i.quantity ?? 1),
               unit: i.unit ?? "",
-              unit_price: i.unit_price ?? 0,
+              unit_price:
+                i.unit_price != null && Number(i.unit_price) > 0
+                  ? String(i.unit_price)
+                  : "",
             }),
           );
           return hasEmpty ? newItems : [...prev, ...newItems];
@@ -295,9 +321,12 @@ export function BillSheet({
                 }) => ({
                   id: crypto.randomUUID(),
                   description: i.description ?? "",
-                  quantity: i.quantity ?? 1,
+                  quantity: String(i.quantity ?? 1),
                   unit: i.unit ?? "",
-                  unit_price: i.unit_price ?? 0,
+                  unit_price:
+                    i.unit_price != null && Number(i.unit_price) > 0
+                      ? String(i.unit_price)
+                      : "",
                 }),
               );
               return hasEmpty ? newItems : [...prev, ...newItems];
@@ -342,8 +371,8 @@ export function BillSheet({
   const executeSendBill = async (opts?: { isReplace?: boolean }) => {
     const rpcItems = validItems.map((i) => ({
       name: i.description.trim(),
-      quantity: i.quantity,
-      unit_price: i.unit_price,
+      quantity: parseBillQuantity(i.quantity),
+      unit_price: parseBillUnitPrice(i.unit_price),
       unit: i.unit.trim() || null,
     }));
 
@@ -544,9 +573,16 @@ export function BillSheet({
             {s.bill_editWarning}
           </p>
 
+          <BillMenuCatalogPicker
+            vendorId={vendorId}
+            isOpen={isOpen}
+            onPick={addFromCatalog}
+          />
+
         <SettingsCard className="mx-0 mb-3">
             {items.map((item, idx) => {
-              const lineTotal = item.quantity * item.unit_price;
+              const lineTotal =
+                parseBillQuantity(item.quantity) * parseBillUnitPrice(item.unit_price);
               return (
                 <div
                   key={item.id}
@@ -566,11 +602,16 @@ export function BillSheet({
                   />
                   <input
                     type="number"
+                    inputMode="numeric"
                     min={1}
                     value={item.quantity}
+                    onFocus={selectInputText}
                     onChange={(e) =>
+                      updateItem(item.id, { quantity: e.target.value })
+                    }
+                    onBlur={(e) =>
                       updateItem(item.id, {
-                        quantity: Math.max(1, Number(e.target.value) || 1),
+                        quantity: String(parseBillQuantity(e.target.value)),
                       })
                     }
                     className="w-12 rounded-lg border border-surface-border bg-surface px-1 py-1.5 text-sm text-foreground text-center focus:outline-none focus:border-brand"
@@ -599,14 +640,20 @@ export function BillSheet({
                     </span>
                     <input
                       type="number"
+                      inputMode="decimal"
                       min={0}
                       step="0.01"
-                      value={item.unit_price || ""}
+                      value={item.unit_price}
+                      onFocus={selectInputText}
                       onChange={(e) =>
-                        updateItem(item.id, {
-                          unit_price: Math.max(0, Number(e.target.value) || 0),
-                        })
+                        updateItem(item.id, { unit_price: e.target.value })
                       }
+                      onBlur={(e) => {
+                        const parsed = parseBillUnitPrice(e.target.value);
+                        updateItem(item.id, {
+                          unit_price: parsed > 0 ? String(parsed) : "",
+                        });
+                      }}
                       className="w-full rounded-lg border border-surface-border bg-surface pl-5 pr-1 py-1.5 text-sm text-foreground text-right focus:outline-none focus:border-brand"
                       aria-label="Unit price"
                     />

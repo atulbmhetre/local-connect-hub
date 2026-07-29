@@ -1337,6 +1337,11 @@ export const strings = {
     bill_sendFailed: 'Could not send bill. Try again.',
     bill_notifTitle: 'Bill from your vendor',
     bill_itemName: 'Item name',
+    bill_catalogTitle: 'Tap from your menu',
+    bill_catalogEmpty:
+      'No menu items yet. Add items in Settings → Menu for faster billing next time — you can still type a custom line below.',
+    bill_catalogLoadFailed:
+      "Couldn't load your menu. You can still type custom bill lines below.",
     bill_unitLabel: 'Unit',
     bill_unitPiece: 'pc',
     bill_unitDozen: 'dozen',
@@ -3002,6 +3007,11 @@ export const strings = {
     bill_sendFailed: 'बिल नहीं भेज सका। पुनः प्रयास करें।',
     bill_notifTitle: 'विक्रेता से बिल',
     bill_itemName: 'आइटम का नाम',
+    bill_catalogTitle: 'मेनू से टैप करें',
+    bill_catalogEmpty:
+      'अभी कोई मेनू आइटम नहीं है। अगली बार तेज़ बिलिंग के लिए Settings → Menu में आइटम जोड़ें — नीचे कस्टम लाइन भी लिख सकते हैं।',
+    bill_catalogLoadFailed:
+      'मेनू लोड नहीं हो सका। आप नीचे कस्टम बिल लाइन लिख सकते हैं।',
     bill_unitLabel: 'यूनिट',
     bill_unitPiece: 'नग',
     bill_unitDozen: 'दर्जन',
@@ -4666,6 +4676,11 @@ export const strings = {
     bill_sendFailed: 'बिल पाठवता आले नाही. पुन्हा प्रयत्न करा.',
     bill_notifTitle: 'विक्रेत्याकडून बिल',
     bill_itemName: 'आयटमचे नाव',
+    bill_catalogTitle: 'मेनूमधून टॅप करा',
+    bill_catalogEmpty:
+      'अजून मेनू आयटम नाहीत. पुढच्या वेळी जलद बिलिंगसाठी Settings → Menu मध्ये आयटम जोडा — खाली कस्टम ओळही लिहू शकता.',
+    bill_catalogLoadFailed:
+      'मेनू लोड झाले नाही. खाली कस्टम बिल ओळ लिहू शकता.',
     bill_unitLabel: 'युनिट',
     bill_unitPiece: 'नग',
     bill_unitDozen: 'डझन',

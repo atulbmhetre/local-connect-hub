@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   allCategoriesHaveModes,
   buildCategoryModesPayload,
+  coerceSingleAvailabilityMode,
   normalizeAvailabilityModes,
   pickPrimaryAvailabilityMode,
+  setAvailabilityMode,
   toggleAvailabilityMode,
   unionAvailabilityModes,
 } from "@/lib/categoryAvailabilityModes";
@@ -21,19 +23,30 @@ describe("categoryAvailabilityModes", () => {
     expect(pickPrimaryAvailabilityMode(["delivery", "appointment"], "help")).toBe("delivery");
   });
 
-  it("toggles without emptying when allowEmpty is false", () => {
-    expect(toggleAvailabilityMode(["help"], "help")).toEqual(["help"]);
-    expect(toggleAvailabilityMode(["help"], "delivery")).toEqual(["help", "delivery"]);
+  it("setAvailabilityMode replaces prior selection (uniselect)", () => {
+    expect(setAvailabilityMode("help")).toEqual(["help"]);
+    expect(setAvailabilityMode("delivery")).toEqual(["delivery"]);
+    expect(toggleAvailabilityMode(["help"], "delivery")).toEqual(["delivery"]);
+    expect(toggleAvailabilityMode(["help", "delivery"], "appointment")).toEqual([
+      "appointment",
+    ]);
   });
 
-  it("builds payload and validates all categories have modes", () => {
+  it("coerceSingleAvailabilityMode collapses multi-mode legacy lists", () => {
+    expect(coerceSingleAvailabilityMode(["help", "delivery"], "delivery")).toEqual([
+      "delivery",
+    ]);
+    expect(coerceSingleAvailabilityMode(["appointment", "help"])).toEqual(["help"]);
+  });
+
+  it("builds payload as single-element arrays per category", () => {
     const ids = ["a", "b"];
     const map = { a: ["help" as const], b: ["delivery" as const, "appointment" as const] };
     expect(allCategoriesHaveModes(ids, map)).toBe(true);
     expect(allCategoriesHaveModes(ids, { a: ["help"], b: [] })).toBe(false);
     expect(buildCategoryModesPayload(ids, map)).toEqual({
       a: ["help"],
-      b: ["delivery", "appointment"],
+      b: ["delivery"],
     });
   });
 

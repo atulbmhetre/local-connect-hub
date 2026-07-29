@@ -61,7 +61,7 @@ import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAv
 import {
   allCategoriesHaveModes,
   buildCategoryModesPayload,
-  normalizeAvailabilityModes,
+  coerceSingleAvailabilityMode,
   pickPrimaryAvailabilityMode,
 } from "@/lib/categoryAvailabilityModes";
 import { BusinessSetupSheet } from "@/components/vendor/BusinessSetupSheet";
@@ -284,6 +284,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const [addBusinessOpen, setAddBusinessOpen] = useState(false);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const savingLockRef = useRef(false);
   const [verifyingUpi, setVerifyingUpi] = useState(false);
   const [updatingLocation, setUpdatingLocation] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -388,7 +389,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           selected = [legacy];
           nextSettings[legacy.id] = {
             ...accountDefaults,
-            availability_modes: normalizeAvailabilityModes([
+            availability_modes: coerceSingleAvailabilityMode([
               vendor.service_mode ?? legacy.service_mode ?? "help",
             ]),
           };
@@ -416,7 +417,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           if (nextSettings[catId]) {
             nextSettings[catId] = {
               ...nextSettings[catId],
-              availability_modes: normalizeAvailabilityModes(modesByCategoryId[catId]),
+              availability_modes: coerceSingleAvailabilityMode(modesByCategoryId[catId]),
             };
           }
         }
@@ -484,7 +485,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               null;
             nextSettings[id] = {
               ...accountDefaultsForInherit(),
-              availability_modes: normalizeAvailabilityModes(
+              availability_modes: coerceSingleAvailabilityMode(
                 catalogMode ? [catalogMode] : ["help"],
               ),
             };
@@ -548,7 +549,16 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     allCategoryModesOk;
 
   const saveProfile = async () => {
-    if (!saveReady) return;
+    if (!saveReady || savingLockRef.current) return;
+    // Sync lock before React re-render so rapid multi-tap cannot re-enter.
+    savingLockRef.current = true;
+    setSaving(true);
+
+    const releaseSaveLock = () => {
+      savingLockRef.current = false;
+      setSaving(false);
+    };
+
     const categoryIdsToSave = selectedCategoryIdsRef.current;
     const removedCategoryIds = savedCategoryIdsRef.current.filter(
       (id) => !categoryIdsToSave.includes(id),
@@ -580,6 +590,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           }
           return next;
         });
+        releaseSaveLock();
         return;
       }
     }
@@ -604,7 +615,10 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       ? reachFlagsFromChoice(effectiveReachChoice)
       : null;
     const mappedVendorType = baseTypeToVendorType(baseType);
-    if (!mappedVendorType || !reachFlags || !primaryLabel || !primaryServiceMode) return;
+    if (!mappedVendorType || !reachFlags || !primaryLabel || !primaryServiceMode) {
+      releaseSaveLock();
+      return;
+    }
 
     const resolvedShopName = resolveRegistrationShopName(baseType, ownerName, shopName);
     const radiusKm =
@@ -667,7 +681,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         : {}),
     };
 
-    setSaving(true);
     let saveError: { message: string } | null = null;
     try {
       const { error } = await withNetworkRetry(
@@ -695,7 +708,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       saveError = error;
     } catch (err) {
       dismissNetworkRetryingToast();
-      setSaving(false);
+      releaseSaveLock();
       if (err instanceof NetworkExhaustedError) {
         showNetworkFailedToast(() => void saveProfile(), {
           failed: s.network_failed,
@@ -706,8 +719,8 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       throw err;
     }
 
-    setSaving(false);
     if (saveError) {
+      releaseSaveLock();
       toast.error(s.vendor_update_failed);
       return;
     }
@@ -742,6 +755,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       { type: "vendor_edited", route: "settings", route_params: { vendor_id: vendor.id } },
     );
     toast.success(s.my_business_saved);
+    releaseSaveLock();
   };
 
   const verifyUpi = async () => {

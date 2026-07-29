@@ -98,7 +98,9 @@ async function completeWizardStepB(
   if (needRadius) {
     await page.getByRole('button', { name: '15 km' }).click();
   }
-  for (const mode of opts.modes) {
+  // Uniselect: only the last selected mode is kept.
+  if (opts.modes.length > 0) {
+    const mode = opts.modes[opts.modes.length - 1];
     await page.getByTestId(`reg-avail-${mode}`).click();
   }
   await page.getByTestId('reg-shop-photo-capture').click();
@@ -143,8 +145,10 @@ async function addBusinessViaSetupSheet(
     await page.getByRole('button', { name: '15 km' }).click();
   }
 
+  // Uniselect: only the last selected mode is kept.
   const modes = opts.modes ?? ['help'];
-  for (const mode of modes) {
+  if (modes.length > 0) {
+    const mode = modes[modes.length - 1];
     await page.getByTestId(`add-business-avail-${mode}`).click();
   }
 
@@ -332,7 +336,7 @@ test('VR-MULTI-01: register one business then add second via My Business sheet',
     categoryLabel: plumber.label,
     brandName: `Plumber Brand ${phone.slice(-4)}`,
     reach: 'vendor',
-    modes: ['help', 'appointment'],
+    modes: ['appointment'],
   });
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
@@ -378,7 +382,7 @@ test('VR-MULTI-01: register one business then add second via My Business sheet',
     .from('vendor_category_modes')
     .select('mode')
     .eq('vendor_category_id', plumberVc.id);
-  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment', 'help']);
+  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment']);
 
   await deleteVendorRegistrationArtifacts(vendorId);
 });
@@ -412,7 +416,7 @@ test('VR-MULTI-02: register two categories with distinct per-category modes', as
   await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
 
-  // Per-category selectors use category-id prefixes when multiple are selected.
+  // Per-category uniselect: last tap wins per category.
   await page.getByTestId(`reg-avail-${electrician.id}-help`).click();
   await page.getByTestId(`reg-avail-${electrician.id}-delivery`).click();
   await page.getByTestId(`reg-avail-${plumber.id}-appointment`).click();
@@ -447,7 +451,7 @@ test('VR-MULTI-02: register two categories with distinct per-category modes', as
     .from('vendor_category_modes')
     .select('mode')
     .eq('vendor_category_id', plumberVc.id);
-  expect((elecModes ?? []).map((m) => m.mode).sort()).toEqual(['delivery', 'help']);
+  expect((elecModes ?? []).map((m) => m.mode).sort()).toEqual(['delivery']);
   expect((plumberModes ?? []).map((m) => m.mode)).toEqual(['appointment']);
 
   await deleteVendorRegistrationArtifacts(vendorId);

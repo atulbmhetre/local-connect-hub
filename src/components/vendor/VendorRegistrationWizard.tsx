@@ -56,6 +56,7 @@ import { captureError } from "@/lib/sentry";
 import {
   allCategoriesHaveModes,
   buildCategoryModesPayload,
+  coerceSingleAvailabilityMode,
   pickPrimaryAvailabilityMode,
   unionAvailabilityModes,
 } from "@/lib/categoryAvailabilityModes";
@@ -415,7 +416,10 @@ export function VendorRegistrationWizard({
   }, [baseType]);
 
   const setCategoryModes = (categoryId: string, modes: AvailabilityMode[]) => {
-    setCategoryModesById((prev) => ({ ...prev, [categoryId]: modes }));
+    setCategoryModesById((prev) => ({
+      ...prev,
+      [categoryId]: coerceSingleAvailabilityMode(modes),
+    }));
   };
 
   const tryStepANext = () => {
@@ -1565,7 +1569,9 @@ export function VendorRegistrationWizard({
                 required
                 testIdPrefix="reg-avail"
                 value={pendingCategoryModes}
-                onChange={setPendingCategoryModes}
+                onChange={(modes) =>
+                  setPendingCategoryModes(coerceSingleAvailabilityMode(modes))
+                }
               />
             ) : selectedCategoryIds.length === 1 ? (
               <CategoryAvailabilityModeSelector

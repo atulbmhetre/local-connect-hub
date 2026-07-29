@@ -105,7 +105,9 @@ async function completeWizardStepB(
   if (needRadius) {
     await page.getByRole('button', { name: '15 km' }).click();
   }
-  for (const mode of opts.modes) {
+  // Uniselect: only the last selected mode is kept.
+  if (opts.modes.length > 0) {
+    const mode = opts.modes[opts.modes.length - 1];
     await page.getByTestId(`reg-avail-${mode}`).click();
   }
   await page.getByTestId('reg-shop-photo-capture').click();
@@ -252,7 +254,7 @@ test.describe('PROD wizard smoke @ prod-build', () => {
     });
   });
 
-  test('help + appointment multi-select persists', async ({ page }) => {
+  test('availability mode uniselect persists (last selection wins)', async ({ page }) => {
     const phone = `99104${Date.now().toString().slice(-5)}`;
     await mockGeo(page);
     await enableE2eCameraMock(page);
@@ -274,7 +276,7 @@ test.describe('PROD wizard smoke @ prod-build', () => {
       .select('mode')
       .eq('vendor_id', v!.id);
     const sorted = (modes ?? []).map((m) => m.mode).sort();
-    expect(sorted).toEqual(['appointment', 'help']);
+    expect(sorted).toEqual(['appointment']);
     await deleteVendor(phone);
   });
 });
