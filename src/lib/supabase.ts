@@ -280,6 +280,52 @@ export async function invokeNotifyAdmin(
   }
 }
 
+export type SupportEmailKind = "feedback" | "contact";
+export type SupportContactCategory =
+  | "payment"
+  | "account"
+  | "order"
+  | "vendor"
+  | "other";
+
+export type SendSupportEmailResult =
+  | { ok: true; emailed: boolean; id?: string | null }
+  | { ok: false; error: string };
+
+/** Help & Support Feedback / Contact — emails support@; does not touch admin inbox. */
+export async function invokeSendSupportEmail(payload: {
+  kind: SupportEmailKind;
+  message: string;
+  category?: SupportContactCategory | null;
+  rating?: number | null;
+  user_phone?: string | null;
+  vendor_id?: string | null;
+  device_id?: string | null;
+}): Promise<SendSupportEmailResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke("send-support-email", {
+      body: payload,
+    });
+    if (error) {
+      console.error("invokeSendSupportEmail", error);
+      return { ok: false, error: error.message };
+    }
+    const result = data as {
+      ok?: boolean;
+      emailed?: boolean;
+      id?: string | null;
+      error?: string;
+    } | null;
+    if (!result?.ok) {
+      return { ok: false, error: result?.error ?? "send_failed" };
+    }
+    return { ok: true, emailed: Boolean(result.emailed), id: result.id ?? null };
+  } catch (err) {
+    console.error("invokeSendSupportEmail", err);
+    return { ok: false, error: err instanceof Error ? err.message : "send_failed" };
+  }
+}
+
 export type DeleteAccountResult =
   | { ok: true; type?: string; message?: string }
   | { ok: false; error: string };

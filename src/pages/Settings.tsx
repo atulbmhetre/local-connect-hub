@@ -3261,6 +3261,16 @@ const Settings = () => {
         </div>
       </SettingsParentCollapsible>
 
+      <button
+        type="button"
+        data-testid="settings-help-support-link"
+        onClick={() => navigate("/settings/help")}
+        className="mx-4 mt-2 w-[calc(100%-2rem)] flex items-center justify-between gap-3 rounded-xl border border-surface-border bg-card px-4 py-3.5 text-left active:opacity-90"
+      >
+        <span className="text-sm font-medium text-foreground">{s.help_support_title}</span>
+        <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
+      </button>
+
       <div className="mt-8 pt-4 border-t border-surface-border/50">
       <button
         type="button"

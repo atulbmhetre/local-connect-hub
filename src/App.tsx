@@ -21,6 +21,7 @@ import { PushNavigationBridge } from "@/components/PushNavigationBridge";
 import { tryHandleFirstOpenBack } from "@/lib/firstOpenBackBridge";
 
 const SettingsPage = lazy(() => import("./pages/Settings.tsx"));
+const HelpSupport = lazy(() => import("./pages/HelpSupport.tsx"));
 const LedgerView = lazy(() => import("./pages/LedgerView.tsx"));
 const RadarSearch = lazy(() => import("./pages/RadarSearch.tsx"));
 const MyOrders = lazy(() => import("./pages/MyOrders.tsx"));
@@ -157,6 +158,14 @@ const App = () => (
                 element={
                   <RouteSuspense>
                     <SettingsPage />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/settings/help"
+                element={
+                  <RouteSuspense>
+                    <HelpSupport />
                   </RouteSuspense>
                 }
               />
