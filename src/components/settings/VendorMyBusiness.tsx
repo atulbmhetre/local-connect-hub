@@ -84,6 +84,9 @@ type CategoryEditSettings = {
   verification_status: string | null;
   is_manual_verified: boolean;
   availability_modes: AvailabilityMode[];
+  latitude: number | null;
+  longitude: number | null;
+  location_accuracy: number | null;
 };
 
 type Props = {
@@ -112,6 +115,9 @@ function settingsFromAccount(account: {
     verification_status: null,
     is_manual_verified: false,
     availability_modes: [],
+    latitude: null,
+    longitude: null,
+    location_accuracy: null,
   };
 }
 
@@ -125,6 +131,9 @@ function settingsFromCategoryRow(
     gps_match_distance?: number | null;
     verification_status?: string | null;
     is_manual_verified?: boolean | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    location_accuracy?: number | null;
   },
   accountFallback: CategoryEditSettings,
 ): CategoryEditSettings {
@@ -144,6 +153,10 @@ function settingsFromCategoryRow(
     verification_status: row.verification_status ?? null,
     is_manual_verified: row.is_manual_verified === true,
     availability_modes: [],
+    latitude: row.latitude != null ? Number(row.latitude) : null,
+    longitude: row.longitude != null ? Number(row.longitude) : null,
+    location_accuracy:
+      row.location_accuracy != null ? Number(row.location_accuracy) : null,
   };
 }
 
@@ -329,7 +342,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         supabase
           .from("vendor_categories")
           .select(
-            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, categories(id, label, emoji, service_mode)",
+            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, categories(id, label, emoji, service_mode)",
           )
           .eq("vendor_id", vendor.id)
           .eq("status", "approved")
@@ -823,18 +836,22 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       toast.error(s.vendor_categories_required);
       return;
     }
-    const hasShopLocation = vendor.latitude != null && vendor.longitude != null;
+    const catSettings = categorySettingsById[targetCategoryId];
+    const bizLat = catSettings?.latitude ?? null;
+    const bizLng = catSettings?.longitude ?? null;
+    const hasBusinessPin = bizLat != null && bizLng != null;
+    const accountEmpty = vendor.latitude == null || vendor.longitude == null;
     let gpsMatchDistance = 0;
     let locationAccuracy: number | null = null;
     let photoAccuracy: number | null = shot.coords.accuracy;
     let pendingLocationReview = opts?.pendingLocationReview === true;
 
-    if (hasShopLocation) {
+    if (hasBusinessPin) {
       const match = evaluateGpsMatch(
         {
-          lat: vendor.latitude!,
-          lng: vendor.longitude!,
-          accuracy: vendor.location_accuracy,
+          lat: bizLat!,
+          lng: bizLng!,
+          accuracy: catSettings?.location_accuracy ?? vendor.location_accuracy,
         },
         shot.coords,
       );
@@ -893,14 +910,16 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               p_category_id: targetCategoryId,
               p_shop_photo_url: pub.publicUrl,
               p_gps_match_distance: gpsMatchDistance,
-              p_set_account_lat: hasShopLocation ? null : shot.coords.lat,
-              p_set_account_lng: hasShopLocation ? null : shot.coords.lng,
+              p_set_account_lat: accountEmpty ? shot.coords.lat : null,
+              p_set_account_lng: accountEmpty ? shot.coords.lng : null,
               p_pending_location_review: pendingLocationReview,
               p_location_accuracy: locationAccuracy,
               p_photo_accuracy: photoAccuracy,
-              p_set_account_location_accuracy: hasShopLocation
-                ? null
-                : shot.coords.accuracy,
+              p_set_account_location_accuracy: accountEmpty
+                ? shot.coords.accuracy
+                : null,
+              p_business_lat: hasBusinessPin ? bizLat : shot.coords.lat,
+              p_business_lng: hasBusinessPin ? bizLng : shot.coords.lng,
             }),
           ),
         {
@@ -931,9 +950,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
             ? "pending_location_review"
             : "business_verified",
           is_manual_verified: false,
+          latitude: hasBusinessPin ? bizLat : shot.coords.lat,
+          longitude: hasBusinessPin ? bizLng : shot.coords.lng,
+          location_accuracy: locationAccuracy,
         },
       }));
-      if (!hasShopLocation) {
+      if (accountEmpty) {
         onVendorUpdated({
           ...vendor,
           latitude: shot.coords.lat,

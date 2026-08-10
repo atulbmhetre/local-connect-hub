@@ -326,6 +326,8 @@ const VendorMode = () => {
   const [loading, setLoading] = useState(false);
   const [vendorOrderStats, setVendorOrderStats] = useState<VendorOrderStats | null>(null);
   const [vendorCategoryStats, setVendorCategoryStats] = useState<VendorCategoryStat[]>([]);
+  const [badgeCategoryId, setBadgeCategoryId] = useState<string | null>(null);
+  const [badgeManualVerified, setBadgeManualVerified] = useState<boolean | null>(null);
   const [analyticsLoadError, setAnalyticsLoadError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [networkLoadStatus, setNetworkLoadStatus] = useState<"retrying" | "failed" | null>(null);
@@ -475,14 +477,34 @@ const VendorMode = () => {
           setError(null);
           const [{ data: modeRows }, { data: categoryPhotoRows }] = await Promise.all([
             supabase.from("vendor_availability_modes").select("mode").eq("vendor_id", vendorId),
-            supabase.from("vendor_categories").select("shop_photo_url").eq("vendor_id", vendorId),
+            supabase
+              .from("vendor_categories")
+              .select(
+                "category_id, shop_photo_url, is_primary, latitude, is_manual_verified",
+              )
+              .eq("vendor_id", vendorId)
+              .eq("status", "approved"),
           ]);
           if (!cancelled) {
             setAvailabilityModes((modeRows ?? []).map((r) => String(r.mode)));
+            const cats = categoryPhotoRows ?? [];
             setHasCategoryShopPhoto(
-              (categoryPhotoRows ?? []).some(
+              cats.some(
                 (r) => r.shop_photo_url != null && String(r.shop_photo_url).trim() !== "",
               ),
+            );
+            const primary =
+              cats.find((c) => c.is_primary === true) ??
+              cats.find((c) => c.latitude != null) ??
+              cats[0] ??
+              null;
+            setBadgeCategoryId(primary?.category_id ?? null);
+            setBadgeManualVerified(
+              primary?.is_manual_verified === true
+                ? true
+                : primary != null
+                  ? false
+                  : (data as Vendor).is_manual_verified === true,
             );
           }
         }
@@ -1419,7 +1441,12 @@ const VendorMode = () => {
             <div className="mt-4 flex justify-center">
               <TrustBadge
                 vendorId={vendor.id}
-                isManualVerified={vendor.is_manual_verified}
+                categoryId={badgeCategoryId}
+                isManualVerified={
+                  badgeManualVerified != null
+                    ? badgeManualVerified
+                    : vendor.is_manual_verified
+                }
                 showLabel
               />
             </div>

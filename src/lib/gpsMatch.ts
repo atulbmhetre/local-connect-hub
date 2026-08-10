@@ -3,6 +3,9 @@ import { getDeviceId } from "@/lib/deviceId";
 /** Floor for shop-photo GPS match (meters). Effective tolerance may be higher. */
 export const GPS_MATCH_TOLERANCE_M = 75;
 
+/** Same-shop / co-located business detection (meters). Matches server RPC. */
+export const SAME_SHOP_TOLERANCE_M = GPS_MATCH_TOLERANCE_M;
+
 /** After this many failed match attempts, show "Submit for review anyway". */
 export const GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW = 2;
 

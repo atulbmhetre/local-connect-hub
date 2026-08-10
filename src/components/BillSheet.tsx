@@ -85,6 +85,27 @@ export function BillSheet({
   const [items, setItems] = useState<BillItem[]>([newBillItem()]);
   const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "khata">("cash");
   const [sending, setSending] = useState(false);
+  const [requestItems, setRequestItems] = useState<any[] | null>(null);
+  const [loadingRequestData, setLoadingRequestData] = useState(false);
+
+  const generateBillFromOrder = useCallback(() => {
+    if (!requestItems || requestItems.length === 0) return;
+    
+    const generatedItems: BillItem[] = requestItems.map((item) => ({
+      id: crypto.randomUUID(),
+      description: item.name || "Item",
+      quantity: String(item.quantity || 1),
+      unit: item.unit || "",
+      unit_price: String(item.unit_price || 0),
+      menu_item_id: item.item_id || null,
+    }));
+    
+    // Add one empty item at the end for additional entries
+    generatedItems.push(newBillItem());
+    
+    setItems(generatedItems);
+    toast.success("Bill generated from order");
+  }, [requestItems, s]);
   const sendingLockRef = useRef(false);
   const [replaceDialogOpen, setReplaceDialogOpen] = useState(false);
   const [confirmSendDialogOpen, setConfirmSendDialogOpen] = useState(false);
@@ -214,6 +235,39 @@ export function BillSheet({
       window.scrollBy(0, -1);
     });
   }, [isOpen, items]);
+
+  // Fetch request data for auto-bill generation
+  useEffect(() => {
+    if (!isOpen || !requestId) {
+      setRequestItems(null);
+      return;
+    }
+    
+    const loadRequestData = async () => {
+      setLoadingRequestData(true);
+      try {
+        const { data, error } = await supabase
+          .from("requests")
+          .select("items")
+          .eq("id", requestId)
+          .single();
+        
+        if (error) {
+          console.error("Failed to fetch request items:", error);
+          setRequestItems(null);
+        } else {
+          setRequestItems(data?.items || null);
+        }
+      } catch (err) {
+        console.error("Error loading request data:", err);
+        setRequestItems(null);
+      } finally {
+        setLoadingRequestData(false);
+      }
+    };
+    
+    void loadRequestData();
+  }, [isOpen, requestId]);
 
   const startVoiceBill = async () => {
     try {
@@ -544,6 +598,21 @@ export function BillSheet({
           <div className="flex items-start justify-between gap-2">
             <SettingsPageHeader title={s.bill_title} subtitle={shopName} />
             <div className="flex items-center gap-2 shrink-0 pt-2">
+              {requestItems && requestItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={generateBillFromOrder}
+                  disabled={loadingRequestData}
+                  className="px-3 py-2 rounded-xl border border-brand bg-brand/10 text-brand text-sm font-semibold hover:bg-brand/20 disabled:opacity-50"
+                  title="Pre-fill bill from customer's order"
+                >
+                  {loadingRequestData ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    "Generate Bill"
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void startImageBill()}

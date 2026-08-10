@@ -118,11 +118,18 @@ import {
 import { AdminSystemHealthCard } from "@/components/settings/AdminSystemHealthCard";
 import { captureError } from "@/lib/sentry";
 import {
-  computeTrustLevelsByVendor,
+  TRUST_TIER_GROUPS,
+  computeTrustLevelForBusiness,
+  computeTrustLevelsByVendorCategory,
+  statusForBusinessCheck,
+  tierReachedForBusiness,
   trustLevelRank,
+  vendorCategoryTrustKey,
+  type BusinessLocationRow,
   type TrustLevel,
   type VendorVerificationRow,
 } from "@/lib/trustLevel";
+import { setOverlayBackHandler } from "@/lib/overlayBackBridge";
 
 type AdminVendorCategory = {
   category_id: string | null;
@@ -188,13 +195,17 @@ const VERIFICATION_CHECK_META: {
   icon: string;
 }[] = [
   { check_type: "upi_format", labelKey: "admin_check_label_upi_format", icon: "💳" },
-  { check_type: "upi_pennydrop", labelKey: "admin_check_label_upi_pennydrop", icon: "🏦" },
   { check_type: "photo_shop", labelKey: "admin_check_label_photo_shop", icon: "🏪" },
   { check_type: "photo_selfie", labelKey: "admin_check_label_photo_selfie", icon: "🤳" },
   { check_type: "gps", labelKey: "admin_check_label_gps", icon: "📍" },
   { check_type: "admin_check", labelKey: "admin_check_label_admin_check", icon: "✅" },
+  { check_type: "upi_pennydrop", labelKey: "admin_check_label_upi_pennydrop", icon: "🏦" },
   { check_type: "aadhaar_digilocker", labelKey: "admin_check_label_aadhaar_digilocker", icon: "🪪" },
 ];
+
+const VERIFICATION_CHECK_BY_TYPE = Object.fromEntries(
+  VERIFICATION_CHECK_META.map((m) => [m.check_type, m]),
+) as Record<string, (typeof VERIFICATION_CHECK_META)[number]>;
 
 function buildAdminVendorCategoriesMap(
   rows: {
@@ -370,6 +381,9 @@ function verificationStatusChipClass(status: string): string {
   }
   if (status === "pending") {
     return "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30";
+  }
+  if (status === "coming_soon") {
+    return "bg-muted text-muted-foreground border-border";
   }
   return "bg-muted text-muted-foreground border-border";
 }
@@ -844,6 +858,7 @@ const Settings = () => {
     vendor: (typeof vendorList)[number] | null;
     category: AdminVendorCategory | null;
   }>({ open: false, vendor: null, category: null });
+  const verifyHistoryPushedRef = useRef(false);
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
   const [verifyAutoTicked, setVerifyAutoTicked] = useState<Set<string>>(() => new Set());
   const [verifyReferrerLabel, setVerifyReferrerLabel] = useState<string | null>(null);
@@ -1120,6 +1135,31 @@ const Settings = () => {
       setAdminAuthChecked(true);
     })();
   }, [checkAdminSession]);
+
+  // Defense-in-depth: /settings/admin requires session; reveal tab + stay on login if not admin.
+  useEffect(() => {
+    const onAdminRoute = location.pathname === "/settings/admin";
+    if (!onAdminRoute) return;
+    setAdminTabRevealed(true);
+    setActiveTab("admin");
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!adminAuthChecked) return;
+    if (location.pathname !== "/settings/admin") return;
+    if (!isAdmin) {
+      // Keep admin tab visible so login gate renders; do not show panel.
+      setActiveTab("admin");
+    }
+  }, [adminAuthChecked, isAdmin, location.pathname]);
+
+  // Session drop while viewing admin → force login gate (never leave panel open).
+  useEffect(() => {
+    if (!adminAuthChecked) return;
+    if (activeTab === "admin" && !isAdmin) {
+      setAdminTabRevealed(true);
+    }
+  }, [adminAuthChecked, activeTab, isAdmin]);
 
   useEffect(() => {
     const {
@@ -1461,7 +1501,32 @@ const Settings = () => {
     ]);
 
     const categoriesMap = buildAdminVendorCategoriesMap(vcData);
-    const trustMap = computeTrustLevelsByVendor(vendorIds, verifications);
+
+    const businessRows: BusinessLocationRow[] = [];
+    const trustKeys: Array<{ vendorId: string; categoryId: string }> = [];
+    for (const [vendorId, cats] of categoriesMap) {
+      for (const c of cats) {
+        if (!c.category_id) continue;
+        businessRows.push({
+          vendor_id: vendorId,
+          category_id: c.category_id,
+          shop_photo_url: c.shop_photo_url,
+          gps_match_distance: c.gps_match_distance,
+          location_accuracy: c.location_accuracy,
+          photo_accuracy: c.photo_accuracy,
+          verification_status: c.verification_status,
+        });
+      }
+      const primary = cats.find((c) => c.is_primary) ?? cats[0];
+      if (primary?.category_id) {
+        trustKeys.push({ vendorId, categoryId: primary.category_id });
+      }
+    }
+    const trustByVendorCategory = computeTrustLevelsByVendorCategory(
+      trustKeys,
+      verifications as VendorVerificationRow[],
+      businessRows,
+    );
 
     const verificationsByVendor = new Map<string, VendorVerificationRow[]>();
     for (const row of verifications) {
@@ -1489,11 +1554,18 @@ const Settings = () => {
           },
         ];
       }
+      const primaryCat = categories.find((c) => c.is_primary) ?? categories[0];
+      const trustLevel: TrustLevel =
+        primaryCat?.category_id != null
+          ? (trustByVendorCategory.get(
+              vendorCategoryTrustKey(v.id, primaryCat.category_id),
+            ) ?? "Unverified")
+          : "Unverified";
       return {
         ...v,
         vendor_type: v.vendor_type as Vendor["vendor_type"],
         categories,
-        trustLevel: trustMap.get(v.id) ?? "Unverified",
+        trustLevel,
         verifications: verificationsByVendor.get(v.id) ?? [],
       };
     });
@@ -2189,53 +2261,6 @@ const Settings = () => {
     return "bg-muted text-muted-foreground border border-border";
   };
 
-  const openVerifySheet = (
-    vendor: (typeof vendorList)[number],
-    category: AdminVendorCategory,
-  ) => {
-    const progressId = category.category_id
-      ? `${vendor.id}:${category.category_id}`
-      : vendor.id;
-    const savedChecks = loadVerifyChecks(progressId);
-    const autoChecks = buildVerifyAutoChecks({
-      shop_photo_url: category.shop_photo_url ?? vendor.shop_photo_url,
-      gps_match_distance: category.gps_match_distance ?? vendor.gps_match_distance,
-      location_accuracy: category.location_accuracy,
-      photo_accuracy: category.photo_accuracy,
-      verification_status: category.verification_status,
-      upi_verified: vendor.upi_verified,
-    });
-    setVerifyAutoTicked(
-      new Set(Object.keys(autoChecks).filter((k) => autoChecks[k])),
-    );
-    setVerifySheet({ open: true, vendor, category });
-    setVerifyChecks({ ...emptyVerifyChecks(), ...autoChecks, ...savedChecks });
-    setVerifyReferrerLabel(null);
-    void (async () => {
-      const { data: ref } = await supabase
-        .from("referrals")
-        .select("referrer_vendor_id")
-        .eq("referee_id", vendor.id)
-        .eq("referee_type", "vendor")
-        .limit(1)
-        .maybeSingle();
-      if (!ref?.referrer_vendor_id) {
-        setVerifyReferrerLabel(s.referral_direct_signup);
-        return;
-      }
-      const { data: referrer } = await supabase
-        .from("vendors")
-        .select("shop_name, phone")
-        .eq("id", ref.referrer_vendor_id)
-        .maybeSingle();
-      if (referrer?.shop_name) {
-        setVerifyReferrerLabel(`${referrer.shop_name} · ${referrer.phone ?? ""}`.trim());
-      } else {
-        setVerifyReferrerLabel(s.referral_direct_signup);
-      }
-    })();
-  };
-
   const beginVerifyOrUnverify = (
     vendor: (typeof vendorList)[number],
     mode: "verify" | "unverify",
@@ -2277,11 +2302,98 @@ const Settings = () => {
     setVerifyBusinessPicker({ open: true, vendor, mode });
   };
 
-  const closeVerifySheet = () => {
+  const closeVerifySheetUi = () => {
     setVerifySheet({ open: false, vendor: null, category: null });
     setVerifyChecks({});
     setVerifyAutoTicked(new Set());
     setVerifyReferrerLabel(null);
+  };
+
+  const closeVerifySheet = () => {
+    const shouldPop = verifyHistoryPushedRef.current;
+    verifyHistoryPushedRef.current = false;
+    closeVerifySheetUi();
+    if (shouldPop && (window.history.state as { aaspaasVerifySheet?: boolean } | null)?.aaspaasVerifySheet) {
+      window.history.back();
+    }
+  };
+
+  // Verify sheet: hardware/browser back closes sheet instead of leaving Settings.
+  useEffect(() => {
+    const onPopState = () => {
+      if (!verifySheet.open) return;
+      verifyHistoryPushedRef.current = false;
+      closeVerifySheetUi();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [verifySheet.open]);
+
+  useEffect(() => {
+    if (!verifySheet.open) {
+      setOverlayBackHandler(null);
+      return;
+    }
+    setOverlayBackHandler(() => {
+      if (verifyHistoryPushedRef.current) {
+        window.history.back();
+        return true;
+      }
+      closeVerifySheetUi();
+      return true;
+    });
+    return () => setOverlayBackHandler(null);
+  }, [verifySheet.open]);
+
+  const openVerifySheet = (
+    vendor: (typeof vendorList)[number],
+    category: AdminVendorCategory,
+  ) => {
+    const progressId = category.category_id
+      ? `${vendor.id}:${category.category_id}`
+      : vendor.id;
+    const savedChecks = loadVerifyChecks(progressId);
+    const autoChecks = buildVerifyAutoChecks({
+      shop_photo_url: category.shop_photo_url ?? vendor.shop_photo_url,
+      gps_match_distance: category.gps_match_distance ?? vendor.gps_match_distance,
+      location_accuracy: category.location_accuracy,
+      photo_accuracy: category.photo_accuracy,
+      verification_status: category.verification_status,
+      upi_verified: vendor.upi_verified,
+    });
+    setVerifyAutoTicked(
+      new Set(Object.keys(autoChecks).filter((k) => autoChecks[k])),
+    );
+    setVerifySheet({ open: true, vendor, category });
+    setVerifyChecks({ ...emptyVerifyChecks(), ...autoChecks, ...savedChecks });
+    setVerifyReferrerLabel(null);
+    if (!verifyHistoryPushedRef.current) {
+      window.history.pushState({ aaspaasVerifySheet: true }, "");
+      verifyHistoryPushedRef.current = true;
+    }
+    void (async () => {
+      const { data: ref } = await supabase
+        .from("referrals")
+        .select("referrer_vendor_id")
+        .eq("referee_id", vendor.id)
+        .eq("referee_type", "vendor")
+        .limit(1)
+        .maybeSingle();
+      if (!ref?.referrer_vendor_id) {
+        setVerifyReferrerLabel(s.referral_direct_signup);
+        return;
+      }
+      const { data: referrer } = await supabase
+        .from("vendors")
+        .select("shop_name, phone")
+        .eq("id", ref.referrer_vendor_id)
+        .maybeSingle();
+      if (referrer?.shop_name) {
+        setVerifyReferrerLabel(`${referrer.shop_name} · ${referrer.phone ?? ""}`.trim());
+      } else {
+        setVerifyReferrerLabel(s.referral_direct_signup);
+      }
+    })();
   };
 
   const totalCheckedCount = VERIFY_ITEM_IDS.filter((id) => verifyChecks[id] === true).length;
@@ -4576,34 +4688,113 @@ const Settings = () => {
               )}
             </p>
 
-            <div className="rounded-2xl border border-border bg-muted/20 p-4 mb-5 space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            <div className="rounded-2xl border border-border bg-muted/20 p-4 mb-5 space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {s.admin_verification_checks_heading}
               </p>
-              {VERIFICATION_CHECK_META.map((meta) => {
-                const row = verifySheet.vendor?.verifications.find(
-                  (r) => r.check_type === meta.check_type,
+              {TRUST_TIER_GROUPS.map((group) => {
+                const vendorRows = verifySheet.vendor?.verifications ?? [];
+                const openCat = verifySheet.category;
+                const openCategoryId = openCat?.category_id ?? null;
+                const openBizRows: BusinessLocationRow[] =
+                  openCategoryId != null
+                    ? [
+                        {
+                          vendor_id: verifySheet.vendor!.id,
+                          category_id: openCategoryId,
+                          shop_photo_url:
+                            openCat?.shop_photo_url ?? verifySheet.vendor!.shop_photo_url,
+                          gps_match_distance:
+                            openCat?.gps_match_distance ??
+                            verifySheet.vendor!.gps_match_distance,
+                          location_accuracy: openCat?.location_accuracy ?? null,
+                          photo_accuracy: openCat?.photo_accuracy ?? null,
+                          verification_status: openCat?.verification_status ?? null,
+                        },
+                      ]
+                    : [];
+                const openTier = computeTrustLevelForBusiness(
+                  verifySheet.vendor!.id,
+                  openCategoryId,
+                  vendorRows,
+                  openBizRows,
                 );
-                const status = row?.status ?? "pending";
+                const reached = tierReachedForBusiness(
+                  verifySheet.vendor!.id,
+                  openCategoryId,
+                  vendorRows,
+                  openBizRows,
+                  group.tier,
+                );
+                const tierLabel =
+                  group.tier === "Bronze"
+                    ? s.trust_tier_bronze
+                    : group.tier === "Silver"
+                      ? s.trust_tier_silver
+                      : group.tier === "Gold"
+                        ? s.trust_tier_gold
+                        : s.trust_tier_diamond;
                 return (
                   <div
-                    key={meta.check_type}
-                    className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2"
+                    key={group.tier}
+                    className="space-y-2"
+                    data-testid={`admin-trust-tier-group-${group.tier.toLowerCase()}`}
+                    data-tier-reached={reached ? "true" : "false"}
+                    data-open-trust-level={openTier}
+                    data-open-category-id={openCategoryId ?? undefined}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-base shrink-0" aria-hidden>
-                        {meta.icon}
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {tierLabel}
+                      </p>
+                      <span
+                        className={
+                          reached
+                            ? "text-[10px] font-semibold text-green-700 dark:text-green-400"
+                            : "text-[10px] font-semibold text-muted-foreground"
+                        }
+                      >
+                        {reached ? s.trust_tier_reached : s.trust_tier_not_reached}
                       </span>
-                      <span className="text-sm text-foreground truncate">{s[meta.labelKey]}</span>
                     </div>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize",
-                        verificationStatusChipClass(status),
-                      )}
-                    >
-                      {status}
-                    </span>
+                    {group.checks.map((checkType) => {
+                      const meta = VERIFICATION_CHECK_BY_TYPE[checkType];
+                      if (!meta) return null;
+                      const status = statusForBusinessCheck(
+                        checkType,
+                        verifySheet.vendor!.id,
+                        openCategoryId,
+                        vendorRows,
+                        openBizRows,
+                      );
+                      return (
+                        <div
+                          key={meta.check_type}
+                          data-testid={`admin-check-row-${meta.check_type}`}
+                          data-check-status={status}
+                          className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-base shrink-0" aria-hidden>
+                              {meta.icon}
+                            </span>
+                            <span className="text-sm text-foreground truncate">
+                              {s[meta.labelKey]}
+                            </span>
+                          </div>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize",
+                              verificationStatusChipClass(status),
+                            )}
+                          >
+                            {status === "coming_soon"
+                              ? s.trust_check_coming_soon
+                              : status}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}

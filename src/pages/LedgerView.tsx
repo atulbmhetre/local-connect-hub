@@ -34,6 +34,7 @@ import {
   mapKhataRefundError,
   maskPhoneLast4,
 } from "@/lib/khataDisplay";
+import { KhataTxSourceChip } from "@/components/KhataTxSourceChip";
 
 const STORAGE_KEY = "aaspaas:vendor_id";
 
@@ -79,6 +80,10 @@ type KhataTransaction = {
   note: string | null;
   payment_mode: string;
   created_at: string;
+  request_id?: string | null;
+  category_id?: string | null;
+  category_label?: string | null;
+  category_emoji?: string | null;
 };
 
 const LedgerView = () => {
@@ -862,9 +867,12 @@ const LedgerView = () => {
                         ₹{Number(tx.amount).toFixed(2)}
                       </p>
                     </div>
-                    <Badge variant="outline" className="text-[10px] font-semibold border-surface-border">
-                      {khataPaymentModeLabel(tx.payment_mode, s)}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <KhataTxSourceChip tx={tx} />
+                      <Badge variant="outline" className="text-[10px] font-semibold border-surface-border">
+                        {khataPaymentModeLabel(tx.payment_mode, s)}
+                      </Badge>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -940,9 +948,12 @@ const LedgerView = () => {
                             ₹{Number(tx.amount).toFixed(2)}
                           </p>
                         </div>
-                        <Badge variant="outline" className="text-[10px] font-semibold border-surface-border">
-                          {khataPaymentModeLabel(tx.payment_mode, s)}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <KhataTxSourceChip tx={tx} />
+                          <Badge variant="outline" className="text-[10px] font-semibold border-surface-border">
+                            {khataPaymentModeLabel(tx.payment_mode, s)}
+                          </Badge>
+                        </div>
                       </li>
                     ))}
                   </ul>

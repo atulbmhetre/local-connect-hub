@@ -57,9 +57,11 @@ import {
 import { useAppConfig } from "@/hooks/useAppConfig";
 import {
   compareRadarResults,
-  computeTrustLevelsByVendor,
+  computeTrustLevelsByVendorCategory,
+  vendorCategoryTrustKey,
   type TrustLevel,
   type VendorVerificationRow,
+  type BusinessLocationRow,
 } from "@/lib/trustLevel";
 import {
   DEFAULT_SERVICE_RADIUS_KM,
@@ -78,6 +80,9 @@ import {
   resolveCategoryBrandName,
   resolveCategoryReach,
   resolveCategoryServiceRadius,
+  mapPublicCategoryOrderStats,
+  vendorCategoryReputationKey,
+  type VendorCategoryReputation,
 } from "@/lib/categoryScopedVendor";
 import {
   govEmergencyHelpLinesForTerm,
@@ -268,6 +273,9 @@ function buildVendorCategoriesMap(
     is_manual_verified?: boolean | null;
     shop_photo_url?: string | null;
     verification_status?: string | null;
+    gps_match_distance?: number | null;
+    location_accuracy?: number | null;
+    photo_accuracy?: number | null;
     categories: { label: string; emoji: string } | { label: string; emoji: string }[] | null;
   }[],
   matchedCategoryIdsByVendor?: Map<string, Set<string>>,
@@ -284,6 +292,9 @@ function buildVendorCategoriesMap(
     is_manual_verified?: boolean | null;
     shop_photo_url?: string | null;
     verification_status?: string | null;
+    gps_match_distance?: number | null;
+    location_accuracy?: number | null;
+    photo_accuracy?: number | null;
   }[]
 > {
   const map = new Map<
@@ -300,6 +311,9 @@ function buildVendorCategoriesMap(
       is_manual_verified?: boolean | null;
       shop_photo_url?: string | null;
       verification_status?: string | null;
+      gps_match_distance?: number | null;
+      location_accuracy?: number | null;
+      photo_accuracy?: number | null;
     }[]
   >();
 
@@ -321,6 +335,9 @@ function buildVendorCategoriesMap(
       is_manual_verified: row.is_manual_verified,
       shop_photo_url: row.shop_photo_url,
       verification_status: row.verification_status,
+      gps_match_distance: row.gps_match_distance,
+      location_accuracy: row.location_accuracy,
+      photo_accuracy: row.photo_accuracy,
     });
     map.set(row.vendor_id, list);
   }
@@ -338,6 +355,9 @@ function buildVendorCategoriesMap(
       is_manual_verified?: boolean | null;
       shop_photo_url?: string | null;
       verification_status?: string | null;
+      gps_match_distance?: number | null;
+      location_accuracy?: number | null;
+      photo_accuracy?: number | null;
     }[]
   >();
   for (const [vendorId, list] of map) {
@@ -361,6 +381,9 @@ function buildVendorCategoriesMap(
           is_manual_verified,
           shop_photo_url,
           verification_status,
+          gps_match_distance,
+          location_accuracy,
+          photo_accuracy,
         }) => ({
           label,
           emoji,
@@ -372,6 +395,9 @@ function buildVendorCategoriesMap(
           is_manual_verified,
           shop_photo_url,
           verification_status,
+          gps_match_distance,
+          location_accuracy,
+          photo_accuracy,
         }),
       ),
     );
@@ -897,6 +923,7 @@ const RadarSearch = () => {
         ];
 
         let verificationRows: VendorVerificationRow[] = [];
+        let businessRows: BusinessLocationRow[] = [];
         let categoriesByVendor = new Map<
           string,
           {
@@ -907,6 +934,12 @@ const RadarSearch = () => {
             serves_at_vendor_place?: boolean | null;
             serves_at_customer_place?: boolean | null;
             service_radius_km?: number | null;
+            is_manual_verified?: boolean | null;
+            shop_photo_url?: string | null;
+            verification_status?: string | null;
+            gps_match_distance?: number | null;
+            location_accuracy?: number | null;
+            photo_accuracy?: number | null;
           }[]
         >();
         const menuByVendor = new Map<string, RadarMenuItem[]>();
@@ -967,7 +1000,7 @@ const RadarSearch = () => {
             supabase
               .from("vendor_categories")
               .select(
-                "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, is_manual_verified, shop_photo_url, verification_status, categories(label, emoji)",
+                "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, is_manual_verified, shop_photo_url, verification_status, gps_match_distance, location_accuracy, photo_accuracy, categories(label, emoji)",
               )
               .in("vendor_id", vendorIds)
               .eq("status", "approved"),
@@ -994,6 +1027,25 @@ const RadarSearch = () => {
             ),
             categoryModeSearch ? matchedCategoryIdsByVendor : undefined,
           );
+          businessRows = (
+            (vcResult.data ?? []) as {
+              vendor_id: string;
+              category_id: string;
+              shop_photo_url?: string | null;
+              gps_match_distance?: number | null;
+              location_accuracy?: number | null;
+              photo_accuracy?: number | null;
+              verification_status?: string | null;
+            }[]
+          ).map((r) => ({
+            vendor_id: r.vendor_id,
+            category_id: r.category_id,
+            shop_photo_url: r.shop_photo_url,
+            gps_match_distance: r.gps_match_distance,
+            location_accuracy: r.location_accuracy,
+            photo_accuracy: r.photo_accuracy,
+            verification_status: r.verification_status,
+          }));
 
           for (const row of menuResult.data ?? []) {
             if (categoryModeSearch) {
@@ -1030,7 +1082,35 @@ const RadarSearch = () => {
           );
         }
 
-        const trustByVendor = computeTrustLevelsByVendor(vendorIds, verificationRows);
+        const trustKeys: Array<{ vendorId: string; categoryId: string }> = [];
+        for (const [vid, cats] of categoriesByVendor) {
+          const matched = cats[0];
+          if (matched?.category_id) {
+            trustKeys.push({ vendorId: vid, categoryId: matched.category_id });
+          }
+        }
+        const trustByVendorCategory = computeTrustLevelsByVendorCategory(
+          trustKeys,
+          verificationRows,
+          businessRows,
+        );
+
+        let categoryRepMap = new Map<string, VendorCategoryReputation>();
+        if (vendorIds.length > 0 && trustKeys.length > 0) {
+          const categoryIds = [...new Set(trustKeys.map((k) => k.categoryId))];
+          const { data: repRows, error: repError } = await supabase.rpc(
+            "get_public_vendor_category_order_stats",
+            {
+              p_vendor_ids: vendorIds,
+              p_category_ids: categoryIds,
+            },
+          );
+          if (repError) {
+            console.error("radar/category_order_stats", repError);
+          } else {
+            categoryRepMap = mapPublicCategoryOrderStats(repRows ?? []);
+          }
+        }
 
         const buildVendorResult = (
           v: Vendor,
@@ -1041,8 +1121,7 @@ const RadarSearch = () => {
         ): Ranked => {
           const cats = categoriesByVendor.get(v.id) ?? [];
           const matchedCat = cats[0];
-          const matchedId =
-            categoryModeSearch && matchedCat?.category_id ? matchedCat.category_id : null;
+          const matchedId = matchedCat?.category_id ?? null;
           const displayBrandName = resolveCategoryBrandName(
             matchedCat?.brand_name,
             v.shop_name,
@@ -1053,11 +1132,22 @@ const RadarSearch = () => {
             v.service_radius_km,
             matchedId,
           );
+          const trustLevel: TrustLevel =
+            matchedId != null
+              ? (trustByVendorCategory.get(vendorCategoryTrustKey(v.id, matchedId)) ??
+                "Unverified")
+              : "Unverified";
+          const rep =
+            matchedId != null
+              ? categoryRepMap.get(vendorCategoryReputationKey(v.id, matchedId))
+              : undefined;
+          // Per-business operational stats — never fall back to account pools.
+          const fulfilled = rep?.fulfilled ?? 0;
           return {
             vendor: {
               ...(v as Vendor),
               categories: cats,
-              trustLevel: trustByVendor.get(v.id) ?? "Unverified",
+              trustLevel,
               menuPreview: menuByVendor.get(v.id) ?? [],
               hasActiveOrder: activeOrderVendorIds.has(v.id),
               hasFulfilledOrder: fulfilledVendorIds.has(v.id),
@@ -1066,6 +1156,9 @@ const RadarSearch = () => {
               isPanIndia: extras.isPanIndia,
               displayBrandName,
               effectiveServiceRadiusKm,
+              total_helped: fulfilled,
+              total_delivered: fulfilled,
+              on_time_rate: rep?.onTimeRate ?? null,
             },
             dist: extras.dist,
           };

@@ -4,6 +4,7 @@ import {
   supabaseAdmin,
   getActiveCategoryByLabel,
   seedVendorCategory,
+  replaceVendorVerification,
 } from './helpers/setup';
 
 /**
@@ -61,22 +62,30 @@ async function createVerifiedBronzeVendor(tag: string) {
     avg_rating: 4.5,
     review_count: 12,
   });
-  // Per-business badge reads vendor_categories.is_manual_verified.
+  // Per-business location proof on vendor_categories (VV photo_shop/gps ignored).
   await supabaseAdmin
     .from('vendor_categories')
-    .update({ is_manual_verified: true })
+    .update({
+      is_manual_verified: true,
+      shop_photo_url: 'https://example.com/test-shop.jpg',
+      gps_match_distance: 10,
+      location_accuracy: 5,
+      photo_accuracy: 5,
+      verification_status: 'business_verified',
+    })
     .eq('vendor_id', vendor.id);
-  const { error } = await supabaseAdmin.from('vendor_verification').insert([
-    { vendor_id: vendor.id, check_type: 'photo_shop', status: 'passed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendor.id, check_type: 'photo_selfie', status: 'passed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendor.id, check_type: 'gps', status: 'passed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendor.id, check_type: 'upi_format', status: 'passed', checked_by: 'system', is_latest: true },
-    // Failed admin_check blocks Silver — tier must stay Bronze.
-    { vendor_id: vendor.id, check_type: 'admin_check', status: 'failed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendor.id, check_type: 'upi_pennydrop', status: 'dormant', checked_by: 'system', is_latest: true },
-    { vendor_id: vendor.id, check_type: 'aadhaar_digilocker', status: 'dormant', checked_by: 'system', is_latest: true },
+  // Account-level checks + vendor selfie so VC updates don't re-dormant selfie via sync.
+  await supabaseAdmin
+    .from('vendors')
+    .update({ photo_selfie: 'https://example.com/test-shop.jpg' })
+    .eq('id', vendor.id);
+  await replaceVendorVerification(vendor.id, [
+    { check_type: 'photo_selfie', status: 'passed' },
+    { check_type: 'upi_format', status: 'passed' },
+    { check_type: 'admin_check', status: 'failed' },
+    { check_type: 'upi_pennydrop', status: 'dormant' },
+    { check_type: 'aadhaar_digilocker', status: 'dormant' },
   ]);
-  if (error) throw error;
   return vendor;
 }
 
@@ -157,14 +166,19 @@ test('TB-03 — tapping badge opens detail sheet with correct per-check state', 
     gps: 'passed',
     upi_format: 'passed',
     admin_check: 'failed',
-    upi_pennydrop: 'pending', // dormant renders as pending
-    aadhaar_digilocker: 'pending',
+    upi_pennydrop: 'coming_soon',
+    aadhaar_digilocker: 'coming_soon',
   };
   for (const [checkType, status] of Object.entries(expected)) {
     const row = sheet.getByTestId(`trust-check-row-${checkType}`);
     await expect(row).toBeVisible();
     await expect(row).toHaveAttribute('data-check-status', status);
   }
+
+  // Tier grouping + coming-soon copy for unbuilt Gold/Diamond checks.
+  await expect(sheet.getByTestId('trust-tier-group-bronze')).toBeVisible();
+  await expect(sheet.getByTestId('trust-tier-group-gold')).toBeVisible();
+  await expect(sheet.getByText('Coming soon').first()).toBeVisible();
 
   // Plain-language labels present.
   await expect(sheet.getByText('Shop Photo')).toBeVisible();

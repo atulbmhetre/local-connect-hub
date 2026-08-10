@@ -7,6 +7,7 @@ import { captureError } from "@/lib/sentry";
 import { UpiPaymentPanel } from "@/components/payment/UpiPaymentPanel";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
+import { deriveBusinessLocationPasses, type BusinessLocationRow } from "@/lib/trustLevel";
 import {
   Sheet,
   SheetContent,
@@ -179,6 +180,7 @@ export function ParchiSheet({
   const [menuItems, setMenuItems] = useState<VendorMenuItem[]>([]);
   const [selectedMenuItems, setSelectedMenuItems] = useState<Record<string, number>>({});
   const [menuExpanded, setMenuExpanded] = useState(true);
+  const [businessGpsVerified, setBusinessGpsVerified] = useState<boolean | null>(null);
   const lastVendor = useRef<Vendor | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const phoneSheetOpenRef = useRef(false);
@@ -220,8 +222,50 @@ export function ParchiSheet({
       scrollContainerRef.current?.scrollTo({ top: 0 });
     }, 50);
   }, [isOpen, resetFormFields]);
+  
   const effectiveVendor = vendor ?? lastVendor.current;
   const resolvedVendorId = vendorIdProp ?? effectiveVendor?.id ?? null;
+  
+  // Fetch business-specific GPS verification when orderCategoryId is available
+  useEffect(() => {
+    if (!orderCategoryId || !resolvedVendorId) {
+      setBusinessGpsVerified(null);
+      return;
+    }
+
+    const fetchBusinessGps = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("vendor_categories")
+          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status")
+          .eq("vendor_id", resolvedVendorId)
+          .eq("category_id", orderCategoryId)
+          .single();
+
+        if (error || !data) {
+          setBusinessGpsVerified(null);
+          return;
+        }
+
+        const businessLocationData: BusinessLocationRow = {
+          vendor_id: resolvedVendorId,
+          category_id: orderCategoryId,
+          gps_match_distance: data.gps_match_distance,
+          location_accuracy: data.location_accuracy,
+          photo_accuracy: data.photo_accuracy,
+          verification_status: data.verification_status,
+        };
+
+        const { gps } = deriveBusinessLocationPasses(businessLocationData);
+        setBusinessGpsVerified(gps);
+      } catch (err) {
+        console.error("Failed to fetch business GPS data:", err);
+        setBusinessGpsVerified(null);
+      }
+    };
+
+    void fetchBusinessGps();
+  }, [orderCategoryId, resolvedVendorId]);
   const resolvedServiceMode =
     serviceModeProp ?? effectiveVendor?.service_mode ?? "help";
   const isDeliveryMode = resolvedServiceMode === "delivery";
@@ -378,6 +422,25 @@ export function ParchiSheet({
       })
       .filter(Boolean)
       .join("\n");
+  };
+
+  const buildStructuredItems = () => {
+    const items = Object.entries(selectedMenuItems)
+      .filter(([, qty]) => qty > 0)
+      .map(([id, qty]) => {
+        const item = menuItems.find((m) => m.id === id);
+        if (!item) return null;
+        return {
+          item_id: item.id,
+          name: menuItemLabel(item),
+          quantity: qty,
+          unit_price: item.price,
+          unit: item.unit || null,
+        };
+      })
+      .filter(Boolean);
+    
+    return items.length > 0 ? items : null;
   };
 
   const addMenuToOrder = () => {
@@ -565,6 +628,9 @@ export function ParchiSheet({
       }
 
       const device_id = getDeviceId();
+      // Capture structured items before submission (for auto-bill generation)
+      const structuredItems = buildStructuredItems();
+      
         const { error } = await withNetworkRetry(
           async () =>
             throwOnSupabaseNetworkError(
@@ -587,6 +653,7 @@ export function ParchiSheet({
                 p_appointment_instant: isInstantAppointment,
                 p_category_id: orderCategoryId ?? null,
                 p_service_mode: resolvedServiceMode,
+                p_items: structuredItems,
               }),
             ),
           {
@@ -894,7 +961,10 @@ export function ParchiSheet({
               </p>
             )}
             <TrustWarningBanner
-              tier={vendorBinaryTrustTier(effectiveVendor)}
+              tier={vendorBinaryTrustTier({
+                ...effectiveVendor,
+                businessGpsVerified: businessGpsVerified ?? undefined,
+              })}
               context="parchi"
             />
           </div>

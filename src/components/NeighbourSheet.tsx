@@ -31,6 +31,7 @@ import {
   showNetworkFailedToast,
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
+import { fetchBusinessPhotos, resolveVendorPhoto } from "@/lib/businessPhotoFallback";
 
 export type SavedVendorInfo = {
   nickname: string;
@@ -72,6 +73,7 @@ export function NeighbourSheet({
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameBusy, setNicknameBusy] = useState(false);
+  const [businessPhotos, setBusinessPhotos] = useState<Map<string, string | null>>(new Map());
 
   useEffect(() => {
     if (!isOpen) {
@@ -81,6 +83,22 @@ export function NeighbourSheet({
     setNicknameDraft((savedVendor?.nickname ?? "").trim());
   }, [isOpen, savedVendor?.nickname, vendor?.id]);
 
+  // Fetch business-specific photos when sheet opens
+  useEffect(() => {
+    if (!isOpen || !vendor || !savedVendor?.category) {
+      return;
+    }
+    
+    const categoryId = categories.find((cat) => cat.name === savedVendor.category)?.id;
+    if (!categoryId) {
+      return;
+    }
+
+    void fetchBusinessPhotos([{ vendorId: vendor.id, categoryId }]).then(
+      (photoMap) => setBusinessPhotos(photoMap)
+    );
+  }, [isOpen, vendor?.id, savedVendor?.category, categories]);
+
   const displayName = savedNeighbourDisplayName(
     savedVendor?.nickname,
     vendor?.shop_name,
@@ -88,6 +106,15 @@ export function NeighbourSheet({
   const categoryLabel = getLabel(vendor?.category ?? savedVendor?.category ?? "") ||
     vendor?.category ||
     "";
+  
+  // Get business-specific photo, falling back to account photo
+  const categoryId = categories.find((cat) => cat.name === savedVendor?.category)?.id;
+  const effectivePhoto = vendor ? resolveVendorPhoto(
+    businessPhotos,
+    vendor.id,
+    categoryId,
+    vendor.shop_photo_url
+  ) : null;
 
   const handleRemove = async () => {
     if (!vendor) return;
@@ -227,8 +254,8 @@ export function NeighbourSheet({
                     aria-hidden
                   />
                   <div className="h-12 w-12 rounded-xl overflow-hidden bg-muted grid place-items-center">
-                    {vendor.shop_photo_url ? (
-                      <img src={vendor.shop_photo_url} alt="" className="h-full w-full object-cover" />
+                    {effectivePhoto ? (
+                      <img src={effectivePhoto} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <span className="text-2xl" aria-hidden>
                         {emojiForVendorCategory(vendor.category, categories)}

@@ -46,6 +46,7 @@ import {
   formatKhataDate,
   khataPaymentModeLabel,
 } from "@/lib/khataDisplay";
+import { KhataTxSourceChip } from "@/components/KhataTxSourceChip";
 import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
 import { openGoogleMaps, resolveCustomerNavigateToVendorUrl } from "@/lib/mapsDeepLink";
 import {
@@ -347,6 +348,10 @@ const MyOrders = () => {
       note: string | null;
       payment_mode: string;
       created_at: string;
+      request_id?: string | null;
+      category_id?: string | null;
+      category_label?: string | null;
+      category_emoji?: string | null;
     }[]
   >([]);
   const [khataTxLoading, setKhataTxLoading] = useState(false);
@@ -372,6 +377,8 @@ const MyOrders = () => {
   } | null>(null);
   const [pendingDismissId, setPendingDismissId] = useState<string | null>(null);
   const [calledVendor, setCalledVendor] = useState<Record<string, boolean>>({});
+  // Track which orders have already auto-shown rating sheet to prevent re-triggering
+  const [autoShownReviews, setAutoShownReviews] = useState<Set<string>>(new Set());
   const [showCancelConfirm, setShowCancelConfirm] = useState<Record<string, boolean>>({});
   const [showOrderCancelConfirm, setShowOrderCancelConfirm] = useState<Record<string, boolean>>({});
   const [editOrder, setEditOrder] = useState<RowWithShop | null>(null);
@@ -387,6 +394,7 @@ const MyOrders = () => {
     vendor: AiBridgeVendor;
     userNeed: string;
     distanceKm: number | null;
+    categoryId: string | null;
   } | null>(null);
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [paymentSheetOrder, setPaymentSheetOrder] = useState<null | {
@@ -707,6 +715,28 @@ const MyOrders = () => {
     };
   }, [load]);
 
+  // Check for fulfilled orders that need auto-rating on mount/data refresh
+  useEffect(() => {
+    if (loading || rows.length === 0) return;
+    
+    // Find fulfilled orders that haven't been auto-shown and don't have reviews
+    const eligibleOrders = rows.filter(r => 
+      r.status === 'fulfilled' && 
+      !autoShownReviews.has(r.id) && 
+      !myReviews[r.id]
+    );
+    
+    // Auto-trigger for the most recent eligible order (avoid overwhelming with multiple prompts)
+    if (eligibleOrders.length > 0) {
+      const mostRecentOrder = eligibleOrders.reduce((latest, current) => 
+        new Date(current.created_at || 0) > new Date(latest.created_at || 0) ? current : latest
+      );
+      
+      // Small delay to ensure UI is settled
+      setTimeout(() => autoTriggerRatingSheet(mostRecentOrder), 500);
+    }
+  }, [loading, rows, myReviews, autoShownReviews]);
+
   useEffect(() => {
     if (acceptedHelpVendorIds.length === 0) return;
     if (!("geolocation" in navigator)) return;
@@ -941,6 +971,7 @@ const MyOrders = () => {
         },
         userNeed: stripLocationTag(order.message),
         distanceKm: distM != null ? distM / 1000 : null,
+        categoryId: order.category_id ?? null,
       });
       setAiSheetOpen(true);
     },
@@ -976,11 +1007,28 @@ const MyOrders = () => {
             });
             return;
           }
-          setRows((prev) =>
-            prev.map((r) =>
-              r.id === updated.id ? { ...r, ...payload.new } : r,
-            ),
-          );
+          
+          // Auto-trigger rating sheet when order becomes fulfilled
+          if (updated.status === "fulfilled") {
+            setRows((prev) => {
+              const updatedRows = prev.map((r) =>
+                r.id === updated.id ? { ...r, ...payload.new } : r,
+              );
+              // Find the newly fulfilled order and trigger rating
+              const fulfilledOrder = updatedRows.find(r => r.id === updated.id);
+              if (fulfilledOrder) {
+                // Use setTimeout to ensure the rating trigger happens after state update
+                setTimeout(() => autoTriggerRatingSheet(fulfilledOrder), 100);
+              }
+              return updatedRows;
+            });
+          } else {
+            setRows((prev) =>
+              prev.map((r) =>
+                r.id === updated.id ? { ...r, ...payload.new } : r,
+              ),
+            );
+          }
           // Cancel voids unpaid bills server-side — drop the stale bill map
           // entry immediately so Pay Now cannot linger until the next poll.
           if (updated.status === "cancelled") {
@@ -1398,6 +1446,26 @@ const MyOrders = () => {
 
   const handleFulfilledDismiss = (r: RowWithShop) => {
     setPendingDismissId(r.id);
+    setRatingVendor({
+      vendorId: r.vendor_id,
+      shopName: r.vendors?.shop_name ?? s.myOrders_shopFallback,
+      serviceMode: r.vendors?.service_mode ?? "delivery",
+      vendorPhone: r.vendors?.phone ?? null,
+    });
+    setRatingSheetOpen(true);
+  };
+
+  // Auto-trigger rating sheet for newly fulfilled orders (no auto-dismiss)
+  const autoTriggerRatingSheet = (r: RowWithShop) => {
+    // Don't auto-trigger if already shown for this order or review exists
+    if (autoShownReviews.has(r.id) || myReviews[r.id]) {
+      return;
+    }
+    
+    // Mark as auto-shown to prevent re-triggering
+    setAutoShownReviews(prev => new Set([...prev, r.id]));
+    
+    // Open rating sheet without setting pendingDismissId (no auto-dismiss)
     setRatingVendor({
       vendorId: r.vendor_id,
       shopName: r.vendors?.shop_name ?? s.myOrders_shopFallback,
@@ -2341,6 +2409,9 @@ const MyOrders = () => {
           if (pendingDismissId) await markDone(row ?? pendingDismissId);
           setPendingDismissId(null);
           setRatingVendor(null);
+          
+          // Refresh reviews to capture any newly submitted rating
+          void loadMyReviews();
         }}
       />
 
@@ -2405,9 +2476,12 @@ const MyOrders = () => {
                       >
                         {tx.note?.trim() || "No description"}
                       </p>
-                      <Badge variant="outline" className="text-[10px] font-semibold">
-                        {khataPaymentModeLabel(tx.payment_mode, s)}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <KhataTxSourceChip tx={tx} />
+                        <Badge variant="outline" className="text-[10px] font-semibold">
+                          {khataPaymentModeLabel(tx.payment_mode, s)}
+                        </Badge>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -2445,6 +2519,7 @@ const MyOrders = () => {
           vendor={helpCallVendor.vendor}
           callerPhone={getUserPhone() ?? ""}
           userNeed={helpCallVendor.userNeed}
+          categoryId={helpCallVendor.categoryId}
           distanceKm={helpCallVendor.distanceKm}
         />
       )}

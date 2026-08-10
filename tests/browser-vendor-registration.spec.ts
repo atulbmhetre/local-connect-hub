@@ -153,9 +153,22 @@ async function addBusinessViaSetupSheet(
   }
 
   await page.getByTestId('add-business-shop-photo').click();
+  // Same-location mock: Phase 2 shows reuse confirm when another business pin is within 75m.
+  const reuseBtn = page.getByTestId('add-business-reuse-photo');
+  const sameShop = page.getByTestId('add-business-same-shop');
+  try {
+    await expect(sameShop).toBeVisible({ timeout: 12000 });
+    await reuseBtn.click();
+  } catch {
+    // Far location / no prior photo: camera mock path.
+    await expect(page.getByTestId('add-business-shop-photo')).toContainText(
+      /Re-shoot|Reshoot|Retake|फिर|पुन्हा/i,
+      { timeout: 15000 },
+    );
+  }
   await expect(page.getByTestId('add-business-shop-photo')).toContainText(
-    /Re-shoot|Reshoot|Retake|फिर|पुन्हा/i,
-    { timeout: 15000 },
+    /Reuse|Re-shoot|Reshoot|Retake|फिर|पुन्हा|दुकान/i,
+    { timeout: 10000 },
   );
 
   await page.getByTestId('add-business-submit').click();
@@ -255,13 +268,13 @@ test('VR-E2E-01: shop vendor registers with GPS via 2-page wizard', async ({ pag
 
   const { data: verificationRows, error: verificationError } = await supabaseAdmin
     .from('vendor_verification')
-    .select('id, check_type')
+    .select('id, check_type, status, is_latest')
     .eq('vendor_id', vendorId);
   expect(verificationError).toBeNull();
-  // Wizard now submits photo_selfie via submit_vendor_verification (parity with My Business),
-  // so the checklist includes that row in addition to the prior 7 defaults.
-  expect(verificationRows?.length).toBe(8);
-  expect(verificationRows?.some((r) => r.check_type === 'photo_selfie')).toBe(true);
+  // Seven check types; photo_selfie/photo_shop/gps are auto-synced (may have history rows).
+  const latest = (verificationRows ?? []).filter((r) => r.is_latest);
+  expect(latest.length).toBe(7);
+  expect(latest.some((r) => r.check_type === 'photo_selfie')).toBe(true);
 
   await page.waitForTimeout(2000);
 

@@ -22,7 +22,7 @@ import {
   TEST_SESSION,
   TEST_ADMIN_PHONE,
 } from './helpers/setup';
-import { computeTrustLevel } from '../src/lib/trustLevel';
+import { computeTrustLevelForBusiness } from '../src/lib/trustLevel';
 
 const TEST_DEVICE_ID = `device_admin_${TEST_SESSION}`;
 let testVendor: any;
@@ -406,7 +406,20 @@ test('ADMIN-12: vendor with Bronze checks shows Bronze trust badge in admin list
     .select('vendor_id, check_type, status, is_latest')
     .eq('vendor_id', bronzeVendor!.id)
     .eq('is_latest', true);
-  expect(computeTrustLevel(bronzeVendor!.id, verRows ?? [])).toBe('Bronze');
+  const { data: bizRows } = await supabaseAdmin
+    .from('vendor_categories')
+    .select(
+      'vendor_id, category_id, shop_photo_url, gps_match_distance, location_accuracy, photo_accuracy, verification_status',
+    )
+    .eq('vendor_id', bronzeVendor!.id);
+  expect(
+    computeTrustLevelForBusiness(
+      bronzeVendor!.id,
+      primaryCategory.id,
+      verRows ?? [],
+      bizRows ?? [],
+    ),
+  ).toBe('Bronze');
 });
 
 test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts row', async ({ page }) => {

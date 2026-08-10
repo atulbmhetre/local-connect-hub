@@ -34,6 +34,34 @@ export function khataPaymentModeLabel(mode: string, s: typeof strings.en): strin
   return mode;
 }
 
+/** Display-only business / payment / refund chip for a khata line. */
+export type KhataTxBusinessChip =
+  | { kind: "business"; emoji: string; label: string }
+  | { kind: "payment" }
+  | { kind: "refund" }
+  | { kind: "none" };
+
+export function resolveKhataTxBusinessChip(
+  tx: {
+    request_id?: string | null;
+    category_label?: string | null;
+    category_emoji?: string | null;
+    payment_mode: string;
+  },
+): KhataTxBusinessChip {
+  const label = tx.category_label != null ? String(tx.category_label).trim() : "";
+  if (tx.request_id && label) {
+    const emoji =
+      tx.category_emoji != null && String(tx.category_emoji).trim() !== ""
+        ? String(tx.category_emoji).trim()
+        : "✨";
+    return { kind: "business", emoji, label };
+  }
+  if (tx.payment_mode === "paid") return { kind: "payment" };
+  if (!tx.request_id) return { kind: "refund" };
+  return { kind: "none" };
+}
+
 /** Positive = customer owes vendor; negative = vendor owes customer (refund due); 0 = settled. */
 export function khataOutstandingColorClass(
   outstanding: number,

@@ -18,6 +18,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { TrustBadge } from "@/components/TrustBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
+import { deriveBusinessLocationPasses } from "@/lib/trustLevel";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
@@ -134,7 +135,11 @@ const VendorReputationLine = ({
     const n = totalHelpedOverride ?? vendor.total_helped ?? 0;
     if (n <= 0) return null;
     return (
-      <div className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90">
+      <div
+        className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90"
+        data-testid="radar-reputation-helped"
+        data-count={n}
+      >
         <span className="inline-flex items-center gap-1 shrink-0">
           <HeartHandshake className="h-3.5 w-3.5 opacity-80" />
           <span className="font-semibold">{s.radar_stat_helped}</span>
@@ -154,7 +159,12 @@ const VendorReputationLine = ({
     const raw = vendor.on_time_rate;
     const pct = typeof raw === "number" && Number.isFinite(raw) ? Math.round(raw) : null;
     return (
-      <div className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90">
+      <div
+        className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90"
+        data-testid="radar-reputation-delivered"
+        data-count={d}
+        data-on-time={pct ?? undefined}
+      >
         <span className="inline-flex items-center gap-1 shrink-0">
           <Package className="h-3.5 w-3.5 opacity-80" />
           <span className="font-semibold">{s.radar_stat_delivered}</span>
@@ -323,6 +333,19 @@ export function RadarVendorCard({
         shop_photo_url: vendor.shop_photo_url,
         verification_status: vendor.verification_status,
       };
+  
+  // Compute business-specific GPS verification for the matched category
+  const businessLocationData = categories[0] ? {
+    vendor_id: vendor.id,
+    category_id: categories[0].category_id,
+    shop_photo_url: categories[0].shop_photo_url,
+    gps_match_distance: categories[0].gps_match_distance,
+    location_accuracy: categories[0].location_accuracy,
+    photo_accuracy: categories[0].photo_accuracy,
+    verification_status: categories[0].verification_status,
+  } : null;
+  
+  const { gps: businessGpsVerified } = deriveBusinessLocationPasses(businessLocationData);
 
   const [helpCount, setHelpCount] = useState(() => vendor.total_helped ?? 0);
   const [deliveredCount, setDeliveredCount] = useState(() => vendor.total_delivered ?? 0);
@@ -513,6 +536,8 @@ export function RadarVendorCard({
       is_manual_verified: businessTrust.is_manual_verified,
       upi_verified: vendor.upi_verified,
       photo_selfie: vendor.photo_selfie,
+      businessGpsVerified: businessGpsVerified,
+      // Keep latitude for backward compatibility (will use businessGpsVerified if present)
       latitude: vendor.latitude,
     }) === "green"
       ? "ring-brand/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
@@ -844,6 +869,7 @@ export function RadarVendorCard({
             <span className="inline-flex items-center gap-1 shrink-0 flex-wrap justify-end">
               <TrustBadge
                 vendorId={vendor.id}
+                categoryId={matchedCategoryId}
                 isManualVerified={businessTrust.is_manual_verified}
                 trustLevel={trustLevel}
                 showLabel
@@ -909,6 +935,8 @@ export function RadarVendorCard({
           is_manual_verified: businessTrust.is_manual_verified,
           upi_verified: vendor.upi_verified,
           photo_selfie: vendor.photo_selfie,
+          businessGpsVerified: businessGpsVerified,
+          // Keep latitude for backward compatibility (will use businessGpsVerified if present)
           latitude: vendor.latitude,
         })}
         context="radar"
@@ -1040,6 +1068,7 @@ export function RadarVendorCard({
         vendor={vendor}
         callerPhone={getUserPhone() ?? ""}
         userNeed={userNeed}
+        categoryId={matchedCategoryId}
         distanceKm={dist}
       />
 

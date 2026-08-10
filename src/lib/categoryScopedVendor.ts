@@ -154,6 +154,43 @@ export type CategoryOrderStat = {
   onTimeRate: number | null;
 };
 
+/** Customer-facing reputation for one vendor business (Radar / AiBridge). */
+export type VendorCategoryReputation = {
+  vendorId: string;
+  categoryId: string;
+  /** Fulfilled/done count for this category — used as helped or delivered by mode. */
+  fulfilled: number;
+  onTimeRate: number | null;
+};
+
+export function vendorCategoryReputationKey(vendorId: string, categoryId: string): string {
+  return `${vendorId}:${categoryId}`;
+}
+
+export function mapPublicCategoryOrderStats(
+  rows: Array<{
+    vendor_id: string;
+    category_id: string;
+    fulfilled: number | null;
+    on_time_rate: number | null;
+  }>,
+): Map<string, VendorCategoryReputation> {
+  const map = new Map<string, VendorCategoryReputation>();
+  for (const row of rows) {
+    if (!row.vendor_id || !row.category_id) continue;
+    map.set(vendorCategoryReputationKey(row.vendor_id, row.category_id), {
+      vendorId: row.vendor_id,
+      categoryId: row.category_id,
+      fulfilled: Math.max(0, Number(row.fulfilled) || 0),
+      onTimeRate:
+        row.on_time_rate != null && Number.isFinite(Number(row.on_time_rate))
+          ? Number(row.on_time_rate)
+          : null,
+    });
+  }
+  return map;
+}
+
 type RequestStatRow = {
   status: string | null;
   appointment_status?: string | null;

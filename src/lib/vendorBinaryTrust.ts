@@ -5,7 +5,10 @@ export type VendorBinaryTrustSignals = {
   is_manual_verified?: boolean | null;
   upi_verified?: boolean | null;
   photo_selfie?: string | null;
+  /** @deprecated Use businessGpsVerified instead for per-business GPS checks */
   latitude?: number | null;
+  /** Per-business GPS verification status (derived from business location proof) */
+  businessGpsVerified?: boolean;
 };
 
 /**
@@ -16,11 +19,14 @@ export type VendorBinaryTrustSignals = {
 export function vendorBinaryTrustTier(
   v: VendorBinaryTrustSignals,
 ): Extract<VerificationDisplayTier, "green" | "red"> {
+  // Use per-business GPS verification if available, fall back to account-level for backward compatibility
+  const gpsVerified = v.businessGpsVerified ?? (v.latitude != null);
+  
   if (
     v.is_manual_verified === true &&
     v.upi_verified === true &&
     !!v.photo_selfie &&
-    v.latitude != null
+    gpsVerified
   ) {
     return "green";
   }

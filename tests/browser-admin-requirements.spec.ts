@@ -14,7 +14,7 @@ import {
   seedVendorCategory,
   TEST_ADMIN_PHONE,
 } from './helpers/setup';
-import { computeTrustLevel } from '../src/lib/trustLevel';
+import { computeTrustLevelForBusiness } from '../src/lib/trustLevel';
 
 const T = Date.now();
 const DEVICE_ID = `device_adm_req_${T}`;
@@ -124,13 +124,27 @@ async function seedVendor(
 }
 
 async function seedDiamondVerification(vendorId: string) {
+  await supabaseAdmin
+    .from('vendors')
+    .update({ photo_selfie: 'https://example.com/test-shop.jpg' })
+    .eq('id', vendorId);
+  const { error: locError } = await supabaseAdmin
+    .from('vendor_categories')
+    .update({
+      shop_photo_url: 'https://example.com/test-shop.jpg',
+      gps_match_distance: 10,
+      location_accuracy: 5,
+      photo_accuracy: 5,
+      verification_status: 'business_verified',
+    })
+    .eq('vendor_id', vendorId);
+  if (locError) throw locError;
+
   await supabaseAdmin.from('vendor_verification').delete().eq('vendor_id', vendorId);
   const rows = [
     'upi_format',
     'upi_pennydrop',
-    'photo_shop',
     'photo_selfie',
-    'gps',
     'admin_check',
     'aadhaar_digilocker',
   ].map((check_type) => ({
@@ -409,7 +423,17 @@ test('ADM-REQ-02 — Vendor with all checks passed shows top-tier badge', async 
     .select('vendor_id, check_type, status, is_latest')
     .eq('vendor_id', vendor.id)
     .eq('is_latest', true);
-  expect(computeTrustLevel(vendor.id, verRows ?? [])).toBe('Diamond');
+  const { data: bizRows } = await supabaseAdmin
+    .from('vendor_categories')
+    .select(
+      'vendor_id, category_id, shop_photo_url, gps_match_distance, location_accuracy, photo_accuracy, verification_status',
+    )
+    .eq('vendor_id', vendor.id);
+  const catId = bizRows?.[0]?.category_id;
+  expect(catId).toBeTruthy();
+  expect(
+    computeTrustLevelForBusiness(vendor.id, catId!, verRows ?? [], bizRows ?? []),
+  ).toBe('Diamond');
 
   await mockAdminVendorListFetch(page, vendor.id);
   await mockAdminVendorVerificationFetch(page, vendor.id);

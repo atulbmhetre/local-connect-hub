@@ -116,6 +116,23 @@ test.describe('OTP-off production fidelity (no Supabase session)', () => {
     });
     expect(error, error?.message).toBeNull();
 
+    // Without vendors.photo_selfie set, auto-sync leaves check dormant (not pending forever).
+    const { data: beforeSelfie, error: beforeErr } = await supabaseAdmin
+      .from('vendor_verification')
+      .select('check_type, status, is_latest')
+      .eq('vendor_id', vendorId)
+      .eq('check_type', 'photo_selfie')
+      .eq('is_latest', true)
+      .maybeSingle();
+    expect(beforeErr).toBeNull();
+    expect(beforeSelfie?.status).toBe('dormant');
+
+    const { error: patchErr } = await supabaseAdmin
+      .from('vendors')
+      .update({ photo_selfie: 'https://example.test/selfie.jpg' })
+      .eq('id', vendorId);
+    expect(patchErr).toBeNull();
+
     const { data, error: verifyError } = await supabaseAdmin
       .from('vendor_verification')
       .select('check_type, status, is_latest')
@@ -125,7 +142,7 @@ test.describe('OTP-off production fidelity (no Supabase session)', () => {
       .maybeSingle();
 
     expect(verifyError).toBeNull();
-    expect(data?.status).toBe('pending');
+    expect(data?.status).toBe('passed');
   });
 
   test('admin dashboard stats via get_admin_dashboard_stats RPC', async () => {

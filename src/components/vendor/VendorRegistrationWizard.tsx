@@ -978,6 +978,8 @@ export function VendorRegistrationWizard({
             .from(SHOP_PHOTOS_BUCKET)
             .getPublicUrl(shopPath);
           const hasAccountCoords = coords != null;
+          const bizLat = shopPhotoCoords?.lat ?? coords?.lat ?? null;
+          const bizLng = shopPhotoCoords?.lng ?? coords?.lng ?? null;
           const { error: shopSubmitErr } = await withTimedRetry(async (signal) =>
             throwOnSupabaseNetworkError(
               await applyAbortSignal(
@@ -995,6 +997,8 @@ export function VendorRegistrationWizard({
                   p_set_account_location_accuracy: hasAccountCoords
                     ? coords?.accuracy ?? null
                     : shopPhotoCoords?.accuracy ?? null,
+                  p_business_lat: bizLat,
+                  p_business_lng: bizLng,
                 }),
                 signal,
               ),

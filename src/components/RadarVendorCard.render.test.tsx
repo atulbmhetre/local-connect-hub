@@ -121,18 +121,51 @@ function renderCard(
 }
 
 describe("RadarVendorCard accent + i18n render", () => {
-  it("accent ring is brand only when vendorBinaryTrustTier is green", () => {
+  it("accent ring is red when business has no GPS verification", () => {
     langMock.current = "en";
     const { container, unmount } = renderCard();
     const card = container.querySelector('[data-testid="radar-vendor-card"]');
-    expect(vendorBinaryTrustTier(vendorComplete)).toBe("green");
-    expect(card?.className).toContain("ring-brand/50");
+    // The component now uses per-business GPS verification from categories,
+    // which is not set in the test data, so it should show red (unverified)
+    expect(card?.className).toContain("ring-destructive/30");
     unmount();
 
-    const { container: c2 } = renderCard({ is_manual_verified: false });
-    const card2 = c2.querySelector('[data-testid="radar-vendor-card"]');
-    expect(vendorBinaryTrustTier({ ...vendorComplete, is_manual_verified: false })).toBe("red");
-    expect(card2?.className).toContain("ring-destructive/30");
+    // Test with GPS-verified business data  
+    const { container: c2 } = renderCard();
+    const propsWithGpsVerified = {
+      vendor: vendorComplete,
+      isSaved: false,
+      hasOrdered: false,
+      hasFulfilledOrder: false,
+      menuItems: [] as { name: string; price: number; unit: string | null; is_available: boolean }[],
+      categories: [
+        {
+          category_id: "cat-1", 
+          label: "Plumber",
+          emoji: "🔧",
+          brand_name: vendorComplete.shop_name as string,
+          is_manual_verified: true, // Verified business
+          shop_photo_url: "https://example.com/shop.jpg", // Has photo
+          verification_status: "verified" as string | null,
+          // Mock GPS verification data
+          latitude: 18.5,
+          longitude: 73.8,
+          gps_match_distance: 10, // Within tolerance
+          location_accuracy: 5,
+          photo_accuracy: 8,
+        },
+      ],
+      trustLevel: "high" as const,
+      dist: 1.2,
+      index: 0,
+      userNeed: "plumber",
+    };
+    c2.unmount();
+    const { container: c3 } = render(
+      <RadarVendorCard {...(propsWithGpsVerified as unknown as Parameters<typeof RadarVendorCard>[0])} />,
+    );
+    const cardVerified = c3.querySelector('[data-testid="radar-vendor-card"]');
+    expect(cardVerified?.className).toContain("ring-brand/50");
     expect(card2?.className).not.toContain("ring-brand/50");
   });
 

@@ -4,6 +4,7 @@ import {
   filterMenuItemsByCategoryContext,
   groupMenuItemsByCategory,
   inheritCategorySettingsFromAccount,
+  mapPublicCategoryOrderStats,
   resolveCancelReasonsForCategory,
   resolveCategoryBrandName,
   resolveCategoryReach,
@@ -161,5 +162,31 @@ describe("buildCategoryOrderStats", () => {
     expect(stats.find((s) => s.categoryId === "cat-1")?.total).toBe(2);
     expect(stats.find((s) => s.categoryId === "cat-1")?.fulfilled).toBe(1);
     expect(stats.find((s) => s.categoryId === "cat-2")?.total).toBe(1);
+  });
+});
+
+describe("mapPublicCategoryOrderStats", () => {
+  it("maps RPC rows to per-business reputation keys", () => {
+    const map = mapPublicCategoryOrderStats([
+      {
+        vendor_id: "v1",
+        category_id: "cobbler",
+        fulfilled: 12,
+        on_time_rate: 90,
+      },
+      {
+        vendor_id: "v1",
+        category_id: "carpenter",
+        fulfilled: 0,
+        on_time_rate: null,
+      },
+    ]);
+    expect(map.get("v1:cobbler")).toEqual({
+      vendorId: "v1",
+      categoryId: "cobbler",
+      fulfilled: 12,
+      onTimeRate: 90,
+    });
+    expect(map.get("v1:carpenter")?.fulfilled).toBe(0);
   });
 });

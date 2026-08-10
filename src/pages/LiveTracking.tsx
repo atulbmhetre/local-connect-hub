@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   Lock,
@@ -40,6 +40,7 @@ import {
 } from "@/lib/withNetworkRetry";
 import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
+import { fetchBusinessPhotos, resolveVendorPhoto } from "@/lib/businessPhotoFallback";
 
 // Stalled threshold: if helper coords don't move for 2 minutes, alert.
 const STALL_MS = 2 * 60 * 1000;
@@ -88,6 +89,8 @@ const FitBounds = ({ points }: { points: [number, number][] }) => {
 const LiveTracking = () => {
   const navigate = useNavigate();
   const { vendorId } = useParams<{ vendorId: string }>();
+  const [searchParams] = useSearchParams();
+  const orderCategoryId = searchParams.get("categoryId") || searchParams.get("category_id");
   const { s } = useLanguage();
   const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
@@ -105,6 +108,7 @@ const LiveTracking = () => {
   const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
   const [stalled, setStalled] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [businessPhotos, setBusinessPhotos] = useState<Map<string, string | null>>(new Map());
 
   // Secure call: in-flight request vs brief post-success "answer on your phone" overlay (AiBridge pattern).
   const [callInitiating, setCallInitiating] = useState(false);
@@ -228,6 +232,17 @@ const LiveTracking = () => {
     }, 5_000);
     return () => clearInterval(t);
   }, []);
+
+  // Fetch business-specific photos when vendor and category are available
+  useEffect(() => {
+    if (!vendor || !orderCategoryId) {
+      return;
+    }
+
+    void fetchBusinessPhotos([{ vendorId: vendor.id, categoryId: orderCategoryId }]).then(
+      (photoMap) => setBusinessPhotos(photoMap)
+    );
+  }, [vendor?.id, orderCategoryId]);
 
   // After Exotel accepts: brief overlay, then dismiss (call continues on the phone).
   useEffect(() => {
@@ -598,22 +613,34 @@ const LiveTracking = () => {
       {/* Responder card */}
       <section className="mx-4 mt-3 rounded-2xl bg-surface border border-white/10 p-4 flex items-center gap-3">
         <div className="h-14 w-14 rounded-2xl overflow-hidden bg-page-bg border border-white/10 grid place-items-center shrink-0">
-          {vendor.shop_photo_url ? (
-            <img
-              src={vendor.shop_photo_url}
-              alt={s.liveTracking_photoAlt(vendor.name)}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <span className="text-xl font-display font-bold text-brand">
-              {vendor.name?.[0]?.toUpperCase() ?? "?"}
-            </span>
-          )}
+          {(() => {
+            const effectivePhoto = resolveVendorPhoto(
+              businessPhotos,
+              vendor.id,
+              orderCategoryId,
+              vendor.shop_photo_url
+            );
+            return effectivePhoto ? (
+              <img
+                src={effectivePhoto}
+                alt={s.liveTracking_photoAlt(vendor.name)}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="text-xl font-display font-bold text-brand">
+                {vendor.name?.[0]?.toUpperCase() ?? "?"}
+              </span>
+            );
+          })()}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <p className="font-display font-bold truncate">{vendor.name}</p>
-            <TrustBadge vendorId={vendor.id} isManualVerified={vendor.is_manual_verified} />
+            <TrustBadge
+              vendorId={vendor.id}
+              categoryId={orderCategoryId}
+              isManualVerified={vendor.is_manual_verified}
+            />
           </div>
           <p className="text-xs text-gray-400 truncate">
             {vendor.shop_name} · {getLabel(vendor.category)}

@@ -19,6 +19,7 @@ import LiveTracking from "./pages/LiveTracking.tsx";
 import { ReferralRedirect } from "@/components/ReferralRedirect";
 import { PushNavigationBridge } from "@/components/PushNavigationBridge";
 import { tryHandleFirstOpenBack } from "@/lib/firstOpenBackBridge";
+import { tryHandleOverlayBack } from "@/lib/overlayBackBridge";
 
 const SettingsPage = lazy(() => import("./pages/Settings.tsx"));
 const HelpSupport = lazy(() => import("./pages/HelpSupport.tsx"));
@@ -84,6 +85,7 @@ function NativeBackButtonHandler() {
 
     void CapacitorApp.addListener("backButton", () => {
       if (tryHandleFirstOpenBack()) return;
+      if (tryHandleOverlayBack()) return;
       const path = window.location.pathname;
       if (path === "/" || path === "") {
         void CapacitorApp.exitApp();
@@ -155,6 +157,14 @@ const App = () => (
               />
               <Route
                 path="/settings"
+                element={
+                  <RouteSuspense>
+                    <SettingsPage />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/settings/admin"
                 element={
                   <RouteSuspense>
                     <SettingsPage />

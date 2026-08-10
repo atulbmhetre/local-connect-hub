@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { SOSButton } from "@/components/SOSButton";
@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { captureError } from "@/lib/sentry";
 import { customerOrderShowsLiveLocation } from "@/lib/vendorTrackingPolicy";
 import { savedNeighbourDisplayName } from "@/lib/savedVendors";
+import { fetchBusinessPhotos, resolveVendorPhoto } from "@/lib/businessPhotoFallback";
 
 type SavedNeighbourTile = {
   savedId: string;
@@ -90,6 +91,7 @@ const Index = () => {
   const [classifying, setClassifying] = useState(false);
   const [suggest, setSuggest] = useState<SuggestSheetState | null>(null);
   const [savedNeighbours, setSavedNeighbours] = useState<SavedNeighbourTile[]>([]);
+  const [savedNeighboursBusinessPhotos, setSavedNeighboursBusinessPhotos] = useState<Map<string, string | null>>(new Map());
   const [parchiVendor, setParchiVendor] = useState<Vendor | null>(null);
   const [parchiOpen, setParchiOpen] = useState(false);
   const [neighbourSheetVendor, setNeighbourSheetVendor] = useState<Vendor | null>(null);
@@ -100,7 +102,8 @@ const Index = () => {
   const [activeOrderCount, setActiveOrderCount] = useState(0);
   const [neighbourDeliveryActiveOrder, setNeighbourDeliveryActiveOrder] = useState(false);
   const [appointmentActiveFromDb, setAppointmentActiveFromDb] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const emptyCategories = useMemo(() => [], []);
+  const [categories, setCategories] = useState<Category[]>(emptyCategories);
   const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [categoriesError, setCategoriesError] = useState(false);
@@ -158,12 +161,30 @@ const Index = () => {
     }
     const byId = new Map(vendors.map((v) => [v.id, v as Vendor]));
     const tiles: SavedNeighbourTile[] = [];
+    const vendorCategoryPairs: Array<{ vendorId: string; categoryId: string }> = [];
+    
     for (const r of saved) {
       const v = byId.get(r.vendor_id);
-      if (v) tiles.push({ savedId: r.id, vendor: v, nickname: r.nickname, category: r.category });
+      if (v) {
+        tiles.push({ savedId: r.id, vendor: v, nickname: r.nickname, category: r.category });
+        
+        // Find category ID to fetch business photo
+        const categoryId = categories.find((cat) => cat.name === r.category)?.id;
+        if (categoryId) {
+          vendorCategoryPairs.push({ vendorId: v.id, categoryId });
+        }
+      }
     }
+    
     setSavedNeighbours(tiles);
-  }, []);
+    
+    // Fetch business photos for all saved neighbours
+    if (vendorCategoryPairs.length > 0) {
+      void fetchBusinessPhotos(vendorCategoryPairs).then(setSavedNeighboursBusinessPhotos);
+    } else {
+      setSavedNeighboursBusinessPhotos(new Map());
+    }
+  }, [categories]);
 
   useEffect(() => {
     const handler = () => setUserPhone(getUserPhone());
@@ -239,7 +260,7 @@ const Index = () => {
         setCategoryGroups(groupCategoriesByMode(cats, modeLabels));
       } catch (error) {
         captureError(error, { homeSurface: "category_grid", operation: "fetch_categories" });
-        setCategories([]);
+        setCategories(emptyCategories);
         setCategoryGroups([]);
         setCategoriesError(true);
       } finally {
@@ -733,7 +754,15 @@ const Index = () => {
         <section className="animate-fade-up">
           <SettingsSectionLabel>{s.myNeighbourhood}</SettingsSectionLabel>
           <div className="flex gap-3 overflow-x-auto pb-1 px-4 scrollbar-hide">
-            {savedNeighbours.map(({ savedId, vendor, nickname, category }) => (
+            {savedNeighbours.map(({ savedId, vendor, nickname, category }) => {
+              const categoryId = categories.find((cat) => cat.name === category)?.id;
+              const effectivePhoto = resolveVendorPhoto(
+                savedNeighboursBusinessPhotos,
+                vendor.id,
+                categoryId,
+                vendor.shop_photo_url
+              );
+              return (
               <button
                 key={savedId}
                 data-testid="saved-neighbour-tile"
@@ -755,9 +784,9 @@ const Index = () => {
                 className="flex-shrink-0 w-44 rounded-2xl border border-surface-border bg-surface text-left px-4 py-3 flex gap-3 active:scale-[0.98] transition-transform"
               >
                 <div className="relative h-14 w-14 rounded-xl overflow-hidden bg-muted shrink-0 grid place-items-center">
-                  {vendor.shop_photo_url ? (
+                  {effectivePhoto ? (
                     <img
-                      src={vendor.shop_photo_url}
+                      src={effectivePhoto}
                       alt=""
                       className="h-full w-full object-cover"
                       loading="lazy"
@@ -785,7 +814,8 @@ const Index = () => {
                   </p>
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}

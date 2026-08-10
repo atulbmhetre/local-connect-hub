@@ -364,30 +364,71 @@ export async function seedVendorCategory(
   if (modesError) throw modesError;
 }
 
-export async function seedDefaultVendorVerification(vendorId: string) {
-  const { error } = await supabaseAdmin.from('vendor_verification').insert([
-    { vendor_id: vendorId, check_type: 'upi_format', status: 'passed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'upi_pennydrop', status: 'dormant', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'photo_shop', status: 'pending', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'photo_selfie', status: 'pending', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'gps', status: 'pending', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'admin_check', status: 'pending', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'aadhaar_digilocker', status: 'dormant', checked_by: 'system', is_latest: true },
-  ]);
+/** Replace latest verification rows (auto-pass triggers may already have inserted some). */
+export async function replaceVendorVerification(
+  vendorId: string,
+  rows: Array<{
+    check_type: string;
+    status: string;
+    checked_by?: string;
+  }>,
+) {
+  const { error: delError } = await supabaseAdmin
+    .from('vendor_verification')
+    .delete()
+    .eq('vendor_id', vendorId);
+  if (delError) throw delError;
+  const { error } = await supabaseAdmin.from('vendor_verification').insert(
+    rows.map((r) => ({
+      vendor_id: vendorId,
+      check_type: r.check_type,
+      status: r.status,
+      checked_by: r.checked_by ?? 'system',
+      is_latest: true,
+    })),
+  );
   if (error) throw error;
 }
 
-export async function seedBronzeVendorVerification(vendorId: string) {
-  const { error } = await supabaseAdmin.from('vendor_verification').insert([
-    { vendor_id: vendorId, check_type: 'upi_format', status: 'passed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'upi_pennydrop', status: 'dormant', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'photo_shop', status: 'passed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'photo_selfie', status: 'passed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'gps', status: 'passed', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'admin_check', status: 'dormant', checked_by: 'system', is_latest: true },
-    { vendor_id: vendorId, check_type: 'aadhaar_digilocker', status: 'dormant', checked_by: 'system', is_latest: true },
+export async function seedDefaultVendorVerification(vendorId: string) {
+  await replaceVendorVerification(vendorId, [
+    { check_type: 'upi_format', status: 'passed' },
+    { check_type: 'upi_pennydrop', status: 'dormant' },
+    { check_type: 'photo_shop', status: 'pending' },
+    { check_type: 'photo_selfie', status: 'pending' },
+    { check_type: 'gps', status: 'pending' },
+    { check_type: 'admin_check', status: 'pending' },
+    { check_type: 'aadhaar_digilocker', status: 'dormant' },
   ]);
-  if (error) throw error;
+}
+
+export async function seedBronzeVendorVerification(vendorId: string) {
+  // Ensure selfie auto-sync has source data (VC updates re-trigger sync_vendor_tier_auto_checks).
+  await supabaseAdmin
+    .from('vendors')
+    .update({ photo_selfie: TEST_VENDOR_SHOP_PHOTO })
+    .eq('id', vendorId);
+
+  // Per-business location proof (Phase 3) — VV photo_shop/gps no longer drive tier.
+  const { error: locError } = await supabaseAdmin
+    .from('vendor_categories')
+    .update({
+      shop_photo_url: TEST_VENDOR_SHOP_PHOTO,
+      gps_match_distance: 10,
+      location_accuracy: 5,
+      photo_accuracy: 5,
+      verification_status: 'business_verified',
+    })
+    .eq('vendor_id', vendorId);
+  if (locError) throw locError;
+
+  await replaceVendorVerification(vendorId, [
+    { check_type: 'upi_format', status: 'passed' },
+    { check_type: 'upi_pennydrop', status: 'dormant' },
+    { check_type: 'photo_selfie', status: 'passed' },
+    { check_type: 'admin_check', status: 'dormant' },
+    { check_type: 'aadhaar_digilocker', status: 'dormant' },
+  ]);
 }
 
 export async function createTestCustomer(phone = TEST_CUSTOMER_PHONE) {

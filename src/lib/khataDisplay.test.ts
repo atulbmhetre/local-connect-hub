@@ -6,6 +6,7 @@ import {
   isKhataLedgerUnsettled,
   khataOutstandingColorClass,
   mapKhataRefundError,
+  resolveKhataTxBusinessChip,
 } from "@/lib/khataDisplay";
 
 const s = strings.en;
@@ -108,5 +109,38 @@ describe("mapKhataRefundError", () => {
   it("returns the original message for unrecognized codes", () => {
     const raw = "ledger_not_found";
     expect(mapKhataRefundError(raw, s)).toBe(raw);
+  });
+});
+
+describe("resolveKhataTxBusinessChip", () => {
+  it("shows business chip when request has category label", () => {
+    expect(
+      resolveKhataTxBusinessChip({
+        request_id: "r1",
+        category_label: "Cobbler",
+        category_emoji: "👞",
+        payment_mode: "khata",
+      }),
+    ).toEqual({ kind: "business", emoji: "👞", label: "Cobbler" });
+  });
+
+  it("shows Payment for paid lines without request", () => {
+    expect(
+      resolveKhataTxBusinessChip({
+        request_id: null,
+        category_label: null,
+        payment_mode: "paid",
+      }),
+    ).toEqual({ kind: "payment" });
+  });
+
+  it("shows Refund for non-paid lines without request (no false business)", () => {
+    expect(
+      resolveKhataTxBusinessChip({
+        request_id: null,
+        category_label: "Cobbler",
+        payment_mode: "khata",
+      }),
+    ).toEqual({ kind: "refund" });
   });
 });

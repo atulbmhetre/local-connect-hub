@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Index from "./Index";
+import Index from "../Index";
 
 const mocks = vi.hoisted(() => ({
   captureError: vi.fn(),
@@ -67,6 +67,11 @@ vi.mock("@/components/settings/SettingsSection", () => ({
   SettingsSectionLabel: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
 }));
 
+vi.mock("@/lib/businessPhotoFallback", () => ({
+  fetchBusinessPhotos: vi.fn(() => Promise.resolve(new Map())),
+  resolveVendorPhoto: vi.fn((vendor) => vendor.shop_photo_url || null),
+}));
+
 describe("Home load failures", () => {
   beforeEach(() => {
     mocks.captureError.mockClear();
@@ -86,8 +91,11 @@ describe("Home load failures", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByTestId("home-saved-neighbours-error")).toBeVisible();
+    // Wait for categories to finish loading (and fail) first
     expect(await screen.findByTestId("home-categories-error")).toBeVisible();
+    
+    // Now check for all error states
+    expect(await screen.findByTestId("home-saved-neighbours-error")).toBeVisible();
     expect(await screen.findByTestId("home-active-orders-error")).toBeVisible();
     expect(await screen.findByTestId("home-help-banner-error")).toBeVisible();
 

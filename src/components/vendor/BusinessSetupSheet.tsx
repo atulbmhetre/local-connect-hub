@@ -81,6 +81,16 @@ function categoryServiceModeChipLabel(
   }
 }
 
+type ColocatedMatch = {
+  category_id: string;
+  distance_meters: number;
+  shop_photo_url: string | null;
+  latitude: number;
+  longitude: number;
+  category_label: string | null;
+  brand_name: string | null;
+};
+
 export function BusinessSetupSheet({
   open,
   onOpenChange,
@@ -114,6 +124,10 @@ export function BusinessSetupSheet({
   const [lastFailedShopShot, setLastFailedShopShot] = useState<CapturedShot | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [colocated, setColocated] = useState<ColocatedMatch | null>(null);
+  const [colocatedChecking, setColocatedChecking] = useState(false);
+  const [inheritFromCategoryId, setInheritFromCategoryId] = useState<string | null>(null);
+  const [gatePin, setGatePin] = useState<GpsPoint | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -132,6 +146,10 @@ export function BusinessSetupSheet({
     setShopPhotoPendingLocationReview(false);
     setGpsMatchFailCount(0);
     setLastFailedShopShot(null);
+    setColocated(null);
+    setColocatedChecking(false);
+    setInheritFromCategoryId(null);
+    setGatePin(null);
     setCategoriesLoading(true);
     void supabase
       .from("categories")
@@ -154,12 +172,13 @@ export function BusinessSetupSheet({
   const reachFlags = reachChoice ? reachFlagsFromChoice(reachChoice) : null;
   const needsRadius = reachFlags?.serves_at_customer_place === true;
   const radiusOk = !needsRadius || serviceRadiusKm != null;
+  const photoReady = shopPhotoBlob != null || inheritFromCategoryId != null;
   const ready =
     selectedCategoryId != null &&
     reachChoice !== "" &&
     radiusOk &&
     availabilityModes.length > 0 &&
-    shopPhotoBlob != null &&
+    photoReady &&
     !atMax;
 
   const acceptShopPhoto = (
@@ -179,6 +198,7 @@ export function BusinessSetupSheet({
     setShopPhotoDataUrl(shot.dataUrl);
     setShopPhotoCoords(shot.coords);
     setLastFailedShopShot(null);
+    setInheritFromCategoryId(null);
     if (opts.pendingLocationReview) {
       toast.success(s.vendor_gps_pending_review_toast);
     } else {
@@ -188,16 +208,10 @@ export function BusinessSetupSheet({
 
   const handleShopPhoto = (shot: CapturedShot) => {
     setCameraOpen(false);
-    const hasShopLocation = vendor.latitude != null && vendor.longitude != null;
-    if (hasShopLocation) {
-      const match = evaluateGpsMatch(
-        {
-          lat: vendor.latitude!,
-          lng: vendor.longitude!,
-          accuracy: vendor.location_accuracy,
-        },
-        shot.coords,
-      );
+    // Gate against THIS business pin when set; else first capture establishes the pin.
+    const pin = gatePin;
+    if (pin != null) {
+      const match = evaluateGpsMatch(pin, shot.coords);
       if (!match.ok) {
         const nextFails = gpsMatchFailCount + 1;
         setGpsMatchFailCount(nextFails);
@@ -232,18 +246,12 @@ export function BusinessSetupSheet({
       photoAccuracy: shot.coords.accuracy,
       pendingLocationReview: false,
     });
+    setGatePin(shot.coords);
   };
 
   const submitShopPhotoForLocationReview = () => {
-    if (!lastFailedShopShot || vendor.latitude == null || vendor.longitude == null) return;
-    const match = evaluateGpsMatch(
-      {
-        lat: vendor.latitude,
-        lng: vendor.longitude,
-        accuracy: vendor.location_accuracy,
-      },
-      lastFailedShopShot.coords,
-    );
+    if (!lastFailedShopShot || gatePin == null) return;
+    const match = evaluateGpsMatch(gatePin, lastFailedShopShot.coords);
     acceptShopPhoto(lastFailedShopShot, {
       distance: match.distanceMeters,
       locationAccuracy: match.locationAccuracy,
@@ -252,8 +260,105 @@ export function BusinessSetupSheet({
     });
   };
 
+  const readDeviceGps = (): Promise<GpsPoint | null> =>
+    new Promise((resolve) => {
+      if (!("geolocation" in navigator)) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (p) =>
+          resolve({
+            lat: p.coords.latitude,
+            lng: p.coords.longitude,
+            accuracy:
+              typeof p.coords.accuracy === "number" && Number.isFinite(p.coords.accuracy)
+                ? p.coords.accuracy
+                : null,
+          }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      );
+    });
+
+  const beginShopPhotoFlow = async () => {
+    if (colocatedChecking) return;
+    setColocatedChecking(true);
+    setColocated(null);
+    try {
+      const gps = await readDeviceGps();
+      if (!gps) {
+        // No GPS: fall back to camera; pin established on capture.
+        setGatePin(null);
+        setCameraOpen(true);
+        return;
+      }
+      const { data, error } = await supabase.rpc("vendor_find_colocated_category", {
+        p_vendor_id: vendor.id,
+        p_vendor_phone: vendorPhone,
+        p_lat: gps.lat,
+        p_lng: gps.lng,
+        p_exclude_category_id: selectedCategoryId,
+      });
+      if (error) {
+        console.error("vendor_find_colocated_category", error);
+        setGatePin(null);
+        setCameraOpen(true);
+        return;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row?.category_id) {
+        setColocated({
+          category_id: String(row.category_id),
+          distance_meters: Number(row.distance_meters),
+          shop_photo_url: row.shop_photo_url ?? null,
+          latitude: Number(row.latitude),
+          longitude: Number(row.longitude),
+          category_label: row.category_label ?? null,
+          brand_name: row.brand_name ?? null,
+        });
+        setGatePin({
+          lat: Number(row.latitude),
+          lng: Number(row.longitude),
+          accuracy: null,
+        });
+        return;
+      }
+      // No match: new location — gate against nothing yet; capture sets pin.
+      setGatePin(null);
+      setCameraOpen(true);
+    } finally {
+      setColocatedChecking(false);
+    }
+  };
+
+  const confirmReuseColocated = () => {
+    if (!colocated) return;
+    setInheritFromCategoryId(colocated.category_id);
+    setShopPhotoBlob(null);
+    setShopPhotoDataUrl(colocated.shop_photo_url);
+    setShopPhotoCoords({
+      lat: colocated.latitude,
+      lng: colocated.longitude,
+    });
+    setShopPhotoGpsDistance(0);
+    setShopPhotoPendingLocationReview(false);
+    setLastFailedShopShot(null);
+    setColocated(null);
+    toast.success(s.my_business_photo_reused);
+  };
+
+  const captureNewDespiteColocated = () => {
+    // Fresh capture at a NEW pin for this business (user declined reuse).
+    setInheritFromCategoryId(null);
+    setColocated(null);
+    setGatePin(null);
+    setCameraOpen(true);
+  };
+
   const submit = async () => {
-    if (!ready || !selectedCategoryId || !reachFlags || !shopPhotoBlob) return;
+    if (!ready || !selectedCategoryId || !reachFlags) return;
+    if (!shopPhotoBlob && !inheritFromCategoryId) return;
 
     const modesById: Record<string, AvailabilityMode[]> = {};
     for (const id of existingCategoryIds) {
@@ -333,7 +438,34 @@ export function BusinessSetupSheet({
       }
     }
 
-    const hasShopLocation = vendor.latitude != null && vendor.longitude != null;
+    if (inheritFromCategoryId) {
+      const { error: inheritErr } = await supabase.rpc("vendor_inherit_colocated_shop_photo", {
+        p_vendor_id: vendor.id,
+        p_vendor_phone: vendorPhone,
+        p_category_id: selectedCategoryId,
+        p_from_category_id: inheritFromCategoryId,
+      });
+      if (inheritErr) {
+        setSubmitting(false);
+        toast.error(s.vendor_save_verification_failed, { description: inheritErr.message });
+        return;
+      }
+      void checkAndNotifyAdminCategoryGreenReady(vendor.id, selectedCategoryId, {
+        shopName: vendor.shop_name,
+        vendorPhone,
+      });
+      setSubmitting(false);
+      toast.success(s.my_business_saved);
+      onOpenChange(false);
+      onAdded();
+      return;
+    }
+
+    if (!shopPhotoBlob) {
+      setSubmitting(false);
+      return;
+    }
+
     const path = `${vendor.id}/${selectedCategoryId}/${Date.now()}.jpg`;
     const { error: upErr } = await supabase.storage
       .from(SHOP_PHOTOS_BUCKET)
@@ -344,20 +476,28 @@ export function BusinessSetupSheet({
       return;
     }
     const { data: pub } = supabase.storage.from(SHOP_PHOTOS_BUCKET).getPublicUrl(path);
+
+    // Business pin: existing gate pin, else capture coords (first pin for this business).
+    const bizLat = gatePin?.lat ?? shopPhotoCoords?.lat ?? null;
+    const bizLng = gatePin?.lng ?? shopPhotoCoords?.lng ?? null;
+    const accountEmpty = vendor.latitude == null || vendor.longitude == null;
+
     const { error: photoErr } = await supabase.rpc("vendor_submit_category_shop_photo", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
       p_category_id: selectedCategoryId,
       p_shop_photo_url: pub.publicUrl,
       p_gps_match_distance: shopPhotoGpsDistance,
-      p_set_account_lat: hasShopLocation ? null : shopPhotoCoords?.lat ?? null,
-      p_set_account_lng: hasShopLocation ? null : shopPhotoCoords?.lng ?? null,
+      p_set_account_lat: accountEmpty ? bizLat : null,
+      p_set_account_lng: accountEmpty ? bizLng : null,
       p_pending_location_review: shopPhotoPendingLocationReview,
       p_location_accuracy: shopPhotoLocationAccuracy,
       p_photo_accuracy: shopPhotoAccuracy,
-      p_set_account_location_accuracy: hasShopLocation
-        ? null
-        : shopPhotoCoords?.accuracy ?? null,
+      p_set_account_location_accuracy: accountEmpty
+        ? shopPhotoCoords?.accuracy ?? null
+        : null,
+      p_business_lat: bizLat,
+      p_business_lng: bizLng,
     });
     if (photoErr) {
       setSubmitting(false);
@@ -549,27 +689,69 @@ export function BusinessSetupSheet({
                   <p className="mt-1 text-xs text-muted-foreground">
                     {s.business_photo_verify_hint}
                   </p>
+                  {colocated && (
+                    <div
+                      className="mt-2 rounded-xl border border-brand/40 bg-brand/5 p-3 space-y-2"
+                      data-testid="add-business-same-shop"
+                    >
+                      <p className="text-sm font-semibold text-foreground">
+                        {s.my_business_same_shop_title}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {s.my_business_same_shop_body(
+                          colocated.category_label
+                            ? getLabel(colocated.category_label)
+                            : colocated.brand_name || s.business_photo_verify,
+                        )}
+                      </p>
+                      <div className="flex flex-col gap-2">
+                        <button
+                          type="button"
+                          data-testid="add-business-reuse-photo"
+                          onClick={confirmReuseColocated}
+                          className="w-full rounded-xl bg-primary text-primary-foreground py-2.5 text-sm font-semibold"
+                        >
+                          {s.my_business_reuse_photo}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="add-business-capture-new-photo"
+                          onClick={captureNewDespiteColocated}
+                          className="w-full rounded-xl border border-border py-2.5 text-sm font-semibold"
+                        >
+                          {s.my_business_capture_new_photo}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <button
                     type="button"
                     data-testid="add-business-shop-photo"
-                    onClick={() => setCameraOpen(true)}
+                    disabled={colocatedChecking}
+                    onClick={() => void beginShopPhotoFlow()}
                     className={cn(
-                      "mt-2 w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold",
-                      shopPhotoBlob
+                      "mt-2 w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold disabled:opacity-50",
+                      photoReady
                         ? "border-secondary text-secondary bg-secondary/5"
                         : "border-border",
                     )}
                   >
-                    {shopPhotoBlob ? (
+                    {colocatedChecking ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : photoReady ? (
                       <CheckCircle2 className="h-4 w-4" />
                     ) : (
                       <Camera className="h-4 w-4" />
                     )}
-                    {shopPhotoBlob ? s.vendor_reshoot : s.my_business_verify_now}
+                    {photoReady
+                      ? inheritFromCategoryId
+                        ? s.my_business_reuse_photo
+                        : s.vendor_reshoot
+                      : s.my_business_verify_now}
                   </button>
                   {gpsMatchFailCount >= GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW &&
                     lastFailedShopShot &&
-                    !shopPhotoBlob && (
+                    !photoReady && (
                       <button
                         type="button"
                         data-testid="add-business-gps-submit-for-review"

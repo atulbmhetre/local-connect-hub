@@ -21,13 +21,16 @@ import {
 import { TrustBadge } from "@/components/TrustBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
+import { deriveBusinessLocationPasses, findBusinessLocationRow, type BusinessLocationRow } from "@/lib/trustLevel";
 import {
   emojiForVendorCategory,
   buildVendorBrief,
   invokeInitiateCall,
   useCategoryLabel,
+  supabase,
   type Vendor,
 } from "@/lib/supabase";
+import { mapPublicCategoryOrderStats } from "@/lib/categoryScopedVendor";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 
@@ -58,6 +61,8 @@ type AiBridgeSheetProps = {
   callerPhone: string;
   /** Search need / category context for the AI brief. */
   userNeed?: string;
+  /** Prefer order/search matched category; TrustBadge falls back to primary. */
+  categoryId?: string | null;
   distanceKm?: number | null;
   onCallSuccess?: (vendorId: string) => void;
 };
@@ -97,16 +102,63 @@ export function AiBridgeSheet({
   vendor,
   callerPhone,
   userNeed,
+  categoryId,
   distanceKm = null,
   onCallSuccess,
 }: AiBridgeSheetProps) {
   const { s } = useLanguage();
   const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
+  const [businessGpsVerified, setBusinessGpsVerified] = useState<boolean | null>(null);
+  
   const vendorRow = useMemo(() => asVendor(vendor), [vendor]);
-  const bannerTier = vendorBinaryTrustTier(vendorRow);
+  const bannerTier = vendorBinaryTrustTier({
+    ...vendorRow,
+    businessGpsVerified: businessGpsVerified ?? undefined,
+  });
   const secureCallingLive = config.exotelSecureCallingEnabled;
   const vendorDisplayName = vendor.name?.trim() || vendor.shop_name || "vendor";
+  
+  // Fetch business-specific GPS verification when categoryId is available
+  useEffect(() => {
+    if (!categoryId || !vendor.id) {
+      setBusinessGpsVerified(null);
+      return;
+    }
+
+    const fetchBusinessGps = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("vendor_categories")
+          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status")
+          .eq("vendor_id", vendor.id)
+          .eq("category_id", categoryId)
+          .single();
+
+        if (error || !data) {
+          setBusinessGpsVerified(null);
+          return;
+        }
+
+        const businessLocationData: BusinessLocationRow = {
+          vendor_id: vendor.id,
+          category_id: categoryId,
+          gps_match_distance: data.gps_match_distance,
+          location_accuracy: data.location_accuracy,
+          photo_accuracy: data.photo_accuracy,
+          verification_status: data.verification_status,
+        };
+
+        const { gps } = deriveBusinessLocationPasses(businessLocationData);
+        setBusinessGpsVerified(gps);
+      } catch (err) {
+        console.error("Failed to fetch business GPS data:", err);
+        setBusinessGpsVerified(null);
+      }
+    };
+
+    void fetchBusinessGps();
+  }, [categoryId, vendor.id]);
 
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefText, setBriefText] = useState<string | null>(null);
@@ -114,6 +166,8 @@ export function AiBridgeSheet({
   const [callLoading, setCallLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [directCallConfirmOpen, setDirectCallConfirmOpen] = useState(false);
+  const [categoryFulfilled, setCategoryFulfilled] = useState<number | null>(null);
+  const [categoryOnTimeRate, setCategoryOnTimeRate] = useState<number | null>(null);
 
   const limitMinutes = (() => {
     switch ((vendor.service_mode ?? "").toLowerCase()) {
@@ -169,10 +223,60 @@ export function AiBridgeSheet({
       setCallLoading(false);
       setConnecting(false);
       setDirectCallConfirmOpen(false);
+      setCategoryFulfilled(null);
+      setCategoryOnTimeRate(null);
       return;
     }
     void loadBrief();
   }, [open, loadBrief]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      let resolvedCategoryId = categoryId?.trim() || null;
+      if (!resolvedCategoryId) {
+        const { data: cats } = await supabase
+          .from("vendor_categories")
+          .select("category_id, is_primary, latitude")
+          .eq("vendor_id", vendor.id)
+          .eq("status", "approved");
+        if (cancelled) return;
+        const list = cats ?? [];
+        const primary =
+          list.find((c) => c.is_primary === true) ??
+          list.find((c) => c.latitude != null) ??
+          list[0] ??
+          null;
+        resolvedCategoryId = primary?.category_id ?? null;
+      }
+      if (!resolvedCategoryId) {
+        if (!cancelled) {
+          setCategoryFulfilled(0);
+          setCategoryOnTimeRate(null);
+        }
+        return;
+      }
+      const { data, error } = await supabase.rpc("get_public_vendor_category_order_stats", {
+        p_vendor_ids: [vendor.id],
+        p_category_ids: [resolvedCategoryId],
+      });
+      if (cancelled) return;
+      if (error) {
+        console.error("aiBridge/category_order_stats", error);
+        setCategoryFulfilled(0);
+        setCategoryOnTimeRate(null);
+        return;
+      }
+      const map = mapPublicCategoryOrderStats(data ?? []);
+      const rep = map.get(`${vendor.id}:${resolvedCategoryId}`);
+      setCategoryFulfilled(rep?.fulfilled ?? 0);
+      setCategoryOnTimeRate(rep?.onTimeRate ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, categoryId, vendor.id]);
 
   useEffect(() => {
     if (!connecting) return;
@@ -253,6 +357,7 @@ export function AiBridgeSheet({
             <div className="flex items-center gap-2 pt-1">
               <TrustBadge
                 vendorId={vendorRow.id}
+                categoryId={categoryId}
                 isManualVerified={vendorRow.is_manual_verified}
                 showLabel
               />
@@ -267,22 +372,22 @@ export function AiBridgeSheet({
             </div>
           )}
 
-          {(vendor.total_helped != null && vendor.total_helped > 0) ||
-          (vendor.on_time_rate != null && Number.isFinite(vendor.on_time_rate)) ? (
+          {(categoryFulfilled != null && categoryFulfilled > 0) ||
+          (categoryOnTimeRate != null && Number.isFinite(categoryOnTimeRate)) ? (
             <div className="flex flex-wrap gap-3 text-[11px] text-gray-400">
-              {vendor.total_helped != null && vendor.total_helped > 0 && (
+              {categoryFulfilled != null && categoryFulfilled > 0 && (
                 <span>
                   {s.radar_helped}
                   <span className="font-semibold text-brand tabular-nums">
-                    {vendor.total_helped}
+                    {categoryFulfilled}
                   </span>{" "}
-                  {vendor.total_helped === 1 ? s.radar_person : s.radar_people}
+                  {categoryFulfilled === 1 ? s.radar_person : s.radar_people}
                 </span>
               )}
-              {vendor.on_time_rate != null && Number.isFinite(vendor.on_time_rate) && (
+              {categoryOnTimeRate != null && Number.isFinite(categoryOnTimeRate) && (
                 <span>
                   <span className="font-semibold text-brand tabular-nums">
-                    {Math.round(vendor.on_time_rate)}
+                    {Math.round(categoryOnTimeRate)}
                   </span>
                   {s.radar_on_time}
                 </span>
