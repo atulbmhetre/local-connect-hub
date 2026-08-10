@@ -335,14 +335,14 @@ export function RadarVendorCard({
       };
   
   // Compute business-specific GPS verification for the matched category
-  const businessLocationData = categories[0] ? {
+  const businessLocationData = categories[0] && 'gps_match_distance' in categories[0] ? {
     vendor_id: vendor.id,
     category_id: categories[0].category_id,
-    shop_photo_url: categories[0].shop_photo_url,
-    gps_match_distance: categories[0].gps_match_distance,
-    location_accuracy: categories[0].location_accuracy,
-    photo_accuracy: categories[0].photo_accuracy,
-    verification_status: categories[0].verification_status,
+    shop_photo_url: (categories[0] as any).shop_photo_url,
+    gps_match_distance: (categories[0] as any).gps_match_distance,
+    location_accuracy: (categories[0] as any).location_accuracy,
+    photo_accuracy: (categories[0] as any).photo_accuracy,
+    verification_status: (categories[0] as any).verification_status,
   } : null;
   
   const { gps: businessGpsVerified } = deriveBusinessLocationPasses(businessLocationData);

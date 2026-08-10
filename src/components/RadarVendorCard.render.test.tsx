@@ -132,6 +132,7 @@ describe("RadarVendorCard accent + i18n render", () => {
 
     // Test with GPS-verified business data  
     const { container: c2 } = renderCard();
+    const card2 = c2.querySelector('[data-testid="radar-vendor-card"]');
     const propsWithGpsVerified = {
       vendor: vendorComplete,
       isSaved: false,
@@ -160,7 +161,7 @@ describe("RadarVendorCard accent + i18n render", () => {
       index: 0,
       userNeed: "plumber",
     };
-    c2.unmount();
+    // Cleanup previous render
     const { container: c3 } = render(
       <RadarVendorCard {...(propsWithGpsVerified as unknown as Parameters<typeof RadarVendorCard>[0])} />,
     );

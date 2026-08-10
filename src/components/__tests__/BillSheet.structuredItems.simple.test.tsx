@@ -2,7 +2,13 @@ import { describe, it, expect } from 'vitest';
 
 describe('BillSheet Structured Items Logic', () => {
   it('converts structured order items to bill items format', () => {
-    const mockRequestItems = [
+    const mockRequestItems: Array<{
+      item_id: string;
+      name?: string;
+      quantity: number;
+      unit_price?: number;
+      unit: string;
+    }> = [
       {
         item_id: 'item-1',
         name: 'Veg Curry',
@@ -60,7 +66,13 @@ describe('BillSheet Structured Items Logic', () => {
   });
 
   it('handles missing item properties gracefully', () => {
-    const mockRequestItems = [
+    const mockRequestItems: Array<{
+      item_id: string;
+      name?: string;
+      quantity: number;
+      unit_price?: number;
+      unit: string;
+    }> = [
       {
         item_id: 'item-1',
         // name is missing

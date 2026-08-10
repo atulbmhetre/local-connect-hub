@@ -169,7 +169,7 @@ const Index = () => {
         tiles.push({ savedId: r.id, vendor: v, nickname: r.nickname, category: r.category });
         
         // Find category ID to fetch business photo
-        const categoryId = categories.find((cat) => cat.name === r.category)?.id;
+        const categoryId = categories.find((cat) => cat.label === r.category)?.id;
         if (categoryId) {
           vendorCategoryPairs.push({ vendorId: v.id, categoryId });
         }
@@ -755,7 +755,7 @@ const Index = () => {
           <SettingsSectionLabel>{s.myNeighbourhood}</SettingsSectionLabel>
           <div className="flex gap-3 overflow-x-auto pb-1 px-4 scrollbar-hide">
             {savedNeighbours.map(({ savedId, vendor, nickname, category }) => {
-              const categoryId = categories.find((cat) => cat.name === category)?.id;
+              const categoryId = categories.find((cat) => cat.label === category)?.id;
               const effectivePhoto = resolveVendorPhoto(
                 savedNeighboursBusinessPhotos,
                 vendor.id,

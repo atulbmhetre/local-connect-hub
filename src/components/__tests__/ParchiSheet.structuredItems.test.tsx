@@ -80,7 +80,6 @@ const mockVendor: Vendor = {
   khata_amber_limit: 1000,
   khata_red_limit: 2000,
   last_updated: '2024-01-01T00:00:00Z',
-  fcm_token: null,
   gps_match_distance: null,
   discoverable: true,
   subscription_status: null,
@@ -170,7 +169,7 @@ describe('ParchiSheet Structured Items', () => {
     
     // Simulate buildStructuredItems with no selections
     const items = Object.entries(selectedMenuItems)
-      .filter(([, qty]) => qty > 0)
+      .filter(([, qty]) => (qty as number) > 0)
       .map(([id, qty]) => {
         const item = menuItems.find((m) => m.id === id);
         if (!item) return null;

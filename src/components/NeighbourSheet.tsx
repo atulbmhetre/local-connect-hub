@@ -89,7 +89,7 @@ export function NeighbourSheet({
       return;
     }
     
-    const categoryId = categories.find((cat) => cat.name === savedVendor.category)?.id;
+    const categoryId = categories.find((cat) => cat.label === savedVendor.category)?.id;
     if (!categoryId) {
       return;
     }
@@ -108,7 +108,7 @@ export function NeighbourSheet({
     "";
   
   // Get business-specific photo, falling back to account photo
-  const categoryId = categories.find((cat) => cat.name === savedVendor?.category)?.id;
+  const categoryId = categories.find((cat) => cat.label === savedVendor?.category)?.id;
   const effectivePhoto = vendor ? resolveVendorPhoto(
     businessPhotos,
     vendor.id,
