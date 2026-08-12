@@ -862,7 +862,6 @@ const Settings = () => {
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
   const [verifyAutoTicked, setVerifyAutoTicked] = useState<Set<string>>(() => new Set());
   const [verifyReferrerLabel, setVerifyReferrerLabel] = useState<string | null>(null);
-  const [adminCheckUpdating, setAdminCheckUpdating] = useState(false);
   const [verifyBusinessPicker, setVerifyBusinessPicker] = useState<{
     open: boolean;
     vendor: (typeof vendorList)[number] | null;
@@ -2446,6 +2445,7 @@ const Settings = () => {
         body: s.vendor_approved_body,
       });
       logAdminAction("verify_vendor_category", "vendor_category", categoryId, null, adminAuditLabel());
+      logAdminAction("admin_check_passed", "vendor", vendor.id, "admin_check", adminAuditLabel());
       localStorage.removeItem(verifyProgressKey(verifyingKey));
       await loadVendorList();
       closeVerifySheet();
@@ -2478,6 +2478,7 @@ const Settings = () => {
       return;
     }
     logAdminAction("unverify_vendor_category", "vendor_category", categoryId, null, adminAuditLabel());
+    logAdminAction("admin_check_failed", "vendor", vendorId, "admin_check", adminAuditLabel());
     await loadVendorList();
     setVerifying(null);
     toast(s.settings_verificationRemoved);
@@ -2487,36 +2488,6 @@ const Settings = () => {
     const vendor = vendorList.find((v) => v.id === vendorId);
     if (!vendor) return;
     beginVerifyOrUnverify(vendor, "unverify");
-  };
-
-  const setAdminCheckStatus = async (vendorId: string, status: "passed" | "failed") => {
-    setAdminCheckUpdating(true);
-    const { error } = await supabase.rpc("admin_set_vendor_check", {
-      p_admin_phone: adminRpcLabel(),
-      p_vendor_id: vendorId,
-      p_status: status,
-    });
-    if (error) {
-      console.error("setAdminCheckStatus", error);
-      setAdminCheckUpdating(false);
-      toast.error(s.admin_check_update_failed_toast);
-      return;
-    }
-    const refreshed = await loadVendorList();
-    setVerifySheet((prev) => {
-      if (!prev.vendor || prev.vendor.id !== vendorId) return prev;
-      const updated = refreshed.find((v) => v.id === vendorId);
-      return updated ? { ...prev, vendor: updated } : prev;
-    });
-    setAdminCheckUpdating(false);
-    logAdminAction(
-      status === "passed" ? "admin_check_passed" : "admin_check_failed",
-      "vendor",
-      vendorId,
-      "admin_check",
-      adminAuditLabel(),
-    );
-    toast.success(status === "passed" ? s.admin_check_passed_toast : s.admin_check_failed_toast);
   };
 
   const filteredVendors = useMemo(() => {
@@ -4798,24 +4769,6 @@ const Settings = () => {
                   </div>
                 );
               })}
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  disabled={adminCheckUpdating}
-                  onClick={() => void setAdminCheckStatus(verifySheet.vendor.id, "passed")}
-                  className="flex-1 rounded-xl bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
-                >
-                  {s.admin_mark_check_passed}
-                </button>
-                <button
-                  type="button"
-                  disabled={adminCheckUpdating}
-                  onClick={() => void setAdminCheckStatus(verifySheet.vendor.id, "failed")}
-                  className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
-                >
-                  {s.admin_mark_check_failed}
-                </button>
-              </div>
             </div>
 
             <div className="rounded-2xl border border-border bg-muted/30 p-4 mb-5 space-y-3 text-sm">

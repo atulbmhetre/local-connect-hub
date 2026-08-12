@@ -15,7 +15,6 @@ import {
   cleanupTestData,
   cleanupTestVendors,
   seedBronzeVendorVerification,
-  seedDefaultVendorVerification,
   seedVendorCategory,
   getFirstActiveCategory,
   TEST_CUSTOMER_PHONE,
@@ -180,6 +179,24 @@ test('ADMIN-04: admin can verify vendor — is_manual_verified = true in DB', as
     .eq('id', testVendor.id)
     .single();
   expect(data?.is_manual_verified).toBe(true);
+
+  const { data: catRow } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('is_manual_verified')
+    .eq('vendor_id', testVendor.id)
+    .maybeSingle();
+  expect(catRow?.is_manual_verified).toBe(true);
+
+  const { data: adminCheckRow } = await supabaseAdmin
+    .from('vendor_verification')
+    .select('status, is_latest, checked_by')
+    .eq('vendor_id', testVendor.id)
+    .eq('check_type', 'admin_check')
+    .eq('is_latest', true)
+    .single();
+  expect(adminCheckRow?.status).toBe('passed');
+  expect(adminCheckRow?.checked_by).toBe('admin');
+  expect(adminCheckRow?.is_latest).toBe(true);
 });
 
 // ─── VENDOR BAN ────────────────────────────────────────────────────────────
@@ -422,7 +439,7 @@ test('ADMIN-12: vendor with Bronze checks shows Bronze trust badge in admin list
   ).toBe('Bronze');
 });
 
-test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts row', async ({ page }) => {
+test('ADMIN-13: verify vendor sets admin_check passed and Silver tier in one action', async ({ page }) => {
   test.setTimeout(90000);
   const primaryCategory = await getFirstActiveCategory();
   const verifyPhone = `99013${Date.now().toString().slice(-5)}`;
@@ -440,7 +457,7 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
       longitude: 73.8567,
       is_active: true,
       is_manual_verified: false,
-      verification_status: 'identity_linked',
+      verification_status: 'green_pending',
       upi_id: 'verify@upi',
       vendor_note: `test_session:${TEST_SESSION}`,
     })
@@ -449,7 +466,11 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
   expect(error).toBeNull();
 
   await seedVendorCategory(verifyVendor!.id, primaryCategory);
-  await seedDefaultVendorVerification(verifyVendor!.id);
+  await seedBronzeVendorVerification(verifyVendor!.id);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ verification_status: 'green_pending', is_manual_verified: false, status: 'approved' })
+    .eq('vendor_id', verifyVendor!.id);
 
   await loginAsAdminViaSession(page, TEST_DEVICE_ID);
   await openVendorModeration(page);
@@ -463,21 +484,29 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
   const vendorRow = page.locator(`#admin-vendor-${verifyVendor!.id}`);
   await expect(vendorRow).toBeVisible({ timeout: 20000 });
   await vendorRow.scrollIntoViewIfNeeded();
-  // Per-category verify button: icon + emoji, title = category label (no "Unverified" text)
   await vendorRow.locator(`button[title="${primaryCategory.label}"]`).click({ timeout: 10000 });
   await expect(page.getByText('Verification checks')).toBeVisible({ timeout: 8000 });
-  await expect(page.getByText(/Select business to verify/i)).toBeVisible();
 
-  for (const label of ['UPI Format', 'UPI Penny-drop', 'Shop Photo', 'Selfie Photo', 'GPS', 'Admin Check', 'Aadhaar/DigiLocker']) {
-    await expect(page.getByText(label, { exact: false }).first()).toBeVisible();
+  const sheet = page.locator('div.fixed.inset-0').filter({ has: page.getByText('Verification checks') });
+  const checkboxes = sheet.locator('input[type="checkbox"]');
+  await expect(checkboxes).toHaveCount(13, { timeout: 8000 });
+  for (let i = 0; i < 13; i += 1) {
+    const box = checkboxes.nth(i);
+    if (!(await box.isChecked())) await box.check();
   }
+  await sheet.getByRole('button', { name: /Mark Verified \(13\/13\)/i }).click();
+  await expect(sheet).not.toBeVisible({ timeout: 15000 });
 
-  await page.getByRole('button', { name: 'Mark Admin Check Passed' }).click();
-  await page.waitForTimeout(1500);
+  const { data: catRow } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('is_manual_verified, category_id')
+    .eq('vendor_id', verifyVendor!.id)
+    .single();
+  expect(catRow?.is_manual_verified).toBe(true);
 
   const { data: adminCheckRow } = await supabaseAdmin
     .from('vendor_verification')
-    .select('check_type, status, is_latest')
+    .select('check_type, status, is_latest, checked_by')
     .eq('vendor_id', verifyVendor!.id)
     .eq('check_type', 'admin_check')
     .eq('is_latest', true)
@@ -485,4 +514,25 @@ test('ADMIN-13: admin verify sheet shows checklist and admin_check pass inserts 
 
   expect(adminCheckRow?.status).toBe('passed');
   expect(adminCheckRow?.is_latest).toBe(true);
+  expect(adminCheckRow?.checked_by).toBe('admin');
+
+  const { data: verRows } = await supabaseAdmin
+    .from('vendor_verification')
+    .select('vendor_id, check_type, status, is_latest')
+    .eq('vendor_id', verifyVendor!.id)
+    .eq('is_latest', true);
+  const { data: bizRows } = await supabaseAdmin
+    .from('vendor_categories')
+    .select(
+      'vendor_id, category_id, shop_photo_url, gps_match_distance, location_accuracy, photo_accuracy, verification_status',
+    )
+    .eq('vendor_id', verifyVendor!.id);
+  expect(
+    computeTrustLevelForBusiness(
+      verifyVendor!.id,
+      catRow?.category_id ?? null,
+      verRows ?? [],
+      bizRows ?? [],
+    ),
+  ).toBe('Silver');
 });

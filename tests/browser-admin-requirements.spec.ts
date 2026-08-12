@@ -408,9 +408,9 @@ test('ADM-REQ-01 — Admin verify sheet shows full checklist', async ({ page }) 
   ]) {
     await expect(page.getByText(label, { exact: false }).first()).toBeVisible();
   }
-  await expect(page.getByRole('button', { name: L.markAdminCheckPassed })).toBeVisible();
-  await expect(page.getByRole('button', { name: L.markAdminCheckFailed })).toBeVisible();
   await expect(page.getByText('Called vendor on registered phone', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: L.markAdminCheckPassed })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: L.markAdminCheckFailed })).toHaveCount(0);
 });
 
 test('ADM-REQ-02 — Vendor with all checks passed shows top-tier badge', async ({ page }) => {
@@ -481,6 +481,16 @@ test('ADM-REQ-03 — Admin unverify resets vendor — via RPC', async ({ page })
     .eq('vendor_id', vendor.id)
     .single();
   expect(catRow?.is_manual_verified).toBe(false);
+
+  const { data: adminCheckRow } = await supabaseAdmin
+    .from('vendor_verification')
+    .select('status, is_latest, checked_by')
+    .eq('vendor_id', vendor.id)
+    .eq('check_type', 'admin_check')
+    .eq('is_latest', true)
+    .single();
+  expect(adminCheckRow?.status).toBe('failed');
+  expect(adminCheckRow?.checked_by).toBe('admin');
 });
 
 test('ADM-REQ-04 — Pending category shows suggestion count', async ({ page }) => {
