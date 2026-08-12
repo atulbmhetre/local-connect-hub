@@ -118,6 +118,11 @@ export const KNOWN_CATEGORIES: Record<string, KnownCategoryDef> = {
 
 const KNOWN_CATEGORY_LIST = Object.values(KNOWN_CATEGORIES);
 
+/** Canonical labels for categories whose catalog default service_mode is help. */
+export const HELP_DEFAULT_CATEGORY_LABELS: readonly string[] = KNOWN_CATEGORY_LIST.filter(
+  (c) => c.service_mode === "help",
+).map((c) => c.label);
+
 const OFFICIAL_EMERGENCY_LABELS = new Set(
   KNOWN_CATEGORY_LIST.filter((c) => c.isEmergency).map((c) => c.label),
 );

@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core";
+import { Geolocation } from "@capacitor/geolocation";
 import { BackgroundGeolocation } from "@capgo/background-geolocation";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import { supabase } from "@/lib/supabase";
@@ -13,15 +14,20 @@ import {
 const HELP_SOURCE = "help-live";
 const orderSource = (orderId: string) => `order:${orderId}`;
 
+/** Time-based GPS heartbeat while Go-Live + accepted Help order (stationary vendor). */
+export const VENDOR_STOPPED_HEARTBEAT_MS = 3 * 60 * 1000;
+
 type VendorCtx = {
   vendorId: string;
   vendorPhone: string;
 };
 
 const sources = new Set<string>();
+const helpAcceptedOrderIds = new Set<string>();
 let watcherRunning = false;
 let startInFlight: Promise<void> | null = null;
 let activeCtx: VendorCtx | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 function readLang(): Language {
   try {
@@ -50,6 +56,29 @@ async function writeLocation(lat: number, lng: number): Promise<void> {
   });
   if (error) {
     console.error("vendorBackgroundLocation patch failed:", error.message);
+  }
+}
+
+async function writePeriodicLocation(): Promise<void> {
+  if (!activeCtx) return;
+  try {
+    const pos = await Geolocation.getCurrentPosition({ timeout: 15_000 });
+    await writeLocation(pos.coords.latitude, pos.coords.longitude);
+  } catch (err) {
+    console.error("vendorBackgroundLocation periodic ping failed:", err);
+  }
+}
+
+function reconcileHelpStoppedHeartbeat(): void {
+  const shouldRun = sources.has(HELP_SOURCE) && helpAcceptedOrderIds.size > 0;
+  if (shouldRun && !heartbeatTimer) {
+    void writePeriodicLocation();
+    heartbeatTimer = setInterval(() => {
+      void writePeriodicLocation();
+    }, VENDOR_STOPPED_HEARTBEAT_MS);
+  } else if (!shouldRun && heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
   }
 }
 
@@ -117,10 +146,12 @@ async function ensureWatcherStopped(): Promise<void> {
 async function addSource(key: string, ctx: VendorCtx): Promise<void> {
   sources.add(key);
   await ensureWatcherStarted(ctx);
+  reconcileHelpStoppedHeartbeat();
 }
 
 async function removeSource(key: string): Promise<void> {
   sources.delete(key);
+  reconcileHelpStoppedHeartbeat();
   await ensureWatcherStopped();
 }
 
@@ -150,7 +181,29 @@ export async function stopOrderTracking(orderId: string): Promise<void> {
 /** Logout / wipe — stop everything. */
 export async function stopAllVendorLocationTracking(): Promise<void> {
   sources.clear();
+  helpAcceptedOrderIds.clear();
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
   await ensureWatcherStopped();
+}
+
+/**
+ * Keep periodic Help GPS heartbeats aligned with accepted Help orders.
+ * Heartbeat runs only when Go-Live (help-live source) is active.
+ */
+export function syncHelpAcceptedOrderTracking(
+  orderIds: readonly string[],
+  ctx: VendorCtx,
+): void {
+  activeCtx = ctx;
+  helpAcceptedOrderIds.clear();
+  for (const id of orderIds) {
+    const trimmed = id?.trim();
+    if (trimmed) helpAcceptedOrderIds.add(trimmed);
+  }
+  reconcileHelpStoppedHeartbeat();
 }
 
 /** Test/introspection helpers (not for UI). */
@@ -160,6 +213,14 @@ export function getActiveTrackingSourcesForTests(): string[] {
 
 export function isVendorLocationWatcherRunningForTests(): boolean {
   return watcherRunning || (!Capacitor.isNativePlatform() && sources.size > 0);
+}
+
+export function isHelpStoppedHeartbeatRunningForTests(): boolean {
+  return heartbeatTimer != null;
+}
+
+export function getHelpAcceptedOrderIdsForTests(): string[] {
+  return [...helpAcceptedOrderIds].sort();
 }
 
 /**

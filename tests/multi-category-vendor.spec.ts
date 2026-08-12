@@ -991,3 +991,68 @@ test('MCV-19: create_customer_request stores effective service_mode', async () =
     await supabaseAdmin.from('users').delete().eq('phone', customerPhone);
   }
 });
+
+test('MCV-20: create_customer_request stores help service_location', async () => {
+  const category = await getActiveCategoryByLabel('Mechanic');
+  const phone = uniqueVendorPhone();
+  const customerPhone = `881${Date.now().toString().slice(-7)}`;
+  const customerDevice = `mcv20-${Date.now()}`;
+  const reg = await invokeRegisterVendorRpc({
+    phone,
+    category: category.label,
+    category_ids: [category.id],
+    category_service_modes: ['help'],
+    category_modes: { [category.id]: ['help'] },
+    serves_at_vendor_place: true,
+    serves_at_customer_place: true,
+  });
+  expect(reg.error).toBeUndefined();
+  const vendorId = reg.vendorId!;
+  await supabaseAdmin
+    .from('vendors')
+    .update({ is_active: true, discoverable: true })
+    .eq('id', vendorId);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ status: 'approved', needs_review: false })
+    .eq('vendor_id', vendorId);
+  await supabaseAdmin.from('users').upsert({ phone: customerPhone, trust_score: 80 }, { onConflict: 'phone' });
+
+  try {
+    const { data: requestId, error } = await supabaseAdmin.rpc('create_customer_request', {
+      p_device_id: customerDevice,
+      p_vendor_id: vendorId,
+      p_message: 'MCV-20 help reach',
+      p_user_phone: customerPhone,
+      p_device_id_log: customerDevice,
+      p_category_id: category.id,
+      p_service_mode: 'help',
+      p_service_location: 'customer_place',
+    });
+    expect(error, error?.message).toBeNull();
+
+    const { data: row } = await supabaseAdmin
+      .from('requests')
+      .select('service_mode, service_location')
+      .eq('id', requestId as string)
+      .single();
+    expect(row?.service_mode).toBe('help');
+    expect(row?.service_location).toBe('customer_place');
+
+    const { error: badLoc } = await supabaseAdmin.rpc('create_customer_request', {
+      p_device_id: customerDevice,
+      p_vendor_id: vendorId,
+      p_message: 'MCV-20 bad location',
+      p_user_phone: customerPhone,
+      p_category_id: category.id,
+      p_service_mode: 'help',
+      p_service_location: 'invalid_place',
+    });
+    expect(badLoc?.message ?? '').toMatch(/invalid_service_location/);
+
+    await supabaseAdmin.from('requests').delete().eq('vendor_id', vendorId);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+    await supabaseAdmin.from('users').delete().eq('phone', customerPhone);
+  }
+});

@@ -61,8 +61,9 @@ import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAv
 import {
   allCategoriesHaveModes,
   buildCategoryModesPayload,
-  coerceSingleAvailabilityMode,
+  normalizeAvailabilityModes,
   pickPrimaryAvailabilityMode,
+  resolveCatalogServiceMode,
 } from "@/lib/categoryAvailabilityModes";
 import { BusinessSetupSheet } from "@/components/vendor/BusinessSetupSheet";
 
@@ -402,7 +403,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           selected = [legacy];
           nextSettings[legacy.id] = {
             ...accountDefaults,
-            availability_modes: coerceSingleAvailabilityMode([
+            availability_modes: normalizeAvailabilityModes([
               vendor.service_mode ?? legacy.service_mode ?? "help",
             ]),
           };
@@ -430,7 +431,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           if (nextSettings[catId]) {
             nextSettings[catId] = {
               ...nextSettings[catId],
-              availability_modes: coerceSingleAvailabilityMode(modesByCategoryId[catId]),
+              availability_modes: normalizeAvailabilityModes(modesByCategoryId[catId]),
             };
           }
         }
@@ -498,7 +499,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               null;
             nextSettings[id] = {
               ...accountDefaultsForInherit(),
-              availability_modes: coerceSingleAvailabilityMode(
+              availability_modes: normalizeAvailabilityModes(
                 catalogMode ? [catalogMode] : ["help"],
               ),
             };
@@ -1413,6 +1414,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                     label={s.my_business_category_availability}
                     required
                     testIdPrefix={`my-business-cat-avail-${cat.id}`}
+                    catalogServiceMode={resolveCatalogServiceMode(cat.service_mode)}
                     value={cfg.availability_modes}
                     onChange={(modes) =>
                       updateCategorySettings(cat.id, { availability_modes: modes })
@@ -1488,6 +1490,9 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               label={s.my_business_category_availability}
               required
               testIdPrefix="my-business-avail"
+              catalogServiceMode={resolveCatalogServiceMode(
+                selectedCategories.find((c) => c.id === selectedCategoryIds[0])?.service_mode,
+              )}
               value={
                 categorySettingsById[selectedCategoryIds[0]]?.availability_modes ?? []
               }

@@ -56,8 +56,11 @@ import { captureError } from "@/lib/sentry";
 import {
   allCategoriesHaveModes,
   buildCategoryModesPayload,
-  coerceSingleAvailabilityMode,
+  ensureCatalogBaseModes,
+  initialModesForCatalog,
+  normalizeAvailabilityModes,
   pickPrimaryAvailabilityMode,
+  resolveCatalogServiceMode,
   unionAvailabilityModes,
 } from "@/lib/categoryAvailabilityModes";
 import {
@@ -416,9 +419,11 @@ export function VendorRegistrationWizard({
   }, [baseType]);
 
   const setCategoryModes = (categoryId: string, modes: AvailabilityMode[]) => {
+    const cat = allRegCategories.find((c) => c.id === categoryId);
+    const catalog = resolveCatalogServiceMode(cat?.service_mode);
     setCategoryModesById((prev) => ({
       ...prev,
-      [categoryId]: coerceSingleAvailabilityMode(modes),
+      [categoryId]: ensureCatalogBaseModes(modes, catalog),
     }));
   };
 
@@ -528,7 +533,11 @@ export function VendorRegistrationWizard({
       service_mode: categorySuggestion.service_mode ?? "help",
     });
     setSelectedCategoryIds([]);
-    setPendingCategoryModes([]);
+    setPendingCategoryModes(
+      initialModesForCatalog(
+        resolveCatalogServiceMode(categorySuggestion.service_mode ?? "help"),
+      ),
+    );
     setCategorySuggestion(null);
     toast.success(s.category_suggest_new(categorySuggestion.category_name));
   };
@@ -546,6 +555,13 @@ export function VendorRegistrationWizard({
         return prev.filter((id) => id !== categoryId);
       }
       if (prev.length >= MAX_REG_CATEGORIES) return prev;
+      const cat = allRegCategories.find((c) => c.id === categoryId);
+      if (cat) {
+        setCategoryModesById((m) => ({
+          ...m,
+          [categoryId]: initialModesForCatalog(resolveCatalogServiceMode(cat.service_mode)),
+        }));
+      }
       return [...prev, categoryId];
     });
   };
@@ -1572,10 +1588,11 @@ export function VendorRegistrationWizard({
                 label={s.reg_when_available}
                 required
                 testIdPrefix="reg-avail"
+                catalogServiceMode={resolveCatalogServiceMode(
+                  pendingNewCategoryCreate.service_mode,
+                )}
                 value={pendingCategoryModes}
-                onChange={(modes) =>
-                  setPendingCategoryModes(coerceSingleAvailabilityMode(modes))
-                }
+                onChange={(modes) => setPendingCategoryModes(normalizeAvailabilityModes(modes))}
               />
             ) : selectedCategoryIds.length === 1 ? (
               <CategoryAvailabilityModeSelector
@@ -1583,6 +1600,9 @@ export function VendorRegistrationWizard({
                 label={s.reg_when_available}
                 required
                 testIdPrefix="reg-avail"
+                catalogServiceMode={resolveCatalogServiceMode(
+                  allRegCategories.find((c) => c.id === selectedCategoryIds[0])?.service_mode,
+                )}
                 value={categoryModesById[selectedCategoryIds[0]] ?? []}
                 onChange={(modes) => setCategoryModes(selectedCategoryIds[0], modes)}
               />
@@ -1604,6 +1624,7 @@ export function VendorRegistrationWizard({
                         label={s.reg_category_when_available}
                         required
                         testIdPrefix={`reg-avail-${cat.id}`}
+                        catalogServiceMode={resolveCatalogServiceMode(cat.service_mode)}
                         value={categoryModesById[catId] ?? []}
                         onChange={(modes) => setCategoryModes(catId, modes)}
                       />

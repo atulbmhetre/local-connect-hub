@@ -14,6 +14,7 @@ import {
   getActiveCategoryByServiceMode,
   seedVendorCategory,
 } from './helpers/setup';
+import { setRegAvailabilityModes } from './helpers/regAvailability';
 
 const T = Date.now();
 const FIXTURE_PAYEE = 'fixture-vendor@okhdfcbank';
@@ -228,7 +229,7 @@ test('QRD-01 — decode succeeds on real QR upload, payee ID stored', async ({ p
     await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
     await page.getByRole('button', { name: /At their place|उनके पास/ }).click();
     await page.getByRole('button', { name: '15 km' }).click();
-    await page.getByTestId('reg-avail-delivery').click();
+    await setRegAvailabilityModes(page, ['delivery']);
     await page.getByTestId('reg-shop-photo-capture').click();
     await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
       timeout: 15000,

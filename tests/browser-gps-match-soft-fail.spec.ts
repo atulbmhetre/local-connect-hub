@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { APP_URL } from "./helpers/browser-setup";
+import { ensureRegAvailabilityReady } from "./helpers/regAvailability";
 import {
   supabaseAdmin,
   deleteVendorRegistrationArtifacts,
@@ -82,7 +83,7 @@ test.describe("GPS match soft-fail + failure logging", () => {
       .getByPlaceholder("Ramesh Tyre Works")
       .fill(`GPS Soft ${Date.now().toString().slice(-4)}`);
     await page.getByRole("button", { name: /At my place|मेरे पास/ }).click();
-    await page.getByTestId("reg-avail-help").click();
+    await ensureRegAvailabilityReady(page);
 
     await setE2eGeo(page, FAR);
 

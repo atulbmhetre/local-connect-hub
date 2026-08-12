@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { APP_URL } from './helpers/browser-setup';
+import { ensureRegAvailabilityReady } from './helpers/regAvailability';
 import {
   supabaseAdmin,
   deleteVendorRegistrationArtifacts,
@@ -51,7 +52,7 @@ async function completeWizardStepB(page: Page, opts: { categoryLabel: string; br
   await chip.first().click();
   await page.getByPlaceholder('Ramesh Tyre Works').fill(opts.brandName);
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
-  await page.getByTestId('reg-avail-help').click();
+  await ensureRegAvailabilityReady(page);
   await page.getByTestId('reg-shop-photo-capture').click();
   await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
     timeout: 15000,

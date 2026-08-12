@@ -4,6 +4,7 @@ import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getVoiceLang } from "@/lib/voiceUtils";
 import { captureError } from "@/lib/sentry";
+import { resolveHelpServiceLocation } from "@/lib/helpServiceLocation";
 import { UpiPaymentPanel } from "@/components/payment/UpiPaymentPanel";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
@@ -167,6 +168,7 @@ export function ParchiSheet({
   const [appointmentDate, setAppointmentDate] = useState("");
   const [appointmentTime, setAppointmentTime] = useState("");
   const [appointmentLocation, setAppointmentLocation] = useState<"home" | "shop" | "decide">("decide");
+  const [helpLocation, setHelpLocation] = useState<"home" | "shop" | null>(null);
   const [deliverySlot, setDeliverySlot] = useState<string>("asap");
   const [appointmentTiming, setAppointmentTiming] = useState<"instant" | "scheduled">(
     "scheduled",
@@ -198,6 +200,7 @@ export function ParchiSheet({
     setAppointmentDate("");
     setAppointmentTime("");
     setAppointmentLocation("decide");
+    setHelpLocation(null);
     setDeliverySlot("asap");
     setAppointmentTiming("scheduled");
     setOfflineApptError(false);
@@ -281,6 +284,18 @@ export function ParchiSheet({
   };
   const canServeAtCustomer = resolvedReach.serves_at_customer_place === true;
   const canServeAtVendor = resolvedReach.serves_at_vendor_place === true;
+  const needsHelpWhereChoice = isHelpMode && canServeAtCustomer && canServeAtVendor;
+
+  useEffect(() => {
+    if (!isOpen || !isHelpMode) return;
+    if (canServeAtCustomer && !canServeAtVendor) {
+      setHelpLocation("home");
+    } else if (!canServeAtCustomer && canServeAtVendor) {
+      setHelpLocation("shop");
+    } else if (needsHelpWhereChoice) {
+      setHelpLocation(null);
+    }
+  }, [isOpen, isHelpMode, canServeAtCustomer, canServeAtVendor, needsHelpWhereChoice]);
 
   useEffect(() => {
     if (!isOpen || effectiveVendor?.is_active !== false) return;
@@ -585,7 +600,11 @@ export function ParchiSheet({
             : appointmentLocation === "shop"
               ? s.parchi_locationVisitShop
               : s.parchi_locationTbd
-          : "";
+          : isHelpMode && helpLocation === "home"
+            ? s.parchi_locationComeToMe
+            : isHelpMode && helpLocation === "shop"
+              ? s.parchi_locationVisitShop
+              : "";
       const isInstantAppointment =
         isAppointmentMode && appointmentTiming === "instant" && v.is_active === true;
       const appointmentTimestamp = isInstantAppointment
@@ -627,6 +646,14 @@ export function ParchiSheet({
         }
       }
 
+      const serviceLocation =
+        isHelpMode
+          ? resolveHelpServiceLocation(helpLocation, {
+              canServeAtCustomer,
+              canServeAtVendor,
+            })
+          : null;
+
       const device_id = getDeviceId();
       // Capture structured items before submission (for auto-bill generation)
       const structuredItems = buildStructuredItems();
@@ -654,6 +681,7 @@ export function ParchiSheet({
                 p_category_id: orderCategoryId ?? null,
                 p_service_mode: resolvedServiceMode,
                 p_items: structuredItems,
+                p_service_location: serviceLocation,
               }),
             ),
           {
@@ -739,6 +767,10 @@ export function ParchiSheet({
       appointmentTime,
       appointmentLocation,
       appointmentTiming,
+      canServeAtCustomer,
+      canServeAtVendor,
+      isHelpMode,
+      helpLocation,
       deliverySlot,
       resolvedServiceMode,
       isAppointmentMode,
@@ -768,6 +800,10 @@ export function ParchiSheet({
 
       if (needsAddress && !finalAddress) {
         toast.error(s.parchi_errNoAddress);
+        return;
+      }
+      if (isHelpMode && needsHelpWhereChoice && !helpLocation) {
+        toast.error(s.parchi_errHelpWhereRequired);
         return;
       }
       if (isAppointmentMode) {
@@ -852,6 +888,9 @@ export function ParchiSheet({
       effectiveVendor,
       message,
       onClose,
+      isHelpMode,
+      needsHelpWhereChoice,
+      helpLocation,
       executeOrderInsert,
       selectedAddressId,
       addresses,
@@ -1397,6 +1436,40 @@ export function ParchiSheet({
             <div className="flex justify-end text-xs text-muted-foreground tabular-nums mt-1">
               {len}{s.parchi_charSeparator}{config.maxOrderMessageChars}
             </div>
+
+            {resolvedServiceMode === "help" && needsHelpWhereChoice && (
+              <div className="space-y-2 mt-3">
+                <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
+                  {s.parchi_whereQuestion}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    data-testid="parchi-help-come-to-me"
+                    onClick={() => setHelpLocation("home")}
+                    className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
+                      helpLocation === "home"
+                        ? "border-blue-500 bg-blue-500/10 text-blue-400"
+                        : "border-surface-border bg-surface text-gray-400"
+                    }`}
+                  >
+                    {s.parchi_locationComeToMeBtn}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="parchi-help-visit-shop"
+                    onClick={() => setHelpLocation("shop")}
+                    className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
+                      helpLocation === "shop"
+                        ? "border-purple-500 bg-purple-500/10 text-purple-400"
+                        : "border-surface-border bg-surface text-gray-400"
+                    }`}
+                  >
+                    {s.parchi_locationVisitBtn}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {resolvedServiceMode === "help" && (
               <div className="space-y-1.5 mt-3">

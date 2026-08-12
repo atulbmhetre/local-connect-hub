@@ -196,4 +196,64 @@ test.describe('vendor_devices multi-device push', () => {
     const correctlyLabeled = await fcmLogCount(vendor.phone, 'vendor-payment_claimed', since);
     expect(correctlyLabeled.length).toBeGreaterThanOrEqual(1);
   });
+
+  test('VD-05: notify-vendor with no token logs vendor-no_fcm_token (not silent)', async () => {
+    const since = new Date().toISOString();
+    await supabaseAdmin.from('vendor_devices').delete().eq('vendor_id', vendor.id);
+    await supabaseAdmin.from('vendors').update({ fcm_token: null }).eq('id', vendor.id);
+
+    const { data, error } = await invokeNotifyVendor({
+      vendor_id: vendor.id,
+      notification_title: `No token ${T}`,
+      message: `No token body — ${T}`,
+      type: 'payment_claimed',
+      skip_inbox: true,
+    });
+    expect(error).toBeNull();
+    expect(data).toMatchObject({ ok: true, fcm_skipped: true, reason: 'no_vendor_token' });
+
+    const logs = await fcmLogCount(vendor.phone, 'vendor-no_fcm_token', since);
+    expect(logs.length).toBeGreaterThanOrEqual(1);
+    expect(logs[0]?.raw_response).toContain(vendor.id);
+  });
+
+  test('VD-06: new vendor with immediate token receives FCM on first new_order', async () => {
+    const since = new Date().toISOString();
+    const freshVendor = await createTestVendor({ shop_name: `VendorDevicesEarly-${T}` });
+    const token = `vd_early_${T}`;
+    const deviceId = `early_device_${T}`;
+
+    const { error: upsertErr } = await supabase.rpc('upsert_vendor_device', {
+      p_vendor_id: freshVendor.id,
+      p_vendor_phone: freshVendor.phone,
+      p_device_id: deviceId,
+      p_fcm_token: token,
+    });
+    expect(upsertErr, upsertErr?.message).toBeNull();
+
+    const { data: deviceRow } = await supabaseAdmin
+      .from('vendor_devices')
+      .select('fcm_token')
+      .eq('vendor_id', freshVendor.id)
+      .eq('device_id', deviceId)
+      .maybeSingle();
+    expect(deviceRow?.fcm_token).toBe(token);
+
+    const { data, error } = await invokeNotifyVendor({
+      vendor_id: freshVendor.id,
+      notification_title: `Early token order ${T}`,
+      message: `Immediate order — ${T}`,
+      type: 'new_order',
+      skip_inbox: true,
+    });
+    expect(error).toBeNull();
+    expect(data).toEqual({ ok: true });
+
+    const logs = await fcmLogCount(freshVendor.phone, 'vendor-new_order', since);
+    expect(logs.length).toBeGreaterThanOrEqual(1);
+
+    await supabaseAdmin.from('vendor_devices').delete().eq('vendor_id', freshVendor.id);
+    await supabaseAdmin.from('fcm_delivery_log').delete().eq('target_phone', freshVendor.phone);
+    await supabaseAdmin.from('vendors').delete().eq('id', freshVendor.id);
+  });
 });

@@ -58,6 +58,34 @@ export function resolveCategoryServiceRadius(
   return accountRadius;
 }
 
+/** Honest Help Radar labels from serves_at_* reach flags. */
+export function formatRadarReachLabels(
+  reach: { serves_at_vendor_place: boolean; serves_at_customer_place: boolean },
+  distKm: number | null,
+  labels: {
+    comesToYou: string;
+    visitThemKm: (km: string) => string;
+    visitThemMtr: (m: string) => string;
+  },
+): string[] {
+  const out: string[] = [];
+  if (reach.serves_at_customer_place) {
+    out.push(labels.comesToYou);
+  }
+  if (reach.serves_at_vendor_place) {
+    if (distKm != null && Number.isFinite(distKm)) {
+      if (distKm < 1) {
+        out.push(labels.visitThemMtr(String(Math.round(distKm * 1000))));
+      } else {
+        out.push(labels.visitThemKm(distKm.toFixed(1)));
+      }
+    } else {
+      out.push(labels.visitThemKm("?"));
+    }
+  }
+  return out;
+}
+
 /** Account defaults applied when a new category is selected in the UI (before save). */
 export function inheritCategorySettingsFromAccount(account: {
   shop_name?: string | null;

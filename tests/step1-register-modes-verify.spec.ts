@@ -7,6 +7,7 @@ import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { APP_URL } from './helpers/browser-setup';
+import { setRegAvailabilityModes } from './helpers/regAvailability';
 import { supabaseAdmin, getActiveCategoryByLabel } from './helpers/setup';
 
 const LAT = 18.5204;
@@ -64,7 +65,7 @@ test('STEP1: UI register writes vendor_category_modes + radar match', async ({ p
   await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
   // Match VR-E2E-01: at-my-place reach + help availability (customer-place not required for STEP1).
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
-  await page.getByTestId('reg-avail-help').click();
+  await setRegAvailabilityModes(page, ['help']);
   await page.getByTestId('reg-shop-photo-capture').click();
   await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
     timeout: 15000,

@@ -394,6 +394,9 @@ export const strings = {
     radar_trust_badge_bronze: '🥉 Bronze',
     radar_vendor_home_based: '🏠 Home based',
     radar_vendor_visits_you: '🚗 Visits you',
+    radar_reach_comes_to_you: 'Comes to you',
+    radar_reach_visit_them_km: (km: string) => `Visit them, ${km} km`,
+    radar_reach_visit_them_mtr: (m: string) => `Visit them, ${m} m`,
     radar_suggestedCategory: (category: string) => `Showing results for ${category}`,
     radar_unknownTerm: (term: string) =>
       `We couldn't find '${term}'. This category or vendor isn't available yet — AasPaas is growing.`,
@@ -403,6 +406,7 @@ export const strings = {
     radar_vendorWentOffline:
       'This vendor just went offline. Please try another or check back soon.',
     radar_cta_connect: 'Connect',
+    radar_cta_call: 'Call',
     radar_cta_order: 'Order',
     radar_cta_book: 'Book',
     vendor_verified_title: 'You are Verified!',
@@ -581,6 +585,19 @@ export const strings = {
     reg_avail_delivery_desc: 'Orders with items or slots',
     reg_avail_appointment: 'Appointments',
     reg_avail_appointment_desc: 'Scheduled bookings',
+    reg_avail_help_on_statement:
+      'Urgent help is on — customers can find you right now for on-the-spot work.',
+    reg_avail_advance_bookings_question:
+      'Do you also want to take advance bookings? (e.g. "come Tuesday for a repair")',
+    reg_avail_deliver_question: 'Do you deliver to customers, or is it shop pickup only?',
+    reg_avail_deliver_yes: 'Yes, we deliver',
+    reg_avail_pickup_only: 'Shop pickup only',
+    reg_avail_appointment_on_statement:
+      'Scheduled bookings are on — customers can book a time with you.',
+    reg_avail_same_day_question:
+      'Do you also want urgent same-day availability alongside scheduled bookings?',
+    reg_avail_yes: 'Yes',
+    reg_avail_no: 'No',
     reg_toast_missing_base_type:
       'Choose where you work from — it decides whether customers see a shop on the map or only find you by live location.',
     reg_toast_missing_reach:
@@ -1312,6 +1329,7 @@ export const strings = {
     parchi_slotTomorrow: 'Tomorrow',
     parchi_errNoOrder: 'Please type your order.',
     parchi_errNoAddress: 'Please add a delivery address.',
+    parchi_errHelpWhereRequired: 'Please choose where you need help — come to you or visit them.',
     parchi_errNoDateTime: 'Please select appointment date and time.',
     parchi_locationComeToMe: ' [Come to my place]',
     parchi_locationVisitShop: " [I'll visit your shop]",
@@ -2135,6 +2153,9 @@ export const strings = {
     radar_trust_badge_bronze: '🥉 ब्रॉन्ज',
     radar_vendor_home_based: '🏠 घर से',
     radar_vendor_visits_you: '🚗 आपके पास आते हैं',
+    radar_reach_comes_to_you: 'आपके पास आते हैं',
+    radar_reach_visit_them_km: (km: string) => `उनके पास जाएं, ${km} किमी`,
+    radar_reach_visit_them_mtr: (m: string) => `उनके पास जाएं, ${m} मी`,
     radar_suggestedCategory: (category: string) => `${category} के लिए परिणाम दिखा रहे हैं`,
     radar_unknownTerm: (term: string) =>
       `'${term}' नहीं मिला। यह श्रेणी या विक्रेता अभी उपलब्ध नहीं है — AasPaas बढ़ रहा है।`,
@@ -2144,6 +2165,7 @@ export const strings = {
     radar_vendorWentOffline:
       'यह विक्रेता अभी ऑफलाइन हो गया। कोई और चुनें या बाद में आएं।',
     radar_cta_connect: 'कनेक्ट करें',
+    radar_cta_call: 'कॉल करें',
     radar_cta_order: 'ऑर्डर करें',
     radar_cta_book: 'बुक करें',
     vendor_verified_title: 'आप वेरिफाइड हैं!',
@@ -2321,6 +2343,19 @@ export const strings = {
     reg_avail_delivery_desc: 'आइटम या slot वाले ऑर्डर',
     reg_avail_appointment: 'अपॉइंटमेंट',
     reg_avail_appointment_desc: 'निर्धारित बुकिंग',
+    reg_avail_help_on_statement:
+      'तुरंत मदद चालू है — ग्राहक अभी आपको तुरंत काम के लिए ढूँढ सकते हैं।',
+    reg_avail_advance_bookings_question:
+      'क्या आप पहले से बुकिंग भी लेना चाहते हैं? (जैसे "मंगलवार को मरम्मत के लिए आना")',
+    reg_avail_deliver_question: 'क्या आप डिलीवरी करते हैं, या सिर्फ दुकान से लेना होता है?',
+    reg_avail_deliver_yes: 'हाँ, हम डिलीवरी करते हैं',
+    reg_avail_pickup_only: 'सिर्फ दुकान से लेना',
+    reg_avail_appointment_on_statement:
+      'निर्धारित बुकिंग चालू है — ग्राहक आपके साथ समय बुक कर सकते हैं।',
+    reg_avail_same_day_question:
+      'क्या आप निर्धारित बुकिंग के साथ तुरंत उसी दिन की सेवा भी देना चाहते हैं?',
+    reg_avail_yes: 'हाँ',
+    reg_avail_no: 'नहीं',
     reg_toast_missing_base_type:
       'चुनें कि आप कहाँ से काम करते हैं — इससे तय होता है कि ग्राहकों को दुकान दिखे या सिर्फ live location से मिलें।',
     reg_toast_missing_reach:
@@ -3050,6 +3085,7 @@ export const strings = {
     parchi_slotTomorrow: 'कल',
     parchi_errNoOrder: 'कृपया अपना ऑर्डर लिखें।',
     parchi_errNoAddress: 'कृपया डिलीवरी पता जोड़ें।',
+    parchi_errHelpWhereRequired: 'कृपया चुनें — वे आपके पास आएं या आप उनके पास जाएं।',
     parchi_errNoDateTime: 'कृपया अपॉइंटमेंट की तारीख और समय चुनें।',
     parchi_locationComeToMe: ' [मेरे घर आएं]',
     parchi_locationVisitShop: ' [मैं दुकान आऊंगा]',
@@ -3873,6 +3909,9 @@ export const strings = {
     radar_trust_badge_bronze: '🥉 ब्रॉन्ज',
     radar_vendor_home_based: '🏠 घरून',
     radar_vendor_visits_you: '🚗 तुमच्याकडे येतात',
+    radar_reach_comes_to_you: 'तुमच्याकडे येतात',
+    radar_reach_visit_them_km: (km: string) => `त्यांच्याकडे जा, ${km} किमी`,
+    radar_reach_visit_them_mtr: (m: string) => `त्यांच्याकडे जा, ${m} मी`,
     radar_suggestedCategory: (category: string) => `${category} साठी परिणाम दाखवत आहोत`,
     radar_unknownTerm: (term: string) =>
       `'${term}' सापडले नाही. ही श्रेणी किंवा विक्रेता अजून उपलब्ध नाही — AasPaas वाढत आहे.`,
@@ -3882,6 +3921,7 @@ export const strings = {
     radar_vendorWentOffline:
       'हा विक्रेता आत्ता ऑफलाइन झाला. दुसरा निवडा किंवा नंतर पुन्हा प्रयत्न करा.',
     radar_cta_connect: 'कनेक्ट करा',
+    radar_cta_call: 'कॉल करा',
     radar_cta_order: 'ऑर्डर करा',
     radar_cta_book: 'बुक करा',
     vendor_verified_title: 'तुम्ही व्हेरिफाइड आहात!',
@@ -4059,6 +4099,19 @@ export const strings = {
     reg_avail_delivery_desc: 'आयटम किंवा slot ऑर्डर',
     reg_avail_appointment: 'अपॉइंटमेंट',
     reg_avail_appointment_desc: 'नियोजित बुकिंग',
+    reg_avail_help_on_statement:
+      'तातडीची मदत चालू आहे — ग्राहक आत्ताच तुम्हाला त्वरित कामासाठी शोधू शकतात.',
+    reg_avail_advance_bookings_question:
+      'तुम्ही आगाऊ बुकिंगही घ्यायची आहे का? (उदा. "मंगळवारी दुरुस्तीसाठी या")',
+    reg_avail_deliver_question: 'तुम्ही डिलिव्हरी करता का, की फक्त दुकानातून घेणे?',
+    reg_avail_deliver_yes: 'होय, आम्ही डिलिव्हरी करतो',
+    reg_avail_pickup_only: 'फक्त दुकानातून घेणे',
+    reg_avail_appointment_on_statement:
+      'नियोजित बुकिंग चालू आहे — ग्राहक तुमच्यासोबत वेळ बुक करू शकतात.',
+    reg_avail_same_day_question:
+      'नियोजित बुकिंगसोबत तुम्ही तातडीची त्याच दिवसाची सेवा देखील द्यायची आहे का?',
+    reg_avail_yes: 'होय',
+    reg_avail_no: 'नाही',
     reg_toast_missing_base_type:
       'तुम्ही कुठून काम करता ते निवडा — map वर दुकान दिसेल की फक्त live location ने सापडाल ते ठरते.',
     reg_toast_missing_reach:
@@ -4787,6 +4840,7 @@ export const strings = {
     parchi_slotTomorrow: 'उद्या',
     parchi_errNoOrder: 'कृपया तुमचा ऑर्डर लिहा.',
     parchi_errNoAddress: 'कृपया डिलिव्हरी पत्ता टाका.',
+    parchi_errHelpWhereRequired: 'कृपया निवडा — ते तुमच्याकडे येतील की तुम्ही त्यांच्याकडे जाल.',
     parchi_errNoDateTime: 'कृपया अपॉइंटमेंटची तारीख आणि वेळ निवडा.',
     parchi_locationComeToMe: ' [माझ्या घरी या]',
     parchi_locationVisitShop: ' [मी दुकानात येईन]',

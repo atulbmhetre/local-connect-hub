@@ -7,6 +7,7 @@ import {
   isReferralEnabled,
   referralCodeFromPhone,
 } from "@/lib/referral";
+import { toCapturedError } from "@/lib/sentry";
 import {
   supabase,
   SUPABASE_URL,
@@ -442,7 +443,7 @@ const VendorMode = () => {
               return { data: null, error: null, phoneUnknown: true };
             }
             const own = await fetchVendorOwn(vendorId, ownPhone);
-            if (own.error) throw own.error;
+            if (own.error) throw toCapturedError(own.error);
             return { data: own.data, error: null, phoneUnknown: false };
           },
           {
@@ -514,7 +515,7 @@ const VendorMode = () => {
           setNetworkLoadStatus("failed");
           setError(null);
         } else {
-          throw err;
+          throw toCapturedError(err);
         }
       } finally {
         vendorFetchInFlightRef.current = false;
@@ -872,7 +873,7 @@ const VendorMode = () => {
           retryBtn: s.network_retry_btn,
         });
       } else {
-        throw err;
+        throw toCapturedError(err);
       }
     }
   };
@@ -945,6 +946,8 @@ const VendorMode = () => {
     saveUserPhone(vendorPhone);
     localStorage.setItem(STORAGE_KEY, newVendorId);
     notifyVendorIdChanged();
+    pushRegisteredVendorRef.current = newVendorId;
+    void registerPushToken(newVendorId, { vendorPhone });
     setVendorId(newVendorId);
     setVendor(vendorRow as Vendor);
   };
@@ -1162,7 +1165,7 @@ const VendorMode = () => {
         });
         return false;
       }
-      throw err;
+      throw toCapturedError(err);
     } finally {
       isTogglingRef.current = false;
     }

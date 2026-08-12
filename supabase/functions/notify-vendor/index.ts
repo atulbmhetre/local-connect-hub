@@ -39,6 +39,39 @@ function vendorNotificationType(record: Record<string, unknown>): string {
   return raw.startsWith("vendor-") ? raw : `vendor-${raw}`;
 }
 
+const NO_VENDOR_TOKEN_TYPE = "vendor-no_fcm_token";
+const NEW_ORDER_RETRY_MS = 3000;
+
+async function loadVendorFcmTokens(
+  supabase: ReturnType<typeof createClient>,
+  vendorId: string | undefined,
+  vendor: { fcm_token?: string | null } | null,
+): Promise<string[]> {
+  let vendorTokens: string[] = [];
+  if (typeof vendorId === "string" && vendorId.trim()) {
+    const { data: deviceRows, error: devicesError } = await supabase
+      .from("vendor_devices")
+      .select("fcm_token")
+      .eq("vendor_id", vendorId);
+    if (devicesError) {
+      console.error("notify-vendor vendor_devices query failed", devicesError);
+    } else {
+      vendorTokens = (deviceRows ?? [])
+        .map((row) => row.fcm_token)
+        .filter((token): token is string => typeof token === "string" && token.trim().length > 0)
+        .map((token) => token.trim());
+    }
+  }
+  if (vendorTokens.length === 0 && typeof vendor?.fcm_token === "string" && vendor.fcm_token.trim()) {
+    vendorTokens = [vendor.fcm_token.trim()];
+  }
+  return [...new Set(vendorTokens)];
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -113,25 +146,19 @@ serve(async (req) => {
       .eq("id", vendorId)
       .single();
 
-    let vendorTokens: string[] = [];
-    if (typeof vendorId === "string" && vendorId.trim()) {
-      const { data: deviceRows, error: devicesError } = await supabase
-        .from("vendor_devices")
-        .select("fcm_token")
-        .eq("vendor_id", vendorId);
-      if (devicesError) {
-        console.error("notify-vendor vendor_devices query failed", devicesError);
-      } else {
-        vendorTokens = (deviceRows ?? [])
-          .map((row) => row.fcm_token)
-          .filter((token): token is string => typeof token === "string" && token.trim().length > 0)
-          .map((token) => token.trim());
-      }
+    let vendorTokens = await loadVendorFcmTokens(supabase, vendorId, vendor);
+
+    const recordType = String(record?.type ?? "").trim().toLowerCase();
+    const isNewOrder = recordType === "new_order" || recordType === "vendor-new_order";
+    if (vendorTokens.length === 0 && isNewOrder && typeof vendorId === "string" && vendorId.trim()) {
+      await delay(NEW_ORDER_RETRY_MS);
+      const { data: refreshedVendor } = await supabase
+        .from("vendors")
+        .select("fcm_token, category, phone")
+        .eq("id", vendorId)
+        .single();
+      vendorTokens = await loadVendorFcmTokens(supabase, vendorId, refreshedVendor ?? vendor);
     }
-    if (vendorTokens.length === 0 && typeof vendor?.fcm_token === "string" && vendor.fcm_token.trim()) {
-      vendorTokens = [vendor.fcm_token.trim()];
-    }
-    vendorTokens = [...new Set(vendorTokens)];
 
     const categoryKey =
       categoryFromRequest ??
@@ -197,7 +224,31 @@ serve(async (req) => {
     }
 
     if (vendorTokens.length === 0) {
-      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: CORS_HEADERS });
+      const targetPhone = typeof vendor?.phone === "string" ? vendor.phone.trim() : null;
+      console.warn(
+        "notify-vendor: no FCM token for vendor",
+        JSON.stringify({
+          vendor_id: vendorId ?? null,
+          request_id: requestId || null,
+          type: recordType || null,
+          retried: isNewOrder,
+        }),
+      );
+      await logFcmDelivery(supabase, {
+        notification_type: NO_VENDOR_TOKEN_TYPE,
+        target_phone: targetPhone,
+        success: false,
+        raw_response: JSON.stringify({
+          vendor_id: vendorId ?? null,
+          request_id: requestId || null,
+          type: recordType || null,
+          retried: isNewOrder,
+        }).slice(0, 500),
+      });
+      return new Response(
+        JSON.stringify({ ok: true, fcm_skipped: true, reason: "no_vendor_token" }),
+        { status: 200, headers: CORS_HEADERS },
+      );
     }
 
     const notificationType = vendorNotificationType(record);

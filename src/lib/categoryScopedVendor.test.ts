@@ -9,6 +9,7 @@ import {
   resolveCategoryBrandName,
   resolveCategoryReach,
   resolveCategoryServiceRadius,
+  formatRadarReachLabels,
 } from "./categoryScopedVendor";
 
 describe("resolveCategoryBrandName", () => {
@@ -22,6 +23,44 @@ describe("resolveCategoryBrandName", () => {
 
   it("falls back to account shop_name when category brand empty", () => {
     expect(resolveCategoryBrandName("  ", "Shop Co", "cat-1")).toBe("Shop Co");
+  });
+});
+
+describe("formatRadarReachLabels", () => {
+  const labels = {
+    comesToYou: "Comes to you",
+    visitThemKm: (km: string) => `Visit them, ${km} km`,
+    visitThemMtr: (m: string) => `Visit them, ${m} m`,
+  };
+
+  it("shows both reach lines when vendor serves both places", () => {
+    expect(
+      formatRadarReachLabels(
+        { serves_at_customer_place: true, serves_at_vendor_place: true },
+        2.4,
+        labels,
+      ),
+    ).toEqual(["Comes to you", "Visit them, 2.4 km"]);
+  });
+
+  it("uses metres when visit distance is under 1 km", () => {
+    expect(
+      formatRadarReachLabels(
+        { serves_at_customer_place: false, serves_at_vendor_place: true },
+        0.45,
+        labels,
+      ),
+    ).toEqual(["Visit them, 450 m"]);
+  });
+
+  it("shows only comes-to-you when vendor does not serve at shop", () => {
+    expect(
+      formatRadarReachLabels(
+        { serves_at_customer_place: true, serves_at_vendor_place: false },
+        null,
+        labels,
+      ),
+    ).toEqual(["Comes to you"]);
   });
 });
 

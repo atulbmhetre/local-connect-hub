@@ -36,7 +36,9 @@ import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAv
 import {
   buildCategoryModesPayload,
   pickPrimaryAvailabilityMode,
-  coerceSingleAvailabilityMode,
+  normalizeAvailabilityModes,
+  initialModesForCatalog,
+  resolveCatalogServiceMode,
 } from "@/lib/categoryAvailabilityModes";
 
 export type BusinessSetupExistingSettings = {
@@ -362,14 +364,14 @@ export function BusinessSetupSheet({
 
     const modesById: Record<string, AvailabilityMode[]> = {};
     for (const id of existingCategoryIds) {
-      const modes = coerceSingleAvailabilityMode(existingSettings[id]?.availability_modes);
+      const modes = normalizeAvailabilityModes(existingSettings[id]?.availability_modes);
       if (modes.length === 0) {
         toast.error(s.vendor_update_failed);
         return;
       }
       modesById[id] = modes;
     }
-    modesById[selectedCategoryId] = coerceSingleAvailabilityMode(availabilityModes);
+    modesById[selectedCategoryId] = normalizeAvailabilityModes(availabilityModes);
 
     const nextIds = [...existingCategoryIds, selectedCategoryId];
     const categoryModesPayload = buildCategoryModesPayload(nextIds, modesById);
@@ -552,11 +554,21 @@ export function BusinessSetupSheet({
                           <button
                             key={cat.id}
                             type="button"
-                            onClick={() =>
-                              setSelectedCategoryId((prev) =>
-                                prev === cat.id ? null : cat.id,
-                              )
-                            }
+                            onClick={() => {
+                              setSelectedCategoryId((prev) => {
+                                const next = prev === cat.id ? null : cat.id;
+                                if (next) {
+                                  setAvailabilityModes(
+                                    initialModesForCatalog(
+                                      resolveCatalogServiceMode(cat.service_mode),
+                                    ),
+                                  );
+                                } else {
+                                  setAvailabilityModes([]);
+                                }
+                                return next;
+                              });
+                            }}
                             className={cn(
                               "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium",
                               selected
@@ -641,6 +653,9 @@ export function BusinessSetupSheet({
                   label={s.my_business_category_availability}
                   required
                   testIdPrefix="add-business-avail"
+                  catalogServiceMode={resolveCatalogServiceMode(
+                    categories.find((c) => c.id === selectedCategoryId)?.service_mode,
+                  )}
                   value={availabilityModes}
                   onChange={setAvailabilityModes}
                 />

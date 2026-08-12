@@ -8,6 +8,7 @@ import {
   invokeRegisterVendorRpc,
 } from './helpers/setup';
 import { uniqueBrowserPhone } from './helpers/session38';
+import { setRegAvailabilityModes } from './helpers/regAvailability';
 /** Stable vendor referral code: AASP + last 4 phone digits (matches src/lib/referral.ts). */
 function referralCodeFromPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
@@ -515,7 +516,7 @@ test('RF-REQ-10 — Duplicate vendor referral blocked gracefully', async ({ page
   await page.getByRole('button').filter({ hasText: category.label }).first().click();
   await page.getByPlaceholder('Ramesh Tyre Works').fill(`RF10 Shop ${T}`);
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
-  await page.getByTestId('reg-avail-delivery').click();
+  await setRegAvailabilityModes(page, ['delivery']);
   await page.getByTestId('reg-shop-photo-capture').click();
   await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
     timeout: 15000,

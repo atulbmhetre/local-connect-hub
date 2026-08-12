@@ -44,6 +44,7 @@ import {
 import {
   startOrderTracking,
   stopOrderTracking,
+  syncHelpAcceptedOrderTracking,
 } from "@/lib/vendorBackgroundLocation";
 import { sendIveStartedCustomerNotification } from "@/lib/iveStartedNotify";
 import {
@@ -974,6 +975,19 @@ export function IncomingOrdersSection({
       window.clearInterval(t);
     };
   }, [load, silentRefresh]);
+
+  useEffect(() => {
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) return;
+    const acceptedHelpIds = rows
+      .filter(
+        (r) =>
+          r.status === "accepted" &&
+          orderEffectiveMode(r, serviceMode) === "help",
+      )
+      .map((r) => r.id);
+    syncHelpAcceptedOrderTracking(acceptedHelpIds, { vendorId, vendorPhone });
+  }, [rows, vendorId, serviceMode]);
 
   useEffect(() => {
     let cancelled = false;

@@ -41,6 +41,7 @@ import type { TrustLevel } from "@/lib/trustLevel";
 import {
   resolveCategoryBrandName,
   resolveCategoryReach,
+  formatRadarReachLabels,
 } from "@/lib/categoryScopedVendor";
 
 const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
@@ -231,19 +232,25 @@ const VendorCategoryChips = ({
   );
 };
 
-const VendorTypeLabel = ({ vendorType }: { vendorType: Vendor["vendor_type"] }) => {
+const CategoryReachLabel = ({
+  reach,
+  dist,
+}: {
+  reach: { serves_at_vendor_place: boolean; serves_at_customer_place: boolean };
+  dist: number | null;
+}) => {
   const { s } = useLanguage();
-  if (vendorType === "home") {
-    return (
-      <p className="text-[11px] text-muted-foreground mt-0.5">{s.radar_vendor_home_based}</p>
-    );
-  }
-  if (vendorType === "visiting") {
-    return (
-      <p className="text-[11px] text-muted-foreground mt-0.5">{s.radar_vendor_visits_you}</p>
-    );
-  }
-  return null;
+  const labels = formatRadarReachLabels(reach, dist, {
+    comesToYou: s.radar_reach_comes_to_you,
+    visitThemKm: s.radar_reach_visit_them_km,
+    visitThemMtr: s.radar_reach_visit_them_mtr,
+  });
+  if (labels.length === 0) return null;
+  return (
+    <p className="text-[11px] text-muted-foreground mt-0.5" data-testid="radar-reach-label">
+      {labels.join(" · ")}
+    </p>
+  );
 };
 
 type Props = {
@@ -876,7 +883,7 @@ export function RadarVendorCard({
               />
             </span>
           </div>
-          <VendorTypeLabel vendorType={vendor.vendor_type} />
+          <CategoryReachLabel reach={categoryReach} dist={dist} />
           {showPanIndiaBadge && (
             <span className="mt-1 inline-flex text-[10px] rounded-full px-2 py-0.5 bg-brand/20 text-brand font-medium w-fit">
               {s.radar_pan_india_badge}
@@ -1058,7 +1065,7 @@ export function RadarVendorCard({
             className="mt-3 w-full rounded-xl bg-brand text-white py-2.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
           >
             <Phone className="h-4 w-4" />
-            {s.radar_cta_connect}
+            {s.radar_cta_call}
           </button>
       )}
 
@@ -1103,7 +1110,7 @@ export function RadarVendorCard({
             onClick={() => void openParchi()}
             className="mt-2 w-full rounded-xl bg-brand text-white py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform"
           >
-            {serviceMode === "appointment" ? s.radar_cta_book : serviceMode === "delivery" ? s.radar_cta_order : s.radar_cta_connect}
+            {serviceMode === "appointment" ? s.radar_cta_book : serviceMode === "delivery" ? s.radar_cta_order : s.radar_send_order}
           </button>
         ))}
 

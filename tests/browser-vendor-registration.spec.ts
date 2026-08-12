@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { APP_URL } from './helpers/browser-setup';
+import { setRegAvailabilityModes } from './helpers/regAvailability';
 import {
   supabase,
   supabaseAdmin,
@@ -98,10 +99,9 @@ async function completeWizardStepB(
   if (needRadius) {
     await page.getByRole('button', { name: '15 km' }).click();
   }
-  // Uniselect: only the last selected mode is kept.
+  // Plain-language availability UI per catalog service_mode.
   if (opts.modes.length > 0) {
-    const mode = opts.modes[opts.modes.length - 1];
-    await page.getByTestId(`reg-avail-${mode}`).click();
+    await setRegAvailabilityModes(page, opts.modes);
   }
   await page.getByTestId('reg-shop-photo-capture').click();
   await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
@@ -145,11 +145,10 @@ async function addBusinessViaSetupSheet(
     await page.getByRole('button', { name: '15 km' }).click();
   }
 
-  // Uniselect: only the last selected mode is kept.
+  // Plain-language availability UI per catalog service_mode.
   const modes = opts.modes ?? ['help'];
   if (modes.length > 0) {
-    const mode = modes[modes.length - 1];
-    await page.getByTestId(`add-business-avail-${mode}`).click();
+    await setRegAvailabilityModes(page, modes, 'add-business-avail');
   }
 
   await page.getByTestId('add-business-shop-photo').click();
@@ -271,10 +270,14 @@ test('VR-E2E-01: shop vendor registers with GPS via 2-page wizard', async ({ pag
     .select('id, check_type, status, is_latest')
     .eq('vendor_id', vendorId);
   expect(verificationError).toBeNull();
-  // Seven check types; photo_selfie/photo_shop/gps are auto-synced (may have history rows).
+  // Phase 3: account-level vendor_verification has 5 checks (upi, aadhaar, admin, selfie).
+  // photo_shop and gps live on vendor_categories per business — not account-level rows.
   const latest = (verificationRows ?? []).filter((r) => r.is_latest);
-  expect(latest.length).toBe(7);
+  expect(latest.length).toBe(5);
   expect(latest.some((r) => r.check_type === 'photo_selfie')).toBe(true);
+  const accountCheckTypes = (verificationRows ?? []).map((r) => r.check_type);
+  expect(accountCheckTypes).not.toContain('photo_shop');
+  expect(accountCheckTypes).not.toContain('gps');
 
   await page.waitForTimeout(2000);
 
@@ -395,7 +398,7 @@ test('VR-MULTI-01: register one business then add second via My Business sheet',
     .from('vendor_category_modes')
     .select('mode')
     .eq('vendor_category_id', plumberVc.id);
-  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment']);
+  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment', 'help']);
 
   await deleteVendorRegistrationArtifacts(vendorId);
 });
@@ -429,10 +432,9 @@ test('VR-MULTI-02: register two categories with distinct per-category modes', as
   await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
 
-  // Per-category uniselect: last tap wins per category.
-  await page.getByTestId(`reg-avail-${electrician.id}-help`).click();
-  await page.getByTestId(`reg-avail-${electrician.id}-delivery`).click();
-  await page.getByTestId(`reg-avail-${plumber.id}-appointment`).click();
+  // Help-default per category: electrician help-only, plumber help+advance bookings.
+  await expect(page.getByTestId(`reg-avail-${electrician.id}-help-on`)).toBeVisible();
+  await page.getByTestId(`reg-avail-${plumber.id}-bookings-yes`).click();
 
   await page.getByTestId('reg-shop-photo-capture').click();
   await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
@@ -464,8 +466,8 @@ test('VR-MULTI-02: register two categories with distinct per-category modes', as
     .from('vendor_category_modes')
     .select('mode')
     .eq('vendor_category_id', plumberVc.id);
-  expect((elecModes ?? []).map((m) => m.mode).sort()).toEqual(['delivery']);
-  expect((plumberModes ?? []).map((m) => m.mode)).toEqual(['appointment']);
+  expect((elecModes ?? []).map((m) => m.mode).sort()).toEqual(['help']);
+  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment', 'help']);
 
   await deleteVendorRegistrationArtifacts(vendorId);
 });

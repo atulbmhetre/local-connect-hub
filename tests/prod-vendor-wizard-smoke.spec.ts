@@ -6,6 +6,7 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 import { supabaseAdmin } from './helpers/setup';
+import { setRegAvailabilityModes } from './helpers/regAvailability';
 
 const APP = 'http://127.0.0.1:4173';
 const PROD_CATEGORY = 'Cook';
@@ -105,10 +106,8 @@ async function completeWizardStepB(
   if (needRadius) {
     await page.getByRole('button', { name: '15 km' }).click();
   }
-  // Uniselect: only the last selected mode is kept.
   if (opts.modes.length > 0) {
-    const mode = opts.modes[opts.modes.length - 1];
-    await page.getByTestId(`reg-avail-${mode}`).click();
+    await setRegAvailabilityModes(page, opts.modes);
   }
   await page.getByTestId('reg-shop-photo-capture').click();
   await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|फिर|पुन्हा/i, {

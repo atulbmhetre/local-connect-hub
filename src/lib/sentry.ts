@@ -6,6 +6,36 @@ const DSN =
 
 const SENTRY_ENABLED = DSN.length > 0;
 
+type PostgrestLikeError = {
+  message?: string;
+  code?: string;
+  details?: string | null;
+  hint?: string | null;
+};
+
+/** Normalize Supabase/PostgREST plain objects into real Error instances for Sentry. */
+export function toCapturedError(error: unknown): Error {
+  if (error instanceof Error) return error;
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const pg = error as PostgrestLikeError;
+    const message = String(pg.message ?? "Unknown error").trim() || "Unknown error";
+    const code = pg.code ? String(pg.code) : "";
+    const wrapped = new Error(code ? `${message} (${code})` : message);
+    return wrapped;
+  }
+
+  if (typeof error === "string" && error.trim()) {
+    return new Error(error.trim());
+  }
+
+  try {
+    return new Error(JSON.stringify(error));
+  } catch {
+    return new Error("Unknown error");
+  }
+}
+
 export function initSentry(): void {
   if (!SENTRY_ENABLED) return;
 
@@ -28,7 +58,14 @@ export function captureError(
   if (!SENTRY_ENABLED) return;
 
   Sentry.captureException(
-    error,
-    context ? { extra: context } : undefined,
+    toCapturedError(error),
+    context
+      ? {
+          extra: {
+            ...context,
+            rawError: error,
+          },
+        }
+      : { extra: { rawError: error } },
   );
 }

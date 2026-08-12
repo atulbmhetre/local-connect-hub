@@ -153,40 +153,73 @@ async function setupPushRegistration(
   }
 }
 
-export async function registerPushToken(vendorId: string) {
+export type RegisterPushTokenOptions = {
+  /** Known vendor phone — skips get_vendor_own lookup (use right after registration). */
+  vendorPhone?: string | null;
+};
+
+/** Persist FCM token to vendor_devices (+ vendors.fcm_token mirror). */
+export async function persistVendorPushToken(
+  vendorId: string,
+  tokenValue: string,
+  vendorPhone: string,
+): Promise<void> {
+  const phone = vendorPhone.trim();
+  if (!phone) {
+    console.error("Push token save failed: vendor phone missing");
+    return;
+  }
+  const deviceId = getDeviceId();
+
+  const { error } = await supabase.rpc("upsert_vendor_device", {
+    p_vendor_id: vendorId,
+    p_vendor_phone: phone,
+    p_device_id: deviceId,
+    p_fcm_token: tokenValue,
+    p_last_lat: null,
+    p_last_lng: null,
+  });
+  if (error) {
+    console.error("Vendor push device save failed", error);
+    captureError(error, {
+      pushSurface: "registration",
+      operation: "upsert_vendor_device",
+      vendorId,
+    });
+    return;
+  }
+
+  const { error: patchError } = await patchVendorOwn(vendorId, phone, {
+    fcm_token: tokenValue,
+  });
+  if (patchError) {
+    console.error("Push token save failed", patchError);
+    captureError(patchError, {
+      pushSurface: "registration",
+      operation: "patchVendorOwn.fcm_token",
+      vendorId,
+    });
+  }
+}
+
+export async function registerPushToken(
+  vendorId: string,
+  options?: RegisterPushTokenOptions,
+) {
   if (!Capacitor.isNativePlatform()) return;
 
   const permission = await PushNotifications.requestPermissions();
   if (permission.receive !== "granted") return;
 
+  const knownPhone = options?.vendorPhone?.trim() || null;
+
   await setupPushRegistration(async (tokenValue) => {
-    const vendorPhone = await fetchVendorPhone(vendorId);
+    const vendorPhone = knownPhone || (await fetchVendorPhone(vendorId));
     if (!vendorPhone) {
       console.error("Push token save failed: vendor phone not found");
       return;
     }
-    const deviceId = getDeviceId();
-
-    const { error } = await supabase.rpc("upsert_vendor_device", {
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-      p_device_id: deviceId,
-      p_fcm_token: tokenValue,
-      p_last_lat: null,
-      p_last_lng: null,
-    });
-    if (error) {
-      console.error("Vendor push device save failed", error);
-    }
-
-    // Fallback: keep vendors.fcm_token patched directly for anything still
-    // depending on the single column (upsert_vendor_device also mirrors it).
-    const { error: patchError } = await patchVendorOwn(vendorId, vendorPhone, {
-      fcm_token: tokenValue,
-    });
-    if (patchError) {
-      console.error("Push token save failed", patchError);
-    }
+    await persistVendorPushToken(vendorId, tokenValue, vendorPhone);
   }, "vendor");
 }
 

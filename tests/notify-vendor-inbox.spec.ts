@@ -85,7 +85,7 @@ test('NVI-01 — inbox row created with correct fields', async () => {
     });
 
     expect(error).toBeNull();
-    expect(data).toEqual({ ok: true });
+    expect(data).toMatchObject({ ok: true });
 
     const row = await fetchNotificationByMarker(testVendor.phone, marker);
     expect(row).not.toBeNull();
@@ -117,7 +117,7 @@ test('NVI-02 — route/route_params correctly resolved for payment_claimed', asy
     });
 
     expect(error).toBeNull();
-    expect(data).toEqual({ ok: true });
+    expect(data).toMatchObject({ ok: true });
 
     const row = await fetchNotificationByMarker(testVendor.phone, marker);
     expect(row).not.toBeNull();
@@ -158,7 +158,7 @@ test('NVI-03 — works even when vendor has no FCM token', async () => {
     });
 
     expect(error).toBeNull();
-    expect(data).toEqual({ ok: true });
+    expect(data).toMatchObject({ ok: true });
 
     const row = await fetchNotificationByMarker(testVendor.phone, marker);
     expect(row).not.toBeNull();
@@ -193,7 +193,7 @@ test('NVI-04 — explicit route/route_params on the record are respected, not ov
     });
 
     expect(error).toBeNull();
-    expect(data).toEqual({ ok: true });
+    expect(data).toMatchObject({ ok: true });
 
     const row = await fetchNotificationByMarker(testVendor.phone, marker);
     expect(row).not.toBeNull();
@@ -226,7 +226,7 @@ test('NVI-05 — missing title and body does not create an inbox row', async () 
     });
 
     expect(error).toBeNull();
-    expect(data).toEqual({ ok: true });
+    expect(data).toMatchObject({ ok: true });
 
     const { count: afterCount } = await supabaseAdmin
       .from('user_notifications')

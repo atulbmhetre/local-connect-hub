@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockStart, mockStop, mockPatch, mockInvokeNotifyUser } = vi.hoisted(() => ({
   mockStart: vi.fn(async () => undefined),
@@ -15,6 +15,14 @@ vi.mock("@capgo/background-geolocation", () => ({
   BackgroundGeolocation: {
     start: mockStart,
     stop: mockStop,
+  },
+}));
+
+vi.mock("@capacitor/geolocation", () => ({
+  Geolocation: {
+    getCurrentPosition: vi.fn(async () => ({
+      coords: { latitude: 18.52, longitude: 73.86 },
+    })),
   },
 }));
 
@@ -38,11 +46,15 @@ vi.mock("@/lib/supabase", () => ({
 
 import {
   getActiveTrackingSourcesForTests,
+  getHelpAcceptedOrderIdsForTests,
+  isHelpStoppedHeartbeatRunningForTests,
   startHelpLiveTracking,
   startOrderTracking,
   stopAllVendorLocationTracking,
   stopHelpLiveTracking,
   stopOrderTracking,
+  syncHelpAcceptedOrderTracking,
+  VENDOR_STOPPED_HEARTBEAT_MS,
 } from "@/lib/vendorBackgroundLocation";
 import { sendIveStartedCustomerNotification } from "@/lib/iveStartedNotify";
 import { iveStartedActionStartsTracking } from "@/lib/vendorTrackingPolicy";
@@ -118,5 +130,39 @@ describe("vendorBackgroundLocation sources", () => {
     expect(mockInvokeNotifyUser).toHaveBeenCalled();
     expect(getActiveTrackingSourcesForTests()).toEqual([]);
     expect(mockStart).not.toHaveBeenCalled();
+  });
+});
+
+describe("help stopped-detection heartbeat", () => {
+  const ctx = { vendorId: "v1", vendorPhone: "9000000001" };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("runs periodic GPS writes when Go-Live and accepted Help orders exist", async () => {
+    await startHelpLiveTracking(ctx);
+    syncHelpAcceptedOrderTracking(["help-ord-1"], ctx);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(isHelpStoppedHeartbeatRunningForTests()).toBe(true);
+    expect(getHelpAcceptedOrderIdsForTests()).toEqual(["help-ord-1"]);
+    expect(mockPatch).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(VENDOR_STOPPED_HEARTBEAT_MS);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockPatch.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    syncHelpAcceptedOrderTracking([], ctx);
+    expect(isHelpStoppedHeartbeatRunningForTests()).toBe(false);
+  });
+
+  it("does not heartbeat without Go-Live even if Help orders are accepted", async () => {
+    syncHelpAcceptedOrderTracking(["help-ord-2"], ctx);
+    expect(isHelpStoppedHeartbeatRunningForTests()).toBe(false);
+    expect(mockPatch).not.toHaveBeenCalled();
   });
 });

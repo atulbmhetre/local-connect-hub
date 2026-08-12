@@ -183,3 +183,16 @@ describe("RadarVendorCard accent + i18n render", () => {
     unmount();
   });
 });
+
+describe("RadarVendorCard Help CTA semantics", () => {
+  it("shows Call on connect and Send Order on help order button", () => {
+    langMock.current = "en";
+    localStorage.clear();
+    renderCard({ service_mode: "help" });
+    expect(screen.getByRole("button", { name: strings.en.radar_cta_call })).toBeTruthy();
+    expect(screen.getByTestId("radar-vendor-card-order-btn")).toHaveTextContent(
+      strings.en.radar_send_order,
+    );
+    expect(screen.queryByText(strings.en.radar_cta_connect)).toBeNull();
+  });
+});
