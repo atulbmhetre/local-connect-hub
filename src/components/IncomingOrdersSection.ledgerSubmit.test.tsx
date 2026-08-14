@@ -28,9 +28,8 @@ const FULFILLED_ORDER = {
   service_mode: "delivery",
 };
 
-const { mockRpc, mockInvokeNotifyUser } = vi.hoisted(() => ({
+const { mockRpc } = vi.hoisted(() => ({
   mockRpc: vi.fn(),
-  mockInvokeNotifyUser: vi.fn(),
 }));
 
 function chainResult(data: unknown = []) {
@@ -62,7 +61,7 @@ vi.mock("@/lib/supabase", () => ({
     channel: vi.fn(() => mockChannel),
     removeChannel: vi.fn(),
   },
-  invokeNotifyUser: mockInvokeNotifyUser,
+  invokeNotifyUser: vi.fn(),
   invokecalculateTrustScore: vi.fn(),
   useCategoryLabel: () => (label: string) => label,
 }));
@@ -172,7 +171,7 @@ describe("IncomingOrdersSection khata ledger submit lock", () => {
 
     resolveInsert?.();
     await waitFor(() => {
-      expect(mockInvokeNotifyUser).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId("ledger-submit-btn")).not.toBeInTheDocument();
     });
   });
 });
