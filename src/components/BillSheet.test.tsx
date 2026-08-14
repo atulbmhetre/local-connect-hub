@@ -3,16 +3,14 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { BillSheet } from "@/components/BillSheet";
 import { strings } from "@/lib/strings";
 
-const { mockRpc, mockInvokeNotifyUser } = vi.hoisted(() => ({
+const { mockRpc } = vi.hoisted(() => ({
   mockRpc: vi.fn(),
-  mockInvokeNotifyUser: vi.fn(),
 }));
 
 vi.mock("@/lib/sentry", () => ({ captureError: vi.fn() }));
 
 vi.mock("@/lib/supabase", () => ({
   supabase: { rpc: mockRpc },
-  invokeNotifyUser: mockInvokeNotifyUser,
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "anon-key",
 }));
@@ -111,7 +109,6 @@ describe("BillSheet send lock", () => {
     resolveInsert?.();
     await waitFor(() => {
       expect(onClose).toHaveBeenCalledTimes(1);
-      expect(mockInvokeNotifyUser).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { APP_URL } from './helpers/browser-setup';
-import { ensureRegAvailabilityReady } from './helpers/regAvailability';
+import { ensureRegAvailabilityReady, setRegAvailabilityModes } from './helpers/regAvailability';
 import {
   supabaseAdmin,
   deleteVendorRegistrationArtifacts,
@@ -112,7 +112,7 @@ test.describe('Phase 2 colocation write path', () => {
       .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
     await plumberChip.first().click();
     await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
-    await page.getByTestId('add-business-avail-help').click();
+    await setRegAvailabilityModes(page, ['help'], 'add-business-avail');
 
     await page.getByTestId('add-business-shop-photo').click();
     await expect(page.getByTestId('add-business-same-shop')).toBeVisible({ timeout: 15000 });
@@ -198,7 +198,7 @@ test.describe('Phase 2 colocation write path', () => {
       .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
     await plumberChip.first().click();
     await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
-    await page.getByTestId('add-business-avail-help').click();
+    await setRegAvailabilityModes(page, ['help'], 'add-business-avail');
 
     await page.getByTestId('add-business-shop-photo').click();
     await expect(page.getByTestId('add-business-same-shop')).toHaveCount(0, { timeout: 8000 });

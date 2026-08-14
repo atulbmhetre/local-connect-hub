@@ -23,7 +23,7 @@ const L = {
   btnDecline: '❌ Decline',
   cancelOrder: 'Cancel Order',
   confirmCancel: 'Confirm Cancel',
-  markDone: '✅ Mark Done',
+  markDone: 'Mark Done',
   dismiss: '✅ Dismiss',
   bookingConfirmed: 'Booking Confirmed',
   bannerDeclined: '❌ Booking Declined',

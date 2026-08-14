@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { supabase, invokeNotifyUser, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/supabase";
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
@@ -462,25 +462,6 @@ export function BillSheet({
       );
       releaseSendingLock();
       return;
-    }
-
-    const phone = userPhone?.trim();
-    if (phone) {
-      const title = s.bill_notifTitle;
-      const paymentLabel =
-        paymentMode === "khata"
-          ? s.khata_wordLabel
-          : paymentMode === "upi"
-            ? s.upi_wordLabel
-            : s.cash_wordLabel;
-      const body = `${shopName}: ₹${Math.round(totalAmount)} — ${paymentLabel}`;
-      void invokeNotifyUser({
-        user_phone: phone,
-        title,
-        body,
-        type: "bill",
-        order_id: requestId,
-      });
     }
 
     toast.success(s.bill_sent);

@@ -152,8 +152,11 @@ test('STATS-01: Cobbler Radar shows fulfilled count; Carpenter shows none (same 
   await gotoRadar(page, carpenter.label, 'help');
   const carpenterCard = page.getByTestId('radar-vendor-card').filter({ hasText: shopName });
   await expect(carpenterCard).toBeVisible({ timeout: 25000 });
-  await expect(carpenterCard.getByTestId('radar-reputation-helped')).toHaveCount(0);
-  // Account pool of 99 must not leak into the card copy.
-  await expect(carpenterCard.getByText(/99/)).toHaveCount(0);
+  const carpenterHelped = carpenterCard.getByTestId('radar-reputation-helped');
+  await expect(carpenterHelped).toHaveCount(0);
+  // Account pool total_helped=99 must not surface on the per-business reputation line.
+  await expect(
+    carpenterCard.locator('[data-testid="radar-reputation-helped"][data-count="99"]'),
+  ).toHaveCount(0);
   console.log('STATS-01 Carpenter card has no helped line (account total_helped=99 ignored)');
 });

@@ -14,7 +14,19 @@ const mockConfig = vi.hoisted(() => ({
   appointmentCallLimitSeconds: 180,
 }));
 
+const mockSupabase = vi.hoisted(() => ({
+  from: () => ({
+    select: () => ({
+      eq: () => ({
+        eq: async () => ({ data: [], error: null }),
+      }),
+    }),
+  }),
+  rpc: async () => ({ data: [], error: null }),
+}));
+
 vi.mock("@/lib/supabase", () => ({
+  supabase: mockSupabase,
   invokeInitiateCall: (...args: unknown[]) => mockInvokeInitiateCall(...args),
   buildVendorBrief: (...args: unknown[]) => mockBuildVendorBrief(...args),
   emojiForVendorCategory: () => "🛒",

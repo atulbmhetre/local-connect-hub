@@ -446,7 +446,7 @@ test('UX-OVERLAP-02: parchi submit button visible in viewport when sheet is open
 
 // ─── VENDOR CARD CONTENT ──────────────────────────────────────────────────
 
-test('UX-CARD-01: radar card shows category chips, home type label, Verified badge', async ({ page }) => {
+test('UX-CARD-01: radar card shows category chips, reach label, Verified badge', async ({ page }) => {
   const cardPhone = `99004${Date.now().toString().slice(-5)}`;
   const shopName = `!CARD-${Date.now()}`;
   const categories = [
@@ -485,6 +485,7 @@ test('UX-CARD-01: radar card shows category chips, home type label, Verified bad
     is_primary: true,
     is_manual_verified: true,
     serves_at_customer_place: true,
+    serves_at_vendor_place: true,
   });
   await seedVendorCategory(cardVendor!.id, categories[1], {
     is_primary: false,
@@ -501,7 +502,10 @@ test('UX-CARD-01: radar card shows category chips, home type label, Verified bad
 
   const card = page.locator(`#radar-vendor-card-${cardVendor!.id}`);
   await expect(card).toBeVisible({ timeout: 20000 });
-  await expect(card.getByText(/Home based/i)).toBeVisible();
+  const reachLabel = card.getByTestId('radar-reach-label');
+  await expect(reachLabel).toBeVisible();
+  await expect(reachLabel).toContainText('Comes to you');
+  await expect(reachLabel).toHaveText(/Comes to you · Visit them, \d+ m/);
   await expect(card.getByTestId('badge-verified')).toBeVisible();
   await expect(card.getByText(/Verified|सत्यापित/i).first()).toBeVisible();
   await expect(card.getByText(/Bronze|ब्रॉन्ज/i)).not.toBeVisible();

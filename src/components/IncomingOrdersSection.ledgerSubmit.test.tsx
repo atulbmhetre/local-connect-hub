@@ -78,6 +78,7 @@ vi.mock("@/lib/language", () => ({
 vi.mock("@/lib/vendorBackgroundLocation", () => ({
   startOrderTracking: vi.fn(),
   stopOrderTracking: vi.fn(),
+  syncHelpAcceptedOrderTracking: vi.fn(),
 }));
 
 vi.mock("@/lib/iveStartedNotify", () => ({

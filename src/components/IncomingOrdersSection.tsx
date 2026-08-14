@@ -1736,17 +1736,6 @@ export function IncomingOrdersSection({
         return;
       }
 
-      const title = s.bill_notifTitle;
-      const ledgerCat = rows.find((r) => r.id === ledgerOrderId)?.category_id ?? null;
-      const body = `${brandForOrder(ledgerCat)}: ₹${amount} — ${s.khata_wordLabel}`;
-      void invokeNotifyUser({
-        user_phone: ledgerUserPhone,
-        title,
-        body,
-        type: "bill",
-        order_id: ledgerOrderId,
-      });
-
       const terminalIds = rows
         .filter((r) => r.status === "fulfilled" || r.status === "done")
         .map((r) => r.id);

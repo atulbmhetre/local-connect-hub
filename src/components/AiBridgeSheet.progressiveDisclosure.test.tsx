@@ -5,7 +5,19 @@ import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 
 const s = strings.en;
 
+const mockSupabase = vi.hoisted(() => ({
+  from: () => ({
+    select: () => ({
+      eq: () => ({
+        eq: async () => ({ data: [], error: null }),
+      }),
+    }),
+  }),
+  rpc: async () => ({ data: [], error: null }),
+}));
+
 vi.mock("@/lib/supabase", () => ({
+  supabase: mockSupabase,
   invokeInitiateCall: vi.fn(),
   buildVendorBrief: vi.fn(async () => ({ ok: true, brief: "Brief." })),
   emojiForVendorCategory: () => "🛒",

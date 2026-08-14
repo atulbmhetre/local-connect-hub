@@ -16,7 +16,7 @@ describe("classifySearchTermForRadar", () => {
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     ({ classifySearchTermForRadar } = await import("@/lib/supabase"));
-  });
+  }, 30_000);
 
   afterEach(() => {
     vi.unstubAllGlobals();

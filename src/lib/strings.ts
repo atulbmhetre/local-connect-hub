@@ -1641,7 +1641,7 @@ export const strings = {
     incoming_callCustomer: 'Call Customer',
     incoming_customer: 'Customer',
     incoming_saving: 'Saving…',
-    incoming_markDone: '✅ Mark Done',
+    incoming_markDone: 'Mark Done',
     incoming_btnAccept: '✅ Accept',
     incoming_acceptOrder: '✅ Accept Order',
     incoming_orderAcceptedTitle: 'Order accepted',

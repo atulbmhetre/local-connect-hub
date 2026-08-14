@@ -518,12 +518,17 @@ test('PS-HELP-02 — Help-mode placement creates requests row via ParchiSheet', 
     .from('vendors')
     .update({ is_active: true, discoverable: true, profile_status: 'complete' })
     .eq('id', vendor.id);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ serves_at_vendor_place: true, serves_at_customer_place: true })
+    .eq('vendor_id', vendor.id);
   await seedCustomer(80);
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await openHelpParchiSheet(page, vendor);
 
   const msg = `PS-HELP-02 help order ${T}`;
   await page.getByTestId('parchi-message-input').fill(msg);
+  await page.getByTestId('parchi-help-come-to-me').click();
   await page.getByTestId('parchi-submit-btn').click();
 
   await expect(page.getByText('✅ Order sent! They will see it shortly.')).toBeVisible({
@@ -532,15 +537,16 @@ test('PS-HELP-02 — Help-mode placement creates requests row via ParchiSheet', 
 
   const { data: row, error } = await supabaseAdmin
     .from('requests')
-    .select('id, service_mode, status, message, vendor_id')
+    .select('id, service_mode, status, message, vendor_id, service_location')
     .eq('user_phone', CUSTOMER_PHONE)
     .eq('vendor_id', vendor.id)
-    .eq('message', msg)
+    .like('message', `${msg}%`)
     .maybeSingle();
   expect(error).toBeNull();
   expect(row).toBeTruthy();
   expect(row!.service_mode).toBe('help');
   expect(row!.status).toBe('sent');
+  expect(row!.service_location).toBe('customer_place');
   createdRequestIds.push(row!.id);
 });
 

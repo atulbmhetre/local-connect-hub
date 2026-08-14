@@ -265,3 +265,27 @@ test('PRF-03 — resume prompt does not appear if Pay Now was never tapped', asy
     await cleanupVendor(vendor.id);
   }
 });
+
+test('PRF-04 — auto-rating does not stack over payment sheet', async ({ page }) => {
+  const vendor = await createVendor('04');
+  const msg = `PRF-04 auto-rating gate ${T}`;
+  const { requestId } = await seedFulfilledOrderWithUnpaidBill(vendor.id, msg);
+
+  try {
+    await seedCustomer();
+    await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
+    await gotoMyOrders(page);
+    await openPaymentSheetFromOrder(page, msg);
+
+    const sheet = paymentSheet(page);
+    await expect(sheet).toBeVisible();
+    await page.waitForTimeout(700);
+    await expect(page.getByTestId('rating-sheet')).not.toBeVisible();
+    await expect(sheet.getByRole('button', { name: L.payNow })).toBeEnabled();
+    await sheet.getByRole('button', { name: L.payNow }).click();
+    await expect(page.locator('body')).toBeVisible();
+  } finally {
+    await cleanupRequest(requestId);
+    await cleanupVendor(vendor.id);
+  }
+});

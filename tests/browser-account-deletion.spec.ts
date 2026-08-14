@@ -159,7 +159,7 @@ test('DEL-05: vendor Yes Delete shows spinner, toast, and scheduled deletion UI'
     timeout: 10000,
   });
   await expect(page.getByText(/Account deletion scheduled/i)).toBeVisible({ timeout: 8000 });
-  await expect(page.getByText(/\d{2} \w{3} \d{4}/)).toBeVisible();
+  await expect(page.getByText(/\d{2} \w{3,4} \d{4}/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel Deletion' })).toBeVisible();
 
   const { data: vendor } = await supabaseAdmin

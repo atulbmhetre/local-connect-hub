@@ -18,15 +18,31 @@ async function invokeNotifyVendor(record: Record<string, unknown>) {
   return supabase.functions.invoke('notify-vendor', { body: { record } });
 }
 
-async function fcmLogCount(targetPhone: string, notificationType: string, since: string) {
+async function queryFcmLogs(targetPhone: string, notificationType: string) {
   const { data, error } = await supabaseAdmin
     .from('fcm_delivery_log')
     .select('id, raw_response, created_at')
     .eq('target_phone', targetPhone)
-    .eq('notification_type', notificationType)
-    .gte('created_at', since);
+    .eq('notification_type', notificationType);
   if (error) throw error;
   return data ?? [];
+}
+
+/** Poll until at least `minNewRows` new log rows appear (no created_at filter — avoids client/server clock skew). */
+async function waitForNewFcmLogs(
+  targetPhone: string,
+  notificationType: string,
+  minNewRows: number,
+  baselineCount: number,
+  timeoutMs = 5000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const rows = await queryFcmLogs(targetPhone, notificationType);
+    if (rows.length >= baselineCount + minNewRows) return rows;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return queryFcmLogs(targetPhone, notificationType);
 }
 
 test.describe('vendor_devices multi-device push', () => {
@@ -109,7 +125,7 @@ test.describe('vendor_devices multi-device push', () => {
   });
 
   test('VD-01: vendor with 2 registered devices gets an FCM delivery attempt logged for each token', async () => {
-    const since = new Date().toISOString();
+    const baseline = (await queryFcmLogs(vendor.phone, 'vendor-payment_claimed')).length;
     await supabaseAdmin.from('vendor_devices').insert([
       { vendor_id: vendor.id, device_id: `multi_a_${T}`, fcm_token: `vd_multi_a_${T}` },
       { vendor_id: vendor.id, device_id: `multi_b_${T}`, fcm_token: `vd_multi_b_${T}` },
@@ -125,12 +141,12 @@ test.describe('vendor_devices multi-device push', () => {
     expect(error).toBeNull();
     expect(data).toEqual({ ok: true });
 
-    const logs = await fcmLogCount(vendor.phone, 'vendor-payment_claimed', since);
-    expect(logs.length).toBeGreaterThanOrEqual(2);
+    const logs = await waitForNewFcmLogs(vendor.phone, 'vendor-payment_claimed', 2, baseline);
+    expect(logs.length).toBeGreaterThanOrEqual(baseline + 2);
   });
 
   test('VD-02: legacy pre-migration vendor (single vendors.fcm_token, no device rows) still receives', async () => {
-    const since = new Date().toISOString();
+    const baseline = (await queryFcmLogs(vendor.phone, 'vendor-payment_claimed')).length;
     const legacyToken = `vd_legacy_${T}`;
 
     // Simulate a vendor from before this migration: no vendor_devices rows,
@@ -148,12 +164,12 @@ test.describe('vendor_devices multi-device push', () => {
     expect(error).toBeNull();
     expect(data).toEqual({ ok: true });
 
-    const logs = await fcmLogCount(vendor.phone, 'vendor-payment_claimed', since);
-    expect(logs.length).toBeGreaterThanOrEqual(1);
+    const logs = await waitForNewFcmLogs(vendor.phone, 'vendor-payment_claimed', 1, baseline);
+    expect(logs.length).toBeGreaterThanOrEqual(baseline + 1);
   });
 
   test('VD-03: an actual legacy vendor_devices row (device_id="legacy") is used the same way', async () => {
-    const since = new Date().toISOString();
+    const baseline = (await queryFcmLogs(vendor.phone, 'vendor-referral')).length;
     const legacyToken = `vd_legacy_row_${T}`;
 
     await supabaseAdmin.from('vendors').update({ fcm_token: null }).eq('id', vendor.id);
@@ -171,12 +187,12 @@ test.describe('vendor_devices multi-device push', () => {
     expect(error).toBeNull();
     expect(data).toEqual({ ok: true });
 
-    const logs = await fcmLogCount(vendor.phone, 'vendor-referral', since);
-    expect(logs.length).toBeGreaterThanOrEqual(1);
+    const logs = await waitForNewFcmLogs(vendor.phone, 'vendor-referral', 1, baseline);
+    expect(logs.length).toBeGreaterThanOrEqual(baseline + 1);
   });
 
   test('VD-04: notify-vendor fcm_delivery_log uses the real notification type, not a hardcoded label', async () => {
-    const since = new Date().toISOString();
+    const paymentBaseline = (await queryFcmLogs(vendor.phone, 'vendor-payment_claimed')).length;
     await supabaseAdmin
       .from('vendor_devices')
       .insert({ vendor_id: vendor.id, device_id: `type_${T}`, fcm_token: `vd_type_${T}` });
@@ -190,15 +206,20 @@ test.describe('vendor_devices multi-device push', () => {
     });
     expect(error).toBeNull();
 
-    const mislabeled = await fcmLogCount(vendor.phone, 'vendor-new-order', since);
+    const mislabeled = await queryFcmLogs(vendor.phone, 'vendor-new-order');
     expect(mislabeled.length).toBe(0);
 
-    const correctlyLabeled = await fcmLogCount(vendor.phone, 'vendor-payment_claimed', since);
-    expect(correctlyLabeled.length).toBeGreaterThanOrEqual(1);
+    const correctlyLabeled = await waitForNewFcmLogs(
+      vendor.phone,
+      'vendor-payment_claimed',
+      1,
+      paymentBaseline,
+    );
+    expect(correctlyLabeled.length).toBeGreaterThanOrEqual(paymentBaseline + 1);
   });
 
   test('VD-05: notify-vendor with no token logs vendor-no_fcm_token (not silent)', async () => {
-    const since = new Date().toISOString();
+    const baseline = (await queryFcmLogs(vendor.phone, 'vendor-no_fcm_token')).length;
     await supabaseAdmin.from('vendor_devices').delete().eq('vendor_id', vendor.id);
     await supabaseAdmin.from('vendors').update({ fcm_token: null }).eq('id', vendor.id);
 
@@ -212,13 +233,12 @@ test.describe('vendor_devices multi-device push', () => {
     expect(error).toBeNull();
     expect(data).toMatchObject({ ok: true, fcm_skipped: true, reason: 'no_vendor_token' });
 
-    const logs = await fcmLogCount(vendor.phone, 'vendor-no_fcm_token', since);
-    expect(logs.length).toBeGreaterThanOrEqual(1);
-    expect(logs[0]?.raw_response).toContain(vendor.id);
+    const logs = await waitForNewFcmLogs(vendor.phone, 'vendor-no_fcm_token', 1, baseline);
+    expect(logs.length).toBeGreaterThanOrEqual(baseline + 1);
+    expect(logs[logs.length - 1]?.raw_response).toContain(vendor.id);
   });
 
   test('VD-06: new vendor with immediate token receives FCM on first new_order', async () => {
-    const since = new Date().toISOString();
     const freshVendor = await createTestVendor({ shop_name: `VendorDevicesEarly-${T}` });
     const token = `vd_early_${T}`;
     const deviceId = `early_device_${T}`;
@@ -239,6 +259,8 @@ test.describe('vendor_devices multi-device push', () => {
       .maybeSingle();
     expect(deviceRow?.fcm_token).toBe(token);
 
+    const baseline = (await queryFcmLogs(freshVendor.phone, 'vendor-new_order')).length;
+
     const { data, error } = await invokeNotifyVendor({
       vendor_id: freshVendor.id,
       notification_title: `Early token order ${T}`,
@@ -249,8 +271,8 @@ test.describe('vendor_devices multi-device push', () => {
     expect(error).toBeNull();
     expect(data).toEqual({ ok: true });
 
-    const logs = await fcmLogCount(freshVendor.phone, 'vendor-new_order', since);
-    expect(logs.length).toBeGreaterThanOrEqual(1);
+    const logs = await waitForNewFcmLogs(freshVendor.phone, 'vendor-new_order', 1, baseline);
+    expect(logs.length).toBeGreaterThanOrEqual(baseline + 1);
 
     await supabaseAdmin.from('vendor_devices').delete().eq('vendor_id', freshVendor.id);
     await supabaseAdmin.from('fcm_delivery_log').delete().eq('target_phone', freshVendor.phone);

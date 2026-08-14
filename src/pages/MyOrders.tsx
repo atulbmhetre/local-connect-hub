@@ -63,6 +63,7 @@ import {
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
 import { captureError } from "@/lib/sentry";
+import { isMyOrdersOverlayBlockingAutoRating } from "@/lib/myOrdersAutoRating";
 const MAX_LEN = 200;
 
 function fulfilledOrderCtaLabel(
@@ -376,6 +377,7 @@ const MyOrders = () => {
     vendorPhone: string | null;
   } | null>(null);
   const [pendingDismissId, setPendingDismissId] = useState<string | null>(null);
+  const [ratingRequestId, setRatingRequestId] = useState<string | null>(null);
   const [calledVendor, setCalledVendor] = useState<Record<string, boolean>>({});
   // Track which orders have already auto-shown rating sheet to prevent re-triggering
   const [autoShownReviews, setAutoShownReviews] = useState<Set<string>>(new Set());
@@ -414,6 +416,17 @@ const MyOrders = () => {
   const [paymentSheetLoadingId, setPaymentSheetLoadingId] = useState<string | null>(null);
   const mounted = useRef(true);
   const vendorLocationHistoryRef = useRef<Map<string, VendorLocationPoint[]>>(new Map());
+  const pendingAutoRatingRef = useRef<RowWithShop | null>(null);
+
+  const consumeAutoRatingForOrder = useCallback((orderId: string) => {
+    if (!orderId) return;
+    pendingAutoRatingRef.current = null;
+    setAutoShownReviews((prev) => {
+      if (prev.has(orderId)) return prev;
+      return new Set([...prev, orderId]);
+    });
+  }, []);
+  const khataAllowAutoRatingRef = useRef(true);
 
   /** Help + instant Delivery/Appointment (accepted); scheduled never. */
   const acceptedHelpOrders = useMemo(
@@ -558,21 +571,21 @@ const MyOrders = () => {
       return;
     }
 
-    setMyKhata(
-      filterKhataLedgerByOutstanding(
-        ((data ?? []) as {
-          vendor_id: string;
-          total_outstanding: number;
-          last_updated: string;
-          shop_name: string | null;
-        }[]).map((k) => ({
-          vendor_id: k.vendor_id,
-          shop_name: k.shop_name ?? "Unknown",
-          total_outstanding: k.total_outstanding,
-        })),
-        false,
-      ),
+    const ledgerRows = filterKhataLedgerByOutstanding(
+      ((data ?? []) as {
+        vendor_id: string;
+        total_outstanding: number;
+        last_updated: string;
+        shop_name: string | null;
+      }[]).map((k) => ({
+        vendor_id: k.vendor_id,
+        shop_name: k.shop_name ?? "Unknown",
+        total_outstanding: k.total_outstanding,
+      })),
+      false,
     );
+    khataAllowAutoRatingRef.current = ledgerRows.length === 0;
+    setMyKhata(ledgerRows);
   };
 
   const openKhataDetail = async (entry: {
@@ -625,6 +638,7 @@ const MyOrders = () => {
     setKhataTransactions([]);
     setKhataTxNetworkStatus(null);
     khataDetailRetryRef.current = null;
+    khataAllowAutoRatingRef.current = true;
   };
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
@@ -715,27 +729,113 @@ const MyOrders = () => {
     };
   }, [load]);
 
+  const overlayBlocksAutoRating = useCallback((): boolean => {
+    return isMyOrdersOverlayBlockingAutoRating({
+      ratingSheetOpen,
+      paymentSheetOpen: paymentSheetOrder !== null,
+      paymentSheetLoading: paymentSheetLoadingId !== null,
+      khataDetailOpen: khataDetail !== null,
+      editOrderOpen: editOrder !== null,
+      editingReviewOpen: editingReview !== null,
+      aiSheetOpen,
+      helpCallSheetOpen: helpCallVendor !== null,
+      billHistoryOpen: historyBillId !== null,
+    });
+  }, [
+    ratingSheetOpen,
+    paymentSheetOrder,
+    paymentSheetLoadingId,
+    khataDetail,
+    editOrder,
+    editingReview,
+    aiSheetOpen,
+    helpCallVendor,
+    historyBillId,
+  ]);
+
+  const tryAutoTriggerRatingSheet = useCallback(
+    (r: RowWithShop) => {
+      if (autoShownReviews.has(r.id) || myReviews[r.id]) {
+        pendingAutoRatingRef.current = null;
+        return;
+      }
+      if (overlayBlocksAutoRating()) {
+        pendingAutoRatingRef.current = r;
+        return;
+      }
+      if (!khataAllowAutoRatingRef.current) {
+        pendingAutoRatingRef.current = r;
+        return;
+      }
+
+      pendingAutoRatingRef.current = null;
+      setAutoShownReviews((prev) => new Set([...prev, r.id]));
+      setRatingRequestId(r.id);
+      setRatingVendor({
+        vendorId: r.vendor_id,
+        shopName: r.vendors?.shop_name ?? s.myOrders_shopFallback,
+        serviceMode: r.vendors?.service_mode ?? "delivery",
+        vendorPhone: r.vendors?.phone ?? null,
+      });
+      setRatingSheetOpen(true);
+    },
+    [autoShownReviews, myReviews, overlayBlocksAutoRating, s.myOrders_shopFallback],
+  );
+
+  const tryAutoTriggerRatingSheetRef = useRef(tryAutoTriggerRatingSheet);
+  tryAutoTriggerRatingSheetRef.current = tryAutoTriggerRatingSheet;
+
   // Check for fulfilled orders that need auto-rating on mount/data refresh
   useEffect(() => {
     if (loading || rows.length === 0) return;
-    
-    // Find fulfilled orders that haven't been auto-shown and don't have reviews
-    const eligibleOrders = rows.filter(r => 
-      r.status === 'fulfilled' && 
-      !autoShownReviews.has(r.id) && 
-      !myReviews[r.id]
+
+    const eligibleOrders = rows.filter(
+      (r) =>
+        r.status === "fulfilled" &&
+        !autoShownReviews.has(r.id) &&
+        !myReviews[r.id],
     );
-    
-    // Auto-trigger for the most recent eligible order (avoid overwhelming with multiple prompts)
-    if (eligibleOrders.length > 0) {
-      const mostRecentOrder = eligibleOrders.reduce((latest, current) => 
-        new Date(current.created_at || 0) > new Date(latest.created_at || 0) ? current : latest
-      );
-      
-      // Small delay to ensure UI is settled
-      setTimeout(() => autoTriggerRatingSheet(mostRecentOrder), 500);
-    }
-  }, [loading, rows, myReviews, autoShownReviews]);
+
+    if (eligibleOrders.length === 0) return;
+
+    const mostRecentOrder = eligibleOrders.reduce((latest, current) =>
+      new Date(current.created_at || 0) > new Date(latest.created_at || 0)
+        ? current
+        : latest,
+    );
+
+    const timer = window.setTimeout(() => {
+      if (!mounted.current) return;
+      tryAutoTriggerRatingSheetRef.current(mostRecentOrder);
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [loading, rows, myReviews, autoShownReviews, myKhata.length]);
+
+  // Retry deferred auto-rating once blocking overlays close.
+  useEffect(() => {
+    const pending = pendingAutoRatingRef.current;
+    if (!pending || overlayBlocksAutoRating() || !khataAllowAutoRatingRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      if (!mounted.current) return;
+      tryAutoTriggerRatingSheetRef.current(pending);
+    }, 100);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    overlayBlocksAutoRating,
+    ratingSheetOpen,
+    paymentSheetOrder,
+    paymentSheetLoadingId,
+    khataDetail,
+    editOrder,
+    editingReview,
+    aiSheetOpen,
+    helpCallVendor,
+    historyBillId,
+    myKhata.length,
+  ]);
 
   useEffect(() => {
     if (acceptedHelpVendorIds.length === 0) return;
@@ -1015,10 +1115,12 @@ const MyOrders = () => {
                 r.id === updated.id ? { ...r, ...payload.new } : r,
               );
               // Find the newly fulfilled order and trigger rating
-              const fulfilledOrder = updatedRows.find(r => r.id === updated.id);
+              const fulfilledOrder = updatedRows.find((r) => r.id === updated.id);
               if (fulfilledOrder) {
-                // Use setTimeout to ensure the rating trigger happens after state update
-                setTimeout(() => autoTriggerRatingSheet(fulfilledOrder), 100);
+                window.setTimeout(() => {
+                  if (!mounted.current) return;
+                  tryAutoTriggerRatingSheetRef.current(fulfilledOrder);
+                }, 100);
               }
               return updatedRows;
             });
@@ -1445,27 +1547,9 @@ const MyOrders = () => {
   };
 
   const handleFulfilledDismiss = (r: RowWithShop) => {
+    consumeAutoRatingForOrder(r.id);
     setPendingDismissId(r.id);
-    setRatingVendor({
-      vendorId: r.vendor_id,
-      shopName: r.vendors?.shop_name ?? s.myOrders_shopFallback,
-      serviceMode: r.vendors?.service_mode ?? "delivery",
-      vendorPhone: r.vendors?.phone ?? null,
-    });
-    setRatingSheetOpen(true);
-  };
-
-  // Auto-trigger rating sheet for newly fulfilled orders (no auto-dismiss)
-  const autoTriggerRatingSheet = (r: RowWithShop) => {
-    // Don't auto-trigger if already shown for this order or review exists
-    if (autoShownReviews.has(r.id) || myReviews[r.id]) {
-      return;
-    }
-    
-    // Mark as auto-shown to prevent re-triggering
-    setAutoShownReviews(prev => new Set([...prev, r.id]));
-    
-    // Open rating sheet without setting pendingDismissId (no auto-dismiss)
+    setRatingRequestId(r.id);
     setRatingVendor({
       vendorId: r.vendor_id,
       shopName: r.vendors?.shop_name ?? s.myOrders_shopFallback,
@@ -2402,14 +2486,17 @@ const MyOrders = () => {
         serviceMode={ratingVendor?.serviceMode ?? "delivery"}
         vendorId={ratingVendor?.vendorId ?? ""}
         vendorPhone={ratingVendor?.vendorPhone}
-        requestId={pendingDismissId ?? ""}
+        requestId={ratingRequestId ?? ""}
         onDismiss={async () => {
+          if (ratingRequestId) consumeAutoRatingForOrder(ratingRequestId);
           setRatingSheetOpen(false);
-          const row = pendingDismissId ? rows.find((r) => r.id === pendingDismissId) : undefined;
-          if (pendingDismissId) await markDone(row ?? pendingDismissId);
+          const dismissId = pendingDismissId;
+          const row = dismissId ? rows.find((r) => r.id === dismissId) : undefined;
+          if (dismissId) await markDone(row ?? dismissId);
           setPendingDismissId(null);
+          setRatingRequestId(null);
           setRatingVendor(null);
-          
+
           // Refresh reviews to capture any newly submitted rating
           void loadMyReviews();
         }}
