@@ -97,6 +97,7 @@ type OrderBill = {
   payment_mode: "cash" | "upi" | "khata";
   payment_status: "unpaid" | "paid";
   notes: string | null;
+  created_at: string;
   items: {
     description: string;
     quantity: number;
@@ -176,6 +177,12 @@ function isVendorStoppedIncludingStale(
 }
 
 const MS_24H = 24 * 60 * 60 * 1000;
+const MS_30M = 30 * 60 * 1000;
+
+function billUnpaidPastTier1(createdAt: string): boolean {
+  const t = new Date(createdAt).getTime();
+  return Number.isFinite(t) && Date.now() - t >= MS_30M;
+}
 
 function orderCreatedWithinLast24h(created_at: string): boolean {
   const t = new Date(created_at).getTime();
@@ -505,6 +512,7 @@ const MyOrders = () => {
       notes: string | null;
       items: OrderBill["items"];
       is_edited: boolean;
+      created_at: string;
     };
     const bills = (data ?? []) as BillRpcRow[];
 
@@ -520,6 +528,7 @@ const MyOrders = () => {
         payment_status: bill.payment_status,
         notes: bill.notes,
         items: bill.items ?? [],
+        created_at: bill.created_at,
       };
       if (bill.is_edited) edited.add(bill.id);
     }
@@ -1817,6 +1826,14 @@ const MyOrders = () => {
                         <span>{s.bill_total}</span>
                         <span className="text-brand">₹{bill.total_amount.toFixed(2)}</span>
                       </div>
+                      {bill.payment_status === "unpaid" && billUnpaidPastTier1(bill.created_at) && (
+                        <p
+                          data-testid="my-orders-payment-hygiene-warning"
+                          className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-2 text-xs text-amber-400"
+                        >
+                          {s.payment_hygiene_unpaid_warning}
+                        </p>
+                      )}
                       {r.payment_status === "claimed" && (
                         <div className="flex items-center gap-2 text-xs text-foreground">
                           <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden />

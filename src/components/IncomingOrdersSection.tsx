@@ -70,6 +70,7 @@ type OrderBillSummary = {
   total_amount: number;
   payment_mode: "cash" | "upi" | "khata";
   payment_status: string;
+  last_vendor_reminder_at?: string | null;
 };
 
 type EditBillTarget = {
@@ -347,6 +348,8 @@ export function IncomingOrdersSection({
   const [historyBillId, setHistoryBillId] = useState<string | null>(null);
   const [markingBillPaidId, setMarkingBillPaidId] = useState<string | null>(null);
   const [addingBillToKhataId, setAddingBillToKhataId] = useState<string | null>(null);
+  const [remindingBillId, setRemindingBillId] = useState<string | null>(null);
+  const remindDebounceUntilRef = useRef(0);
   const [confirmingPaymentId, setConfirmingPaymentId] = useState<string | null>(null);
   const [disputingPaymentId, setDisputingPaymentId] = useState<string | null>(null);
   const [flagOrderId, setFlagOrderId] = useState<string | null>(null);
@@ -531,6 +534,7 @@ export function IncomingOrdersSection({
           total_amount: bill.total_amount,
           payment_mode: bill.payment_mode as OrderBillSummary["payment_mode"],
           payment_status: bill.payment_status,
+          last_vendor_reminder_at: bill.last_vendor_reminder_at ?? null,
         };
       }
     }
@@ -673,6 +677,40 @@ export function IncomingOrdersSection({
       const bill = prev[requestId];
       if (!bill || bill.id !== billId) return prev;
       return { ...prev, [requestId]: { ...bill, payment_status: "paid" } };
+    });
+  };
+
+  const remindCustomerPayment = async (billId: string, requestId: string) => {
+    const now = Date.now();
+    if (now < remindDebounceUntilRef.current) return;
+    remindDebounceUntilRef.current = now + 5000;
+
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
+
+    setRemindingBillId(billId);
+    const { error } = await supabase.rpc("send_bill_payment_reminder", {
+      p_bill_id: billId,
+      p_source: "vendor",
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+    });
+    setRemindingBillId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(s.bill_remind_customer_sent);
+    setBillsByRequestId((prev) => {
+      const bill = prev[requestId];
+      if (!bill || bill.id !== billId) return prev;
+      return {
+        ...prev,
+        [requestId]: { ...bill, last_vendor_reminder_at: new Date().toISOString() },
+      };
     });
   };
 
@@ -2498,6 +2536,34 @@ export function IncomingOrdersSection({
                               : s.bill_addToKhata}
                           </button>
                         )}
+                      {billsByRequestId[r.id].payment_status === "unpaid" && (
+                        <>
+                          <button
+                            type="button"
+                            data-testid="incoming-remind-customer-btn"
+                            disabled={remindingBillId === billsByRequestId[r.id].id}
+                            onClick={() =>
+                              void remindCustomerPayment(billsByRequestId[r.id].id, r.id)
+                            }
+                            className="w-full rounded-lg border border-amber-500/50 text-amber-600 dark:text-amber-400 text-xs font-semibold py-2 disabled:opacity-50"
+                          >
+                            {remindingBillId === billsByRequestId[r.id].id
+                              ? s.incoming_saving
+                              : s.bill_remind_customer}
+                          </button>
+                          {billsByRequestId[r.id].last_vendor_reminder_at && (
+                            <p
+                              className="text-[10px] text-muted-foreground text-center"
+                              data-testid="incoming-last-reminded"
+                            >
+                              {s.bill_remind_customer_last.replace(
+                                "{time}",
+                                formatTimeAgo(billsByRequestId[r.id].last_vendor_reminder_at!),
+                              )}
+                            </p>
+                          )}
+                        </>
+                      )}
                       {billsByRequestId[r.id].payment_status !== "void" && (
                         <button
                           type="button"

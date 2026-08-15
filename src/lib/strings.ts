@@ -1441,6 +1441,11 @@ export const strings = {
       'A bill was already sent for this order. Send again to replace it?',
     bill_marked_paid: 'Bill marked as paid',
     bill_addToKhata: 'Add to Khata',
+    bill_remind_customer: 'Remind customer',
+    bill_remind_customer_sent: 'Reminder sent to customer',
+    bill_remind_customer_last: 'Last reminded {time}',
+    payment_hygiene_unpaid_warning:
+      'This bill has been unpaid for over 30 minutes. Please complete payment or contact your vendor.',
     bill_khataLimitWarning:
       "This will push the customer's dues above your warning limit.",
     bill_khataOverLimitConfirm:
@@ -3197,6 +3202,11 @@ export const strings = {
       'इस ऑर्डर के लिए पहले से बिल भेजा जा चुका है। बदलने के लिए फिर से भेजें?',
     bill_marked_paid: 'बिल भुगतान किया गया',
     bill_addToKhata: 'खाते में जोड़ें',
+    bill_remind_customer: 'ग्राहक को याद दिलाएं',
+    bill_remind_customer_sent: 'ग्राहक को अनुस्मारक भेजा गया',
+    bill_remind_customer_last: 'अंतिम अनुस्मारक {time}',
+    payment_hygiene_unpaid_warning:
+      'यह बिल 30 मिनट से अधिक समय से बकाया है। कृपया भुगतान पूरा करें या विक्रेता से संपर्क करें।',
     bill_khataLimitWarning:
       'इससे ग्राहक का बकाया आपकी चेतावनी सीमा से ऊपर चला जाएगा।',
     bill_khataOverLimitConfirm:
@@ -4952,6 +4962,11 @@ export const strings = {
       'या ऑर्डरसाठी आधीच बिल पाठवले आहे. बदलण्यासाठी पुन्हा पाठवायचे?',
     bill_marked_paid: 'बिल भरले म्हणून नोंदवले',
     bill_addToKhata: 'खात्यात जोडा',
+    bill_remind_customer: 'ग्राहकाला आठवण करा',
+    bill_remind_customer_sent: 'ग्राहकाला स्मरण पाठवले',
+    bill_remind_customer_last: 'शेवटचे स्मरण {time}',
+    payment_hygiene_unpaid_warning:
+      'हा बिल 30 मिनिटांपेक्षा जास्त वेळ थकीत आहे. कृपया पेमेंट पूर्ण करा किंवा विक्रेत्याशी संपर्क साधा.',
     bill_khataLimitWarning:
       'यामुळे ग्राहकाची थकबाकी तुमच्या सावधगिरी मर्यादेपेक्षा वाढेल.',
     bill_khataOverLimitConfirm:
