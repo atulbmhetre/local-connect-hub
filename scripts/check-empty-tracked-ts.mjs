@@ -1,16 +1,37 @@
 /**
- * Fail if any tracked .ts / .tsx file is empty (0 bytes) on disk.
+ * Fail if any tracked or staged .ts / .tsx / .mjs file is empty (0 bytes).
  * Guards against truncate-on-write corruption during agent edits.
  */
 import { execFileSync } from 'node:child_process';
 import { statSync } from 'node:fs';
+import path from 'node:path';
 
-const files = execFileSync('git', ['ls-files', '*.ts', '*.tsx'], {
-  encoding: 'utf8',
-})
-  .trim()
-  .split(/\r?\n/)
-  .filter(Boolean);
+const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mjs']);
+
+function gitLines(args) {
+  try {
+    return execFileSync('git', args, { encoding: 'utf8' })
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function isSourceFile(file) {
+  return SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase());
+}
+
+const tracked = gitLines(['ls-files', '--', '*.ts', '*.tsx', '*.mjs']);
+const staged = gitLines([
+  'diff',
+  '--cached',
+  '--name-only',
+  '--diff-filter=ACMR',
+]);
+
+const files = [...new Set([...tracked, ...staged].filter(isSourceFile))];
 
 const empty = [];
 
@@ -25,7 +46,7 @@ for (const file of files) {
 }
 
 if (empty.length > 0) {
-  console.error('ERROR: tracked TypeScript files are empty (0 bytes) on disk:');
+  console.error('ERROR: source files are empty (0 bytes) on disk:');
   for (const file of empty) {
     console.error(`  EMPTY: ${file}`);
   }
@@ -35,4 +56,6 @@ if (empty.length > 0) {
   process.exit(1);
 }
 
-console.log(`check-empty-tracked-ts: OK (${files.length} tracked .ts/.tsx files)`);
+console.log(
+  `check-empty-tracked-ts: OK (${files.length} tracked/staged .ts/.tsx/.mjs files)`,
+);
