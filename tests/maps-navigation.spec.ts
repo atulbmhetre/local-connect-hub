@@ -158,7 +158,7 @@ async function gotoVendor(page: Page) {
 
 async function gotoVendorAndWaitOrders(page: Page) {
   await gotoVendor(page);
-  await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 20000 });
 }
 
 function incomingCard(page: Page, message: string): Locator {

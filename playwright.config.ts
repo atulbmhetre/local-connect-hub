@@ -21,6 +21,7 @@ process.env.PW_APP_URL = process.env.PW_APP_URL || defaultBaseURL;
 process.env.VITE_APP_URL = defaultBaseURL;
 
 export default defineConfig({
+  globalSetup: './tests/globalSetup.ts',
   testDir: './tests',
   timeout: 45000,
   expect: {
@@ -29,7 +30,11 @@ export default defineConfig({
   retries: 1,
   workers: 1,
   // Prod-only specs: run via playwright.prod-smoke / playwright.prod-full configs.
-  testIgnore: ['**/prod-vendor-wizard-smoke.spec.ts', '**/prod-full-connect.spec.ts'],
+  testIgnore: [
+    '**/prod-vendor-wizard-smoke.spec.ts',
+    '**/prod-full-connect.spec.ts',
+    '**/prod-payment-hygiene-spotcheck.spec.ts',
+  ],
   use: {
     baseURL: process.env.PW_APP_URL || defaultBaseURL,
     headless: true,

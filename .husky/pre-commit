@@ -1,1 +1,2 @@
+npm run check:empty-ts
 npm run typecheck

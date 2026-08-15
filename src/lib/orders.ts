@@ -22,6 +22,10 @@ export type OrderRequestRow = {
   category_id?: string | null;
   /** Immutable effective mode for this order (help/delivery/appointment). */
   service_mode?: "help" | "delivery" | "appointment" | null;
+  /** Delivery orders only: vendor | agent snapshot from order creation / bill send. */
+  delivery_fulfillment_method?: "vendor" | "agent" | null;
+  /** Delivery orders only: prepaid | postpaid snapshot. */
+  delivery_payment_timing?: "prepaid" | "postpaid" | null;
   categories?: { label: string; emoji: string | null } | { label: string; emoji: string | null }[] | null;
 };
 

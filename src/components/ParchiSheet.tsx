@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Camera, ChevronDown, Loader2, MapPin, Mic } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
@@ -174,7 +175,15 @@ export function ParchiSheet({
     "scheduled",
   );
   const [offlineApptError, setOfflineApptError] = useState(false);
-  const [trustBlock, setTrustBlock] = useState<"banned" | "suspended" | null>(null);
+  const [trustBlock, setTrustBlock] = useState<
+    "banned" | "suspended" | "payment_block" | null
+  >(null);
+  const [paymentBlockInfo, setPaymentBlockInfo] = useState<{
+    vendorName: string;
+    amount: number;
+    requestId: string;
+  } | null>(null);
+  const navigate = useNavigate();
   const [lowTrustSheetOpen, setLowTrustSheetOpen] = useState(false);
   const [lowTrustConfirmed, setLowTrustConfirmed] = useState(false);
   const [mediumTrustDialogOpen, setMediumTrustDialogOpen] = useState(false);
@@ -321,7 +330,6 @@ export function ParchiSheet({
 
   useEffect(() => {
     if (!isOpen || !resolvedVendorId) return;
-    setMenuExpanded(message.trim().length === 0);
     let cancelled = false;
     void (async () => {
       const { data, error } = await supabase
@@ -345,7 +353,12 @@ export function ParchiSheet({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, resolvedVendorId, message, orderCategoryId]);
+  }, [isOpen, resolvedVendorId, orderCategoryId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setMenuExpanded(message.trim().length === 0);
+  }, [isOpen, message]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -490,6 +503,7 @@ export function ParchiSheet({
         resetFormFields();
         setSaveAddress(false);
         setTrustBlock(null);
+        setPaymentBlockInfo(null);
         setLowTrustSheetOpen(false);
         setLowTrustConfirmed(false);
         setMediumTrustDialogOpen(false);
@@ -499,6 +513,66 @@ export function ParchiSheet({
     },
     [onClose, resetFormFields],
   );
+
+  const applyPaymentBlockRow = useCallback(
+    (
+      row:
+        | {
+            is_blocked?: boolean | null;
+            vendor_name?: string | null;
+            amount?: number | null;
+            request_id?: string | null;
+          }
+        | undefined
+        | null,
+    ) => {
+      if (
+        row?.is_blocked &&
+        row.vendor_name &&
+        row.amount != null &&
+        row.request_id
+      ) {
+        setTrustBlock("payment_block");
+        setPaymentBlockInfo({
+          vendorName: row.vendor_name,
+          amount: row.amount,
+          requestId: row.request_id,
+        });
+        return true;
+      }
+      setPaymentBlockInfo(null);
+      setTrustBlock((prev) => (prev === "payment_block" ? null : prev));
+      return false;
+    },
+    [],
+  );
+
+  const fetchPaymentBlockStatus = useCallback(
+    async (phone: string | null, deviceId: string) => {
+      try {
+        const { data, error } = await supabase.rpc("get_customer_payment_block_status", {
+          p_user_phone: phone,
+          p_device_id: deviceId,
+        });
+        if (error) {
+          captureError(error, { scope: "parchiSheet.paymentBlockStatus" });
+          return false;
+        }
+        return applyPaymentBlockRow(data?.[0] ?? null);
+      } catch (err) {
+        captureError(err, { scope: "parchiSheet.paymentBlockStatus" });
+        return false;
+      }
+    },
+    [applyPaymentBlockRow],
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const phone = getUserPhone();
+    const deviceId = getDeviceId();
+    void fetchPaymentBlockStatus(phone ?? null, deviceId);
+  }, [isOpen, fetchPaymentBlockStatus]);
 
   const startVoiceInput = async () => {
     try {
@@ -703,6 +777,8 @@ export function ParchiSheet({
             toast.error(s.parchi_errVendorNotLiveAsap);
           } else if (msg.includes("customer_banned")) {
             setTrustBlock("banned");
+          } else if (msg.includes("customer_payment_block")) {
+            void fetchPaymentBlockStatus(phone, getDeviceId());
           } else if (msg.includes("vendor_banned") || msg.includes("vendor_not_discoverable")) {
             toast.error(s.parchi_errCouldNotSend, { description: error.message });
           } else {
@@ -777,6 +853,7 @@ export function ParchiSheet({
       isDeliveryMode,
       config.maxOrderMessageChars,
       s,
+      fetchPaymentBlockStatus,
     ],
   );
 
@@ -834,6 +911,12 @@ export function ParchiSheet({
       const phone = overridePhone ?? getUserPhone()!;
 
       setSending(true);
+      const paymentBlocked = await fetchPaymentBlockStatus(phone, getDeviceId());
+      if (paymentBlocked) {
+        setSending(false);
+        return;
+      }
+
       let trust: Awaited<ReturnType<typeof fetchUserTrust>> = null;
       try {
         trust = await withNetworkRetry(() => fetchUserTrust(phone), {
@@ -902,6 +985,7 @@ export function ParchiSheet({
       isAppointmentMode,
       resolvedServiceMode,
       s,
+      fetchPaymentBlockStatus,
     ],
   );
 
@@ -957,6 +1041,7 @@ export function ParchiSheet({
         >
           <div
             ref={scrollContainerRef}
+            data-testid="parchi-scroll-container"
             className="flex-1 min-h-0 overflow-y-auto overscroll-contain will-change-scroll pb-52"
           >
           <SheetHeader className="sr-only">
@@ -1022,6 +1107,22 @@ export function ParchiSheet({
             {trustBlock === "suspended" && (
               <div className="rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-6 text-sm text-center text-foreground leading-relaxed">
                 ⛔ {s.customer_orders_suspended}
+              </div>
+            )}
+            {trustBlock === "payment_block" && paymentBlockInfo && (
+              <div
+                data-testid="parchi-payment-block"
+                className="rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-6 text-sm text-center text-foreground leading-relaxed space-y-3"
+              >
+                <p>{s.parchi_payment_block_body(paymentBlockInfo.vendorName, paymentBlockInfo.amount)}</p>
+                <button
+                  type="button"
+                  data-testid="parchi-payment-block-my-orders-link"
+                  onClick={() => navigate("/my-orders")}
+                  className="text-brand font-semibold underline underline-offset-2"
+                >
+                  {s.parchi_payment_block_my_orders}
+                </button>
               </div>
             )}
             {!trustBlock && (
@@ -1245,7 +1346,10 @@ export function ParchiSheet({
                   />
                 </button>
                 {menuExpanded && (
-                  <div className="flex flex-col min-h-0 max-h-[min(42vh,20rem)]">
+                  <div
+                    data-testid="parchi-menu-items-panel"
+                    className="flex flex-col min-h-0 max-h-[min(42vh,20rem)]"
+                  >
                     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2 space-y-1.5">
                     {menuItems.map((item) => {
                       const qty = selectedMenuItems[item.id] ?? 0;

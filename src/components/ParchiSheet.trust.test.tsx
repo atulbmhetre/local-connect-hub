@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { strings } from "@/lib/strings";
 import type { Vendor } from "@/lib/supabase";
@@ -79,6 +80,10 @@ const vendor = {
   service_radius_km: 15,
 } as Vendor;
 
+function renderParchi(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
 describe("ParchiSheet trust flows", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -91,7 +96,7 @@ describe("ParchiSheet trust flows", () => {
   });
 
   it("low-trust flow requires checkbox before confirm is enabled", async () => {
-    render(
+    renderParchi(
       <ParchiSheet vendor={vendor} isOpen onClose={() => {}} />,
     );
 
@@ -121,7 +126,7 @@ describe("ParchiSheet trust flows", () => {
       total_orders: 5,
     });
 
-    render(
+    renderParchi(
       <ParchiSheet vendor={vendor} isOpen onClose={() => {}} />,
     );
 
@@ -151,7 +156,7 @@ describe("ParchiSheet trust flows", () => {
   });
 
   it("shows binary TrustWarningBanner for unverified Neighbour→Parchi vendor", () => {
-    render(<ParchiSheet vendor={vendor} isOpen onClose={() => {}} />);
+    renderParchi(<ParchiSheet vendor={vendor} isOpen onClose={() => {}} />);
     expect(screen.getByTestId("trust-warning-banner-parchi")).toHaveTextContent(
       strings.en.trust_warning_red,
     );
@@ -165,7 +170,7 @@ describe("ParchiSheet trust flows", () => {
       photo_selfie: "https://example.com/selfie.jpg",
       latitude: 18.5,
     } as Vendor;
-    render(<ParchiSheet vendor={verified} isOpen onClose={() => {}} />);
+    renderParchi(<ParchiSheet vendor={verified} isOpen onClose={() => {}} />);
     expect(screen.queryByTestId("trust-warning-banner-parchi")).not.toBeInTheDocument();
   });
 
@@ -177,7 +182,7 @@ describe("ParchiSheet trust flows", () => {
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockRejectedValueOnce(new TypeError("Failed to fetch"));
 
-    render(<ParchiSheet vendor={vendor} isOpen onClose={() => {}} />);
+    renderParchi(<ParchiSheet vendor={vendor} isOpen onClose={() => {}} />);
     fireEvent.change(screen.getByTestId("parchi-message-input"), {
       target: { value: "Need groceries" },
     });

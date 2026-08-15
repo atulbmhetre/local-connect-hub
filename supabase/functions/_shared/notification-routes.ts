@@ -34,7 +34,8 @@ export function buildFcmData(
       type === "order_update" ||
       type === "order_expired" ||
       type.startsWith("order_near_deadline_") ||
-      type === "bill"
+      type === "bill" ||
+      type === "bill_payment_reminder"
     ) {
       route = "my-orders";
       if (orderId) routeParams = { order_id: orderId };

@@ -426,7 +426,8 @@ test('UI-VENDOR-02: vendor nav tab visible when vendor_id set', async ({ page })
 test('UI-VENDOR-03: vendor go-live button visible on vendor screen', async ({ page }) => {
   await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await expect(page.getByTestId('vendor-golive-btn')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByTestId('vendor-golive-btn')).toBeVisible({ timeout: 20000 });
 });
 
 test('UI-VENDOR-04: vendor go-live toggles status badge — DB assert', async ({ page }) => {

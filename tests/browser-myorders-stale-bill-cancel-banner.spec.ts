@@ -115,7 +115,8 @@ test('MO-UI-01 — stale unpaid bill clears without reload after cancel_customer
   const card = page.getByTestId('order-card').filter({ hasText: msg });
   await expect(card).toBeVisible({ timeout: 15000 });
   await expect(card.getByText('⏳ Unpaid')).toBeVisible({ timeout: 10000 });
-  await expect(card.getByRole('button', { name: 'Pay Now' })).toBeVisible();
+  await expect(card.getByTestId('my-orders-pay-now-btn')).toHaveCount(0);
+  await expect(card.getByTestId('my-orders-payment-awaiting-vendor')).toBeVisible();
 
   // Cancel server-side (same RPC the UI uses). Realtime will flip the status
   // pill; the bill clear depends on the next silent poll (loadBills).
@@ -137,9 +138,9 @@ test('MO-UI-01 — stale unpaid bill clears without reload after cancel_customer
   await expect(card.getByText(/You cancelled/i).first()).toBeVisible({ timeout: 40000 });
 
   // Wait past the 30s silent poll so loadBills re-runs against the voided bill.
-  // After the fix, Unpaid / Pay Now must be gone WITHOUT a page reload.
+  // After the fix, Unpaid / awaiting banner must be gone WITHOUT a page reload.
   await expect(card.getByText('⏳ Unpaid')).toHaveCount(0, { timeout: 45000 });
-  await expect(card.getByRole('button', { name: 'Pay Now' })).toHaveCount(0);
+  await expect(card.getByTestId('my-orders-payment-awaiting-vendor')).toHaveCount(0);
 
   // Banner must say the customer cancelled (not the vendor default).
   await expect(card.getByText('You cancelled this order')).toBeVisible();

@@ -31,6 +31,16 @@ import { parseBillQuantity, parseBillUnitPrice } from "@/lib/billEdit";
 import { applyCatalogItemTap } from "@/lib/billMenuCatalog";
 import { BillMenuCatalogPicker } from "@/components/BillMenuCatalogPicker";
 import { messageForKhataChargeError } from "@/lib/khataBillErrors";
+import { DeliveryFulfillmentSettings } from "@/components/vendor/DeliveryFulfillmentSettings";
+import {
+  DEFAULT_DELIVERY_FULFILLMENT,
+  DEFAULT_DELIVERY_PAYMENT_TIMING,
+  deliveryPaymentTimingForFulfillment,
+  normalizeDeliveryFulfillmentMethod,
+  normalizeDeliveryPaymentTiming,
+  type DeliveryFulfillmentMethod,
+  type DeliveryPaymentTiming,
+} from "@/lib/deliveryFulfillment";
 
 type Props = {
   isOpen: boolean;
@@ -87,6 +97,11 @@ export function BillSheet({
   const [sending, setSending] = useState(false);
   const [requestItems, setRequestItems] = useState<any[] | null>(null);
   const [loadingRequestData, setLoadingRequestData] = useState(false);
+  const [requestServiceMode, setRequestServiceMode] = useState<string | null>(null);
+  const [deliveryFulfillment, setDeliveryFulfillment] =
+    useState<DeliveryFulfillmentMethod>(DEFAULT_DELIVERY_FULFILLMENT);
+  const [deliveryPaymentTiming, setDeliveryPaymentTiming] =
+    useState<DeliveryPaymentTiming>(DEFAULT_DELIVERY_PAYMENT_TIMING);
 
   const generateBillFromOrder = useCallback(() => {
     if (!requestItems || requestItems.length === 0) return;
@@ -221,6 +236,9 @@ export function BillSheet({
         setCurrentOutstanding(null);
         setLoadingOutstanding(false);
         setOutstandingError(false);
+        setRequestServiceMode(null);
+        setDeliveryFulfillment(DEFAULT_DELIVERY_FULFILLMENT);
+        setDeliveryPaymentTiming(DEFAULT_DELIVERY_PAYMENT_TIMING);
         onClose();
       }
     },
@@ -236,38 +254,82 @@ export function BillSheet({
     });
   }, [isOpen, items]);
 
-  // Fetch request data for auto-bill generation
+  // Fetch request data for auto-bill generation and delivery snapshot defaults
   useEffect(() => {
     if (!isOpen || !requestId) {
       setRequestItems(null);
+      setRequestServiceMode(null);
       return;
     }
-    
+
     const loadRequestData = async () => {
       setLoadingRequestData(true);
       try {
         const { data, error } = await supabase
           .from("requests")
-          .select("items")
+          .select(
+            "items, service_mode, delivery_fulfillment_method, delivery_payment_timing, category_id",
+          )
           .eq("id", requestId)
           .single();
-        
+
         if (error) {
-          console.error("Failed to fetch request items:", error);
+          console.error("Failed to fetch request data:", error);
           setRequestItems(null);
+          setRequestServiceMode(null);
         } else {
           setRequestItems(data?.items || null);
+          const serviceMode = data?.service_mode ?? null;
+          setRequestServiceMode(serviceMode);
+
+          if (serviceMode === "delivery") {
+            let fulfillment = normalizeDeliveryFulfillmentMethod(
+              data?.delivery_fulfillment_method,
+            );
+            let paymentTiming = normalizeDeliveryPaymentTiming(
+              data?.delivery_payment_timing,
+            );
+
+            if (
+              !data?.delivery_fulfillment_method &&
+              data?.category_id
+            ) {
+              const { data: vcRow } = await supabase
+                .from("vendor_categories")
+                .select("delivery_fulfillment_method, delivery_payment_timing")
+                .eq("vendor_id", vendorId)
+                .eq("category_id", data.category_id)
+                .maybeSingle();
+              if (vcRow) {
+                fulfillment = normalizeDeliveryFulfillmentMethod(
+                  vcRow.delivery_fulfillment_method,
+                );
+                paymentTiming = normalizeDeliveryPaymentTiming(
+                  vcRow.delivery_payment_timing,
+                );
+              }
+            }
+
+            setDeliveryFulfillment(fulfillment);
+            setDeliveryPaymentTiming(
+              deliveryPaymentTimingForFulfillment(fulfillment, paymentTiming),
+            );
+          } else {
+            setDeliveryFulfillment(DEFAULT_DELIVERY_FULFILLMENT);
+            setDeliveryPaymentTiming(DEFAULT_DELIVERY_PAYMENT_TIMING);
+          }
         }
       } catch (err) {
         console.error("Error loading request data:", err);
         setRequestItems(null);
+        setRequestServiceMode(null);
       } finally {
         setLoadingRequestData(false);
       }
     };
-    
+
     void loadRequestData();
-  }, [isOpen, requestId]);
+  }, [isOpen, requestId, vendorId]);
 
   const startVoiceBill = async () => {
     try {
@@ -450,6 +512,15 @@ export function BillSheet({
       p_payment_status: "unpaid",
       p_notes: notes.trim() || null,
       p_items: rpcItems,
+      ...(requestServiceMode === "delivery"
+        ? {
+            p_delivery_fulfillment_method: deliveryFulfillment,
+            p_delivery_payment_timing: deliveryPaymentTimingForFulfillment(
+              deliveryFulfillment,
+              deliveryPaymentTiming,
+            ),
+          }
+        : {}),
     });
 
     if (billError || !billId) {
@@ -792,6 +863,27 @@ export function BillSheet({
               {s.bill_khata}
             </button>
           </div>
+
+          {requestServiceMode === "delivery" && (
+            <div className="mt-3 space-y-2" data-testid="bill-delivery-fulfillment">
+              <p className="text-[11px] font-semibold text-muted-foreground">
+                {s.delivery_fulfillment_order_override}
+              </p>
+              <DeliveryFulfillmentSettings
+                compact
+                testIdPrefix="bill-delivery"
+                fulfillment={deliveryFulfillment}
+                paymentTiming={deliveryPaymentTiming}
+                onFulfillmentChange={(method) => {
+                  setDeliveryFulfillment(method);
+                  setDeliveryPaymentTiming((prev) =>
+                    deliveryPaymentTimingForFulfillment(method, prev),
+                  );
+                }}
+                onPaymentTimingChange={setDeliveryPaymentTiming}
+              />
+            </div>
+          )}
 
           {paymentMode === "khata" && (
             <p className="text-[11px] text-muted-foreground text-center">

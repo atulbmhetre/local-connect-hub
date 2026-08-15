@@ -1,7 +1,8 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { UpiPaymentPanel } from "@/components/payment/UpiPaymentPanel";
 import { strings } from "@/lib/strings";
+import { MIN_PAYMENT_AWAY_MS } from "@/lib/paymentResume";
 
 const { mockRpc, mockInvokeNotifyVendor, captureError } = vi.hoisted(() => ({
   mockRpc: vi.fn(),
@@ -20,8 +21,6 @@ vi.mock("@/lib/deviceId", () => ({ getDeviceId: () => "test-device" }));
 vi.mock("@/lib/userIdentity", () => ({ getUserPhone: () => "9876543210" }));
 
 vi.mock("@/lib/language", () => ({
-  // The paying CUSTOMER's session language is English — the vendor
-  // notification must NOT inherit it.
   useLanguage: () => ({ s: strings.en, lang: "en" as const, setLang: () => {} }),
 }));
 
@@ -35,13 +34,13 @@ vi.mock("@capacitor/app", () => ({
 
 const UTR = "123456789012";
 
-function renderPanel() {
+function renderPanel(amountRupees = 250) {
   return render(
     <UpiPaymentPanel
       idPrefix="test-panel"
       orderId="req-1"
       paymentStatus="unpaid"
-      amountRupees={250}
+      amountRupees={amountRupees}
       vendorId="vendor-1"
       shopName="Test Shop"
       upiId="shop@upi"
@@ -53,11 +52,11 @@ function renderPanel() {
 }
 
 async function payAndSubmitUtr() {
-  // Tap Pay Now (opens the UPI deep link), simulate returning to the tab,
-  // answer "Yes" to the resume prompt, then submit the UTR.
   fireEvent.click(screen.getByText(strings.en.payment_pay_now));
+  const nowSpy = vi.spyOn(Date, "now").mockReturnValue(Date.now() + MIN_PAYMENT_AWAY_MS);
   fireEvent(document, new Event("visibilitychange"));
   fireEvent.click(await screen.findByText(strings.en.payment_yesPaid));
+  nowSpy.mockRestore();
   fireEvent.change(screen.getByLabelText(strings.en.payment_enter_utr), {
     target: { value: UTR },
   });
@@ -68,10 +67,25 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal("open", vi.fn());
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === "get_payment_claim_requirements") {
+        return {
+          data: { requires_screenshot: false, is_anomalous: false },
+          error: null,
+        };
+      }
+      return { data: null, error: null };
+    });
   });
 
   it("resolves the VENDOR's own language for the notification, not the customer's", async () => {
     mockRpc.mockImplementation(async (name: string) => {
+      if (name === "get_payment_claim_requirements") {
+        return {
+          data: { requires_screenshot: false, is_anomalous: false },
+          error: null,
+        };
+      }
       if (name === "claim_customer_payment") return { data: null, error: null };
       if (name === "resolve_user_lang") return { data: "hi", error: null };
       return { data: null, error: null };
@@ -94,13 +108,18 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
       type: "payment_claimed",
       request_id: "req-1",
     });
-    // Regression: the old code sent the customer-language "Pay Now" as title.
     const sentTitle = mockInvokeNotifyVendor.mock.calls[0][0].notification_title;
     expect(sentTitle).not.toBe(strings.en.payment_pay_now);
   });
 
   it("falls back to English copy and captures the error when the vendor language lookup fails", async () => {
     mockRpc.mockImplementation(async (name: string) => {
+      if (name === "get_payment_claim_requirements") {
+        return {
+          data: { requires_screenshot: false, is_anomalous: false },
+          error: null,
+        };
+      }
       if (name === "claim_customer_payment") return { data: null, error: null };
       if (name === "resolve_user_lang") {
         return { data: null, error: { message: "lang lookup failed" } };
@@ -126,5 +145,53 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
         type: "payment_claimed",
       }),
     );
+  });
+
+  it("does not show the resume prompt if the customer returns before the minimum away duration", () => {
+    vi.useFakeTimers();
+    try {
+      renderPanel();
+      fireEvent.click(screen.getByText(strings.en.payment_pay_now));
+      vi.advanceTimersByTime(MIN_PAYMENT_AWAY_MS - 1);
+      fireEvent(document, new Event("visibilitychange"));
+      expect(screen.queryByTestId("test-panel-return-prompt")).not.toBeInTheDocument();
+
+      vi.advanceTimersByTime(1);
+      fireEvent(document, new Event("visibilitychange"));
+      expect(screen.getByTestId("test-panel-return-prompt")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows vendor-resolve guidance when restricted claim fails on the blocking bill", async () => {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === "get_payment_claim_requirements") {
+        return {
+          data: { requires_screenshot: false, is_anomalous: false },
+          error: null,
+        };
+      }
+      if (name === "claim_customer_payment") {
+        return { data: null, error: { message: "payment_self_declare_restricted" } };
+      }
+      if (name === "get_customer_payment_block_status") {
+        return {
+          data: [{ is_blocked: true, request_id: "req-1", vendor_name: "Test Shop", amount: 300 }],
+          error: null,
+        };
+      }
+      return { data: null, error: null };
+    });
+
+    renderPanel();
+    await payAndSubmitUtr();
+
+    await waitFor(() => {
+      expect(mockRpc).toHaveBeenCalledWith("get_customer_payment_block_status", {
+        p_device_id: "test-device",
+        p_user_phone: "9876543210",
+      });
+    });
   });
 });

@@ -60,3 +60,17 @@ bill-edit-rpc-test-results.json
 test_vendor_bloat.txt
 followup_diagnostics_status.txt
 rls_investigation_summary.txt
+
+# Root-level one-off session test-run dumps and scratch artifacts
+/isolated-*.txt
+/full-playwright-run*.txt
+/full-test-run*.txt
+/payment-trust-gap-tests*.txt
+/payment-block-vendor-resolve-tests.txt
+/parchi-scroll-fix-playwright.txt
+/khata-run*.txt
+/radar-run*.txt
+/reg-run*.txt
+/playwright-*-run*.txt
+/.prod-mig-list.json
+/.phr-restore-note.txt

@@ -118,6 +118,8 @@ test.describe('Phase 2 colocation write path', () => {
     await expect(page.getByTestId('add-business-same-shop')).toBeVisible({ timeout: 15000 });
     await page.getByTestId('add-business-reuse-photo').click();
     await page.getByTestId('add-business-submit').click();
+
+    await expect(page.getByText('Business details saved.')).toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId('my-business-add-business')).toBeVisible({ timeout: 20000 });
 
     await expect
@@ -132,6 +134,20 @@ test.describe('Phase 2 colocation write path', () => {
         { timeout: 20000 },
       )
       .toBe(2);
+
+    await expect
+      .poll(
+        async () => {
+          const { data } = await supabaseAdmin
+            .from('vendor_categories')
+            .select('shop_photo_url, is_primary')
+            .eq('vendor_id', vendor!.id);
+          const dst = (data ?? []).find((r) => !r.is_primary);
+          return dst?.shop_photo_url ?? null;
+        },
+        { timeout: 20000 },
+      )
+      .toBeTruthy();
 
     const { data: rows } = await supabaseAdmin
       .from('vendor_categories')

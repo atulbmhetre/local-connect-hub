@@ -326,8 +326,8 @@ test('MOR-06 — defensive: claim_customer_payment rejects a claim against a can
     .single();
   expect(bill?.payment_status).toBe('void');
 
-  // Even if a stale UI still shows Pay Now, the claim RPC must reject:
-  // claim_customer_payment requires status='fulfilled'; this order is 'cancelled'.
+  // Even if a stale UI still shows Pay Now, the claim RPC must reject cancelled orders:
+  // claim_customer_payment allows accepted/fulfilled only.
   const { error: claimErr } = await supabase.rpc('claim_customer_payment', {
     p_request_id: reqId,
     p_payment_utr: '123456789012',

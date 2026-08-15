@@ -66,6 +66,16 @@ import {
   resolveCatalogServiceMode,
 } from "@/lib/categoryAvailabilityModes";
 import { BusinessSetupSheet } from "@/components/vendor/BusinessSetupSheet";
+import { DeliveryFulfillmentSettings } from "@/components/vendor/DeliveryFulfillmentSettings";
+import {
+  DEFAULT_DELIVERY_FULFILLMENT,
+  DEFAULT_DELIVERY_PAYMENT_TIMING,
+  deliveryPaymentTimingForFulfillment,
+  normalizeDeliveryFulfillmentMethod,
+  normalizeDeliveryPaymentTiming,
+  type DeliveryFulfillmentMethod,
+  type DeliveryPaymentTiming,
+} from "@/lib/deliveryFulfillment";
 
 type RegCategoryRow = Pick<Category, "id" | "label" | "emoji"> & {
   service_mode: string;
@@ -88,6 +98,8 @@ type CategoryEditSettings = {
   latitude: number | null;
   longitude: number | null;
   location_accuracy: number | null;
+  delivery_fulfillment_method: DeliveryFulfillmentMethod;
+  delivery_payment_timing: DeliveryPaymentTiming;
 };
 
 type Props = {
@@ -119,6 +131,8 @@ function settingsFromAccount(account: {
     latitude: null,
     longitude: null,
     location_accuracy: null,
+    delivery_fulfillment_method: DEFAULT_DELIVERY_FULFILLMENT,
+    delivery_payment_timing: DEFAULT_DELIVERY_PAYMENT_TIMING,
   };
 }
 
@@ -135,6 +149,8 @@ function settingsFromCategoryRow(
     latitude?: number | null;
     longitude?: number | null;
     location_accuracy?: number | null;
+    delivery_fulfillment_method?: string | null;
+    delivery_payment_timing?: string | null;
   },
   accountFallback: CategoryEditSettings,
 ): CategoryEditSettings {
@@ -158,7 +174,18 @@ function settingsFromCategoryRow(
     longitude: row.longitude != null ? Number(row.longitude) : null,
     location_accuracy:
       row.location_accuracy != null ? Number(row.location_accuracy) : null,
+    delivery_fulfillment_method: normalizeDeliveryFulfillmentMethod(
+      row.delivery_fulfillment_method,
+    ),
+    delivery_payment_timing: deliveryPaymentTimingForFulfillment(
+      normalizeDeliveryFulfillmentMethod(row.delivery_fulfillment_method),
+      normalizeDeliveryPaymentTiming(row.delivery_payment_timing),
+    ),
   };
+}
+
+function categoryHasDeliveryMode(modes: AvailabilityMode[]): boolean {
+  return modes.includes("delivery");
 }
 
 function categoryServiceModeChipLabel(
@@ -343,7 +370,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         supabase
           .from("vendor_categories")
           .select(
-            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, categories(id, label, emoji, service_mode)",
+            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, delivery_fulfillment_method, delivery_payment_timing, categories(id, label, emoji, service_mode)",
           )
           .eq("vendor_id", vendor.id)
           .eq("status", "approved")
@@ -657,6 +684,17 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
       return cfg.service_radius_km;
     });
+    const deliveryFulfillmentMethods = categoryIdsToSave.map((id) => {
+      const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
+      return cfg.delivery_fulfillment_method;
+    });
+    const deliveryPaymentTimings = categoryIdsToSave.map((id) => {
+      const cfg = categorySettingsById[id] ?? accountDefaultsForInherit();
+      return deliveryPaymentTimingForFulfillment(
+        cfg.delivery_fulfillment_method,
+        cfg.delivery_payment_timing,
+      );
+    });
 
     const upiChanged = upiId.trim() !== (vendor.upi_id ?? "").trim();
     const phoneChanged = phone.trim() !== (vendor.phone ?? "").trim();
@@ -711,6 +749,8 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               p_serves_at_vendor_place: servesVendorPlace,
               p_serves_at_customer_place: servesCustomerPlace,
               p_service_radius_km: radii,
+              p_delivery_fulfillment_methods: deliveryFulfillmentMethods,
+              p_delivery_payment_timings: deliveryPaymentTimings,
             }),
           ),
         {
@@ -1420,6 +1460,27 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                       updateCategorySettings(cat.id, { availability_modes: modes })
                     }
                   />
+                  {categoryHasDeliveryMode(cfg.availability_modes) && (
+                    <DeliveryFulfillmentSettings
+                      testIdPrefix={`my-business-cat-delivery-${cat.id}`}
+                      fulfillment={cfg.delivery_fulfillment_method}
+                      paymentTiming={cfg.delivery_payment_timing}
+                      onFulfillmentChange={(method) =>
+                        updateCategorySettings(cat.id, {
+                          delivery_fulfillment_method: method,
+                          delivery_payment_timing: deliveryPaymentTimingForFulfillment(
+                            method,
+                            cfg.delivery_payment_timing,
+                          ),
+                        })
+                      }
+                      onPaymentTimingChange={(timing) =>
+                        updateCategorySettings(cat.id, {
+                          delivery_payment_timing: timing,
+                        })
+                      }
+                    />
+                  )}
                 </div>
               );
             })}
@@ -1503,6 +1564,39 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               }
             />
           )}
+
+          {!isMultiCategory &&
+            selectedCategoryIds[0] &&
+            categoryHasDeliveryMode(
+              categorySettingsById[selectedCategoryIds[0]]?.availability_modes ?? [],
+            ) && (
+              <DeliveryFulfillmentSettings
+                testIdPrefix="my-business-delivery"
+                fulfillment={
+                  categorySettingsById[selectedCategoryIds[0]]?.delivery_fulfillment_method ??
+                  DEFAULT_DELIVERY_FULFILLMENT
+                }
+                paymentTiming={
+                  categorySettingsById[selectedCategoryIds[0]]?.delivery_payment_timing ??
+                  DEFAULT_DELIVERY_PAYMENT_TIMING
+                }
+                onFulfillmentChange={(method) =>
+                  updateCategorySettings(selectedCategoryIds[0], {
+                    delivery_fulfillment_method: method,
+                    delivery_payment_timing: deliveryPaymentTimingForFulfillment(
+                      method,
+                      categorySettingsById[selectedCategoryIds[0]]?.delivery_payment_timing ??
+                        DEFAULT_DELIVERY_PAYMENT_TIMING,
+                    ),
+                  })
+                }
+                onPaymentTimingChange={(timing) =>
+                  updateCategorySettings(selectedCategoryIds[0], {
+                    delivery_payment_timing: timing,
+                  })
+                }
+              />
+            )}
 
           <Field
             label={s.vendor_phone_label}

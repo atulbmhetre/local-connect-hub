@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { ParchiSheet } from "@/components/ParchiSheet";
 import { strings } from "@/lib/strings";
 import type { Vendor } from "@/lib/supabase";
@@ -90,6 +91,10 @@ const baseVendor = {
   serves_at_customer_place: true,
 } as Vendor;
 
+function renderParchi(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
 describe("ParchiSheet Help reach choice", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -102,7 +107,7 @@ describe("ParchiSheet Help reach choice", () => {
   });
 
   it("blocks submit when both reach options exist and no choice is made", async () => {
-    render(<ParchiSheet vendor={baseVendor} isOpen onClose={() => {}} />);
+    renderParchi(<ParchiSheet vendor={baseVendor} isOpen onClose={() => {}} />);
 
     fireEvent.change(screen.getByTestId("parchi-message-input"), {
       target: { value: "Need help with bike" },
@@ -116,7 +121,7 @@ describe("ParchiSheet Help reach choice", () => {
   });
 
   it("passes p_service_location when customer picks come-to-me", async () => {
-    render(<ParchiSheet vendor={baseVendor} isOpen onClose={() => {}} />);
+    renderParchi(<ParchiSheet vendor={baseVendor} isOpen onClose={() => {}} />);
 
     fireEvent.change(screen.getByTestId("parchi-message-input"), {
       target: { value: "Need help with bike" },
@@ -142,7 +147,7 @@ describe("ParchiSheet Help reach choice", () => {
       serves_at_vendor_place: true,
     } as Vendor;
 
-    render(<ParchiSheet vendor={shopOnly} isOpen onClose={() => {}} />);
+    renderParchi(<ParchiSheet vendor={shopOnly} isOpen onClose={() => {}} />);
 
     fireEvent.change(screen.getByTestId("parchi-message-input"), {
       target: { value: "Visit shop for repair" },

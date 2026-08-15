@@ -3,14 +3,18 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { BillSheet } from "@/components/BillSheet";
 import { strings } from "@/lib/strings";
 
-const { mockRpc } = vi.hoisted(() => ({
+const { mockRpc, mockFrom } = vi.hoisted(() => ({
   mockRpc: vi.fn(),
+  mockFrom: vi.fn(),
 }));
 
 vi.mock("@/lib/sentry", () => ({ captureError: vi.fn() }));
 
 vi.mock("@/lib/supabase", () => ({
-  supabase: { rpc: mockRpc },
+  supabase: {
+    rpc: mockRpc,
+    from: mockFrom,
+  },
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "anon-key",
 }));
@@ -66,6 +70,17 @@ async function fillBillAndOpenConfirm() {
 describe("BillSheet send lock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          single: async () => ({
+            data: { items: null, service_mode: "help" },
+            error: null,
+          }),
+          maybeSingle: async () => ({ data: null, error: null }),
+        }),
+      }),
+    });
     mockRpc.mockImplementation(async (name: string) => {
       if (name === "get_vendor_order_bills") {
         return { data: [], error: null };

@@ -64,6 +64,11 @@ import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
 import { captureError } from "@/lib/sentry";
 import { isMyOrdersOverlayBlockingAutoRating } from "@/lib/myOrdersAutoRating";
+import {
+  canCustomerSelfDeclarePayment,
+  isCustomerSelfDeclarePaymentEligible,
+} from "@/lib/customerPaymentGate";
+import { isBillPastPaymentHygieneTier1 } from "@/lib/paymentHygiene";
 const MAX_LEN = 200;
 
 function fulfilledOrderCtaLabel(
@@ -96,6 +101,7 @@ type OrderBill = {
   total_amount: number;
   payment_mode: "cash" | "upi" | "khata";
   payment_status: "unpaid" | "paid";
+  created_at: string;
   notes: string | null;
   items: {
     description: string;
@@ -414,6 +420,8 @@ const MyOrders = () => {
     upi_qr_payee_id: string | null;
   }>(null);
   const [paymentSheetLoadingId, setPaymentSheetLoadingId] = useState<string | null>(null);
+  const [paymentSelfDeclareRestricted, setPaymentSelfDeclareRestricted] = useState(false);
+  const [paymentBlockRequestId, setPaymentBlockRequestId] = useState<string | null>(null);
   const mounted = useRef(true);
   const vendorLocationHistoryRef = useRef<Map<string, VendorLocationPoint[]>>(new Map());
   const pendingAutoRatingRef = useRef<RowWithShop | null>(null);
@@ -505,6 +513,7 @@ const MyOrders = () => {
       notes: string | null;
       items: OrderBill["items"];
       is_edited: boolean;
+      created_at: string;
     };
     const bills = (data ?? []) as BillRpcRow[];
 
@@ -518,6 +527,7 @@ const MyOrders = () => {
         total_amount: bill.total_amount,
         payment_mode: bill.payment_mode,
         payment_status: bill.payment_status,
+        created_at: bill.created_at,
         notes: bill.notes,
         items: bill.items ?? [],
       };
@@ -649,17 +659,31 @@ const MyOrders = () => {
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     try {
-      // OTP-off: direct requests reads return zero rows without an auth session
-      // (RLS auth_user_phone() is NULL), so read via SECURITY DEFINER RPC.
-      const { data, error } = await withNetworkRetry(async () => {
-        return throwOnSupabaseNetworkError(
-          await supabase
+      const [ordersResult, restrictionResult, blockResult] = await withNetworkRetry(async () => {
+        const [ordersRes, restrictionRes, blockRes] = await Promise.all([
+          supabase
             .rpc("get_my_orders", {
               p_user_phone: userPhone ?? null,
               p_device_id: device_id ?? null,
             })
             .retry(false),
-        );
+          supabase
+            .rpc("get_customer_payment_restriction_status", {
+              p_user_phone: userPhone ?? null,
+              p_device_id: device_id ?? null,
+            })
+            .retry(false),
+          supabase
+            .rpc("get_customer_payment_block_status", {
+              p_user_phone: userPhone ?? null,
+              p_device_id: device_id ?? null,
+            })
+            .retry(false),
+        ]);
+        throwOnSupabaseNetworkError(ordersRes);
+        throwOnSupabaseNetworkError(restrictionRes);
+        throwOnSupabaseNetworkError(blockRes);
+        return [ordersRes, restrictionRes, blockRes] as const;
       }, {
         onRetrying: () => {
           if (!opts?.silent && mounted.current) setNetworkLoadStatus("retrying");
@@ -667,6 +691,15 @@ const MyOrders = () => {
         shouldRetry: () => getNavigatorOnline(),
       });
       if (!mounted.current) return;
+      const { data, error } = ordersResult;
+      const restrictionRow = restrictionResult.data?.[0] as { is_restricted?: boolean } | undefined;
+      setPaymentSelfDeclareRestricted(Boolean(restrictionRow?.is_restricted));
+      const blockRow = blockResult.data?.[0] as
+        | { is_blocked?: boolean; request_id?: string | null }
+        | undefined;
+      setPaymentBlockRequestId(
+        blockRow?.is_blocked && blockRow.request_id ? blockRow.request_id : null,
+      );
       if (error) {
         captureError(error, { scope: "myOrders.load" });
         // Preserve the last-good list on any failed refresh (silent or not) —
@@ -1817,6 +1850,17 @@ const MyOrders = () => {
                         <span>{s.bill_total}</span>
                         <span className="text-brand">₹{bill.total_amount.toFixed(2)}</span>
                       </div>
+                      {bill.payment_status === "unpaid" &&
+                        isBillPastPaymentHygieneTier1(bill.created_at, bill.payment_status) && (
+                          <div
+                            data-testid="my-orders-payment-hygiene-warning"
+                            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2"
+                          >
+                            <p className="text-[11px] text-amber-400 text-center leading-snug">
+                              {s.payment_hygiene_unpaid_warning}
+                            </p>
+                          </div>
+                        )}
                       {r.payment_status === "claimed" && (
                         <div className="flex items-center gap-2 text-xs text-foreground">
                           <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden />
@@ -1855,9 +1899,10 @@ const MyOrders = () => {
                               {s.ai_bridge_call_now}
                             </button>
                           )}
-                          {bill.payment_status === "unpaid" && (
+                          {canCustomerSelfDeclarePayment(r, bill, paymentSelfDeclareRestricted) ? (
                             <button
                               type="button"
+                              data-testid="my-orders-pay-now-btn"
                               disabled={paymentSheetLoadingId === r.id}
                               className="text-xs text-amber-500 font-semibold border border-amber-500/50 rounded-lg px-3 py-1 disabled:opacity-50 inline-flex items-center gap-1.5"
                               onClick={() => void openPaymentSheet(r, bill)}
@@ -1867,7 +1912,33 @@ const MyOrders = () => {
                               ) : null}
                               {s.payment_pay_now}
                             </button>
-                          )}
+                          ) : isCustomerSelfDeclarePaymentEligible(r, bill) &&
+                            paymentSelfDeclareRestricted ? (
+                            r.id === paymentBlockRequestId ? (
+                              <span
+                                data-testid="my-orders-payment-restricted-blocking-bill"
+                                className="text-xs text-amber-700 dark:text-amber-400 max-w-[14rem] text-right leading-snug"
+                              >
+                                {s.payment_restricted_blocking_bill_resolve(
+                                  r.vendors?.shop_name?.trim() || s.myOrders_shopFallback,
+                                )}
+                              </span>
+                            ) : (
+                              <span
+                                data-testid="my-orders-payment-cash-only"
+                                className="text-xs text-amber-700 dark:text-amber-400 max-w-[14rem] text-right leading-snug"
+                              >
+                                {s.payment_cash_only_restricted}
+                              </span>
+                            )
+                          ) : bill.payment_status === "unpaid" ? (
+                            <span
+                              data-testid="my-orders-payment-awaiting-vendor"
+                              className="text-xs text-muted-foreground"
+                            >
+                              {s.payment_awaiting_vendor_confirm}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       {bill.notes && (

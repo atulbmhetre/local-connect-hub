@@ -70,6 +70,7 @@ type OrderBillSummary = {
   total_amount: number;
   payment_mode: "cash" | "upi" | "khata";
   payment_status: string;
+  last_vendor_reminder_at?: string | null;
 };
 
 type EditBillTarget = {
@@ -346,6 +347,8 @@ export function IncomingOrdersSection({
   const [editBillTarget, setEditBillTarget] = useState<EditBillTarget | null>(null);
   const [historyBillId, setHistoryBillId] = useState<string | null>(null);
   const [markingBillPaidId, setMarkingBillPaidId] = useState<string | null>(null);
+  const [remindingBillId, setRemindingBillId] = useState<string | null>(null);
+  const remindDebounceUntilRef = useRef<Record<string, number>>({});
   const [addingBillToKhataId, setAddingBillToKhataId] = useState<string | null>(null);
   const [confirmingPaymentId, setConfirmingPaymentId] = useState<string | null>(null);
   const [disputingPaymentId, setDisputingPaymentId] = useState<string | null>(null);
@@ -531,6 +534,7 @@ export function IncomingOrdersSection({
           total_amount: bill.total_amount,
           payment_mode: bill.payment_mode as OrderBillSummary["payment_mode"],
           payment_status: bill.payment_status,
+          last_vendor_reminder_at: bill.last_vendor_reminder_at ?? null,
         };
       }
     }
@@ -674,6 +678,50 @@ export function IncomingOrdersSection({
       if (!bill || bill.id !== billId) return prev;
       return { ...prev, [requestId]: { ...bill, payment_status: "paid" } };
     });
+  };
+
+  const remindCustomerAboutBill = async (billId: string, requestId: string) => {
+    const debounceUntil = remindDebounceUntilRef.current[billId] ?? 0;
+    if (Date.now() < debounceUntil) return;
+
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
+
+    remindDebounceUntilRef.current[billId] = Date.now() + 5000;
+    setRemindingBillId(billId);
+
+    const { error } = await supabase.rpc("send_bill_payment_reminder", {
+      p_bill_id: billId,
+      p_source: "vendor",
+      p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
+    });
+
+    setRemindingBillId(null);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success(s.bill_remind_customer_sent);
+    const remindedAt = new Date().toISOString();
+    setBillsByRequestId((prev) => {
+      const bill = prev[requestId];
+      if (!bill || bill.id !== billId) return prev;
+      return {
+        ...prev,
+        [requestId]: { ...bill, last_vendor_reminder_at: remindedAt },
+      };
+    });
+  };
+
+  const isBillRemindDebounced = (billId: string) => {
+    const until = remindDebounceUntilRef.current[billId] ?? 0;
+    return Date.now() < until;
   };
 
   const refreshUnpaidKhataDismissBlocks = useCallback(
@@ -2478,6 +2526,40 @@ export function IncomingOrdersSection({
                               : s.khata_markPaid}
                           </button>
                         )}
+                      {billsByRequestId[r.id].payment_status === "unpaid" && (
+                        <>
+                          <button
+                            type="button"
+                            data-testid="incoming-remind-customer-btn"
+                            disabled={
+                              remindingBillId === billsByRequestId[r.id].id ||
+                              isBillRemindDebounced(billsByRequestId[r.id].id)
+                            }
+                            onClick={() =>
+                              void remindCustomerAboutBill(
+                                billsByRequestId[r.id].id,
+                                r.id,
+                              )
+                            }
+                            className="w-full rounded-lg border border-amber-500/50 text-amber-500 text-xs font-semibold py-2 disabled:opacity-50"
+                          >
+                            {remindingBillId === billsByRequestId[r.id].id
+                              ? s.bill_remind_customer_sending
+                              : s.bill_remind_customer}
+                          </button>
+                          {billsByRequestId[r.id].last_vendor_reminder_at && (
+                            <p
+                              data-testid="incoming-last-reminded"
+                              className="text-[10px] text-muted-foreground text-center"
+                            >
+                              {s.bill_remind_customer_last.replace(
+                                "{when}",
+                                formatTimeAgo(billsByRequestId[r.id].last_vendor_reminder_at!),
+                              )}
+                            </p>
+                          )}
+                        </>
+                      )}
                       {billsByRequestId[r.id].payment_status === "unpaid" &&
                         billsByRequestId[r.id].payment_mode !== "khata" && (
                           <button

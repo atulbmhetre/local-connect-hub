@@ -616,6 +616,13 @@ export const strings = {
     reg_edit_reach_label: 'Customer reach',
     reg_edit_availability_label: 'Availability modes',
     my_business_category_availability: 'Availability for this business',
+    delivery_fulfillment_label: 'How do you deliver?',
+    delivery_fulfillment_vendor: 'Myself',
+    delivery_fulfillment_agent: 'Through a delivery agent',
+    delivery_payment_timing_label: 'When should customer pay?',
+    delivery_payment_prepaid: 'Prepaid',
+    delivery_payment_postpaid: 'Postpaid',
+    delivery_fulfillment_order_override: 'Delivery by',
     vendor_radius_label: 'Service Area',
     vendor_radius_hint: 'How far do you deliver or serve customers?',
     vendor_radius_5: '5 km',
@@ -1340,6 +1347,9 @@ export const strings = {
     parchi_locationCaptured: '📍 Location captured',
     maps_openInMaps: 'Open in Maps',
     parchi_errCouldNotSend: 'Could not send order',
+    parchi_payment_block_body: (shop: string, amount: number) =>
+      `You have an unpaid bill of ₹${Math.round(amount)} from ${shop}. Pay or tap "I've Paid" in My Orders before placing a new order.`,
+    parchi_payment_block_my_orders: 'Go to My Orders',
     parchi_slot_expired:
       'This delivery slot has already passed. Please pick a different slot.',
     parchi_appointment_expired:
@@ -1440,6 +1450,10 @@ export const strings = {
     bill_already_sent_body:
       'A bill was already sent for this order. Send again to replace it?',
     bill_marked_paid: 'Bill marked as paid',
+    bill_remind_customer: 'Remind customer',
+    bill_remind_customer_sending: 'Sending…',
+    bill_remind_customer_sent: 'Payment reminder sent',
+    bill_remind_customer_last: 'Last reminded {when}',
     bill_addToKhata: 'Add to Khata',
     bill_khataLimitWarning:
       "This will push the customer's dues above your warning limit.",
@@ -1683,6 +1697,13 @@ export const strings = {
     status_accepted_appointment_confirmed: 'Booking confirmed',
     status_accepted_appointment_awaiting: 'Vendor acknowledged — awaiting confirmation',
     payment_pay_now: 'Pay Now',
+    payment_awaiting_vendor_confirm: 'Waiting for vendor to confirm payment',
+    payment_hygiene_unpaid_warning:
+      'This bill has been unpaid for a while — please complete payment or contact your vendor.',
+    payment_cash_only_restricted:
+      'Online payment is temporarily unavailable on your account. Please pay cash to the vendor.',
+    payment_restricted_blocking_bill_resolve: (shop: string) =>
+      `Self-declare is unavailable on your account. Ask ${shop} to confirm your payment directly in their app to clear this overdue bill.`,
     payment_upi_id: 'Pay via UPI ID',
     payment_mobile: 'Pay via Mobile Number',
     payment_qr: 'Scan QR Code',
@@ -1696,6 +1717,11 @@ export const strings = {
     payment_noPaid: 'No',
     payment_enter_utr: 'Enter UTR / Transaction ID',
     payment_submit_utr: 'Submit Payment',
+    payment_screenshot_label: 'Payment screenshot',
+    payment_screenshot_hint: 'This amount is unusually high for this vendor. Attach a screenshot of your UPI payment confirmation.',
+    payment_screenshot_attach: 'Attach screenshot',
+    payment_screenshot_required: 'Please attach a payment screenshot before submitting',
+    payment_screenshot_uploading: 'Uploading screenshot…',
     payment_claimed: 'Payment Sent — Awaiting vendor confirmation',
     notifyVendor_paymentClaimed_title: 'Payment claimed — please confirm or dispute',
     notifyVendor_paymentClaimed_body: (amount: string, utr: string) =>
@@ -2374,6 +2400,13 @@ export const strings = {
     reg_edit_reach_label: 'ग्राहक पहुँच',
     reg_edit_availability_label: 'उपलब्धता modes',
     my_business_category_availability: 'इस व्यवसाय की उपलब्धता',
+    delivery_fulfillment_label: 'आप डिलीवरी कैसे करते हैं?',
+    delivery_fulfillment_vendor: 'खुद',
+    delivery_fulfillment_agent: 'डिलीवरी एजेंट से',
+    delivery_payment_timing_label: 'ग्राहक कब भुगतान करे?',
+    delivery_payment_prepaid: 'पहले (prepaid)',
+    delivery_payment_postpaid: 'बाद में (postpaid)',
+    delivery_fulfillment_order_override: 'डिलीवरी',
     vendor_radius_label: 'सेवा क्षेत्र',
     vendor_radius_hint: 'आप ग्राहकों को कितनी दूर तक सेवा या डिलीवरी देते हैं?',
     vendor_radius_5: '5 किमी',
@@ -3096,6 +3129,9 @@ export const strings = {
     parchi_locationCaptured: '📍 Location captured',
     maps_openInMaps: 'मैप में खोलें',
     parchi_errCouldNotSend: 'ऑर्डर नहीं भेजा जा सका',
+    parchi_payment_block_body: (shop: string, amount: number) =>
+      `${shop} का ₹${Math.round(amount)} का बिल बकाया है। नया ऑर्डर करने से पहले मेरे ऑर्डर में भुगतान करें या "I've Paid" दबाएँ।`,
+    parchi_payment_block_my_orders: 'मेरे ऑर्डर पर जाएँ',
     parchi_slot_expired:
       'This delivery slot has already passed. Please pick a different slot.',
     parchi_appointment_expired:
@@ -3196,6 +3232,10 @@ export const strings = {
     bill_already_sent_body:
       'इस ऑर्डर के लिए पहले से बिल भेजा जा चुका है। बदलने के लिए फिर से भेजें?',
     bill_marked_paid: 'बिल भुगतान किया गया',
+    bill_remind_customer: 'ग्राहक को याद दिलाएँ',
+    bill_remind_customer_sending: 'भेजा जा रहा है…',
+    bill_remind_customer_sent: 'भुगतान अनुस्मारक भेजा गया',
+    bill_remind_customer_last: 'अंतिम याद {when}',
     bill_addToKhata: 'खाते में जोड़ें',
     bill_khataLimitWarning:
       'इससे ग्राहक का बकाया आपकी चेतावनी सीमा से ऊपर चला जाएगा।',
@@ -3439,6 +3479,13 @@ export const strings = {
     status_accepted_appointment_confirmed: 'बुकिंग कन्फर्म हो गई',
     status_accepted_appointment_awaiting: 'विक्रेता ने देख लिया — पुष्टि का इंतजार',
     payment_pay_now: 'अभी भुगतान करें',
+    payment_awaiting_vendor_confirm: 'विक्रेता के भुगतान की पुष्टि की प्रतीक्षा',
+    payment_hygiene_unpaid_warning:
+      'यह बिल काफी समय से बकाया है — कृपया भुगतान करें या विक्रेता से संपर्क करें।',
+    payment_cash_only_restricted:
+      'आपके खाते पर ऑनलाइन भुगतान अस्थायी रूप से उपलब्ध नहीं है। कृपया विक्रेता को नकद भुगतान करें।',
+    payment_restricted_blocking_bill_resolve: (shop: string) =>
+      `आपके खाते पर स्व-घोषणा उपलब्ध नहीं है। इस बकाया बिल को हटाने के लिए ${shop} से अपने ऐप में सीधे भुगतान की पुष्टि करने को कहें।`,
     payment_upi_id: 'UPI ID से भुगतान करें',
     payment_mobile: 'मोबाइल नंबर से भुगतान करें',
     payment_qr: 'QR कोड स्कैन करें',
@@ -3452,6 +3499,11 @@ export const strings = {
     payment_noPaid: 'नहीं',
     payment_enter_utr: 'UTR / लेनदेन ID दर्ज करें',
     payment_submit_utr: 'भुगतान जमा करें',
+    payment_screenshot_label: 'भुगतान स्क्रीनशॉट',
+    payment_screenshot_hint: 'यह राशि इस विक्रेता के लिए असामान्य रूप से अधिक है। अपने UPI भुगतान की पुष्टि का स्क्रीनशॉट संलग्न करें।',
+    payment_screenshot_attach: 'स्क्रीनशॉट संलग्न करें',
+    payment_screenshot_required: 'जमा करने से पहले भुगतान स्क्रीनशॉट संलग्न करें',
+    payment_screenshot_uploading: 'स्क्रीनशॉट अपलोड हो रहा है…',
     payment_claimed: 'भुगतान भेजा गया — विक्रेता की पुष्टि की प्रतीक्षा',
     notifyVendor_paymentClaimed_title: 'भुगतान का दावा — कृपया पुष्टि करें या विवाद करें',
     notifyVendor_paymentClaimed_body: (amount: string, utr: string) =>
@@ -4130,6 +4182,13 @@ export const strings = {
     reg_edit_reach_label: 'ग्राहक पोहोच',
     reg_edit_availability_label: 'उपलब्धता modes',
     my_business_category_availability: 'या व्यवसायाची उपलब्धता',
+    delivery_fulfillment_label: 'तुम्ही डिलिव्हरी कशी करता?',
+    delivery_fulfillment_vendor: 'स्वतः',
+    delivery_fulfillment_agent: 'डिलिव्हरी एजंटद्वारे',
+    delivery_payment_timing_label: 'ग्राहक कधी पैसे द्यावेत?',
+    delivery_payment_prepaid: 'आधी (prepaid)',
+    delivery_payment_postpaid: 'नंतर (postpaid)',
+    delivery_fulfillment_order_override: 'डिलिव्हरी',
     vendor_radius_label: 'सेवा क्षेत्र',
     vendor_radius_hint: 'तुम्ही ग्राहकांना किती अंतरापर्यंत सेवा किंवा डिलिव्हरी देता?',
     vendor_radius_5: '5 किमी',
@@ -4851,6 +4910,9 @@ export const strings = {
     parchi_locationCaptured: '📍 Location captured',
     maps_openInMaps: 'नकाशात उघडा',
     parchi_errCouldNotSend: 'ऑर्डर पाठवता आला नाही',
+    parchi_payment_block_body: (shop: string, amount: number) =>
+      `${shop} चा ₹${Math.round(amount)} थकबाकी बिल आहे. नवीन ऑर्डर करण्यापूर्वी माझे ऑर्डरमध्ये पैसे द्या किंवा "I've Paid" दाबा.`,
+    parchi_payment_block_my_orders: 'माझे ऑर्डर उघडा',
     parchi_slot_expired:
       'This delivery slot has already passed. Please pick a different slot.',
     parchi_appointment_expired:
@@ -4951,6 +5013,10 @@ export const strings = {
     bill_already_sent_body:
       'या ऑर्डरसाठी आधीच बिल पाठवले आहे. बदलण्यासाठी पुन्हा पाठवायचे?',
     bill_marked_paid: 'बिल भरले म्हणून नोंदवले',
+    bill_remind_customer: 'ग्राहकाला आठवण करा',
+    bill_remind_customer_sending: 'पाठवत आहे…',
+    bill_remind_customer_sent: 'पेमेंट स्मरण पाठवले',
+    bill_remind_customer_last: 'शेवटचे स्मरण {when}',
     bill_addToKhata: 'खात्यात जोडा',
     bill_khataLimitWarning:
       'यामुळे ग्राहकाची थकबाकी तुमच्या सावधगिरी मर्यादेपेक्षा वाढेल.',
@@ -5194,6 +5260,13 @@ export const strings = {
     status_accepted_appointment_confirmed: 'बुकिंग कन्फर्म झाली',
     status_accepted_appointment_awaiting: 'विक्रेत्याने पाहिले — पुष्टीची वाट पाहत आहे',
     payment_pay_now: 'आता पैसे द्या',
+    payment_awaiting_vendor_confirm: 'विक्रेत्याच्या पेमेंटची पुष्टीची वाट पाहत आहे',
+    payment_hygiene_unpaid_warning:
+      'हे बिल खूप काळ थकबाकी आहे — कृपया पेमेंट पूर्ण करा किंवा विक्रेत्याशी संपर्क साधा.',
+    payment_cash_only_restricted:
+      'तुमच्या खात्यावर ऑनलाइन पेमेंट तात्पुरते उपलब्ध नाही. कृपया विक्रेत्याला रोख पैसे द्या.',
+    payment_restricted_blocking_bill_resolve: (shop: string) =>
+      `तुमच्या खात्यावर स्व-घोषणा उपलब्ध नाही. हे थकबाकी बिल साफ करण्यासाठी ${shop} ला त्यांच्या अॅपमध्ये थेट पेमेंट पुष्टी करण्यास सांगा.`,
     payment_upi_id: 'UPI ID ने पैसे द्या',
     payment_mobile: 'मोबाइल नंबरवर पैसे द्या',
     payment_qr: 'QR कोड स्कॅन करा',
@@ -5207,6 +5280,11 @@ export const strings = {
     payment_noPaid: 'नाही',
     payment_enter_utr: 'UTR / व्यवहार ID टाका',
     payment_submit_utr: 'पेमेंट सादर करा',
+    payment_screenshot_label: 'पेमेंट स्क्रीनशॉट',
+    payment_screenshot_hint: 'ही रक्कम या विक्रेत्यासाठी असामान्यपणे जास्त आहे. तुमच्या UPI पेमेंटच्या पुष्टीचा स्क्रीनशॉट जोडा.',
+    payment_screenshot_attach: 'स्क्रीनशॉट जोडा',
+    payment_screenshot_required: 'सादर करण्यापूर्वी पेमेंट स्क्रीनशॉट जोडा',
+    payment_screenshot_uploading: 'स्क्रीनशॉट अपलोड होत आहे…',
     payment_claimed: 'पेमेंट पाठवले — विक्रेत्याच्या पुष्टीची वाट पाहत आहे',
     notifyVendor_paymentClaimed_title: 'पेमेंटचा दावा — कृपया पुष्टी करा किंवा विवाद नोंदवा',
     notifyVendor_paymentClaimed_body: (amount: string, utr: string) =>

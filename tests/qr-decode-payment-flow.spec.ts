@@ -111,7 +111,10 @@ async function seedFulfilledOrderWithUnpaidBill(
       message,
       status: 'fulfilled',
       payment_status: 'unpaid',
+      service_mode: 'delivery',
       delivery_slot: 'morning',
+      delivery_fulfillment_method: 'agent',
+      delivery_payment_timing: 'prepaid',
     })
     .select('id')
     .single();
@@ -148,7 +151,7 @@ function paymentSheet(page: Page): Locator {
 }
 
 async function openPaymentSheetForOrder(page: Page, message: string) {
-  await orderCard(page, message).getByRole('button', { name: L.payNow }).click();
+  await orderCard(page, message).getByTestId('my-orders-pay-now-btn').click();
   await expect(paymentSheet(page)).toBeVisible({ timeout: 10000 });
 }
 

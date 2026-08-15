@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
-import { Loader2 } from "lucide-react";
+import { Camera, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase, invokeNotifyVendor } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
@@ -11,6 +11,8 @@ import { strings, type Language } from "@/lib/strings";
 import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 import { isValidPaymentUtr } from "@/lib/validation";
+import { MIN_PAYMENT_AWAY_MS } from "@/lib/paymentResume";
+import { uploadPaymentProof } from "@/lib/paymentProofUpload";
 
 export interface UpiPaymentPanelProps {
   /** Prefix for DOM ids (kept distinct per surface for tests/labels). */
@@ -29,6 +31,11 @@ export interface UpiPaymentPanelProps {
 }
 
 type PaymentTab = "upi" | "mobile" | "qr";
+
+type ClaimRequirements = {
+  requires_screenshot: boolean;
+  is_anomalous: boolean;
+};
 
 /**
  * Single UPI pay + return-confirmation flow shared by PaymentSheet and
@@ -57,9 +64,14 @@ export function UpiPaymentPanel({
   const [utr, setUtr] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [localPaymentStatus, setLocalPaymentStatus] = useState(paymentStatus);
+  const [requiresScreenshot, setRequiresScreenshot] = useState(false);
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const [screenshotUploading, setScreenshotUploading] = useState(false);
 
   const payTappedRef = useRef(payTapped);
   const userConfirmedPaidRef = useRef(userConfirmedPaid);
+  const payTappedAtRef = useRef<number | null>(null);
+
   useEffect(() => {
     payTappedRef.current = payTapped;
   }, [payTapped]);
@@ -79,12 +91,50 @@ export function UpiPaymentPanel({
     setShowReturnPrompt(false);
     setUtr("");
     setSubmitting(false);
+    setScreenshotUrl(null);
+    setScreenshotUploading(false);
+    payTappedAtRef.current = null;
   }, [orderId, paymentStatus]);
 
   useEffect(() => {
+    if (paymentStatus !== "unpaid") {
+      setRequiresScreenshot(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase.rpc("get_payment_claim_requirements", {
+        p_request_id: orderId,
+        p_device_id: getDeviceId(),
+        p_user_phone: getUserPhone(),
+      });
+      if (cancelled) return;
+      if (error) {
+        captureError(error, { scope: "upiPaymentPanel.claimRequirements", orderId });
+        setRequiresScreenshot(false);
+        return;
+      }
+      const row = data as ClaimRequirements | null;
+      setRequiresScreenshot(row?.requires_screenshot === true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, paymentStatus]);
+
+  const tryShowReturnPrompt = useCallback(() => {
+    if (!payTappedRef.current || userConfirmedPaidRef.current) return;
+    const tappedAt = payTappedAtRef.current;
+    if (tappedAt == null) return;
+    if (Date.now() - tappedAt < MIN_PAYMENT_AWAY_MS) return;
+    setShowReturnPrompt(true);
+  }, []);
+
+  useEffect(() => {
     const onResume = () => {
-      if (!payTappedRef.current || userConfirmedPaidRef.current) return;
-      setShowReturnPrompt(true);
+      tryShowReturnPrompt();
     };
 
     if (Capacitor.isNativePlatform()) {
@@ -104,7 +154,7 @@ export function UpiPaymentPanel({
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, []);
+  }, [tryShowReturnPrompt]);
 
   const selectTab = (tab: PaymentTab) => {
     setActiveTab(tab);
@@ -112,11 +162,13 @@ export function UpiPaymentPanel({
     setUserConfirmedPaid(false);
     setShowReturnPrompt(false);
     setUtr("");
+    payTappedAtRef.current = null;
   };
 
   const openDeepLink = (pa: string) => {
     const deepLink = `upi://pay?pa=${pa}&pn=${encodeURIComponent(shopName)}&am=${amountRupees}&tn=AaspaasOrder-${orderId}`;
     window.open(deepLink, "_blank");
+    payTappedAtRef.current = Date.now();
     setPayTapped(true);
     setUserConfirmedPaid(false);
     setShowReturnPrompt(false);
@@ -137,28 +189,61 @@ export function UpiPaymentPanel({
     openDeepLink(vendorQrPayeeId);
   };
 
+  const handleScreenshotPick = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setScreenshotUploading(true);
+    try {
+      const uploaded = await uploadPaymentProof(orderId, file);
+      setScreenshotUrl(uploaded.publicUrl);
+    } catch (err) {
+      captureError(err, { scope: "upiPaymentPanel.uploadScreenshot", orderId });
+      toast.error(s.payment_confirm_error);
+    } finally {
+      setScreenshotUploading(false);
+    }
+  };
+
   const handleSubmitUtr = useCallback(async () => {
     const trimmed = utr.trim();
     if (!isValidPaymentUtr(trimmed)) {
       toast.error(s.payment_utr_invalid);
       return;
     }
+    if (requiresScreenshot && !screenshotUrl) {
+      toast.error(s.payment_screenshot_required);
+      return;
+    }
+
     setSubmitting(true);
     const { error } = await supabase.rpc("claim_customer_payment", {
       p_request_id: orderId,
       p_payment_utr: trimmed,
       p_device_id: getDeviceId(),
       p_user_phone: getUserPhone(),
+      p_payment_screenshot_url: screenshotUrl,
     });
     if (error) {
       captureError(error, { scope: "upiPaymentPanel.claimCustomerPayment", orderId });
+      const errMsg = error.message ?? "";
+      if (errMsg.includes("payment_self_declare_restricted")) {
+        const { data: blockData } = await supabase.rpc("get_customer_payment_block_status", {
+          p_device_id: getDeviceId(),
+          p_user_phone: getUserPhone(),
+        });
+        const blockRow = blockData?.[0] as { is_blocked?: boolean; request_id?: string | null } | undefined;
+        if (blockRow?.is_blocked && blockRow.request_id === orderId) {
+          toast.error(s.payment_restricted_blocking_bill_resolve(shopName));
+          setSubmitting(false);
+          return;
+        }
+      }
       toast.error(s.payment_confirm_error);
       setSubmitting(false);
       return;
     }
-    // The vendor is the recipient, so the notification copy resolves from the
-    // VENDOR's own language preference (resolve_user_lang, same pattern as the
-    // referral-credit notification) — not the paying customer's device language.
     void (async () => {
       let vendorLang: Language = "en";
       const { data: langData, error: langError } = await supabase.rpc("resolve_user_lang", {
@@ -180,7 +265,20 @@ export function UpiPaymentPanel({
     })();
     setLocalPaymentStatus("claimed");
     setSubmitting(false);
-  }, [amountLabel, orderId, s.payment_confirm_error, s.payment_utr_invalid, utr, vendorId, vendorPhone]);
+  }, [
+    amountLabel,
+    orderId,
+    requiresScreenshot,
+    screenshotUrl,
+    s.payment_confirm_error,
+    s.payment_restricted_blocking_bill_resolve,
+    s.payment_screenshot_required,
+    s.payment_utr_invalid,
+    utr,
+    vendorId,
+    vendorPhone,
+    shopName,
+  ]);
 
   const tabs: { id: PaymentTab; label: string }[] = [
     { id: "upi", label: s.payment_tab_upi },
@@ -196,7 +294,10 @@ export function UpiPaymentPanel({
       : userConfirmedPaid;
 
   const returnPromptBlock = showReturnPrompt ? (
-    <div className="space-y-2 rounded-xl border border-surface-border bg-surface px-3 py-3">
+    <div
+      className="space-y-2 rounded-xl border border-surface-border bg-surface px-3 py-3"
+      data-testid={`${idPrefix}-return-prompt`}
+    >
       <p className="text-sm text-foreground text-center font-medium">{s.payment_didYouPay}</p>
       <div className="grid grid-cols-2 gap-2">
         <button
@@ -216,6 +317,7 @@ export function UpiPaymentPanel({
             setPayTapped(false);
             setUserConfirmedPaid(false);
             setUtr("");
+            payTappedAtRef.current = null;
           }}
           className="rounded-xl border border-surface-border text-sm font-semibold py-2.5 active:scale-[0.98]"
         >
@@ -224,6 +326,43 @@ export function UpiPaymentPanel({
       </div>
     </div>
   ) : null;
+
+  const screenshotBlock =
+    requiresScreenshot && showUtrInput ? (
+      <div className="space-y-2" data-testid={`${idPrefix}-screenshot-section`}>
+        <p className="text-xs text-muted-foreground leading-snug">{s.payment_screenshot_hint}</p>
+        <label
+          htmlFor={`${idPrefix}-screenshot`}
+          className={cn(
+            "flex items-center justify-center gap-2 w-full min-h-11 rounded-xl border border-dashed border-surface-border text-sm font-semibold py-2.5 cursor-pointer",
+            screenshotUrl && "border-brand/50 text-brand",
+          )}
+        >
+          {screenshotUploading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {s.payment_screenshot_uploading}
+            </>
+          ) : (
+            <>
+              <Camera className="h-4 w-4" />
+              {screenshotUrl ? s.payment_screenshot_label : s.payment_screenshot_attach}
+            </>
+          )}
+        </label>
+        <input
+          id={`${idPrefix}-screenshot`}
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          disabled={screenshotUploading || submitting}
+          onChange={(e) => void handleScreenshotPick(e)}
+        />
+        {screenshotUrl ? (
+          <p className="text-[11px] text-green-600 dark:text-green-400">{s.payment_screenshot_label}</p>
+        ) : null}
+      </div>
+    ) : null;
 
   if (localPaymentStatus === "claimed") {
     return (
@@ -259,6 +398,8 @@ export function UpiPaymentPanel({
             setPayTapped(false);
             setUserConfirmedPaid(false);
             setShowReturnPrompt(false);
+            setScreenshotUrl(null);
+            payTappedAtRef.current = null;
           }}
           className="w-full min-h-11 rounded-2xl border border-surface-border text-sm font-semibold text-foreground py-3 active:scale-[0.98] transition-transform"
         >
@@ -360,6 +501,7 @@ export function UpiPaymentPanel({
 
       {showUtrInput && (
         <div className="space-y-2">
+          {screenshotBlock}
           <label
             htmlFor={`${idPrefix}-utr`}
             className="text-xs font-medium text-muted-foreground uppercase tracking-wide block"
@@ -377,7 +519,8 @@ export function UpiPaymentPanel({
           />
           <button
             type="button"
-            disabled={submitting}
+            data-testid={`${idPrefix}-submit-utr`}
+            disabled={submitting || screenshotUploading}
             onClick={() => void handleSubmitUtr()}
             className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform disabled:opacity-60"
           >

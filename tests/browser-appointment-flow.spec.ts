@@ -133,10 +133,10 @@ test('AP-04-BROWSER: vendor marks appointment done — DB assert', async ({ page
 
   await loginAsVendor(page, apptVendor.phone, apptVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/vendor`);
-  await page.waitForTimeout(1500);
-  await page.reload();
-
-  await expect(page.getByTestId('incoming-order-card').first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 20000 });
+  await expect(
+    page.getByTestId('incoming-order-card').filter({ hasText: 'Mark done appointment test' }),
+  ).toBeVisible({ timeout: 20000 });
   await expect(page.getByTestId('incoming-done-btn').first()).toBeVisible({ timeout: 8000 });
   await page.getByTestId('incoming-done-btn').first().click();
   await page.waitForTimeout(2000);

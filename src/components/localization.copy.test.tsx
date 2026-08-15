@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { strings, type Language, t } from "@/lib/strings";
 import { NotificationBell } from "@/components/NotificationBell";
 import { GovEmergencyServices } from "@/pages/RadarSearch";
@@ -176,7 +177,7 @@ describe("localization copy", () => {
         cancel_reason_4: null,
         service_radius_km: 15,
       } as Vendor;
-      render(<ParchiSheet vendor={vendor} isOpen onClose={() => {}} />);
+      render(<MemoryRouter><ParchiSheet vendor={vendor} isOpen onClose={() => {}} /></MemoryRouter>);
       expect(screen.queryByText(strings.en.parchi_trust_low_title)).not.toBeInTheDocument();
     });
 

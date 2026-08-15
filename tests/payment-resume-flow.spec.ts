@@ -93,7 +93,10 @@ async function seedFulfilledOrderWithUnpaidBill(vendorId: string, message: strin
       message,
       status: 'fulfilled',
       payment_status: 'unpaid',
+      service_mode: 'delivery',
       delivery_slot: 'morning',
+      delivery_fulfillment_method: 'agent',
+      delivery_payment_timing: 'prepaid',
     })
     .select('id')
     .single();
@@ -132,7 +135,7 @@ function paymentSheet(page: Page): Locator {
 
 async function openPaymentSheetFromOrder(page: Page, message: string) {
   const card = orderCard(page, message);
-  await card.getByRole('button', { name: L.payNow }).click();
+  await card.getByTestId('my-orders-pay-now-btn').click();
   await expect(paymentSheet(page)).toBeVisible({ timeout: 10000 });
 }
 
@@ -142,8 +145,10 @@ async function tapPayNowInSheet(page: Page) {
 
 /**
  * Web-only resume simulation — see file-top LIMITATION comment.
+ * Waits past the minimum away-duration gate before dispatching visibilitychange.
  */
 async function simulateAppResume(page: Page) {
+  await page.waitForTimeout(5100);
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,

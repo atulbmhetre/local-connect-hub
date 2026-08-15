@@ -12,7 +12,11 @@ import {
 
 /** Unique suffix for all test data in this file. */
 const T = Date.now();
-const DEVICE_ID = `device_del_req_${T}`;
+
+function deviceIdFor(testName: string): string {
+  const slug = testName.replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40);
+  return `device_del_req_${T}_${slug}`;
+}
 
 const L = {
   myAccount: 'My Account',
@@ -58,7 +62,7 @@ function formatExpectedDeletionDate(fromIso: string): string {
   });
 }
 
-async function seedCustomer(phone: string, fields: Record<string, unknown> = {}) {
+async function seedCustomer(phone: string, deviceId: string, fields: Record<string, unknown> = {}) {
   const { error } = await supabaseAdmin.from('users').upsert(
     {
       phone,
@@ -72,7 +76,7 @@ async function seedCustomer(phone: string, fields: Record<string, unknown> = {})
   await supabaseAdmin.from('user_devices').delete().eq('user_phone', phone);
   const { error: deviceError } = await supabaseAdmin.from('user_devices').insert({
     user_phone: phone,
-    device_id: DEVICE_ID,
+    device_id: deviceId,
     fcm_token: `fcm_${phone}`,
   });
   if (deviceError) throw deviceError;
@@ -82,6 +86,7 @@ async function seedCustomer(phone: string, fields: Record<string, unknown> = {})
 async function createVendor(
   phone: string,
   tag: string,
+  deviceId: string,
   overrides: Record<string, unknown> = {},
 ) {
   const category = await getActiveCategoryByServiceMode('delivery');
@@ -106,10 +111,10 @@ async function createVendor(
   await seedVendorCategory(vendor.id, category);
   createdVendorIds.push(vendor.id);
   createdPhones.push(phone);
-  await supabaseAdmin.from('user_devices').delete().eq('user_phone', phone).eq('device_id', DEVICE_ID);
+  await supabaseAdmin.from('user_devices').delete().eq('user_phone', phone).eq('device_id', deviceId);
   await supabaseAdmin.from('user_devices').insert({
     user_phone: phone,
-    device_id: DEVICE_ID,
+    device_id: deviceId,
     fcm_token: `fcm_v_${phone}`,
   });
   return vendor;
@@ -148,10 +153,11 @@ test.afterAll(async () => {
 
 test('DEL-REQ-01 — Delete Account button at bottom of settings, not in main flow', async ({
   page,
-}) => {
+}, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextCustomerPhone();
-  await seedCustomer(phone);
-  await loginAsCustomer(page, phone, DEVICE_ID);
+  await seedCustomer(phone, deviceId);
+  await loginAsCustomer(page, phone, deviceId);
   await gotoSettings(page);
 
   const deleteBtn = page.getByRole('button', { name: L.deleteAccount });
@@ -177,10 +183,11 @@ test('DEL-REQ-01 — Delete Account button at bottom of settings, not in main fl
   await expect(myAccountBtn).toBeVisible();
 });
 
-test('DEL-REQ-02 — Delete confirmation dialog shows correct warning copy', async ({ page }) => {
+test('DEL-REQ-02 — Delete confirmation dialog shows correct warning copy', async ({ page }, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextCustomerPhone();
-  await seedCustomer(phone);
-  await loginAsCustomer(page, phone, DEVICE_ID);
+  await seedCustomer(phone, deviceId);
+  await loginAsCustomer(page, phone, deviceId);
   await gotoSettings(page);
   await openDeleteDialog(page);
 
@@ -194,15 +201,16 @@ test('DEL-REQ-02 — Delete confirmation dialog shows correct warning copy', asy
 
 test('DEL-REQ-03 — Customer deletion clears localStorage and shows fresh state', async ({
   page,
-}) => {
+}, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextCustomerPhone();
-  await seedCustomer(phone, { total_orders: 1 });
-  await loginAsCustomer(page, phone, DEVICE_ID);
+  await seedCustomer(phone, deviceId, { total_orders: 1 });
+  await loginAsCustomer(page, phone, deviceId);
 
   const { status, body } = await postDeleteAccount({
     phone,
     type: 'customer',
-    device_id: DEVICE_ID,
+    device_id: deviceId,
   });
   expect(status).toBe(200);
   expect(body.ok).toBe(true);
@@ -250,11 +258,12 @@ test('DEL-REQ-04 — Customer phone anonymized in DB after deletion', async () =
   expect(anonymised?.phone).toMatch(/^deleted_/);
 });
 
-test('DEL-REQ-05 — Dual-role deletion applies customer + vendor rules', async ({ page }) => {
+test('DEL-REQ-05 — Dual-role deletion applies customer + vendor rules', async ({ page }, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextCustomerPhone();
-  await seedCustomer(phone);
-  const vendor = await createVendor(phone, 'dual-role', { is_active: true });
-  await loginAsCustomer(page, phone, DEVICE_ID);
+  await seedCustomer(phone, deviceId);
+  const vendor = await createVendor(phone, 'dual-role', deviceId, { is_active: true });
+  await loginAsCustomer(page, phone, deviceId);
   await gotoSettings(page);
 
   const deleteBtn = page.getByRole('button', { name: L.deleteAccount });
@@ -295,11 +304,12 @@ test('DEL-REQ-05 — Dual-role deletion applies customer + vendor rules', async 
 
 test('DEL-REQ-06 — Vendor deletion shows 30-day scheduled UI, not immediate', async ({
   page,
-}) => {
+}, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextVendorPhone();
-  await seedCustomer(phone);
-  const vendor = await createVendor(phone, 'req06', { is_active: true });
-  await loginAsVendor(page, phone, vendor.id, DEVICE_ID);
+  await seedCustomer(phone, deviceId);
+  const vendor = await createVendor(phone, 'req06', deviceId, { is_active: true });
+  await loginAsVendor(page, phone, vendor.id, deviceId);
   await gotoSettings(page);
   await openDeleteDialog(page);
   await page.getByRole('button', { name: L.yesDelete }).click();
@@ -321,12 +331,13 @@ test('DEL-REQ-06 — Vendor deletion shows 30-day scheduled UI, not immediate', 
   expect(row.deletion_requested_at).not.toBeNull();
 });
 
-test('DEL-REQ-07 — Vendor Cancel Deletion restores normal account state', async ({ page }) => {
+test('DEL-REQ-07 — Vendor Cancel Deletion restores normal account state', async ({ page }, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextVendorPhone();
   const requestedAt = new Date().toISOString();
-  await seedCustomer(phone, { deletion_requested_at: requestedAt });
-  const vendor = await createVendor(phone, 'req07', { deletion_requested_at: requestedAt });
-  await loginAsVendor(page, phone, vendor.id, DEVICE_ID);
+  await seedCustomer(phone, deviceId, { deletion_requested_at: requestedAt });
+  const vendor = await createVendor(phone, 'req07', deviceId, { deletion_requested_at: requestedAt });
+  await loginAsVendor(page, phone, vendor.id, deviceId);
   await gotoSettings(page);
 
   await expect(page.getByText(new RegExp(L.scheduledPrefix))).toBeVisible({ timeout: 10000 });
@@ -345,15 +356,16 @@ test('DEL-REQ-07 — Vendor Cancel Deletion restores normal account state', asyn
   expect(row.deletion_requested_at).toBeNull();
 });
 
-test('DEL-REQ-08 — Vendor cannot go online during deletion grace period', async ({ page }) => {
+test('DEL-REQ-08 — Vendor cannot go online during deletion grace period', async ({ page }, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextVendorPhone();
   const requestedAt = new Date().toISOString();
-  await seedCustomer(phone, { deletion_requested_at: requestedAt });
-  const vendor = await createVendor(phone, 'req08', {
+  await seedCustomer(phone, deviceId, { deletion_requested_at: requestedAt });
+  const vendor = await createVendor(phone, 'req08', deviceId, {
     deletion_requested_at: requestedAt,
     is_active: false,
   });
-  await loginAsVendor(page, phone, vendor.id, DEVICE_ID);
+  await loginAsVendor(page, phone, vendor.id, deviceId);
   await page.goto(`${APP_URL}/vendor`);
   await expect(page.getByTestId('vendor-screen')).toBeVisible({ timeout: 20000 });
 
@@ -375,11 +387,12 @@ test('DEL-REQ-08 — Vendor cannot go online during deletion grace period', asyn
 
 // ─── POST-DELETION DATA VERIFICATION ─────────────────────────────────────────
 
-test('DEL-REQ-09 — Vendor anonymization NULLs PII fields after 30 days', async () => {
+test('DEL-REQ-09 — Vendor anonymization NULLs PII fields after 30 days', async ({}, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextVendorPhone();
   const thirtyOneDaysAgo = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
-  await seedCustomer(phone, { deletion_requested_at: thirtyOneDaysAgo });
-  const vendor = await createVendor(phone, 'req09', {
+  await seedCustomer(phone, deviceId, { deletion_requested_at: thirtyOneDaysAgo });
+  const vendor = await createVendor(phone, 'req09', deviceId, {
     deletion_requested_at: thirtyOneDaysAgo,
     shop_photo_url: 'https://example.com/shop.jpg',
     photo_selfie: 'https://example.com/selfie.jpg',
@@ -413,26 +426,27 @@ test('DEL-REQ-09 — Vendor anonymization NULLs PII fields after 30 days', async
   expect(anonymised?.referral_code).toBeNull();
 });
 
-test('DEL-REQ-10 — Customer-linked data cleaned on customer delete', async () => {
+test('DEL-REQ-10 — Customer-linked data cleaned on customer delete', async ({}, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextCustomerPhone();
-  await seedCustomer(phone, { total_orders: 1, deletion_requested_at: new Date().toISOString() });
-  const vendor = await createVendor(nextVendorPhone(), 'req10-ref');
+  await seedCustomer(phone, deviceId, { total_orders: 1, deletion_requested_at: new Date().toISOString() });
+  const vendor = await createVendor(nextVendorPhone(), 'req10-ref', deviceId);
   await supabaseAdmin.from('saved_vendors').insert({
     user_phone: phone,
-    device_id: DEVICE_ID,
+    device_id: deviceId,
     vendor_id: vendor.id,
     nickname: 'My vendor',
   });
   await supabaseAdmin.from('user_devices').insert({
     user_phone: phone,
-    device_id: DEVICE_ID,
+    device_id: deviceId,
     fcm_token: `fcm_${phone}`,
   });
 
   const { status, body } = await postDeleteAccount({
     phone,
     type: 'customer',
-    device_id: DEVICE_ID,
+    device_id: deviceId,
   });
   expect(status).toBe(200);
   expect(body.ok).toBe(true);
@@ -465,11 +479,12 @@ test('DEL-REQ-10 — Customer-linked data cleaned on customer delete', async () 
   expect(anonUser?.phone).toMatch(/^deleted_/);
 });
 
-test('DEL-REQ-11 — Vendor menu items deleted on vendor anonymization', async () => {
+test('DEL-REQ-11 — Vendor menu items deleted on vendor anonymization', async ({}, testInfo) => {
+  const deviceId = deviceIdFor(testInfo.title);
   const phone = nextVendorPhone();
   const thirtyOneDaysAgo = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
-  await seedCustomer(phone, { deletion_requested_at: thirtyOneDaysAgo });
-  const vendor = await createVendor(phone, 'req11', {
+  await seedCustomer(phone, deviceId, { deletion_requested_at: thirtyOneDaysAgo });
+  const vendor = await createVendor(phone, 'req11', deviceId, {
     deletion_requested_at: thirtyOneDaysAgo,
   });
 
