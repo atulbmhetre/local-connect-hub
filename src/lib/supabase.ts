@@ -582,7 +582,7 @@ export {
   type GpsMatchFailureSource,
 } from "@/lib/gpsMatch";
 
-import { resolveCategoryFromDB } from "@/lib/categories";
+import { resolveCanonicalTerm, resolveCategoryFromDB } from "@/lib/categories";
 
 /** One ranked category suggestion from the classify_category gateway action. */
 export type ClassifySearchCandidate = {
@@ -636,6 +636,17 @@ export async function classifySearchTermForRadar(
 
   const localCanon = await resolveCategoryFromDB(rawInput, dbCategories);
   if (localCanon) return { outcome: "exact", query: localCanon };
+
+  // Same alias pre-pass Radar uses (resolveCanonicalTerm on the full phrase —
+  // aliases match via substring includes, so "I am looking for bike mechanic" hits
+  // "mechanic"). Only short-circuit when the resolved label is an active DB category.
+  const aliasCanon = resolveCanonicalTerm(term);
+  if (aliasCanon) {
+    const aliasInDb = dbCategories.find(
+      (c) => c.label.toLowerCase() === aliasCanon.toLowerCase(),
+    );
+    if (aliasInDb) return { outcome: "exact", query: aliasInDb.label };
+  }
 
   try {
     const ctrl = new AbortController();

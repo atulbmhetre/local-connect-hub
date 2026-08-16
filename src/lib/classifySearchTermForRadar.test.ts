@@ -39,12 +39,57 @@ describe("classifySearchTermForRadar", () => {
       is_active: true,
       sort_order: 2,
     },
+    {
+      id: "3",
+      label: "Mechanic",
+      emoji: "🔧",
+      service_mode: "help" as const,
+      is_active: true,
+      sort_order: 3,
+    },
+    {
+      id: "4",
+      label: "Grocery Store",
+      emoji: "🛒",
+      service_mode: "delivery" as const,
+      is_active: true,
+      sort_order: 4,
+    },
   ];
 
   it("returns exact for a case-insensitive DB label match and never calls the gateway", async () => {
     const r = await classifySearchTermForRadar("plumber", cats);
     expect(r).toEqual({ outcome: "exact", query: "Plumber" });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["mechanic", "Mechanic"],
+    ["bike mechanic", "Mechanic"],
+    ["I am looking for bike mechanic", "Mechanic"],
+    ["mikanik", "Mechanic"],
+    ["kirana", "Grocery Store"],
+  ])(
+    "alias pre-pass resolves %j to %j without calling ai-gateway",
+    async (query, expectedLabel) => {
+      const r = await classifySearchTermForRadar(query, cats);
+      expect(r).toEqual({ outcome: "exact", query: expectedLabel });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("falls through to AI when alias resolves but label is not in active DB categories", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        action: "classify_category",
+        result: { candidates: [], no_confident_match: true },
+      }),
+    });
+    const withoutMechanic = cats.filter((c) => c.label !== "Mechanic");
+    const r = await classifySearchTermForRadar("bike mechanic", withoutMechanic);
+    expect(r).toEqual({ outcome: "fallback" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns candidates from the gateway when confidence clears the gate", async () => {
@@ -145,6 +190,31 @@ describe("classifySearchTermForRadar", () => {
 
     const r = await classifySearchTermForRadar("xyzzy unrelated nonsense", cats);
     expect(r).toEqual({ outcome: "fallback" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still invokes ai-gateway for queries with no alias or DB match", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        action: "classify_category",
+        result: { candidates: [], no_confident_match: true },
+      }),
+    });
+
+    const r = await classifySearchTermForRadar("quantum plasma widget repair", cats);
+    expect(r).toEqual({ outcome: "fallback" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      GATEWAY,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          action: "classify_category",
+          term: "quantum plasma widget repair",
+        }),
+      }),
+    );
   });
 
   it("falls back on gateway HTTP failure", async () => {
