@@ -28,6 +28,7 @@ import {
   checkAndNotifyAdminGreenReady,
   checkAndNotifyAdminCategoryGreenReady,
 } from "@/lib/vendorGreenReady";
+import { myBusinessSaveVerificationNotifyReasons } from "@/lib/myBusinessSaveNotify";
 import { useLanguage } from "@/lib/language";
 import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
@@ -792,11 +793,17 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
 
     savedCategoryIdsRef.current = [...categoryIdsToSave];
 
-    void invokeNotifyAdmin(
-      "✏️ Vendor edited shop details",
-      `${resolvedShopName.trim()} — ${primaryLabel} (${primaryServiceMode})`,
-      { type: "vendor_edited", route: "settings", route_params: { vendor_id: vendor.id } },
-    );
+    const adminNotifyReasons = myBusinessSaveVerificationNotifyReasons({
+      phoneChanged,
+      upiChanged,
+    });
+    if (adminNotifyReasons.length > 0) {
+      void invokeNotifyAdmin(
+        "✏️ Vendor edited verified identity fields",
+        `${resolvedShopName.trim()} — ${primaryLabel} (${adminNotifyReasons.join(", ")})`,
+        { type: "vendor_edited", route: "settings", route_params: { vendor_id: vendor.id } },
+      );
+    }
     toast.success(s.my_business_saved);
     releaseSaveLock();
   };
