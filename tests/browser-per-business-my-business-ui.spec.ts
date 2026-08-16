@@ -29,8 +29,25 @@ test.afterAll(async () => {
   }
 });
 
-async function openOpsSection(page: import('@playwright/test').Page, label: RegExp) {
-  const btn = page.getByTestId('my-business-operations').getByRole('button', { name: label }).first();
+async function expandBusiness(
+  page: import('@playwright/test').Page,
+  categoryId: string,
+) {
+  const toggle = page.getByTestId(`my-business-accordion-toggle-${categoryId}`);
+  await expect(toggle).toBeVisible({ timeout: 10000 });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+  }
+}
+
+async function openOpsSection(
+  page: import('@playwright/test').Page,
+  categoryId: string,
+  label: RegExp,
+) {
+  const panel = page.getByTestId(`my-business-category-settings-${categoryId}`);
+  const ops = panel.getByTestId('my-business-operations');
+  const btn = ops.getByRole('button', { name: label }).first();
   await expect(btn).toBeVisible({ timeout: 10000 });
   if ((await btn.getAttribute('aria-expanded')) !== 'true') await btn.click();
 }
@@ -107,37 +124,33 @@ test('MBV-01 — My Business ops: menu, cancel reasons, and note scoped per busi
   await loginAsVendor(page, phone, vendor.id, DEVICE);
   await page.goto(`${APP_URL}/settings`);
   await openVendorMyBusinessTab(page);
-  await expect(page.getByTestId('my-business-operations')).toBeVisible({ timeout: 10000 });
-  await expect(page.getByTestId('my-business-ops-category-picker')).toBeVisible();
+  await expect(page.getByTestId('my-business-accordions')).toBeVisible({ timeout: 10000 });
 
-  await openOpsSection(page, /my menu/i);
-  await page.getByTestId(`my-business-ops-cat-${electrician.id}`).click();
-  await expect(page.getByText(`Elec item ${T}`)).toBeVisible({ timeout: 10000 });
-  await expect(page.getByText(`Plum item ${T}`)).not.toBeVisible();
+  await expandBusiness(page, electrician.id);
+  await openOpsSection(page, electrician.id, /my menu/i);
+  const elecOps = page
+    .getByTestId(`my-business-category-settings-${electrician.id}`)
+    .getByTestId('my-business-operations');
+  await expect(elecOps.getByText(`Elec item ${T}`)).toBeVisible({ timeout: 10000 });
+  await expect(elecOps.getByText(`Plum item ${T}`)).not.toBeVisible();
 
-  await page.getByTestId(`my-business-ops-cat-${plumber.id}`).click();
-  await expect(page.getByText(`Plum item ${T}`)).toBeVisible({ timeout: 10000 });
-  await expect(page.getByText(`Elec item ${T}`)).not.toBeVisible();
+  await expandBusiness(page, plumber.id);
+  await openOpsSection(page, plumber.id, /my menu/i);
+  const plumOps = page
+    .getByTestId(`my-business-category-settings-${plumber.id}`)
+    .getByTestId('my-business-operations');
+  await expect(plumOps.getByText(`Plum item ${T}`)).toBeVisible({ timeout: 10000 });
+  await expect(plumOps.getByText(`Elec item ${T}`)).not.toBeVisible();
 
-  await openOpsSection(page, /rejection reasons|cancel reasons/i);
-  await page.getByTestId(`my-business-ops-cat-${electrician.id}`).click();
-  await expect(page.getByTestId('my-business-operations').locator('input').first()).toHaveValue(
-    `Elec busy ${T}`,
-  );
+  await openOpsSection(page, electrician.id, /rejection reasons|cancel reasons/i);
+  await expect(elecOps.locator('input').first()).toHaveValue(`Elec busy ${T}`);
 
-  await page.getByTestId(`my-business-ops-cat-${plumber.id}`).click();
-  await expect(page.getByTestId('my-business-operations').locator('input').first()).toHaveValue(
-    `Plum busy ${T}`,
-  );
+  await openOpsSection(page, plumber.id, /rejection reasons|cancel reasons/i);
+  await expect(plumOps.locator('input').first()).toHaveValue(`Plum busy ${T}`);
 
-  await openOpsSection(page, /note for customers/i);
-  await page.getByTestId(`my-business-ops-cat-${electrician.id}`).click();
-  await expect(page.getByTestId('my-business-operations').locator('textarea').first()).toHaveValue(
-    elecNote,
-  );
+  await openOpsSection(page, electrician.id, /note for customers/i);
+  await expect(elecOps.locator('textarea').first()).toHaveValue(elecNote);
 
-  await page.getByTestId(`my-business-ops-cat-${plumber.id}`).click();
-  await expect(page.getByTestId('my-business-operations').locator('textarea').first()).toHaveValue(
-    plumNote,
-  );
+  await openOpsSection(page, plumber.id, /note for customers/i);
+  await expect(plumOps.locator('textarea').first()).toHaveValue(plumNote);
 });

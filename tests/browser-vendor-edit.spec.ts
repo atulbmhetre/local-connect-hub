@@ -8,8 +8,10 @@ import {
   getActiveCategoryByLabel,
   seedDefaultVendorVerification,
   seedVendorCategory,
+  ensureVendorGoLivePhotos,
   TEST_SESSION,
 } from './helpers/setup';
+import { setRegAvailabilityModes } from './helpers/regAvailability';
 
 const TEST_DEVICE_ID = `device_edit_${TEST_SESSION}`;
 const RADAR_CUSTOMER_DEVICE = `device_mcv_remove_${TEST_SESSION}`;
@@ -26,28 +28,62 @@ async function openMyBusiness(page: import('@playwright/test').Page, phone: stri
   await page.getByTestId('settings-vendor-tab-business').click();
   await expect(myBusinessPanel(page)).toBeVisible({ timeout: 10000 });
   await expect(myBusinessPanel(page).locator('.animate-spin')).not.toBeVisible({ timeout: 10000 });
-  await expect(myBusinessPanel(page).getByText(/\d\/5 selected/)).toBeVisible({ timeout: 10000 });
+  await expect(myBusinessPanel(page).getByTestId('my-business-accordions')).toBeVisible({
+    timeout: 10000,
+  });
 }
 
-async function ensureCategorySelected(page: import('@playwright/test').Page, categoryId: string) {
-  const panel = myBusinessPanel(page);
-  const chip = panel.getByTestId(`vendor-edit-category-${categoryId}`);
-  await expect(chip).toBeVisible({ timeout: 8000 });
-  const className = (await chip.getAttribute('class')) ?? '';
-  if (!className.includes('ring-primary')) {
-    await chip.click();
+async function expandBusinessAccordion(
+  page: import('@playwright/test').Page,
+  categoryId: string,
+) {
+  const toggle = myBusinessPanel(page).getByTestId(`my-business-accordion-toggle-${categoryId}`);
+  await expect(toggle).toBeVisible({ timeout: 8000 });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
   }
 }
 
-async function deselectCategory(page: import('@playwright/test').Page, categoryId: string) {
-  const panel = myBusinessPanel(page);
-  const chip = panel.getByTestId(`vendor-edit-category-${categoryId}`);
-  await expect(chip).toBeVisible({ timeout: 8000 });
-  const className = (await chip.getAttribute('class')) ?? '';
-  if (className.includes('ring-primary')) {
-    await chip.click();
+async function removeBusinessCategory(page: import('@playwright/test').Page, categoryId: string) {
+  await expandBusinessAccordion(page, categoryId);
+  await myBusinessPanel(page).getByTestId(`my-business-remove-cat-${categoryId}`).click();
+}
+
+async function mockVendorGeolocation(page: import('@playwright/test').Page) {
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 18.5204, longitude: 73.8567 });
+  await page.evaluate(() => {
+    (
+      window as unknown as {
+        __E2E_MOCK_GEO__?: { lat: number; lng: number; accuracy?: number | null };
+      }
+    ).__E2E_MOCK_GEO__ = { lat: 18.5204, lng: 73.8567, accuracy: 10 };
+  });
+}
+
+async function enableE2eCameraMock(page: import('@playwright/test').Page) {
+  await page.addInitScript(() => {
+    (window as unknown as { __E2E_MOCK_CAMERA__?: boolean }).__E2E_MOCK_CAMERA__ = true;
+  });
+}
+
+async function completeAddBusinessShopPhoto(page: import('@playwright/test').Page) {
+  await page.getByTestId('add-business-shop-photo').click();
+  const reuseBtn = page.getByTestId('add-business-reuse-photo');
+  const sameShop = page.getByTestId('add-business-same-shop');
+  try {
+    await expect(sameShop).toBeVisible({ timeout: 12000 });
+    await reuseBtn.click();
+  } catch {
+    await expect(page.getByTestId('add-business-shop-photo')).toContainText(
+      /Re-shoot|Reshoot|Retake|फिर|पुन्हा/i,
+      { timeout: 15000 },
+    );
   }
-  await expect(panel.getByText(/1\/5 selected/)).toBeVisible({ timeout: 5000 });
+  await expect(page.getByTestId('add-business-shop-photo')).toContainText(
+    /Reuse|Re-shoot|Reshoot|Retake|फिर|पुन्हा|दुकान/i,
+    { timeout: 10000 },
+  );
 }
 
 async function createEditTestVendor(
@@ -155,13 +191,28 @@ test('VE-01: vendor can change vendor_type from shop to home and save', async ({
   expect(data?.vendor_type).toBe('home');
 });
 
-test('VE-02: vendor can add a second category in edit sheet', async ({ page }) => {
+test('VE-02: vendor can add a second category via Add Business sheet', async ({ page }) => {
   const { vendor, phone, categories } = await createEditTestVendor({ vendor_type: 'shop' }, 1);
   const secondCategory = categories[1];
+  await ensureVendorGoLivePhotos(vendor.id);
 
+  await enableE2eCameraMock(page);
   await openMyBusiness(page, phone, vendor.id);
-  await ensureCategorySelected(page, secondCategory.id);
-  await saveMyBusiness(page);
+  await mockVendorGeolocation(page);
+
+  await page.getByTestId('my-business-add-business').click();
+  await expect(page.getByText(/Add another business/i).first()).toBeVisible({ timeout: 10000 });
+  const catBtn = page
+    .getByRole('button')
+    .filter({ hasText: secondCategory.label })
+    .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
+  await catBtn.first().click();
+  await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
+  await setRegAvailabilityModes(page, ['help'], 'add-business-avail');
+  await completeAddBusinessShopPhoto(page);
+  await expect(page.getByTestId('add-business-submit')).toBeEnabled({ timeout: 15000 });
+  await page.getByTestId('add-business-submit').click();
+  await expect(page.getByText(/Business details saved|saved/i)).toBeVisible({ timeout: 30000 });
 
   const { data: vcRows } = await supabaseAdmin
     .from('vendor_categories')
@@ -170,15 +221,14 @@ test('VE-02: vendor can add a second category in edit sheet', async ({ page }) =
   expect(vcRows?.length).toBe(2);
 });
 
-test('VE-03: selecting 3+ categories sets needs_review on vendor_categories rows', async ({ page }) => {
+test('VE-03: selecting 3+ categories sets needs_review on vendor_categories rows', async ({
+  page,
+}) => {
   const categories = await getActiveCategories(3);
   expect(categories.length).toBeGreaterThanOrEqual(3);
 
-  const { vendor, phone } = await createEditTestVendor({ vendor_type: 'shop' }, 1);
+  const { vendor, phone } = await createEditTestVendor({ vendor_type: 'shop' }, 3);
   await openMyBusiness(page, phone, vendor.id);
-
-  await ensureCategorySelected(page, categories[1].id);
-  await ensureCategorySelected(page, categories[2].id);
   await saveMyBusiness(page);
 
   const { data: vcRows } = await supabaseAdmin
@@ -229,7 +279,7 @@ test('VE-REMOVE-01: vendor removes a category — DB and Radar reflect removal',
 
   try {
     await openMyBusiness(page, phone, vendor.id);
-    await deselectCategory(page, plumber.id);
+    await removeBusinessCategory(page, plumber.id);
 
     let confirmMessage = '';
     page.once('dialog', async (dialog) => {
@@ -262,7 +312,7 @@ test('VE-REMOVE-01: vendor removes a category — DB and Radar reflect removal',
   }
 });
 
-test('VE-REMOVE-02: cancel category-removal confirm reverts chip selection', async ({ page }) => {
+test('VE-REMOVE-02: cancel category-removal confirm keeps both businesses', async ({ page }) => {
   const electrician = await getActiveCategoryByLabel('Electrician');
   const plumber = await getActiveCategoryByLabel('Plumber');
   const phone = `99007${Date.now().toString().slice(-5)}`;
@@ -298,8 +348,7 @@ test('VE-REMOVE-02: cancel category-removal confirm reverts chip selection', asy
 
   try {
     await openMyBusiness(page, phone, vendor.id);
-    await deselectCategory(page, plumber.id);
-    await expect(myBusinessPanel(page).getByText(/1\/5 selected/)).toBeVisible();
+    await removeBusinessCategory(page, plumber.id);
 
     page.once('dialog', async (dialog) => {
       expect(dialog.message()).toMatch(/Plumber/i);
@@ -307,9 +356,8 @@ test('VE-REMOVE-02: cancel category-removal confirm reverts chip selection', asy
     });
     await saveMyBusiness(page, 'none');
 
-    await expect(myBusinessPanel(page).getByText(/2\/5 selected/)).toBeVisible({ timeout: 5000 });
-    const plumberChip = myBusinessPanel(page).getByTestId(`vendor-edit-category-${plumber.id}`);
-    await expect(plumberChip).toHaveClass(/ring-primary/);
+    await expect(myBusinessPanel(page).getByTestId(`my-business-accordion-${electrician.id}`)).toBeVisible();
+    await expect(myBusinessPanel(page).getByTestId(`my-business-accordion-${plumber.id}`)).toBeVisible();
 
     const { data: vcRows } = await supabaseAdmin
       .from('vendor_categories')

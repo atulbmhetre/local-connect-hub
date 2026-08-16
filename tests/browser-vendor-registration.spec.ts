@@ -505,8 +505,10 @@ test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode categ
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId('vendor-my-business')).toBeVisible({ timeout: 10000 });
   const myBusiness = page.getByTestId('vendor-my-business');
+  await expect(myBusiness.getByTestId('my-business-accordions')).toBeVisible({ timeout: 10000 });
   await expect(myBusiness.getByText(deliveryCat.label).first()).toBeVisible();
-  await expect(myBusiness.getByText('🚚 Delivery').first()).toBeVisible();
+  await expect(myBusiness.getByTestId('my-business-avail-modes')).toBeVisible();
+  await expect(myBusiness.getByTestId('my-business-avail-deliver-yes')).toBeVisible();
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
     .from('vendors')
@@ -566,8 +568,10 @@ test('VR-SHOP-APPT-01: shop vendor registers via UI with appointment-mode catego
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId('vendor-my-business')).toBeVisible({ timeout: 10000 });
   const myBusiness = page.getByTestId('vendor-my-business');
+  await expect(myBusiness.getByTestId('my-business-accordions')).toBeVisible({ timeout: 10000 });
   await expect(myBusiness.getByText(appointmentCat.label).first()).toBeVisible();
-  await expect(myBusiness.getByText('🗓️ Appointment').first()).toBeVisible();
+  await expect(myBusiness.getByTestId('my-business-avail-modes')).toBeVisible();
+  await expect(myBusiness.getByTestId('my-business-avail-appointment-on')).toBeVisible();
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
     .from('vendors')

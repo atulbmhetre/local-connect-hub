@@ -194,14 +194,14 @@ async function openMyBusinessCategories(page: Page, vendor: { id: string; phone:
   await gotoVendorSettings(page);
   await page.getByTestId('settings-vendor-tab-business').click();
   await expect(myBusinessPanel(page)).toBeVisible({ timeout: 10000 });
-  await expect(myBusinessPanel(page).getByTestId('my-business-categories')).toBeVisible({
+  await expect(myBusinessPanel(page).getByTestId('my-business-accordions')).toBeVisible({
     timeout: 10000,
   });
 }
 
-/** Category chips in My Business — service mode label per category. */
+/** Business accordions in My Business — service mode label per category header. */
 function vendorShopCategorySection(page: Page) {
-  return myBusinessPanel(page).getByTestId('my-business-categories');
+  return myBusinessPanel(page).getByTestId('my-business-accordions');
 }
 
 /** Go-live card on /vendor — vendor-status-badge + vendor-golive-btn live here. */
@@ -416,11 +416,17 @@ test('VM-08 — Draft vendor (no GPS) sees amber banner', async ({ page }) => {
 test('VM-09 — Vendor screen shows correct service mode label', async ({ page }) => {
   const helpVendor = await createVendor('help', 'VM09H', { is_active: false });
   await openMyBusinessCategories(page, helpVendor);
-  await expect(vendorShopCategorySection(page).getByText(L.modeHelp).first()).toBeVisible();
+  await expect(myBusinessPanel(page).getByTestId('my-business-avail-modes')).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(myBusinessPanel(page).getByTestId('my-business-avail-help-on')).toBeVisible();
 
   const deliveryVendor = await createVendor('delivery', 'VM09D', { is_active: false });
   await openMyBusinessCategories(page, deliveryVendor);
-  await expect(vendorShopCategorySection(page).getByText(L.modeDelivery).first()).toBeVisible();
+  await expect(myBusinessPanel(page).getByTestId('my-business-avail-modes')).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(myBusinessPanel(page).getByTestId('my-business-avail-deliver-yes')).toBeVisible();
 });
 
 test('VM-14 — Go live while unverified shows nudge but still goes online', async ({ page, context }) => {
@@ -448,8 +454,11 @@ test('VM-15 — Verified vendor can open My Business and edit base type', async 
   await gotoVendorSettings(page);
   await page.getByTestId('settings-vendor-tab-business').click();
   await expect(myBusinessPanel(page)).toBeVisible({ timeout: 10000 });
+  await expect(myBusinessPanel(page).getByTestId('my-business-accordions')).toBeVisible({
+    timeout: 10000,
+  });
   await page.getByTestId('my-business-base-home').click();
-  await myBusinessPanel(page).locator('input').nth(1).fill('Home Brand');
+  await myBusinessPanel(page).getByTestId('my-business-shop-name').fill('Home Brand');
   await expect(page.getByTestId('my-business-save')).toBeEnabled({ timeout: 10000 });
   await page.getByTestId('my-business-save').click();
   await page.waitForTimeout(2000);
