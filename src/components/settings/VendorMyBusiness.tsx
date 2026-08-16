@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { BusinessVerificationBadge } from "@/components/VerificationBadge";
-import { SettingsCard, SettingsSectionLabel } from "@/components/settings/SettingsSection";
+import { SettingsCard } from "@/components/settings/SettingsSection";
 import {
   supabase,
   type Vendor,
@@ -302,6 +302,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   >({});
   const [shopPhotoCategoryId, setShopPhotoCategoryId] = useState<string | null>(null);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
+  const [identityExpanded, setIdentityExpanded] = useState(false);
   const [addBusinessOpen, setAddBusinessOpen] = useState(false);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -451,9 +452,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       setSelectedCategories(selected);
       setSelectedCategoryIds(selectedIds);
       setCategorySettingsById(nextSettings);
-      setExpandedCategoryIds(
-        new Set(selectedIds.length === 1 && selectedIds[0] ? [selectedIds[0]] : []),
-      );
+      setExpandedCategoryIds(new Set());
       setShopPhotoCategoryId((prev) =>
         prev && selectedIds.includes(prev) ? prev : selectedIds[0] ?? null,
       );
@@ -1203,118 +1202,18 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
 
   const hasSelfie = vendor.photo_selfie != null && String(vendor.photo_selfie).trim() !== "";
   const hasLocation = vendor.latitude != null && vendor.longitude != null;
+  const baseTypeLabel =
+    baseType === "shop"
+      ? s.reg_base_shop
+      : baseType === "home"
+        ? s.reg_base_home
+        : baseType === "none"
+          ? s.reg_base_none
+          : "";
+  const identitySubtitle = [ownerName.trim(), baseTypeLabel].filter(Boolean).join(" · ");
 
   return (
     <div data-testid="vendor-my-business" className="px-4 mb-6 space-y-4">
-      <SettingsCard className="mx-0 border-surface-border space-y-4 pb-4">
-        <div className="px-4 pt-4">
-          <SettingsSectionLabel>{s.settings_myBusiness}</SettingsSectionLabel>
-          <p className="mt-1 text-xs text-muted-foreground">{s.my_business_hint}</p>
-        </div>
-
-        <div className="px-4 space-y-4">
-          <Field
-            label={s.vendor_your_name}
-            value={ownerName}
-            onChange={setOwnerName}
-            placeholder={s.vendor_name_placeholder}
-            required
-            error={ownerName.length > 0 && !ownerOk ? s.vendor_name_invalid : undefined}
-          />
-
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {s.reg_where_work_from}
-            </label>
-            <div className="mt-2 grid grid-cols-1 gap-2">
-              {(
-                [
-                  { value: "shop" as const, emoji: "🏪", title: s.reg_base_shop, desc: s.reg_base_shop_desc },
-                  { value: "home" as const, emoji: "🏠", title: s.reg_base_home, desc: s.reg_base_home_desc },
-                  { value: "none" as const, emoji: "🚫", title: s.reg_base_none, desc: s.reg_base_none_desc },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  data-testid={`my-business-base-${opt.value}`}
-                  onClick={() => setBaseType(opt.value)}
-                  className={cn(
-                    "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
-                    "bg-surface border-surface-border",
-                    baseType === opt.value && "border-primary bg-primary/15 ring-1 ring-primary/30",
-                  )}
-                >
-                  <p className="text-base font-display font-bold text-foreground leading-tight">
-                    {opt.emoji} {opt.title}
-                  </p>
-                  <p className="mt-1 text-[10px] text-muted-foreground leading-snug">{opt.desc}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <Field
-            label={s.vendor_phone_label}
-            value={phone}
-            onChange={setPhone}
-            placeholder={s.vendor_phone_placeholder}
-            required
-            error={
-              phone.length > 0 && !isValidPhone(phone) ? s.vendor_phone_invalid_body : undefined
-            }
-          />
-          <Field
-            label={s.vendor_upi_label}
-            value={upiId}
-            onChange={setUpiId}
-            placeholder={s.vendor_upi_placeholder}
-          />
-        </div>
-
-        <VerifyRow
-          label={s.vendor_upi_bank_match}
-          verified={vendor.upi_verified === true}
-          verifiedLabel={s.my_business_verified}
-          actionLabel={s.my_business_verify_now}
-          onAction={() => void verifyUpi()}
-          actionLoading={verifyingUpi}
-          actionDisabled={!isValidUpi(upiId.trim())}
-        />
-
-        <VerifyRow
-          label={s.vendor_selfie_title}
-          hint={s.vendor_selfie_subtitle}
-          verified={hasSelfie}
-          verifiedLabel={s.my_business_verified}
-          actionLabel={hasSelfie ? s.vendor_selfie_reshoot : s.my_business_verify_now}
-          onAction={() => setSelfieCameraOpen(true)}
-          actionDisabled={!hasLocation && baseType !== "none"}
-        >
-          {hasSelfie && (
-            <img
-              src={vendor.photo_selfie!}
-              alt={s.vendor_selfie_title}
-              className="w-full max-w-xs rounded-xl border border-border"
-            />
-          )}
-        </VerifyRow>
-
-        <VerifyRow
-          label={s.my_business_location_label}
-          hint={
-            hasLocation
-              ? `📍 ${vendor.latitude!.toFixed(4)}, ${vendor.longitude!.toFixed(4)}`
-              : s.vendor_location_missing_body
-          }
-          verified={hasLocation}
-          verifiedLabel={s.my_business_verified}
-          actionLabel={s.my_business_confirm_location}
-          onAction={() => void updateShopLocation()}
-          actionLoading={updatingLocation}
-        />
-      </SettingsCard>
-
       {categoriesLoading ? (
         <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5 px-1">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1322,6 +1221,166 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         </p>
       ) : (
         <div className="space-y-3" data-testid="my-business-accordions">
+          <SettingsCard
+            className="mx-0 border-surface-border overflow-hidden"
+            data-testid="my-business-identity-accordion"
+          >
+            <button
+              type="button"
+              data-testid="my-business-identity-accordion-toggle"
+              aria-expanded={identityExpanded}
+              onClick={() => setIdentityExpanded((prev) => !prev)}
+              className={cn(
+                "w-full flex items-center justify-between gap-3 px-4 py-4 text-left active:opacity-90",
+                identityExpanded && "border-b border-surface-border",
+              )}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-foreground truncate">
+                  {s.settings_myBusiness}
+                </p>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                  {identitySubtitle || s.my_business_hint}
+                </p>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "h-5 w-5 text-muted-foreground transition-transform duration-200 shrink-0",
+                  identityExpanded && "rotate-180",
+                )}
+              />
+            </button>
+
+            {identityExpanded && (
+              <div
+                className="pb-4 space-y-0"
+                data-testid="my-business-identity-panel"
+              >
+                <div className="px-4 space-y-4 pt-3">
+                  <Field
+                    label={s.vendor_your_name}
+                    value={ownerName}
+                    onChange={setOwnerName}
+                    placeholder={s.vendor_name_placeholder}
+                    required
+                    error={ownerName.length > 0 && !ownerOk ? s.vendor_name_invalid : undefined}
+                  />
+
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {s.reg_where_work_from}
+                    </label>
+                    <div className="mt-2 grid grid-cols-1 gap-2">
+                      {(
+                        [
+                          {
+                            value: "shop" as const,
+                            emoji: "🏪",
+                            title: s.reg_base_shop,
+                            desc: s.reg_base_shop_desc,
+                          },
+                          {
+                            value: "home" as const,
+                            emoji: "🏠",
+                            title: s.reg_base_home,
+                            desc: s.reg_base_home_desc,
+                          },
+                          {
+                            value: "none" as const,
+                            emoji: "🚫",
+                            title: s.reg_base_none,
+                            desc: s.reg_base_none_desc,
+                          },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          data-testid={`my-business-base-${opt.value}`}
+                          onClick={() => setBaseType(opt.value)}
+                          className={cn(
+                            "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
+                            "bg-surface border-surface-border",
+                            baseType === opt.value &&
+                              "border-primary bg-primary/15 ring-1 ring-primary/30",
+                          )}
+                        >
+                          <p className="text-base font-display font-bold text-foreground leading-tight">
+                            {opt.emoji} {opt.title}
+                          </p>
+                          <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
+                            {opt.desc}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Field
+                    label={s.vendor_phone_label}
+                    value={phone}
+                    onChange={setPhone}
+                    placeholder={s.vendor_phone_placeholder}
+                    required
+                    error={
+                      phone.length > 0 && !isValidPhone(phone)
+                        ? s.vendor_phone_invalid_body
+                        : undefined
+                    }
+                  />
+                  <Field
+                    label={s.vendor_upi_label}
+                    value={upiId}
+                    onChange={setUpiId}
+                    placeholder={s.vendor_upi_placeholder}
+                  />
+                </div>
+
+                <VerifyRow
+                  label={s.vendor_upi_bank_match}
+                  verified={vendor.upi_verified === true}
+                  verifiedLabel={s.my_business_verified}
+                  actionLabel={s.my_business_verify_now}
+                  onAction={() => void verifyUpi()}
+                  actionLoading={verifyingUpi}
+                  actionDisabled={!isValidUpi(upiId.trim())}
+                />
+
+                <VerifyRow
+                  label={s.vendor_selfie_title}
+                  hint={s.vendor_selfie_subtitle}
+                  verified={hasSelfie}
+                  verifiedLabel={s.my_business_verified}
+                  actionLabel={hasSelfie ? s.vendor_selfie_reshoot : s.my_business_verify_now}
+                  onAction={() => setSelfieCameraOpen(true)}
+                  actionDisabled={!hasLocation && baseType !== "none"}
+                >
+                  {hasSelfie && (
+                    <img
+                      src={vendor.photo_selfie!}
+                      alt={s.vendor_selfie_title}
+                      className="w-full max-w-xs rounded-xl border border-border"
+                    />
+                  )}
+                </VerifyRow>
+
+                <VerifyRow
+                  label={s.my_business_location_label}
+                  hint={
+                    hasLocation
+                      ? `📍 ${vendor.latitude!.toFixed(4)}, ${vendor.longitude!.toFixed(4)}`
+                      : s.vendor_location_missing_body
+                  }
+                  verified={hasLocation}
+                  verifiedLabel={s.my_business_verified}
+                  actionLabel={s.my_business_confirm_location}
+                  onAction={() => void updateShopLocation()}
+                  actionLoading={updatingLocation}
+                />
+              </div>
+            )}
+          </SettingsCard>
+
           {selectedCategories.length === 0 && (
             <p className="text-xs text-muted-foreground px-1">{s.vendor_categories_pick}</p>
           )}

@@ -35,7 +35,7 @@ async function expandBusiness(
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 }
 
-test('MBA-01 — single-business vendor: one expanded accordion, no available-category chips', async ({
+test('MBA-01 — single-business vendor: closed accordions by default, no available-category chips', async ({
   page,
 }) => {
   const electrician = await getActiveCategoryByLabel('Electrician');
@@ -68,14 +68,22 @@ test('MBA-01 — single-business vendor: one expanded accordion, no available-ca
   await openVendorMyBusinessTab(page);
 
   await expect(page.getByTestId('my-business-accordions')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('my-business-identity-accordion')).toBeVisible();
   await expect(page.getByTestId(`my-business-accordion-${electrician.id}`)).toHaveCount(1);
   await expect(
     page.getByTestId('vendor-edit-category').filter({ has: page.locator('[data-selected="false"]') }),
   ).toHaveCount(0);
   await expect(page.getByText(/Available to add/i)).not.toBeVisible();
 
+  await expect(page.getByTestId('my-business-identity-accordion-toggle')).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
   const toggle = page.getByTestId(`my-business-accordion-toggle-${electrician.id}`);
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId(`my-business-category-settings-${electrician.id}`)).toHaveCount(0);
+
+  await expandBusiness(page, electrician.id);
   await expect(page.getByTestId(`my-business-category-settings-${electrician.id}`)).toBeVisible();
 });
 
@@ -115,6 +123,10 @@ test('MBA-02 — multi-business vendor: collapsed accordions expand independentl
 
   await expect(page.getByTestId(`my-business-accordion-${electrician.id}`)).toBeVisible();
   await expect(page.getByTestId(`my-business-accordion-${plumber.id}`)).toBeVisible();
+  await expect(page.getByTestId('my-business-identity-accordion-toggle')).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
   await expect(
     page.getByTestId(`my-business-accordion-toggle-${electrician.id}`),
   ).toHaveAttribute('aria-expanded', 'false');
