@@ -58,6 +58,20 @@ export function resolveCategoryServiceRadius(
   return accountRadius;
 }
 
+/** Customer-facing note: per-business when category context is known, else account fallback. */
+export function resolveCategoryVendorNote(
+  categoryNote: string | null | undefined,
+  accountNote: string | null | undefined,
+  matchedCategoryId?: string | null,
+): string | null {
+  if (matchedCategoryId) {
+    const note = String(categoryNote ?? "").trim();
+    if (note) return note;
+  }
+  const account = String(accountNote ?? "").trim();
+  return account || null;
+}
+
 /** Honest Help Radar labels from serves_at_* reach flags. */
 export function formatRadarReachLabels(
   reach: { serves_at_vendor_place: boolean; serves_at_customer_place: boolean },

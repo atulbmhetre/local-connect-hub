@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, openVendorMyBusinessTab, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByLabel,
@@ -84,7 +84,7 @@ test('CMA-01 — multi-category menu items scoped; search context filters', asyn
   expect(filterMenuItemsByCategoryContext(items ?? [], null)).toHaveLength(2);
 });
 
-test('CMA-02 — single-category vendor: Preferences has no menu category picker', async ({
+test('CMA-02 — single-category vendor: My Business has no menu category picker', async ({
   page,
 }) => {
   const plumber = await getActiveCategoryByLabel('Plumber');
@@ -114,7 +114,7 @@ test('CMA-02 — single-category vendor: Preferences has no menu category picker
 
   await loginAsVendor(page, phone, vendor.id, `${DEVICE}_single`);
   await page.goto(`${APP_URL}/settings`);
-  await openVendorPreferencesTab(page);
+  await openVendorMyBusinessTab(page);
 
   const menuBtn = page.getByRole('button', { name: /my menu/i }).first();
   await expect(menuBtn).toBeVisible({ timeout: 8000 });

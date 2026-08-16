@@ -99,7 +99,6 @@ async function gotoSettings(page: Page) {
 
 async function expandVendorPreferences(page: Page) {
   await openVendorPreferencesTab(page);
-  await expect(page.getByRole('button', { name: L.menu })).toBeVisible({ timeout: 20000 });
 }
 
 async function expandReferEarn(page: Page) {

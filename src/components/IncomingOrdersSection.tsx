@@ -20,7 +20,7 @@ import { fetchEditedBillIds, type VendorEditBillResult } from "@/lib/billEdit";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { getUserPhone } from "@/lib/userIdentity";
-import { captureError } from "@/lib/sentry";
+import { addBreadcrumb, captureError } from "@/lib/sentry";
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import {
   NetworkExhaustedError,
@@ -1122,6 +1122,7 @@ export function IncomingOrdersSection({
     if (rowActionLockRef.current.has(id)) return;
     rowActionLockRef.current.add(id);
     setMarkingId(id);
+    addBreadcrumb("order_accept.start", { request_id: id, acceptKind: "help" });
 
     const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     const vendorPhone = getUserPhone()?.trim();
@@ -1160,13 +1161,16 @@ export function IncomingOrdersSection({
         return;
       }
       if (userPhone) {
-        void invokeNotifyUser({
-          user_phone: userPhone,
-          title: s.incoming_helpAcceptedNotifyTitle,
-          body: s.incoming_helpAcceptedNotifyBody,
-          type: "order_accepted",
-          order_id: id,
-        });
+        void invokeNotifyUser(
+          {
+            user_phone: userPhone,
+            title: s.incoming_helpAcceptedNotifyTitle,
+            body: s.incoming_helpAcceptedNotifyBody,
+            type: "order_accepted",
+            order_id: id,
+          },
+          { source: "order_accept", request_id: id },
+        );
       }
       // Help acceptance does not start order-scoped tracking (case 1 = Go-Live).
       setRows((prev) => {
@@ -1195,6 +1199,7 @@ export function IncomingOrdersSection({
     if (rowActionLockRef.current.has(id)) return;
     rowActionLockRef.current.add(id);
     setMarkingId(id);
+    addBreadcrumb("order_accept.start", { request_id: id, acceptKind: "delivery" });
 
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
@@ -1244,13 +1249,16 @@ export function IncomingOrdersSection({
       }
       const phone = userPhone?.trim();
       if (phone) {
-        void invokeNotifyUser({
-          user_phone: phone,
-          title: s.incoming_orderAcceptedTitle,
-          body: s.incoming_orderAcceptedBody,
-          type: "order_update",
-          order_id: id,
-        });
+        void invokeNotifyUser(
+          {
+            user_phone: phone,
+            title: s.incoming_orderAcceptedTitle,
+            body: s.incoming_orderAcceptedBody,
+            type: "order_update",
+            order_id: id,
+          },
+          { source: "order_accept", request_id: id },
+        );
       }
       void load({ silent: true });
     } catch (err) {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, openVendorMyBusinessTab, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByLabel,
@@ -8,7 +8,7 @@ import {
   TEST_SESSION,
 } from './helpers/setup';
 
-// Reliability fix: menu mutation handlers in VendorSettings previously ignored
+// Reliability fix: menu mutation handlers in My Business operations previously ignored
 // the RPC error, so a failed save silently disappeared. A failed save must now
 // surface a visible toast. Failure is forced deterministically by exhausting
 // the vendor_insert_menu_items phone rate-limit bucket (30/min).
@@ -81,16 +81,16 @@ test('MERR-01 — failed menu save surfaces a visible error toast (no silent dro
 
   await loginAsVendor(page, phone, vendorId, DEVICE);
   await page.goto(`${APP_URL}/settings`);
-  await openVendorPreferencesTab(page);
+  await openVendorMyBusinessTab(page);
 
-  const menuBtn = page.getByRole('button', { name: /my menu/i }).first();
+  const menuBtn = page.getByTestId('my-business-operations').getByRole('button', { name: /my menu/i }).first();
   await expect(menuBtn).toBeVisible({ timeout: 8000 });
   if ((await menuBtn.getAttribute('aria-expanded')) !== 'true') await menuBtn.click();
 
-  await page.getByRole('button', { name: /add item/i }).first().click();
-  await page.getByPlaceholder(/item name/i).first().fill('Toast check item');
-  await page.getByPlaceholder(/price/i).first().fill('42');
-  await page.getByRole('button', { name: /^save$/i }).first().click();
+  await page.getByTestId('my-business-operations').getByRole('button', { name: /add item/i }).first().click();
+  await page.getByTestId('my-business-operations').getByPlaceholder(/item name/i).first().fill('Toast check item');
+  await page.getByTestId('my-business-operations').getByPlaceholder(/price/i).first().fill('42');
+  await page.getByTestId('my-business-operations').getByRole('button', { name: /^save$/i }).first().click();
 
   // The RPC failure must be visible to the vendor.
   await expect(
@@ -115,8 +115,10 @@ test('MERR-01 — failed menu save surfaces a visible error toast (no silent dro
     .eq('function_name', 'vendor_insert_menu_items')
     .eq('identifier', phone);
 
-  await page.getByRole('button', { name: /^save$/i }).first().click();
-  await expect(page.getByPlaceholder(/item name/i)).toHaveCount(0, { timeout: 8000 });
+  await page.getByTestId('my-business-operations').getByRole('button', { name: /^save$/i }).first().click();
+  await expect(page.getByTestId('my-business-operations').getByPlaceholder(/item name/i)).toHaveCount(0, {
+    timeout: 8000,
+  });
 
   const { data: saved } = await supabaseAdmin
     .from('vendor_menu_items')

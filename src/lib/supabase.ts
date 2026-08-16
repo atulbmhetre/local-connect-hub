@@ -1,6 +1,30 @@
 import { createClient } from "@supabase/supabase-js";
 import { getDeviceId } from "@/lib/deviceId";
-import { captureError } from "@/lib/sentry";
+import { addBreadcrumb, captureError, phoneSuffix } from "@/lib/sentry";
+
+export type NotifyObservabilityContext = {
+  source: string;
+  request_id?: string;
+};
+
+function notifyInvokeBreadcrumb(
+  helper: "invokeNotifyUser" | "invokeNotifyVendor",
+  phase: "invoke" | "complete" | "failure",
+  data: Record<string, unknown>,
+): void {
+  addBreadcrumb(`${helper}.${phase}`, data);
+}
+
+function notifyInvokeContext(
+  observability: NotifyObservabilityContext | undefined,
+  fields: { type?: string | null; request_id?: string | null },
+): Record<string, unknown> {
+  return {
+    source: observability?.source ?? null,
+    type: fields.type ?? null,
+    request_id: observability?.request_id ?? fields.request_id ?? null,
+  };
+}
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -162,30 +186,53 @@ export async function invokecalculateTrustScore(
 }
 
 /** Best-effort push to vendor; never throws. */
-export async function invokeNotifyVendor(record: {
-  vendor_id: string;
-  category?: string;
-  message?: string;
-  notification_title?: string;
-  request_id?: string;
-  type?: string;
-  route?: string;
-  route_params?: Record<string, string>;
-}): Promise<void> {
+export async function invokeNotifyVendor(
+  record: {
+    vendor_id: string;
+    category?: string;
+    message?: string;
+    notification_title?: string;
+    request_id?: string;
+    type?: string;
+    route?: string;
+    route_params?: Record<string, string>;
+  },
+  observability?: NotifyObservabilityContext,
+): Promise<void> {
+  const breadcrumbCtx = notifyInvokeContext(observability, {
+    type: record.type ?? null,
+    request_id: record.request_id ?? null,
+  });
+
   if (!record.route?.trim()) {
     captureError(new Error("invokeNotifyVendor missing route"), {
       notifyHelper: "invokeNotifyVendor",
       notificationType: record.type ?? null,
       vendorId: record.vendor_id,
+      ...breadcrumbCtx,
       callSiteStack: new Error().stack?.split("\n").slice(0, 10).join("\n"),
     });
   }
+
+  notifyInvokeBreadcrumb("invokeNotifyVendor", "invoke", {
+    ...breadcrumbCtx,
+    vendorId: record.vendor_id,
+  });
+
   try {
-    await supabase.functions.invoke("notify-vendor", {
+    const { error } = await supabase.functions.invoke("notify-vendor", {
       body: { record },
     });
-  } catch {
-    /* ignore */
+    if (error) throw error;
+    notifyInvokeBreadcrumb("invokeNotifyVendor", "complete", breadcrumbCtx);
+  } catch (err) {
+    notifyInvokeBreadcrumb("invokeNotifyVendor", "failure", breadcrumbCtx);
+    captureError(err, {
+      notifyHelper: "invokeNotifyVendor",
+      notificationType: record.type ?? null,
+      vendorId: record.vendor_id,
+      ...breadcrumbCtx,
+    });
   }
 }
 
@@ -244,25 +291,50 @@ export async function invokeSuggestCategory(body: {
 }
 
 /** Best-effort push to user devices; never throws. */
-export function invokeNotifyUser(payload: {
-  user_phone: string;
-  title: string;
-  body: string;
-  type?: string;
-  order_id?: string;
-  post_id?: string;
-  route?: string;
-  route_params?: Record<string, string>;
-}): void {
+export function invokeNotifyUser(
+  payload: {
+    user_phone: string;
+    title: string;
+    body: string;
+    type?: string;
+    order_id?: string;
+    post_id?: string;
+    route?: string;
+    route_params?: Record<string, string>;
+  },
+  observability?: NotifyObservabilityContext,
+): void {
+  const breadcrumbCtx = notifyInvokeContext(observability, {
+    type: payload.type ?? null,
+    request_id: payload.order_id ?? null,
+  });
+
   if (!payload.route?.trim()) {
     captureError(new Error("invokeNotifyUser missing route"), {
       notifyHelper: "invokeNotifyUser",
       notificationType: payload.type ?? null,
-      userPhone: payload.user_phone,
+      phoneSuffix: phoneSuffix(payload.user_phone),
+      ...breadcrumbCtx,
       callSiteStack: new Error().stack?.split("\n").slice(0, 10).join("\n"),
     });
   }
-  void supabase.functions.invoke("notify-user", { body: payload }).catch(() => {});
+
+  notifyInvokeBreadcrumb("invokeNotifyUser", "invoke", breadcrumbCtx);
+
+  void supabase.functions.invoke("notify-user", { body: payload })
+    .then(({ error }) => {
+      if (error) throw error;
+      notifyInvokeBreadcrumb("invokeNotifyUser", "complete", breadcrumbCtx);
+    })
+    .catch((err) => {
+      notifyInvokeBreadcrumb("invokeNotifyUser", "failure", breadcrumbCtx);
+      captureError(err, {
+        notifyHelper: "invokeNotifyUser",
+        notificationType: payload.type ?? null,
+        phoneSuffix: phoneSuffix(payload.user_phone),
+        ...breadcrumbCtx,
+      });
+    });
 }
 
 /** Best-effort push to admin; never throws. */

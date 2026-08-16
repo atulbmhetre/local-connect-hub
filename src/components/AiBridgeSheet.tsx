@@ -22,6 +22,7 @@ import { TrustBadge } from "@/components/TrustBadge";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
 import { deriveBusinessLocationPasses, findBusinessLocationRow, type BusinessLocationRow } from "@/lib/trustLevel";
+import { resolveCategoryVendorNote } from "@/lib/categoryScopedVendor";
 import {
   emojiForVendorCategory,
   buildVendorBrief,
@@ -123,6 +124,7 @@ export function AiBridgeSheet({
   useEffect(() => {
     if (!categoryId || !vendor.id) {
       setBusinessGpsVerified(null);
+      setCategoryVendorNote(null);
       return;
     }
 
@@ -130,15 +132,18 @@ export function AiBridgeSheet({
       try {
         const { data, error } = await supabase
           .from("vendor_categories")
-          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status")
+          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status, vendor_note")
           .eq("vendor_id", vendor.id)
           .eq("category_id", categoryId)
           .single();
 
         if (error || !data) {
           setBusinessGpsVerified(null);
+          setCategoryVendorNote(null);
           return;
         }
+
+        setCategoryVendorNote(String(data.vendor_note ?? "").trim() || null);
 
         const businessLocationData: BusinessLocationRow = {
           vendor_id: vendor.id,
@@ -166,6 +171,7 @@ export function AiBridgeSheet({
   const [callLoading, setCallLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [directCallConfirmOpen, setDirectCallConfirmOpen] = useState(false);
+  const [categoryVendorNote, setCategoryVendorNote] = useState<string | null>(null);
   const [categoryFulfilled, setCategoryFulfilled] = useState<number | null>(null);
   const [categoryOnTimeRate, setCategoryOnTimeRate] = useState<number | null>(null);
 
@@ -330,6 +336,12 @@ export function AiBridgeSheet({
     setConnecting(true);
   };
 
+  const displayVendorNote = resolveCategoryVendorNote(
+    categoryVendorNote,
+    vendor.vendor_note,
+    categoryId,
+  );
+
   return (
     <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
       <SheetContent
@@ -366,9 +378,9 @@ export function AiBridgeSheet({
 
           <TrustWarningBanner tier={bannerTier} context="bridge" />
 
-          {vendor.vendor_note?.trim() && (
+          {displayVendorNote && (
             <div className="rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-green-700 dark:text-brand">
-              📌 {vendor.vendor_note}
+              📌 {displayVendorNote}
             </div>
           )}
 

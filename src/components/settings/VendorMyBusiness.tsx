@@ -67,6 +67,7 @@ import {
 } from "@/lib/categoryAvailabilityModes";
 import { BusinessSetupSheet } from "@/components/vendor/BusinessSetupSheet";
 import { DeliveryFulfillmentSettings } from "@/components/vendor/DeliveryFulfillmentSettings";
+import { VendorMyBusinessOperations } from "@/components/settings/VendorMyBusinessOperations";
 import {
   DEFAULT_DELIVERY_FULFILLMENT,
   DEFAULT_DELIVERY_PAYMENT_TIMING,
@@ -1758,6 +1759,23 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           </button>
         </div>
       </SettingsCard>
+
+      <VendorMyBusinessOperations
+        vendor={vendor}
+        userPhone={userPhone}
+        approvedCategories={selectedCategories.map((cat) => ({
+          id: cat.id,
+          label: cat.label,
+          emoji: cat.emoji,
+          service_mode: cat.service_mode,
+        }))}
+        activeCategoryId={activePhotoCategoryId}
+        onActiveCategoryIdChange={setPhotoCategoryId}
+        categorySettingsById={categorySettingsById}
+        onCategoryNoteSaved={(categoryId, note) =>
+          updateCategorySettings(categoryId, { vendor_note: note })
+        }
+      />
 
       <BusinessSetupSheet
         open={addBusinessOpen}

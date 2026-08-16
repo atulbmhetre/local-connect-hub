@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, openVendorMyBusinessTab, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -88,7 +88,7 @@ async function seedVendor(opts: {
   return vendor as { id: string; phone: string };
 }
 
-test('CR-SHADOW-01 — single-category Settings edit writes category rows and is used on vendor cancel', async ({
+test('CR-SHADOW-01 — single-category My Business edit writes category rows and is used on vendor cancel', async ({
   page,
 }) => {
   const help = await getActiveCategoryByServiceMode('help');
@@ -112,9 +112,10 @@ test('CR-SHADOW-01 — single-category Settings edit writes category rows and is
 
   await loginAsVendor(page, vendor.phone, vendor.id, `device_crshadow_${T}`);
   await page.goto(`${APP_URL}/settings`);
-  await openVendorPreferencesTab(page);
+  await openVendorMyBusinessTab(page);
 
   const cancelBtn = page
+    .getByTestId('my-business-operations')
     .getByRole('button', { name: /rejection reasons|cancel reasons/i })
     .first();
   await expect(cancelBtn).toBeVisible({ timeout: 8000 });
@@ -122,7 +123,7 @@ test('CR-SHADOW-01 — single-category Settings edit writes category rows and is
 
   // Settings must show the authoritative category-level values (what the
   // cancel flow actually resolves), not the account columns.
-  const reasonInputs = page.locator('input[maxlength="60"]');
+  const reasonInputs = page.getByTestId('my-business-operations').locator('input[maxlength="60"]');
   await expect(reasonInputs.first()).toHaveValue('Category stale reason', { timeout: 8000 });
   await expect(reasonInputs.nth(1)).toHaveValue('Category stale second');
 

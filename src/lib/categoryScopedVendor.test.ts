@@ -9,6 +9,7 @@ import {
   resolveCategoryBrandName,
   resolveCategoryReach,
   resolveCategoryServiceRadius,
+  resolveCategoryVendorNote,
   formatRadarReachLabels,
 } from "./categoryScopedVendor";
 
@@ -61,6 +62,20 @@ describe("formatRadarReachLabels", () => {
         labels,
       ),
     ).toEqual(["Comes to you"]);
+  });
+});
+
+describe("resolveCategoryVendorNote", () => {
+  it("uses per-business note when category context exists", () => {
+    expect(resolveCategoryVendorNote("Business A", "Account", "cat-1")).toBe("Business A");
+  });
+
+  it("falls back to account note when business note empty", () => {
+    expect(resolveCategoryVendorNote("", "Account note", "cat-1")).toBe("Account note");
+  });
+
+  it("uses account note without category context", () => {
+    expect(resolveCategoryVendorNote("Business A", "Account", null)).toBe("Account");
   });
 });
 

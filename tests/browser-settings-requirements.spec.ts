@@ -163,7 +163,11 @@ async function expandPreferences(page: Page) {
 
 async function expandVendorPreferences(page: Page) {
   await openVendorPreferencesTab(page);
-  await expect(page.getByRole('button', { name: L.menu })).toBeVisible({ timeout: 20000 });
+}
+
+async function expandMyBusinessOperations(page: Page) {
+  await openVendorMyBusinessTab(page);
+  await expect(page.getByTestId('my-business-operations')).toBeVisible({ timeout: 20000 });
 }
 
 async function setReferralEnabled(value: 'true' | 'false') {
@@ -309,18 +313,19 @@ test('SET-REQ-07 — Theme toggle switches between dark and light', async ({ pag
 
 // ─── VENDOR VIEW ─────────────────────────────────────────────────────────────
 
-test('SET-REQ-08 — Vendor Preferences shows menu and shop sections', async ({ page }) => {
+test('SET-REQ-08 — Vendor Preferences and My Business show expected sections', async ({ page }) => {
   const vendor = await createVendor('VEN-08');
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await gotoSettings(page);
   await expandVendorPreferences(page);
 
-  await expect(page.getByRole('button', { name: L.menu })).toBeVisible();
+  await expect(page.getByRole('button', { name: L.referEarn })).toBeVisible();
+  await expect(page.getByRole('button', { name: L.ledgerCycle })).toBeVisible();
+
+  await expandMyBusinessOperations(page);
   await expect(page.getByRole('button', { name: L.menu })).toBeVisible();
   await expect(page.getByRole('button', { name: L.offers })).toBeVisible();
-  await expect(page.getByRole('button', { name: L.referEarn })).toBeVisible();
   await expect(page.getByRole('button', { name: L.rejectionReasons })).toBeVisible();
-  await expect(page.getByRole('button', { name: L.ledgerCycle })).toBeVisible();
 });
 
 test('SET-REQ-09 — My Business tab uses localized string not hardcoded', async ({ page }) => {

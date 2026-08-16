@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, isPhoneKnown, migrateUserPhone } from "@/lib/userIdentity";
-import { filterMenuItemsByCategoryContext } from "@/lib/categoryScopedVendor";
+import { filterMenuItemsByCategoryContext, resolveCategoryVendorNote } from "@/lib/categoryScopedVendor";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
@@ -192,6 +192,7 @@ export function ParchiSheet({
   const [selectedMenuItems, setSelectedMenuItems] = useState<Record<string, number>>({});
   const [menuExpanded, setMenuExpanded] = useState(true);
   const [businessGpsVerified, setBusinessGpsVerified] = useState<boolean | null>(null);
+  const [categoryVendorNote, setCategoryVendorNote] = useState<string | null>(null);
   const lastVendor = useRef<Vendor | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const phoneSheetOpenRef = useRef(false);
@@ -242,6 +243,7 @@ export function ParchiSheet({
   useEffect(() => {
     if (!orderCategoryId || !resolvedVendorId) {
       setBusinessGpsVerified(null);
+      setCategoryVendorNote(null);
       return;
     }
 
@@ -249,15 +251,19 @@ export function ParchiSheet({
       try {
         const { data, error } = await supabase
           .from("vendor_categories")
-          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status")
+          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status, vendor_note")
           .eq("vendor_id", resolvedVendorId)
           .eq("category_id", orderCategoryId)
           .single();
 
         if (error || !data) {
           setBusinessGpsVerified(null);
+          setCategoryVendorNote(null);
           return;
         }
+
+        const note = String(data.vendor_note ?? "").trim();
+        setCategoryVendorNote(note || null);
 
         const businessLocationData: BusinessLocationRow = {
           vendor_id: resolvedVendorId,
@@ -1008,6 +1014,11 @@ export function ParchiSheet({
 
   const online = effectiveVendor.is_active === true;
   const len = message.length;
+  const displayVendorNote = resolveCategoryVendorNote(
+    categoryVendorNote,
+    effectiveVendor.vendor_note,
+    orderCategoryId,
+  );
 
   const getAvailableSlots = () => {
     const now = new Date();
@@ -1078,10 +1089,10 @@ export function ParchiSheet({
                 <>{s.parchi_offlineOrder}</>
               )}
             </p>
-            {effectiveVendor?.vendor_note && (
+            {displayVendorNote && (
               <p className="text-xs text-muted-foreground mt-1">
                 {s.parchi_vendorNotePrefix}
-                {effectiveVendor.vendor_note}
+                {displayVendorNote}
               </p>
             )}
             <TrustWarningBanner

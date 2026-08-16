@@ -100,8 +100,6 @@ import { useUserAddresses } from "@/hooks/useUserAddresses";
 import {
   VendorSettings,
   VendorSettingsReferEarn,
-  type MenuItem,
-  type VendorActiveOffer,
   type VendorReferralCredits,
 } from "@/components/settings/VendorSettings";
 import { VendorMyBusiness } from "@/components/settings/VendorMyBusiness";
@@ -780,11 +778,7 @@ const Settings = () => {
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [vendorExtras, setVendorExtras] = useState<{
-    activeOffer: VendorActiveOffer | null;
     referralCredits: VendorReferralCredits;
-    menuItems: MenuItem[];
-    /** True when the initial menu fetch failed — show "unavailable", not a false empty menu. */
-    menuItemsFailed: boolean;
   } | null>(null);
   const identityPhone = (vendor?.phone ?? "").trim() || (userPhone ?? "").trim() || null;
 
@@ -1261,8 +1255,7 @@ const Settings = () => {
     void loadVendorOwn();
   }, [loadVendorOwn]);
 
-  // Batch-fetch everything VendorSettings needs (offer / referral credits /
-  // menu) so its panels render complete instead of popping in one by one.
+  // Batch-fetch referral credits for Preferences (menu/offers live under My Business).
   useEffect(() => {
     if (!vendorId) {
       setVendorExtras(null);
@@ -1271,40 +1264,17 @@ const Settings = () => {
     let cancelled = false;
     void (async () => {
       const vendorPhoneForCredits = getUserPhone()?.trim();
-      const [offerRes, creditsRes, menuRes] = await Promise.all([
-        supabase
-          .from("feed_posts")
-          .select("id, content, expires_at")
-          .eq("vendor_id", vendorId)
-          .eq("type", "offer")
-          .eq("is_hidden", false)
-          .gt("expires_at", new Date().toISOString())
-          .or("starts_at.is.null,starts_at.lte.now()")
-          .maybeSingle(),
-        vendorPhoneForCredits
-          ? supabase.rpc("get_vendor_credits", {
-              p_vendor_id: vendorId,
-              p_vendor_phone: vendorPhoneForCredits,
-            })
-          : Promise.resolve({ data: [], error: null }),
-        supabase
-          .from("vendor_menu_items")
-          .select("*")
-          .eq("vendor_id", vendorId)
-          .order("sort_order", { ascending: true }),
-      ]);
+      const creditsRes = vendorPhoneForCredits
+        ? await supabase.rpc("get_vendor_credits", {
+            p_vendor_id: vendorId,
+            p_vendor_phone: vendorPhoneForCredits,
+          })
+        : { data: [], error: null };
+
       if (cancelled) return;
-      if (offerRes.error) {
-        captureError(offerRes.error, { scope: "settings.vendorExtras.offer", vendorId });
-        console.error("vendorExtras offer", offerRes.error);
-      }
       if (creditsRes.error) {
         captureError(creditsRes.error, { scope: "settings.vendorExtras.credits", vendorId });
         console.error("vendorExtras credits", creditsRes.error);
-      }
-      if (menuRes.error) {
-        captureError(menuRes.error, { scope: "settings.vendorExtras.menu", vendorId });
-        console.error("vendorExtras menu", menuRes.error);
       }
 
       let total = 0;
@@ -1315,19 +1285,9 @@ const Settings = () => {
         if (!row.disbursed) pending += amt;
       }
       setVendorExtras({
-        activeOffer: offerRes.data
-          ? {
-              id: offerRes.data.id as string,
-              content: (offerRes.data.content as string) ?? "",
-              expires_at: (offerRes.data.expires_at as string | null) ?? null,
-            }
-          : null,
-        // A failed credits fetch must show "unavailable", not a false ₹0.
         referralCredits: creditsRes.error
           ? { total: 0, pending: 0, failed: true }
           : { total, pending },
-        menuItems: (menuRes.data ?? []) as MenuItem[],
-        menuItemsFailed: Boolean(menuRes.error),
       });
     })();
     return () => {
@@ -3214,10 +3174,7 @@ const Settings = () => {
                   onShopOpenChange={setShopOpen}
                   referEarnVisible={referEarnVisible}
                   userPhone={userPhone}
-                  activeOffer={vendorExtras.activeOffer}
                   referralCredits={vendorExtras.referralCredits}
-                  menuItems={vendorExtras.menuItems}
-                  menuItemsFailed={vendorExtras.menuItemsFailed}
                   openReviewsInitially={openVendorReviews}
                 />
               </TabsContent>

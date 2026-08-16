@@ -7,7 +7,7 @@ import {
   loginAsCustomer,
   loginAsVendor,
   loginAsAdminViaSession,
-  openVendorPreferencesTab,
+  openVendorMyBusinessTab,
   APP_URL,
 } from './helpers/browser-setup';
 import {
@@ -383,19 +383,23 @@ test('R4-01 — Customer composing a post sees modest reach chips and cannot pic
   await expect(page.getByRole('button', { name: L.reachCityWide })).toHaveCount(0);
 });
 
-test('R4-02 — Vendor composing an offer can select full city / nationwide reach', async ({
+test('R4-02 — Vendor composing an offer uses per-business reach from My Business location', async ({
   page,
 }) => {
   const vendor = await createVendor('REACH-V', {}, 'Pharmacy');
   await loginAsVendor(page, vendor.phone, vendor.id, `vdev_reach_${T}`);
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 20000 });
-  await openVendorPreferencesTab(page);
-  await page.getByRole('button', { name: /^Offers$/ }).click();
+  await openVendorMyBusinessTab(page);
+  await page
+    .getByTestId('my-business-operations')
+    .getByRole('button', { name: /^Offers$/ })
+    .click();
   await expect(page.getByText(L.reachLabel).first()).toBeVisible({ timeout: 15000 });
-  await expect(page.getByRole('button', { name: L.reachCityWide }).first()).toBeVisible({
+  await expect(page.getByText(/Shop GPS location/i).first()).toBeVisible({
     timeout: 10000,
   });
+  await expect(page.getByRole('button', { name: L.reachCityWide })).toHaveCount(0);
 });
 
 // ─── R5 — Call vendor from bill ──────────────────────────────────────────────

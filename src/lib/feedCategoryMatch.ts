@@ -29,3 +29,26 @@ export function offerMatchesCategory(
   }
   return false;
 }
+
+/** Prefer business_category_id when present; fall back to label union for legacy offers. */
+export function offerMatchesFeedCategory(
+  post: {
+    vendor_id?: string | null;
+    business_category_id?: string | null;
+    vendors?: { category?: string | null } | null;
+  },
+  selectedCategoryId: string | null,
+  selectedCategoryLabel: string | null,
+  vendorCategoryLabels: Map<string, Set<string>>,
+): boolean {
+  if (post.business_category_id && selectedCategoryId) {
+    return post.business_category_id === selectedCategoryId;
+  }
+  if (!selectedCategoryLabel) return true;
+  return offerMatchesCategory(
+    post.vendor_id,
+    post.vendors?.category,
+    selectedCategoryLabel,
+    vendorCategoryLabels,
+  );
+}

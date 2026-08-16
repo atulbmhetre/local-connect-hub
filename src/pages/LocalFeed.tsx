@@ -58,7 +58,7 @@ type FeedCachePayload = {
 
 type GeoCoords = { lat: number; lng: number };
 
-import { categoryHasActiveVendor, offerMatchesCategory } from "@/lib/feedCategoryMatch";
+import { categoryHasActiveVendor, offerMatchesFeedCategory } from "@/lib/feedCategoryMatch";
 type PostType = "announcement" | "recommendation";
 
 type FeedPost = {
@@ -80,6 +80,7 @@ type FeedPost = {
   recommended_vendor_phone: string | null;
   target_audience?: "customers" | "vendors" | "both" | null;
   target_category_id?: string | null;
+  business_category_id?: string | null;
   vendors: { shop_name: string; category: string | null } | null;
   recommended_vendor: {
     shop_name: string;
@@ -628,9 +629,9 @@ export default function LocalFeed() {
     // pass through — otherwise selecting a chip would hide all of them.
     return posts.filter((post) => {
       if (post.type !== "offer") return true;
-      return offerMatchesCategory(
-        post.vendor_id,
-        post.vendors?.category,
+      return offerMatchesFeedCategory(
+        post,
+        selectedCategoryMeta.id,
         chipLabel,
         vendorCategoryLabels,
       );

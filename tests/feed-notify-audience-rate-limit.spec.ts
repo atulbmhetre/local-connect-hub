@@ -86,6 +86,15 @@ async function seedVendor(opts: {
   if (error) throw error;
   createdVendorIds.push(vendor.id);
   await seedVendorCategory(vendor.id, category);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({
+      latitude: PUNE.lat,
+      longitude: PUNE.lng,
+      service_radius_km: 9999,
+    })
+    .eq('vendor_id', vendor.id)
+    .eq('category_id', category.id);
   return { vendorId: vendor.id as string, category };
 }
 
@@ -334,7 +343,7 @@ test('FN-RL-01 — submit_customer_feed_post: 5 succeed, 6th within 10 min is ra
 
 test('FN-RL-02 — vendor_post_offer: 5 succeed, 6th within 10 min is rate_limited', async () => {
   const phone = nextPhone('990');
-  const { vendorId } = await seedVendor({
+  const { vendorId, category } = await seedVendor({
     phone,
     shop: 'RLOffer',
     categoryLabel: 'Grocery',
@@ -356,6 +365,7 @@ test('FN-RL-02 — vendor_post_offer: 5 succeed, 6th within 10 min is rate_limit
         p_lng: PUNE.lng,
         p_reach_radius_km: 5,
         p_target_audience: 'customers',
+        p_business_category_id: category.id,
       });
       expect(error, error?.message).toBeNull();
     }
@@ -377,6 +387,7 @@ test('FN-RL-02 — vendor_post_offer: 5 succeed, 6th within 10 min is rate_limit
       p_lng: PUNE.lng,
       p_reach_radius_km: 5,
       p_target_audience: 'customers',
+      p_business_category_id: category.id,
     });
     expect(sixth.error).toBeTruthy();
     expect(sixth.error!.message).toContain('rate_limited');
