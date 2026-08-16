@@ -42,7 +42,33 @@ function vibrateOnOrderPush(role: "vendor" | "user"): void {
   navigator.vibrate([500, 200, 500]);
 }
 
+/**
+ * Capacitor Android (presentationOptions includes "alert") already posts a
+ * system tray notification when the FCM message has a notification{} payload.
+ * Scheduling LocalNotifications on top of that duplicates every push.
+ *
+ * Data-only messages (no top-level title/body) are not auto-displayed — only
+ * those may need a local schedule when data carries display copy.
+ */
+export function shouldScheduleForegroundLocal(
+  notification: Pick<PushNotificationSchema, "title" | "body" | "data">,
+): boolean {
+  const topTitle = typeof notification.title === "string" ? notification.title.trim() : "";
+  const topBody = typeof notification.body === "string" ? notification.body.trim() : "";
+  if (topTitle.length > 0 || topBody.length > 0) {
+    return false;
+  }
+
+  const data = notification.data ?? {};
+  const dataTitle = typeof data.title === "string" ? data.title.trim() : "";
+  const dataBody = typeof data.body === "string" ? data.body.trim() : "";
+  return dataTitle.length > 0 || dataBody.length > 0;
+}
+
 async function showForegroundNotification(notification: PushNotificationSchema): Promise<void> {
+  if (!shouldScheduleForegroundLocal(notification)) {
+    return;
+  }
   const title =
     notification.title ?? (notification.data?.title as string | undefined) ?? "Aaspaas";
   const body = notification.body ?? (notification.data?.body as string | undefined) ?? "";
