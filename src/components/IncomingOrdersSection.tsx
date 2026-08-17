@@ -47,6 +47,7 @@ import {
   syncHelpAcceptedOrderTracking,
 } from "@/lib/vendorBackgroundLocation";
 import { sendIveStartedCustomerNotification } from "@/lib/iveStartedNotify";
+import { billBlocksDismiss } from "@/lib/dismissBillGate";
 import {
   hasSentIveStarted,
   shouldShowIveStartedButton,
@@ -495,17 +496,17 @@ export function IncomingOrdersSection({
     [],
   );
 
-  const loadBillsForOrders = useCallback(async (requestIds: string[]) => {
+  const loadBillsForOrders = useCallback(async (requestIds: string[]): Promise<Record<string, OrderBillSummary>> => {
     if (requestIds.length === 0) {
       setBillsByRequestId({});
       setEditedBillIds(new Set());
-      return;
+      return {};
     }
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
       setBillsByRequestId({});
       setEditedBillIds(new Set());
-      return;
+      return {};
     }
     const { data, error } = await supabase.rpc("get_vendor_order_bills", {
       p_vendor_id: vendorId,
@@ -516,13 +517,13 @@ export function IncomingOrdersSection({
       // Keep the last-good bill summaries; clearing them here would hide
       // existing bills (false-empty) on a transient RPC failure.
       captureError(error, { scope: "incomingOrders.loadBillsForOrders", vendorId });
-      return;
+      return {};
     }
 
     if (!data?.length) {
       setBillsByRequestId({});
       setEditedBillIds(new Set());
-      return;
+      return {};
     }
 
     const billMap: Record<string, OrderBillSummary> = {};
@@ -545,6 +546,7 @@ export function IncomingOrdersSection({
       vendorPhone,
     );
     setEditedBillIds(edited);
+    return billMap;
   }, [vendorId]);
 
   const fetchKhataOutstanding = useCallback(
@@ -814,10 +816,12 @@ export function IncomingOrdersSection({
     async (
       orderList: OrderRequestRow[],
       withLedger: Set<string>,
+      unpaidCashUpiRequestIds: Set<string>,
     ): Promise<OrderRequestRow[]> => {
       const now = Date.now();
       const staleFulfilled = orderList.filter((r) => {
         if (r.status !== "fulfilled" || withLedger.has(r.id)) return false;
+        if (unpaidCashUpiRequestIds.has(r.id)) return false;
         const t = new Date(r.created_at).getTime();
         if (!Number.isFinite(t)) return false;
         return now - t > FULFILLED_STALE_MS;
@@ -905,11 +909,16 @@ export function IncomingOrdersSection({
         list.map((r) => r.user_phone).filter((p): p is string => !!p?.trim()),
       );
 
-      let activeList = await autoDismissStaleFulfilledOnLoad(list, withLedger);
+      const billMap = await loadBillsForOrders(list.map((r) => r.id));
+      const unpaidCashUpiIds = new Set(
+        Object.entries(billMap)
+          .filter(([, bill]) => billBlocksDismiss(bill))
+          .map(([requestId]) => requestId),
+      );
+      let activeList = await autoDismissStaleFulfilledOnLoad(list, withLedger, unpaidCashUpiIds);
       await loadTrustForOrders(activeList);
       if (!mounted.current) return;
       setRows(activeList);
-      void loadBillsForOrders(activeList.map((r) => r.id));
       onUnreadCount?.(countUnreadIncomingOrders(activeList, serviceMode));
 
       if (!opts?.silent) setLoading(false);
@@ -960,11 +969,20 @@ export function IncomingOrdersSection({
           refreshedTerminalIds,
           refreshedList.map((r) => r.user_phone).filter((p): p is string => !!p?.trim()),
         );
-        activeList = await autoDismissStaleFulfilledOnLoad(refreshedList, withLedger);
+        const refreshedBillMap = await loadBillsForOrders(refreshedList.map((r) => r.id));
+        const refreshedUnpaidCashUpiIds = new Set(
+          Object.entries(refreshedBillMap)
+            .filter(([, bill]) => billBlocksDismiss(bill))
+            .map(([requestId]) => requestId),
+        );
+        activeList = await autoDismissStaleFulfilledOnLoad(
+          refreshedList,
+          withLedger,
+          refreshedUnpaidCashUpiIds,
+        );
         await loadTrustForOrders(activeList);
         if (!mounted.current) return;
         setRows(activeList);
-        void loadBillsForOrders(activeList.map((r) => r.id));
         onUnreadCount?.(countUnreadIncomingOrders(activeList, serviceMode));
       }
     },
@@ -1425,6 +1443,14 @@ export function IncomingOrdersSection({
   // One-tap without a confirmation dialog is a deliberate product decision
   // (the next action is obvious to the vendor) — do not add friction here.
   const dismissOrder = async (id: string) => {
+    if (billBlocksDismiss(billsByRequestId[id])) {
+      toast.error(s.incoming_dismissBlockedUnpaid);
+      return;
+    }
+    if (requestIdsDismissBlockedByKhata.has(id)) {
+      toast.error(s.khata_settleDuesFirst);
+      return;
+    }
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
       toast.error(s.incoming_errCouldNotUpdate);
@@ -1563,13 +1589,19 @@ export function IncomingOrdersSection({
   };
 
   const handleIveStarted = async (order: IncomingOrderRow) => {
-    // Cases 4 & 5 — notification only; sendIveStartedCustomerNotification never starts tracking.
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
     const result = await sendIveStartedCustomerNotification({
       order,
       userPhone: order.user_phone,
+      vendorId,
+      vendorPhone,
     });
     if (result.ok === false) {
-      if (result.reason === "no_phone") {
+      if (result.reason === "no_phone" || result.reason === "persist_failed") {
         toast.error(s.incoming_errCouldNotUpdate);
       }
       return;
@@ -2627,23 +2659,34 @@ export function IncomingOrdersSection({
                     </button>
                   )}
                   {(() => {
+                    const dismissBlockedByUnpaidBill = billBlocksDismiss(billsByRequestId[r.id]);
                     const dismissBlockedByKhata = requestIdsDismissBlockedByKhata.has(r.id);
+                    const dismissBlocked = dismissBlockedByUnpaidBill || dismissBlockedByKhata;
                     return (
                       <div>
                         <button
                           type="button"
-                          disabled={markingId === r.id || dismissBlockedByKhata}
+                          data-testid="incoming-dismiss-btn"
+                          disabled={markingId === r.id || dismissBlocked}
                           onClick={() => {
-                            if (!dismissBlockedByKhata) void dismissOrder(r.id);
+                            if (!dismissBlocked) void dismissOrder(r.id);
                           }}
                           className={cn(
                             "w-full rounded-lg border border-border bg-muted/40 text-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50",
-                            dismissBlockedByKhata && "opacity-50 cursor-not-allowed",
+                            dismissBlocked && "opacity-50 cursor-not-allowed",
                           )}
                         >
                           {markingId === r.id ? s.incoming_saving : s.incoming_dismiss}
                         </button>
-                        {dismissBlockedByKhata && (
+                        {dismissBlockedByUnpaidBill && (
+                          <p
+                            data-testid="incoming-dismiss-blocked-unpaid"
+                            className="text-[10px] text-muted-foreground text-center mt-1"
+                          >
+                            {s.incoming_dismissBlockedUnpaid}
+                          </p>
+                        )}
+                        {!dismissBlockedByUnpaidBill && dismissBlockedByKhata && (
                           <p className="text-[10px] text-muted-foreground text-center mt-1">
                             {s.khata_settleDuesFirst}
                           </p>

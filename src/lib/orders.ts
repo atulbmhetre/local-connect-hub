@@ -19,6 +19,8 @@ export type OrderRequestRow = {
   updated_at?: string | null;
   previous_message?: string | null;
   is_edited?: boolean;
+  /** Set when vendor taps I've Started; blocks Help customer cancel. */
+  vendor_started_at?: string | null;
   category_id?: string | null;
   /** Immutable effective mode for this order (help/delivery/appointment). */
   service_mode?: "help" | "delivery" | "appointment" | null;

@@ -276,3 +276,49 @@ export async function openVendorMyBusinessTab(page: Page) {
   await page.getByTestId('settings-vendor-tab-business').click();
   await expect(page.getByTestId('vendor-my-business')).toBeVisible({ timeout: 20000 });
 }
+
+/**
+ * Expand My Business identity accordion (base type, shop name, verification).
+ * Required since 258776c — all My Business accordions start closed.
+ */
+export async function expandMyBusinessIdentityAccordion(page: Page) {
+  const root = page.getByTestId('vendor-my-business');
+  const toggle = root.getByTestId('my-business-identity-accordion-toggle');
+  await expect(toggle).toBeVisible({ timeout: 15000 });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+  }
+  await expect(root.getByTestId('my-business-identity-panel')).toBeVisible({ timeout: 10000 });
+}
+
+/**
+ * Expand a per-category business accordion (availability, radius, menu/ops).
+ * Required since 258776c — all My Business accordions start closed.
+ */
+export async function expandMyBusinessCategoryAccordion(page: Page, categoryId: string) {
+  const root = page.getByTestId('vendor-my-business');
+  const toggle = root.getByTestId(`my-business-accordion-toggle-${categoryId}`);
+  await expect(toggle).toBeVisible({ timeout: 15000 });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+  }
+  await expect(root.getByTestId(`my-business-category-settings-${categoryId}`)).toBeVisible({
+    timeout: 10000,
+  });
+}
+
+/**
+ * Expand the first per-category accordion when the category id is unknown.
+ * Prefer expandMyBusinessCategoryAccordion(categoryId) when available.
+ */
+export async function expandFirstMyBusinessCategoryAccordion(page: Page) {
+  const root = page.getByTestId('vendor-my-business');
+  const toggle = root.locator('[data-testid^="my-business-accordion-toggle-"]').first();
+  await expect(toggle).toBeVisible({ timeout: 15000 });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+  }
+  await expect(root.getByTestId('my-business-operations').first()).toBeVisible({
+    timeout: 10000,
+  });
+}

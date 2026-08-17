@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { APP_URL } from './helpers/browser-setup';
+import { APP_URL, expandFirstMyBusinessCategoryAccordion } from './helpers/browser-setup';
 import { setRegAvailabilityModes } from './helpers/regAvailability';
 import {
   supabase,
@@ -507,6 +507,7 @@ test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode categ
   const myBusiness = page.getByTestId('vendor-my-business');
   await expect(myBusiness.getByTestId('my-business-accordions')).toBeVisible({ timeout: 10000 });
   await expect(myBusiness.getByText(deliveryCat.label).first()).toBeVisible();
+  await expandFirstMyBusinessCategoryAccordion(page);
   await expect(myBusiness.getByTestId('my-business-avail-modes')).toBeVisible();
   await expect(myBusiness.getByTestId('my-business-avail-deliver-yes')).toBeVisible();
 
@@ -570,6 +571,7 @@ test('VR-SHOP-APPT-01: shop vendor registers via UI with appointment-mode catego
   const myBusiness = page.getByTestId('vendor-my-business');
   await expect(myBusiness.getByTestId('my-business-accordions')).toBeVisible({ timeout: 10000 });
   await expect(myBusiness.getByText(appointmentCat.label).first()).toBeVisible();
+  await expandFirstMyBusinessCategoryAccordion(page);
   await expect(myBusiness.getByTestId('my-business-avail-modes')).toBeVisible();
   await expect(myBusiness.getByTestId('my-business-avail-appointment-on')).toBeVisible();
 

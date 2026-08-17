@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, openVendorMyBusinessTab, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, openVendorMyBusinessTab, expandFirstMyBusinessCategoryAccordion, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -113,6 +113,7 @@ test('CR-SHADOW-01 — single-category My Business edit writes category rows and
   await loginAsVendor(page, vendor.phone, vendor.id, `device_crshadow_${T}`);
   await page.goto(`${APP_URL}/settings`);
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
 
   const cancelBtn = page
     .getByTestId('my-business-operations')

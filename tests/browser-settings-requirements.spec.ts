@@ -6,6 +6,7 @@ import {
   waitForSettingsAdminReady,
   openVendorPreferencesTab,
   openVendorMyBusinessTab,
+  expandFirstMyBusinessCategoryAccordion,
   APP_URL,
 } from './helpers/browser-setup';
 import {
@@ -167,6 +168,7 @@ async function expandVendorPreferences(page: Page) {
 
 async function expandMyBusinessOperations(page: Page) {
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
   await expect(page.getByTestId('my-business-operations')).toBeVisible({ timeout: 20000 });
 }
 
@@ -622,6 +624,7 @@ test('SET-RAD-01 — Vendor can update service radius and it saves to DB', async
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 15000 });
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
   await expect(page.getByTestId('my-business-radius')).toBeVisible({ timeout: 10000 });
   await page.getByText('5 km').first().click();
   await page.getByTestId('my-business-save').click();

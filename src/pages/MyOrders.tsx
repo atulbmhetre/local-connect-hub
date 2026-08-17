@@ -24,6 +24,11 @@ import { useAppConfig } from "@/hooks/useAppConfig";
 import { isHelpAcceptDelayed, formatHelpDelayedWarning } from "@/lib/orderHelpDelay";
 import { customerOrderShowsLiveLocation } from "@/lib/vendorTrackingPolicy";
 import {
+  canShowCustomerCancelOrder,
+  canShowPreAcceptCancel,
+} from "@/lib/customerCancelPolicy";
+import { billBlocksDismiss } from "@/lib/dismissBillGate";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -224,10 +229,10 @@ const userStatusLabel = (
   return r.status;
 };
 
-function canShowRemoveOrder(r: Pick<OrderRequestRow, "status" | "created_at">): boolean {
-  if (r.status === "sent") return true;
-  if (r.status === "seen") return !orderCreatedWithinLast24h(r.created_at);
-  return false;
+function canShowRemoveOrder(
+  r: Parameters<typeof canShowCustomerCancelOrder>[0],
+): boolean {
+  return canShowCustomerCancelOrder(r);
 }
 
 function isHelpAcceptDelayedRow(
@@ -1185,6 +1190,11 @@ const MyOrders = () => {
 
   const markDone = async (target: RowWithShop | string) => {
     const id = typeof target === "string" ? target : target.id;
+    const bill = billsByRequestId[id];
+    if (billBlocksDismiss(bill)) {
+      toast.error(s.myOrders_dismissBlockedUnpaid);
+      return;
+    }
     if (rowActionLockRef.current.has(id)) return;
     rowActionLockRef.current.add(id);
     setMarkingId(id);
@@ -1779,15 +1789,44 @@ const MyOrders = () => {
                   <p className="text-[11px] text-amber-400 text-center leading-snug">
                     {s.delivery_accepted_overdue_body}
                   </p>
-                  <button
-                    type="button"
-                    data-testid="order-dismiss-btn"
-                    disabled={markingId === r.id}
-                    onClick={() => void markDone(r)}
-                    className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
-                  </button>
+                  {canShowCustomerCancelOrder(r) ? (
+                    <button
+                      type="button"
+                      data-testid="order-cancel-btn"
+                      disabled={markingId === r.id}
+                      onClick={() => void handleRemoveOrder(r)}
+                      className="w-full rounded-xl border border-destructive/40 text-destructive text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                    >
+                      {markingId === r.id ? s.myOrders_saving : s.myOrders_cancelOrder}
+                    </button>
+                  ) : billBlocksDismiss(billsByRequestId[r.id]) ? (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        data-testid="order-dismiss-btn"
+                        disabled
+                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 opacity-50 cursor-not-allowed"
+                      >
+                        {s.myOrders_dismiss}
+                      </button>
+                      <p
+                        data-testid="order-dismiss-blocked-unpaid"
+                        className="text-[10px] text-muted-foreground text-center leading-snug"
+                      >
+                        {s.myOrders_dismissBlockedUnpaid}
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="order-dismiss-btn"
+                      disabled={markingId === r.id}
+                      onClick={() => void markDone(r)}
+                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                    >
+                      {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
+                    </button>
+                  )}
                 </div>
               )}
               {isBookingConfirmedOverdue(r) && (
@@ -1798,15 +1837,34 @@ const MyOrders = () => {
                   <p className="text-[11px] text-amber-400 text-center leading-snug">
                     {s.booking_confirmed_overdue_body}
                   </p>
-                  <button
-                    type="button"
-                    data-testid="order-dismiss-btn"
-                    disabled={markingId === r.id}
-                    onClick={() => void markDone(r)}
-                    className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
-                  </button>
+                  {billBlocksDismiss(billsByRequestId[r.id]) ? (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        data-testid="order-dismiss-btn"
+                        disabled
+                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 opacity-50 cursor-not-allowed"
+                      >
+                        {s.myOrders_dismiss}
+                      </button>
+                      <p
+                        data-testid="order-dismiss-blocked-unpaid"
+                        className="text-[10px] text-muted-foreground text-center leading-snug"
+                      >
+                        {s.myOrders_dismissBlockedUnpaid}
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="order-dismiss-btn"
+                      disabled={markingId === r.id}
+                      onClick={() => void markDone(r)}
+                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                    >
+                      {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
+                    </button>
+                  )}
                 </div>
               )}
               <p className="text-sm text-foreground/90 leading-snug whitespace-pre-wrap break-words">
@@ -2061,40 +2119,6 @@ const MyOrders = () => {
                               config.helpAcceptTimeoutHours,
                             )}
                           </p>
-                          {!showOrderCancelConfirm[r.id] ? (
-                            <button
-                              type="button"
-                              data-testid="order-cancel-btn"
-                              disabled={markingId === r.id}
-                              onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: true }))}
-                              className="w-full rounded-lg bg-destructive text-destructive-foreground text-xs font-semibold py-2.5 active:scale-[0.99] disabled:opacity-50"
-                            >
-                              {s.myOrders_cancelOrder}
-                            </button>
-                          ) : (
-                            <div className="space-y-2">
-                              <p className="text-xs text-destructive font-semibold text-center">
-                                {s.myOrders_confirmCancelOrderQ}
-                              </p>
-                              <div className="grid grid-cols-2 gap-2">
-                                <button
-                                  type="button"
-                                  disabled={markingId === r.id}
-                                  onClick={() => void handleRemoveOrder(r)}
-                                  className="rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
-                                >
-                                  {s.myOrders_yesCancel}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: false }))}
-                                  className="rounded-lg border border-border text-xs font-semibold py-2"
-                                >
-                                  {s.myOrders_keepIt}
-                                </button>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                     </>
@@ -2301,18 +2325,54 @@ const MyOrders = () => {
 
               <div className="flex flex-col gap-1.5">
                 {r.status === "cancelled" || r.status === "expired" ? (
-                  <button
-                    type="button"
-                    data-testid="order-dismiss-btn"
-                    disabled={markingId === r.id}
-                    onClick={() => void markDone(r)}
-                    className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
-                  </button>
+                  billBlocksDismiss(billsByRequestId[r.id]) ? (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        data-testid="order-dismiss-btn"
+                        disabled
+                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 opacity-50 cursor-not-allowed"
+                      >
+                        {s.myOrders_dismiss}
+                      </button>
+                      <p
+                        data-testid="order-dismiss-blocked-unpaid"
+                        className="text-[10px] text-muted-foreground text-center leading-snug"
+                      >
+                        {s.myOrders_dismissBlockedUnpaid}
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="order-dismiss-btn"
+                      disabled={markingId === r.id}
+                      onClick={() => void markDone(r)}
+                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                    >
+                      {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
+                    </button>
+                  )
                 ) : null}
                 {r.status === "fulfilled" ? (
-                  myReviews[r.id] ? (
+                  billBlocksDismiss(billsByRequestId[r.id]) ? (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        data-testid="order-dismiss-btn"
+                        disabled
+                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 opacity-50 cursor-not-allowed"
+                      >
+                        {s.myOrders_dismiss}
+                      </button>
+                      <p
+                        data-testid="order-dismiss-blocked-unpaid"
+                        className="text-[10px] text-muted-foreground text-center leading-snug"
+                      >
+                        {s.myOrders_dismissBlockedUnpaid}
+                      </p>
+                    </div>
+                  ) : myReviews[r.id] ? (
                     <button
                       type="button"
                       data-testid="order-dismiss-btn"
@@ -2373,7 +2433,9 @@ const MyOrders = () => {
                         </div>
                       </div>
                     )
-                  ) : r.status === "seen" && orderCreatedWithinLast24h(r.created_at) ? (
+                  ) : r.status === "seen" &&
+                    !canShowPreAcceptCancel(r) &&
+                    orderCreatedWithinLast24h(r.created_at) ? (
                     <p className="text-[11px] text-muted-foreground text-center px-1">
                       {s.myOrders_cannotCancel}
                     </p>
@@ -2563,7 +2625,12 @@ const MyOrders = () => {
           setRatingSheetOpen(false);
           const dismissId = pendingDismissId;
           const row = dismissId ? rows.find((r) => r.id === dismissId) : undefined;
-          if (dismissId) await markDone(row ?? dismissId);
+          const bill = dismissId ? billsByRequestId[dismissId] : undefined;
+          if (dismissId && billBlocksDismiss(bill)) {
+            toast.error(s.myOrders_dismissBlockedUnpaid);
+          } else if (dismissId) {
+            await markDone(row ?? dismissId);
+          }
           setPendingDismissId(null);
           setRatingRequestId(null);
           setRatingVendor(null);

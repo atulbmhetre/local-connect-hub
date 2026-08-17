@@ -40,6 +40,7 @@ vi.mock("@/lib/supabase", () => ({
         }),
       }),
     }),
+    rpc: vi.fn(async () => ({ data: null, error: null })),
   },
   invokeNotifyUser: mockInvokeNotifyUser,
 }));
@@ -109,6 +110,8 @@ describe("vendorBackgroundLocation sources", () => {
         delivery_slot: "tomorrow",
       },
       userPhone: "9111111111",
+      vendorId: "vendor-1",
+      vendorPhone: "9888888888",
     });
     expect(result.ok).toBe(true);
     expect(mockInvokeNotifyUser).toHaveBeenCalledTimes(1);
@@ -126,6 +129,8 @@ describe("vendorBackgroundLocation sources", () => {
         appointment_status: "confirmed",
       },
       userPhone: "9222222222",
+      vendorId: "vendor-2",
+      vendorPhone: "9777777777",
     });
     expect(mockInvokeNotifyUser).toHaveBeenCalled();
     expect(getActiveTrackingSourcesForTests()).toEqual([]);

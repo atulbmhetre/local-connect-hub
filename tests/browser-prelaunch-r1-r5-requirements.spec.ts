@@ -8,6 +8,7 @@ import {
   loginAsVendor,
   loginAsAdminViaSession,
   openVendorMyBusinessTab,
+  expandFirstMyBusinessCategoryAccordion,
   APP_URL,
 } from './helpers/browser-setup';
 import {
@@ -391,6 +392,7 @@ test('R4-02 — Vendor composing an offer uses per-business reach from My Busine
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 20000 });
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
   await page
     .getByTestId('my-business-operations')
     .getByRole('button', { name: /^Offers$/ })

@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import dotenv from 'dotenv';
-import { loginAsVendor, loginAsCustomer, openVendorMyBusinessTab, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, loginAsCustomer, openVendorMyBusinessTab, expandFirstMyBusinessCategoryAccordion, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -167,6 +167,7 @@ async function openVendorMyBusinessRadius(page: Page) {
   await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 15000 });
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
   await expect(page.getByTestId('my-business-radius')).toBeVisible({ timeout: 15000 });
   await expect(page.getByText('15 km').first()).toBeVisible({ timeout: 15000 });
 }

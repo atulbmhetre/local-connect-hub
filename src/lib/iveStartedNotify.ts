@@ -1,4 +1,4 @@
-import { invokeNotifyUser } from "@/lib/supabase";
+import { invokeNotifyUser, supabase } from "@/lib/supabase";
 import { strings, type Language } from "@/lib/strings";
 import {
   hasSentIveStarted,
@@ -19,17 +19,18 @@ function readLang(): Language {
 
 export type IveStartedResult =
   | { ok: true; alreadySent?: boolean }
-  | { ok: false; reason: "not_eligible" | "no_phone" | "tracking_forbidden" };
+  | { ok: false; reason: "not_eligible" | "no_phone" | "tracking_forbidden" | "persist_failed" };
 
 /**
- * Cases 4 & 5 — one-time customer notification only.
- * Intentionally does not import or call vendorBackgroundLocation.
+ * One-time customer notification + persist vendor_started_at for cancel gates.
+ * Intentionally does not start GPS tracking.
  */
 export async function sendIveStartedCustomerNotification(opts: {
   order: OrderTrackingSlice;
   userPhone: string | null | undefined;
+  vendorId: string;
+  vendorPhone: string;
 }): Promise<IveStartedResult> {
-  // Compile-time + runtime guard: this action must never start tracking.
   if (iveStartedActionStartsTracking()) {
     return { ok: false, reason: "tracking_forbidden" };
   }
@@ -45,16 +46,32 @@ export async function sendIveStartedCustomerNotification(opts: {
   const phone = opts.userPhone?.trim();
   if (!phone) return { ok: false, reason: "no_phone" };
 
+  const { error: persistError } = await supabase.rpc("mark_vendor_order_started", {
+    p_request_id: opts.order.id,
+    p_vendor_id: opts.vendorId,
+    p_vendor_phone: opts.vendorPhone,
+  });
+  if (persistError) {
+    return { ok: false, reason: "persist_failed" };
+  }
+
   const s = strings[readLang()];
   const isDelivery = Boolean(opts.order.delivery_slot) && !opts.order.appointment_time;
+  const isHelp =
+    !opts.order.delivery_slot &&
+    !(opts.order.appointment_time != null && String(opts.order.appointment_time).trim() !== "");
   invokeNotifyUser({
     user_phone: phone,
     title: isDelivery
       ? s.incoming_iveStarted_delivery_title
-      : s.incoming_iveStarted_appointment_title,
+      : isHelp
+        ? s.incoming_iveStarted_help_title
+        : s.incoming_iveStarted_appointment_title,
     body: isDelivery
       ? s.incoming_iveStarted_delivery_body
-      : s.incoming_iveStarted_appointment_body,
+      : isHelp
+        ? s.incoming_iveStarted_help_body
+        : s.incoming_iveStarted_appointment_body,
     type: "order_update",
     order_id: opts.order.id,
   });

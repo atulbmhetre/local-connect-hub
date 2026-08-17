@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, openVendorMyBusinessTab, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, openVendorMyBusinessTab, expandFirstMyBusinessCategoryAccordion, APP_URL } from './helpers/browser-setup';
 import { supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_${TEST_SESSION}`;
@@ -8,6 +8,7 @@ let testVendor: any;
 async function openMenuSection(page: any) {
   await page.goto(`${APP_URL}/settings`);
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
   const menuCollapsible = page.getByRole('button', { name: /my menu/i }).first();
   await expect(menuCollapsible).toBeVisible({ timeout: 8000 });
   if ((await menuCollapsible.getAttribute('aria-expanded')) !== 'true') {
@@ -29,6 +30,7 @@ test('MENU-01: menu section visible for vendor in My Business tab', async ({ pag
   await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
 
   await expect(page.getByRole('button', { name: /my menu/i }).first()).toBeVisible({ timeout: 8000 });
 });

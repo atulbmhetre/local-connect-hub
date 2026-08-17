@@ -69,7 +69,7 @@ export function shouldStartTrackingOnOrderAccept(order: OrderTrackingSlice): boo
   return false;
 }
 
-/** Cases 4 & 5 — "I've Started" button only; never GPS. */
+/** Cases 4 & 5 — "I've Started" button; also Help accepted (cancel gate signal). */
 export function shouldShowIveStartedButton(order: OrderTrackingSlice): boolean {
   const status = String(order.status ?? "").toLowerCase();
   if (status === "fulfilled" || status === "done" || status === "cancelled") return false;
@@ -85,7 +85,8 @@ export function shouldShowIveStartedButton(order: OrderTrackingSlice): boolean {
     return isScheduledDeliveryOrder(order);
   }
 
-  return false;
+  // Help: no slot — button records vendor_started_at for customer cancel gate.
+  return status === "accepted";
 }
 
 /**

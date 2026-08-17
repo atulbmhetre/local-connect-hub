@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { test, expect, Page, Locator } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, APP_URL, expandMyBusinessIdentityAccordion, openVendorMyBusinessTab } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -255,9 +255,9 @@ test('LOC-REQ-03 — lang_marathi_enabled=false falls back to English when Marat
   await expect(page.getByTestId('nav-home')).toHaveText(EN.nav_home);
 });
 
-// ─── MY SHOP LABEL CASING ──────────────────────────────────────────────────
+// ─── MY BUSINESS LABEL CASING ──────────────────────────────────────────────
 
-test('LOC-REQ-04 — MY SHOP label in Hindi renders without forced CSS uppercase breaking Devanagari', async ({
+test('LOC-REQ-04 — My Business label in Hindi renders without forced CSS uppercase breaking Devanagari', async ({
   page,
 }) => {
   await setAppConfig('localization_enabled', 'true');
@@ -269,13 +269,21 @@ test('LOC-REQ-04 — MY SHOP label in Hindi renders without forced CSS uppercase
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
 
-  const shopBtn = page.getByRole('button', { name: HI.settings_myShop });
-  await expect(shopBtn).toBeVisible({ timeout: 8000 });
-  const labelText = (await shopBtn.textContent())?.trim() ?? '';
-  expect(labelText.length).toBeGreaterThan(0);
-  expect(labelText).toMatch(DEVANAGARI);
+  const businessTab = page.getByTestId('settings-vendor-tab-business');
+  await expect(businessTab).toBeVisible({ timeout: 8000 });
+  const tabText = (await businessTab.textContent())?.trim() ?? '';
+  expect(tabText.length).toBeGreaterThan(0);
+  expect(tabText).toMatch(DEVANAGARI);
+  const tabTransform = await businessTab.evaluate((el) => getComputedStyle(el).textTransform);
+  expect(tabTransform).not.toBe('uppercase');
 
-  const textTransform = await shopBtn.evaluate((el) => getComputedStyle(el).textTransform);
+  await openVendorMyBusinessTab(page);
+  await expandMyBusinessIdentityAccordion(page);
+  const identityToggle = page.getByTestId('my-business-identity-accordion-toggle');
+  const identityLabel = identityToggle.locator('p').first();
+  const labelText = (await identityLabel.textContent())?.trim() ?? '';
+  expect(labelText).toMatch(DEVANAGARI);
+  const textTransform = await identityLabel.evaluate((el) => getComputedStyle(el).textTransform);
   expect(textTransform).not.toBe('uppercase');
 });
 

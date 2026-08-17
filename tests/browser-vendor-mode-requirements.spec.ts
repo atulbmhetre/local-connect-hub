@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { loginAsVendor, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, APP_URL, expandMyBusinessIdentityAccordion, expandFirstMyBusinessCategoryAccordion } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -52,6 +52,30 @@ function nextCustomerPhone(): string {
 
 function todayPlusHoursIso(hours: number): string {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
+/** Same calendar day in Asia/Kolkata, at least 1h ahead when possible (DB offline-notify gate). */
+function appointmentLaterTodayIso(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
+  const y = Number(get('year'));
+  const m = Number(get('month'));
+  const d = Number(get('day'));
+  const hour = Number(get('hour'));
+  // Prefer mid-afternoon today; if already late, use 23:30 same day (still "today" for DB).
+  const targetHour = hour < 20 ? Math.max(hour + 2, 15) : 23;
+  const targetMin = hour < 20 ? 0 : 30;
+  // Construct as IST wall time via fixed offset (+05:30).
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${y}-${pad(m)}-${pad(d)}T${pad(targetHour)}:${pad(targetMin)}:00+05:30`;
 }
 
 function tomorrowAt20Iso(): string {
@@ -197,6 +221,7 @@ async function openMyBusinessCategories(page: Page, vendor: { id: string; phone:
   await expect(myBusinessPanel(page).getByTestId('my-business-accordions')).toBeVisible({
     timeout: 10000,
   });
+  await expandFirstMyBusinessCategoryAccordion(page);
 }
 
 /** Business accordions in My Business — service mode label per category header. */
@@ -348,7 +373,7 @@ test('VM-06 — Vendor goes offline with today\'s sent booking — customer noti
   await seedRequest(vendor.id, customerPhone, `VM-06 ${T}`, {
     status: 'sent',
     appointment_status: 'pending',
-    appointment_time: todayPlusHoursIso(2),
+    appointment_time: appointmentLaterTodayIso(),
   });
   await loginVendorAndGoto(page, vendor);
   await tapGoLiveToggle(page);
@@ -457,7 +482,9 @@ test('VM-15 — Verified vendor can open My Business and edit base type', async 
   await expect(myBusinessPanel(page).getByTestId('my-business-accordions')).toBeVisible({
     timeout: 10000,
   });
+  await expandMyBusinessIdentityAccordion(page);
   await page.getByTestId('my-business-base-home').click();
+  await expandFirstMyBusinessCategoryAccordion(page);
   await myBusinessPanel(page).getByTestId('my-business-shop-name').fill('Home Brand');
   await expect(page.getByTestId('my-business-save')).toBeEnabled({ timeout: 10000 });
   await page.getByTestId('my-business-save').click();

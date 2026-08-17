@@ -136,21 +136,18 @@ test('SET-11: Local Feed collapsible under MY ACCOUNT — toggle + radius save',
 
 // ─── VENDOR SETTINGS ───────────────────────────────────────────────────────
 
-test('SET-09: MY SHOP section visible for vendor', async ({ page }) => {
+test('SET-09: My Business tab visible for vendor', async ({ page }) => {
   await loginAsVendor(page, testVendor.phone, testVendor.id, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
-  // MY SHOP section should be present for vendors
-  const myShop = page.getByText(/my shop/i).first();
-  await expect(myShop).toBeVisible({ timeout: 5000 });
+  // Vendors use the My Business tab (legacy MY SHOP parent section was removed).
+  await expect(page.getByTestId('settings-vendor-tab-business')).toBeVisible({ timeout: 5000 });
 });
 
-test('SET-10: MY SHOP section not visible for customer-only user', async ({ page }) => {
+test('SET-10: My Business tab not visible for customer-only user', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
-  // MY SHOP should not appear without vendor_id in localStorage
-  const myShop = page.getByText(/my shop/i).first();
-  await expect(myShop).not.toBeVisible({ timeout: 3000 });
+  await expect(page.getByTestId('settings-vendor-tab-business')).toHaveCount(0);
 });
 
 // ─── NAVIGATION ────────────────────────────────────────────────────────────

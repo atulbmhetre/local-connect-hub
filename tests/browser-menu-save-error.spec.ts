@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, openVendorMyBusinessTab, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, openVendorMyBusinessTab, expandFirstMyBusinessCategoryAccordion, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByLabel,
@@ -82,6 +82,7 @@ test('MERR-01 — failed menu save surfaces a visible error toast (no silent dro
   await loginAsVendor(page, phone, vendorId, DEVICE);
   await page.goto(`${APP_URL}/settings`);
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
 
   const menuBtn = page.getByTestId('my-business-operations').getByRole('button', { name: /my menu/i }).first();
   await expect(menuBtn).toBeVisible({ timeout: 8000 });

@@ -103,7 +103,8 @@ describe("vendorTrackingPolicy — 5 cases", () => {
     expect(shouldShowIveStartedButton(scheduledAppt)).toBe(true);
     expect(shouldShowIveStartedButton(scheduledDelivery)).toBe(true);
     expect(shouldShowIveStartedButton(asap)).toBe(false);
-    expect(shouldShowIveStartedButton(help)).toBe(false);
+    // Help accepted shows I've Started so customer cancel can gate on vendor_started_at.
+    expect(shouldShowIveStartedButton(help)).toBe(true);
     expect(shouldStartTrackingOnOrderAccept(scheduledAppt)).toBe(false);
     expect(shouldStartTrackingOnOrderAccept(scheduledDelivery)).toBe(false);
   });

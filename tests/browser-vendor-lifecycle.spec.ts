@@ -2,6 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import {
   loginAsVendor,
   openVendorMyBusinessTab,
+  expandFirstMyBusinessCategoryAccordion,
   APP_URL,
 } from './helpers/browser-setup';
 import {
@@ -221,6 +222,7 @@ test('VL-05 — Edit Shop Details shop_name keeps vendor_categories.brand_name i
   await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
   await page.goto(`${APP_URL}/settings`, { waitUntil: 'domcontentloaded' });
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
 
   await expect(page.getByLabel(/Brand name for this category/i)).toHaveCount(0);
   await expect(page.getByLabel(/Brand \/ Trading Name/i)).toHaveCount(0);

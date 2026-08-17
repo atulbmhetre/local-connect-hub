@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, openVendorMyBusinessTab, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, openVendorMyBusinessTab, expandFirstMyBusinessCategoryAccordion, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByLabel,
@@ -115,6 +115,7 @@ test('CMA-02 — single-category vendor: My Business has no menu category picker
   await loginAsVendor(page, phone, vendor.id, `${DEVICE}_single`);
   await page.goto(`${APP_URL}/settings`);
   await openVendorMyBusinessTab(page);
+  await expandFirstMyBusinessCategoryAccordion(page);
 
   const menuBtn = page.getByRole('button', { name: /my menu/i }).first();
   await expect(menuBtn).toBeVisible({ timeout: 8000 });

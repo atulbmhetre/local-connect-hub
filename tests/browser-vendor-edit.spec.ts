@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, loginAsCustomer, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, loginAsCustomer, APP_URL, expandMyBusinessIdentityAccordion } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   cleanupTestData,
@@ -31,6 +31,15 @@ async function openMyBusiness(page: import('@playwright/test').Page, phone: stri
   await expect(myBusinessPanel(page).getByTestId('my-business-accordions')).toBeVisible({
     timeout: 10000,
   });
+}
+
+async function openMyBusinessIdentity(
+  page: import('@playwright/test').Page,
+  phone: string,
+  vendorId: string,
+) {
+  await openMyBusiness(page, phone, vendorId);
+  await expandMyBusinessIdentityAccordion(page);
 }
 
 async function expandBusinessAccordion(
@@ -172,7 +181,7 @@ test.afterAll(async () => {
 
 test('VE-04: verified vendor can open My Business and change base type', async ({ page }) => {
   const { vendor, phone } = await createEditTestVendor({ is_manual_verified: true, vendor_type: 'shop' });
-  await openMyBusiness(page, phone, vendor.id);
+  await openMyBusinessIdentity(page, phone, vendor.id);
   await page.getByTestId('my-business-base-home').click();
   await saveMyBusiness(page);
   const { data } = await supabaseAdmin.from('vendors').select('vendor_type, base_type').eq('id', vendor.id).single();
@@ -182,7 +191,7 @@ test('VE-04: verified vendor can open My Business and change base type', async (
 
 test('VE-01: vendor can change vendor_type from shop to home and save', async ({ page }) => {
   const { vendor, phone } = await createEditTestVendor({ vendor_type: 'shop' });
-  await openMyBusiness(page, phone, vendor.id);
+  await openMyBusinessIdentity(page, phone, vendor.id);
 
   await page.getByTestId('my-business-base-home').click();
   await saveMyBusiness(page);
