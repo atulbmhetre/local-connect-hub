@@ -41,6 +41,7 @@ vi.mock("@/lib/userIdentity", () => ({
   markWelcomed: vi.fn(),
 }));
 vi.mock("@/lib/pushNotifications", () => ({ registerUserPushToken: vi.fn() }));
+vi.mock("@/lib/webPush", () => ({ registerWebPushIfPermitted: vi.fn() }));
 vi.mock("@/lib/sentry", () => ({ captureError: vi.fn() }));
 
 const CATS = [

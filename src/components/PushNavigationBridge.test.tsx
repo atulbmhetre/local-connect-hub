@@ -15,6 +15,7 @@ const { handlePush, setAppNavigate, clearAppNavigate } = vi.hoisted(() => ({
 
 vi.mock("@/lib/notificationNavigation", () => ({
   handlePushNotificationData: handlePush,
+  pushDataFromSearchParams: () => undefined,
 }));
 
 vi.mock("@/lib/appNavigate", () => ({

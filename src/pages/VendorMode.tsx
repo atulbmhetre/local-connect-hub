@@ -69,7 +69,6 @@ import {
   Pencil,
   X,
 } from "lucide-react";
-import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { TrustBadge } from "@/components/TrustBadge";
 import { IncomingOrdersSection } from "@/components/IncomingOrdersSection";
 import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
@@ -640,7 +639,16 @@ const VendorMode = () => {
     if (pushRegisteredVendorRef.current === vendorId) return;
     pushRegisteredVendorRef.current = vendorId;
     void registerPushToken(vendorId);
-  }, [vendorId, vendor?.id]);
+    if (!Capacitor.isNativePlatform()) {
+      void import("@/lib/webPush").then(({ registerWebPushIfPermitted }) =>
+        registerWebPushIfPermitted({
+          vendorId,
+          vendorPhone: vendor?.phone ?? null,
+          userPhone: vendor?.phone ?? null,
+        }),
+      );
+    }
+  }, [vendorId, vendor?.id, vendor?.phone]);
 
   useEffect(() => {
     if (!highlightVendorId || !vendor?.id || highlightVendorId !== vendor.id) return;
@@ -948,6 +956,15 @@ const VendorMode = () => {
     notifyVendorIdChanged();
     pushRegisteredVendorRef.current = newVendorId;
     void registerPushToken(newVendorId, { vendorPhone });
+    if (!Capacitor.isNativePlatform()) {
+      void import("@/lib/webPush").then(({ registerWebPushIfPermitted }) =>
+        registerWebPushIfPermitted({
+          vendorId: newVendorId,
+          vendorPhone,
+          userPhone: vendorPhone,
+        }),
+      );
+    }
     setVendorId(newVendorId);
     setVendor(vendorRow as Vendor);
   };
@@ -1475,7 +1492,9 @@ const VendorMode = () => {
             }) && (
               <p className="mt-2 text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1">
                 <Truck className="h-3 w-3 text-brand" />
-                {s.vendor_mobile_gps}
+                {Capacitor.isNativePlatform()
+                  ? s.vendor_mobile_gps
+                  : s.vendor_desktop_live_location}
               </p>
             )}
 

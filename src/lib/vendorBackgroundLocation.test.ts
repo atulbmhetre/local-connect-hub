@@ -47,7 +47,6 @@ vi.mock("@/lib/supabase", () => ({
 
 import {
   getActiveTrackingSourcesForTests,
-  getHelpAcceptedOrderIdsForTests,
   isHelpStoppedHeartbeatRunningForTests,
   startHelpLiveTracking,
   startOrderTracking,
@@ -138,31 +137,50 @@ describe("vendorBackgroundLocation sources", () => {
   });
 });
 
-describe("help stopped-detection heartbeat", () => {
+describe("help live GPS heartbeat", () => {
   const ctx = { vendorId: "v1", vendorPhone: "9000000001" };
 
   beforeEach(() => {
     vi.useFakeTimers();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("runs periodic GPS writes when Go-Live and accepted Help orders exist", async () => {
+  it("runs periodic GPS writes when Help Go-Live is on, even with no accepted order", async () => {
     await startHelpLiveTracking(ctx);
-    syncHelpAcceptedOrderTracking(["help-ord-1"], ctx);
     await vi.advanceTimersByTimeAsync(0);
     expect(isHelpStoppedHeartbeatRunningForTests()).toBe(true);
-    expect(getHelpAcceptedOrderIdsForTests()).toEqual(["help-ord-1"]);
     expect(mockPatch).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(VENDOR_STOPPED_HEARTBEAT_MS);
     await vi.advanceTimersByTimeAsync(0);
     expect(mockPatch.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
 
-    syncHelpAcceptedOrderTracking([], ctx);
+  it("pauses heartbeat while the tab is hidden and resumes when visible", async () => {
+    await startHelpLiveTracking(ctx);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(isHelpStoppedHeartbeatRunningForTests()).toBe(true);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
     expect(isHelpStoppedHeartbeatRunningForTests()).toBe(false);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(isHelpStoppedHeartbeatRunningForTests()).toBe(true);
   });
 
   it("does not heartbeat without Go-Live even if Help orders are accepted", async () => {

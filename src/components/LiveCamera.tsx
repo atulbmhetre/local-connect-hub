@@ -23,6 +23,11 @@ type Props = {
   facing?: "front" | "rear";
   /** When false, skips GPS (e.g. selfie). Defaults to true. */
   requireLocation?: boolean;
+  /**
+   * Camera-only for verification photos. Prompt (camera or gallery) for
+   * non-verification captures such as menu item photos.
+   */
+  source?: CameraSource;
 };
 
 /**
@@ -35,6 +40,7 @@ export const LiveCamera = ({
   onCapture,
   facing = "rear",
   requireLocation = true,
+  source = CameraSource.Camera,
 }: Props) => {
   const { s } = useLanguage();
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +70,7 @@ export const LiveCamera = ({
             quality: 85,
             allowEditing: false,
             resultType: CameraResultType.DataUrl,
-            source: CameraSource.Camera,
+            source,
             direction: facing === "front" ? CameraDirection.Front : CameraDirection.Rear,
           });
           dataUrl = photo.dataUrl;
@@ -140,7 +146,7 @@ export const LiveCamera = ({
     return () => {
       cancelled = true;
     };
-  }, [open, onCapture, onClose, facing, requireLocation, s]);
+  }, [open, onCapture, onClose, facing, requireLocation, source, s]);
 
   if (!open) return null;
 

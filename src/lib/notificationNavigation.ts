@@ -101,6 +101,35 @@ export function parsePushRouteParams(
   return {};
 }
 
+/** Query used by the Web Push service-worker click handler. */
+export function buildPushClickPath(data: Record<string, unknown> | undefined): string {
+  if (!data) return "/";
+  const route = typeof data.route === "string" ? data.route.trim() : "";
+  const params = new URLSearchParams();
+  if (route) params.set("push_route", route);
+  const routeParams = data.route_params;
+  if (typeof routeParams === "string" && routeParams.trim()) {
+    params.set("push_route_params", routeParams);
+  } else if (routeParams && typeof routeParams === "object" && !Array.isArray(routeParams)) {
+    params.set("push_route_params", JSON.stringify(routeParams));
+  }
+  const qs = params.toString();
+  return qs ? `/?${qs}` : "/";
+}
+
+export function pushDataFromSearchParams(
+  search: string,
+): Record<string, unknown> | undefined {
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  const params = new URLSearchParams(raw);
+  const route = params.get("push_route");
+  if (!route?.trim()) return undefined;
+  const data: Record<string, unknown> = { route };
+  const routeParams = params.get("push_route_params");
+  if (routeParams) data.route_params = routeParams;
+  return data;
+}
+
 export function handlePushNotificationData(
   navigate: NavigateFunction,
   data: Record<string, unknown> | undefined,

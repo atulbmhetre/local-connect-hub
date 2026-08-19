@@ -14,7 +14,7 @@ import {
 const HELP_SOURCE = "help-live";
 const orderSource = (orderId: string) => `order:${orderId}`;
 
-/** Time-based GPS heartbeat while Go-Live + accepted Help order (stationary vendor). */
+/** Time-based GPS heartbeat while Help Go-Live is on (tab must be visible on web). */
 export const VENDOR_STOPPED_HEARTBEAT_MS = 3 * 60 * 1000;
 
 type VendorCtx = {
@@ -69,8 +69,24 @@ async function writePeriodicLocation(): Promise<void> {
   }
 }
 
-function reconcileHelpStoppedHeartbeat(): void {
-  const shouldRun = sources.has(HELP_SOURCE) && helpAcceptedOrderIds.size > 0;
+function pageIsVisible(): boolean {
+  if (Capacitor.isNativePlatform()) return true;
+  if (typeof document === "undefined") return true;
+  return document.visibilityState !== "hidden";
+}
+
+let visibilityListenerAttached = false;
+
+function ensureVisibilityListener(): void {
+  if (visibilityListenerAttached || typeof document === "undefined") return;
+  visibilityListenerAttached = true;
+  document.addEventListener("visibilitychange", () => {
+    reconcileHelpLiveHeartbeat();
+  });
+}
+
+function reconcileHelpLiveHeartbeat(): void {
+  const shouldRun = sources.has(HELP_SOURCE) && pageIsVisible();
   if (shouldRun && !heartbeatTimer) {
     void writePeriodicLocation();
     heartbeatTimer = setInterval(() => {
@@ -145,13 +161,14 @@ async function ensureWatcherStopped(): Promise<void> {
 
 async function addSource(key: string, ctx: VendorCtx): Promise<void> {
   sources.add(key);
+  ensureVisibilityListener();
   await ensureWatcherStarted(ctx);
-  reconcileHelpStoppedHeartbeat();
+  reconcileHelpLiveHeartbeat();
 }
 
 async function removeSource(key: string): Promise<void> {
   sources.delete(key);
-  reconcileHelpStoppedHeartbeat();
+  reconcileHelpLiveHeartbeat();
   await ensureWatcherStopped();
 }
 
@@ -190,8 +207,8 @@ export async function stopAllVendorLocationTracking(): Promise<void> {
 }
 
 /**
- * Keep periodic Help GPS heartbeats aligned with accepted Help orders.
- * Heartbeat runs only when Go-Live (help-live source) is active.
+ * Keep Help accepted-order ids for restore/sync.
+ * Heartbeat runs when Go-Live (help-live source) is active and the tab is visible.
  */
 export function syncHelpAcceptedOrderTracking(
   orderIds: readonly string[],
@@ -203,7 +220,7 @@ export function syncHelpAcceptedOrderTracking(
     const trimmed = id?.trim();
     if (trimmed) helpAcceptedOrderIds.add(trimmed);
   }
-  reconcileHelpStoppedHeartbeat();
+  reconcileHelpLiveHeartbeat();
 }
 
 /** Test/introspection helpers (not for UI). */

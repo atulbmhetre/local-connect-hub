@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Home, Store, Settings, Newspaper, ShoppingBag } from "lucide-react";
+import { APP_COLUMN_CLASS } from "@/lib/appColumn";
 import {
   readHasVendorId,
   readIsVendorActive,
@@ -54,8 +55,12 @@ export const BottomNav = () => {
   }, []);
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 bg-card/90 backdrop-blur-xl border-t border-border">
-      <div className={`mx-auto max-w-md grid ${hasVendorId ? "grid-cols-5" : "grid-cols-4"}`}>
+    <nav className="fixed bottom-0 inset-x-0 z-40 pointer-events-none">
+      <div
+        data-testid="bottom-nav-chrome"
+        className={`${APP_COLUMN_CLASS} pointer-events-auto bg-card/90 backdrop-blur-xl border-t border-border`}
+      >
+      <div className={`grid ${hasVendorId ? "grid-cols-5" : "grid-cols-4"}`}>
         {tabs.map(({ to, label, Icon }) => (
           <NavLink
             key={to}
@@ -93,6 +98,7 @@ export const BottomNav = () => {
         ))}
       </div>
       <div className="h-[env(safe-area-inset-bottom)] bg-card/90" />
+      </div>
     </nav>
   );
 };

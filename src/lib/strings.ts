@@ -734,6 +734,8 @@ export const strings = {
     vendor_tap_online: 'Tap to Go Online',
     vendor_customers_waiting: 'Customers nearby are waiting!',
     vendor_mobile_gps: 'Help mode · location is shared while you are live.',
+    vendor_desktop_live_location:
+      'On a computer, live location updates only while this tab is open and visible.',
     vendor_tracking_notification_title: 'Aaspaas',
     vendor_tracking_notification_body: 'Sharing your location while you are live.',
     incoming_iveStarted_btn: "I've Started",
@@ -969,6 +971,8 @@ export const strings = {
     settings_feedNotifications: 'Announcements & Recommendations',
     settings_feedNotificationsHint:
       'Get notified about announcements and recommendations near you. You will still be notified about offers from vendors.',
+    settings_browserNotificationsHint:
+      'Allow browser notifications so orders and updates can reach this laptop even when the tab is in the background.',
     settings_feedNotificationsSaved: 'Announcement & recommendation preference saved',
     settings_feedDiscoveryRadius: 'Show me posts within:',
     settings_feedDiscoveryRadiusHint:
@@ -2522,6 +2526,8 @@ export const strings = {
     vendor_tap_online: 'ऑनलाइन होने के लिए दबाएं',
     vendor_customers_waiting: 'पास के ग्राहक इंतजार कर रहे हैं!',
     vendor_mobile_gps: 'हेल्प मोड · लाइव रहते आपकी लोकेशन शेयर होती है।',
+    vendor_desktop_live_location:
+      'कंप्यूटर पर लाइव लोकेशन तभी अपडेट होती है जब यह टैब खुला और दिखाई दे रहा हो।',
     vendor_tracking_notification_title: 'आसपास',
     vendor_tracking_notification_body: 'लाइव रहते आपकी लोकेशन शेयर हो रही है।',
     incoming_iveStarted_btn: 'मैं निकल पड़ा/पड़ी',
@@ -2757,6 +2763,8 @@ export const strings = {
     settings_feedNotifications: 'घोषणाएँ और सुझाव',
     settings_feedNotificationsHint:
       'अपने पास की घोषणाओं और सुझावों की सूचना पाएँ। विक्रेताओं के ऑफ़र की सूचनाएँ फिर भी मिलेंगी।',
+    settings_browserNotificationsHint:
+      'ब्राउज़र सूचनाएँ अनुमति दें ताकि ऑर्डर इस लैपटॉप पर टैब पृष्ठभूमि में होने पर भी पहुँच सकें।',
     settings_feedNotificationsSaved: 'घोषणा और सुझाव सेटिंग सेव हो गई',
     settings_feedDiscoveryRadius: 'मुझे इतनी दूरी के पोस्ट दिखाएँ:',
     settings_feedDiscoveryRadiusHint:
@@ -4310,6 +4318,8 @@ export const strings = {
     vendor_tap_online: 'ऑनलाइन होण्यासाठी दाबा',
     vendor_customers_waiting: 'जवळचे ग्राहक वाट पाहत आहेत!',
     vendor_mobile_gps: 'हेल्प मोड · लाइव्ह असताना तुमचे लोकेशन शेअर होते.',
+    vendor_desktop_live_location:
+      'संगणकावर लाइव्ह लोकेशन फक्त हे टॅब उघडे आणि दिसत असतानाच अपडेट होते.',
     vendor_tracking_notification_title: 'आसपास',
     vendor_tracking_notification_body: 'लाइव्ह असताना तुमचे लोकेशन शेअर होत आहे.',
     incoming_iveStarted_btn: 'मी निघालो/निघाले',
@@ -4545,6 +4555,8 @@ export const strings = {
     settings_feedNotifications: 'घोषणा आणि शिफारसी',
     settings_feedNotificationsHint:
       'जवळच्या घोषणा आणि शिफारसींची सूचना मिळवा. विक्रेत्यांच्या ऑफरच्या सूचना तरीही येतील.',
+    settings_browserNotificationsHint:
+      'ब्राउझर सूचनांना परवानगी द्या, जेणेकरून टॅब पार्श्वभूमीत असतानाही ऑर्डर या लॅपटॉपवर पोहोचतील.',
     settings_feedNotificationsSaved: 'घोषणा आणि शिफारस सेटिंग जतन झाली',
     settings_feedDiscoveryRadius: 'मला या अंतराचे पोस्ट दाखवा:',
     settings_feedDiscoveryRadiusHint:

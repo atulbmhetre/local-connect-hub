@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
+import { Capacitor } from "@capacitor/core";
+import { requestWebPushFromUserGesture } from "@/lib/webPush";
 
 const FEED_NOTIFICATIONS_CHANGED = "aaspaas:feed_notifications_changed";
 
@@ -64,20 +66,35 @@ export function useFeedNotificationsEnabled() {
       }
 
       const deviceId = getDeviceId();
-      void supabase
-        .rpc("set_user_device_feed_notifications", {
-          p_user_phone: phone,
-          p_device_id: deviceId,
-          p_enabled: checked,
-        })
-        .then(({ data, error }) => {
-          if (error || data == null) {
+      const savePref = () =>
+        supabase
+          .rpc("set_user_device_feed_notifications", {
+            p_user_phone: phone,
+            p_device_id: deviceId,
+            p_enabled: checked,
+          })
+          .then(({ data, error }) => {
+            if (error || data == null) {
+              revertToggle(previous);
+              toast.error(s.feed_notifyToggle_saveError);
+              return;
+            }
+            toast.success(s.settings_feedNotificationsSaved);
+          });
+
+      if (checked && !Capacitor.isNativePlatform()) {
+        void requestWebPushFromUserGesture({ userPhone: phone }).then((ok) => {
+          if (!ok) {
             revertToggle(previous);
             toast.error(s.feed_notifyToggle_saveError);
             return;
           }
-          toast.success(s.settings_feedNotificationsSaved);
+          void savePref();
         });
+        return;
+      }
+
+      void savePref();
     },
     [revertToggle, s.feed_notifyToggle_saveError, s.settings_feedNotificationsSaved],
   );

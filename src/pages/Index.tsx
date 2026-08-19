@@ -197,6 +197,11 @@ const Index = () => {
     if (pushRegisteredUserRef.current === userPhone) return;
     pushRegisteredUserRef.current = userPhone;
     void registerUserPushToken(userPhone);
+    if (!Capacitor.isNativePlatform()) {
+      void import("@/lib/webPush").then(({ registerWebPushIfPermitted }) =>
+        registerWebPushIfPermitted({ userPhone }),
+      );
+    }
   }, [userPhone]);
 
   useEffect(() => {

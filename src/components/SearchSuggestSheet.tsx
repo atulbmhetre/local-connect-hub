@@ -2,6 +2,7 @@ import { useState } from "react";
 import { type ClassifySearchCandidate, useCategoryLabel } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { Search, X } from "lucide-react";
+import { APP_COLUMN_CLASS } from "@/lib/appColumn";
 
 /** Tier 1 shows the top candidates; "None of these" reveals the rest (≤10 total). */
 export const SUGGEST_TIER1_COUNT = 5;
@@ -53,7 +54,7 @@ export const SearchSuggestSheet = ({
       aria-labelledby="search-suggest-title"
       className="fixed inset-0 z-50 bg-foreground/60 backdrop-blur-sm grid place-items-end sm:place-items-center animate-fade-in"
     >
-      <div className="w-full max-h-[90vh] overflow-y-auto sm:max-w-md bg-card rounded-t-3xl sm:rounded-3xl p-6 pb-8 shadow-card animate-fade-up">
+      <div className={`${APP_COLUMN_CLASS} max-h-[90vh] overflow-y-auto bg-card rounded-t-3xl sm:rounded-3xl p-6 pb-8 shadow-card animate-fade-up`}>
         <div className="flex items-center justify-between mb-4">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-widest text-muted-foreground">

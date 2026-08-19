@@ -611,7 +611,6 @@ export function ParchiSheet({
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/*";
-      input.capture = "environment";
       input.onchange = async (e) => {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;

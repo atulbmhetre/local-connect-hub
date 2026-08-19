@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { getVoiceLang } from "@/lib/voiceUtils";
 import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
 import { captureError } from "@/lib/sentry";
+import { CameraSource } from "@capacitor/camera";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import {
   bestEffortDeleteMenuPhotoByUrl,
@@ -361,6 +362,30 @@ export function VendorMyBusinessOperations({
     }
   };
 
+  const onMenuPhotoFile = async (file: File, target: "new" | "edit") => {
+    setMenuPhotoUploading(true);
+    try {
+      const uploaded = await uploadMenuPhoto(vendor.id, file);
+      if (target === "new") {
+        setNewItem((p) => {
+          if (p.image_url) void bestEffortDeleteMenuPhotoByUrl(p.image_url);
+          return { ...p, image_url: uploaded.publicUrl };
+        });
+      } else {
+        setEditDraft((p) => {
+          if (p.image_url && p.image_url !== editingMenuItem?.image_url) {
+            void bestEffortDeleteMenuPhotoByUrl(p.image_url);
+          }
+          return { ...p, image_url: uploaded.publicUrl };
+        });
+      }
+    } catch (err) {
+      menuPhotoErrorToast(err);
+    } finally {
+      setMenuPhotoUploading(false);
+    }
+  };
+
   const startVoiceMenu = async () => {
     if (!activeCategoryId) return;
     try {
@@ -424,7 +449,6 @@ export function VendorMyBusinessOperations({
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/*";
-      input.capture = "environment";
       input.onchange = async (e) => {
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;
@@ -704,6 +728,36 @@ export function VendorMyBusinessOperations({
               placeholder={s.menu_description}
               className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
             />
+            <div className="flex items-center gap-2">
+              <label className="flex-1 text-xs font-semibold text-brand">
+                {s.menu_photoAdd}
+                <input
+                  type="file"
+                  accept="image/*"
+                  data-testid="menu-photo-file-new"
+                  className="mt-1 block w-full text-xs"
+                  disabled={menuPhotoUploading}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void onMenuPhotoFile(file, "new");
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                data-testid="menu-photo-camera-new"
+                onClick={() => setMenuPhotoCameraTarget("new")}
+                disabled={menuPhotoUploading}
+                className="p-2 rounded-lg border border-surface-border text-muted-foreground"
+                aria-label={s.menu_photoAdd}
+              >
+                <Camera className="h-4 w-4" />
+              </button>
+            </div>
+            {newItem.image_url ? (
+              <img src={newItem.image_url} alt="" className="h-16 w-16 rounded-lg object-cover" />
+            ) : null}
             <button
               type="button"
               onClick={() => void saveNewItem()}
@@ -767,6 +821,33 @@ export function VendorMyBusinessOperations({
                 placeholder={s.menu_description}
                 className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
               />
+              <div className="flex items-center gap-2">
+                <label className="flex-1 text-xs font-semibold text-brand">
+                  {editDraft.image_url ? s.menu_photoChange : s.menu_photoAdd}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    data-testid="menu-photo-file-edit"
+                    className="mt-1 block w-full text-xs"
+                    disabled={menuPhotoUploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void onMenuPhotoFile(file, "edit");
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  data-testid="menu-photo-camera-edit"
+                  onClick={() => setMenuPhotoCameraTarget("edit")}
+                  disabled={menuPhotoUploading}
+                  className="p-2 rounded-lg border border-surface-border text-muted-foreground"
+                  aria-label={s.menu_photoAdd}
+                >
+                  <Camera className="h-4 w-4" />
+                </button>
+              </div>
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -841,6 +922,8 @@ export function VendorMyBusinessOperations({
       <LiveCamera
         open={menuPhotoCameraTarget !== null}
         onClose={() => setMenuPhotoCameraTarget(null)}
+        source={CameraSource.Prompt}
+        requireLocation={false}
         onCapture={(shot) => {
           const target = menuPhotoCameraTarget;
           setMenuPhotoCameraTarget(null);

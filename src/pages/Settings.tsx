@@ -3089,22 +3089,24 @@ const Settings = () => {
               />
             </div>
             {/*
-              Feed push notifications use FCM, which is not available on web. This toggle
-              controls push notification preference and is meaningless on a platform that
-              cannot receive push notifications. Native-only by design.
+              Native: FCM via Capacitor. Web: same Settings toggle is the user
+              gesture for Notification.requestPermission + web FCM token.
             */}
-            {Capacitor.isNativePlatform() && (
-              <SettingsRow
-                label={s.settings_feedNotifications}
-                sublabel={s.settings_feedNotificationsHint}
-              >
-                <Switch
-                  className="data-[state=checked]:bg-brand"
-                  checked={feedNotificationsEnabled}
-                  onCheckedChange={onFeedNotificationsChange}
-                />
-              </SettingsRow>
-            )}
+            <SettingsRow
+              label={s.settings_feedNotifications}
+              sublabel={
+                Capacitor.isNativePlatform()
+                  ? s.settings_feedNotificationsHint
+                  : s.settings_browserNotificationsHint
+              }
+            >
+              <Switch
+                data-testid="settings-feed-notifications-switch"
+                className="data-[state=checked]:bg-brand"
+                checked={feedNotificationsEnabled}
+                onCheckedChange={onFeedNotificationsChange}
+              />
+            </SettingsRow>
           </div>
         </SettingsCollapsible>
       </SettingsParentCollapsible>

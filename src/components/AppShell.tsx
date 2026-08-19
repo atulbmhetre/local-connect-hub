@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { APP_COLUMN_CLASS } from "@/lib/appColumn";
 import { BottomNav } from "./BottomNav";
 
 type Props = {
@@ -10,7 +11,7 @@ type Props = {
 export const AppShell = ({ children }: Props) => {
   return (
     <div className="min-h-screen pb-24">
-      <div className="mx-auto max-w-md px-5 pt-8">{children}</div>
+      <div className={`${APP_COLUMN_CLASS} px-5 pt-8`}>{children}</div>
       <BottomNav />
     </div>
   );

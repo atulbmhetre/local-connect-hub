@@ -60,6 +60,21 @@ describe("notificationNavigation", () => {
     expect(resolveRoutePath(null)).toBe("/");
   });
 
+  it("builds the same click query the service worker uses", async () => {
+    const { buildPushClickPath, pushDataFromSearchParams } = await import(
+      "@/lib/notificationNavigation"
+    );
+    const path = buildPushClickPath({
+      route: "vendor",
+      route_params: JSON.stringify({ order_id: "req-9" }),
+    });
+    expect(path).toBe("/?push_route=vendor&push_route_params=%7B%22order_id%22%3A%22req-9%22%7D");
+    expect(pushDataFromSearchParams(path.slice(1))).toEqual({
+      route: "vendor",
+      route_params: '{"order_id":"req-9"}',
+    });
+  });
+
   it("navigates customer payment_confirmed to my-orders with highlight", () => {
     const navigate = vi.fn();
     handlePushNotificationData(navigate, {
