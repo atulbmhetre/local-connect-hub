@@ -139,6 +139,73 @@ function noConfidentMatchResponse(action: GatewayAction) {
   });
 }
 
+/** Body-care queries where Therapist and Beautician must both surface (rule 6). */
+const WELLNESS_AMBIGUOUS_PATTERNS = [
+  /\bmassage\b/i,
+  /\bphysio(?:therapy)?\b/i,
+  /\bspa\b/i,
+  /\bwellness\b/i,
+  /\bbody\s*care\b/i,
+  /\brelaxation\b/i,
+];
+
+function isExplicitSingleWellnessCategoryLookup(input: string): boolean {
+  const t = input.trim().toLowerCase();
+  return t === "beautician" || t === "therapist";
+}
+
+function matchesWellnessAmbiguousTerm(input: string): boolean {
+  if (isExplicitSingleWellnessCategoryLookup(input)) return false;
+  return WELLNESS_AMBIGUOUS_PATTERNS.some((re) => re.test(input));
+}
+
+function rawListMentionsWellnessCategory(rawList: readonly unknown[]): boolean {
+  for (const raw of rawList) {
+    if (typeof raw !== "string") continue;
+    const lower = raw.trim().toLowerCase();
+    if (lower === "therapist" || lower === "beautician") return true;
+  }
+  return false;
+}
+
+function shouldForceWellnessDualCandidates(
+  input: string,
+  rawCandidateLabels: readonly unknown[],
+): boolean {
+  if (isExplicitSingleWellnessCategoryLookup(input)) return false;
+  return (
+    matchesWellnessAmbiguousTerm(input) ||
+    rawListMentionsWellnessCategory(rawCandidateLabels)
+  );
+}
+
+function buildWellnessDualCandidates(
+  dbCategories: DbCategoryRow[],
+): ClassifyCandidate[] | null {
+  const therapist = findDbCategory(dbCategories, "Therapist");
+  const beautician = findDbCategory(dbCategories, "Beautician");
+  if (!therapist || !beautician) return null;
+  return [candidateFromDbRow(therapist), candidateFromDbRow(beautician)];
+}
+
+function wellnessDualResponse(
+  action: GatewayAction,
+  dbCategories: DbCategoryRow[],
+  threshold: number,
+  modelConfidence: number,
+) {
+  const dual = buildWellnessDualCandidates(dbCategories);
+  if (!dual) return null;
+  const confidence = Math.max(
+    threshold,
+    Number.isFinite(modelConfidence) ? modelConfidence : 0,
+  );
+  return jsonResponse({
+    action,
+    result: { candidates: dual, confidence },
+  });
+}
+
 /**
  * Last-resort when Groq is down: only surface suggest-category's high-confidence
  * existing match. Never force a medium/low nearest-neighbour guess.
@@ -185,6 +252,13 @@ async function invokeSuggestCategory(
       data.category_name.trim();
 
     if (!confident) {
+      const suggestRaw = typeof data.category_name === "string" && data.category_name.trim()
+        ? [data.category_name.trim()]
+        : [];
+      if (shouldForceWellnessDualCandidates(input, suggestRaw)) {
+        const forced = wellnessDualResponse(action, dbCategories, threshold, confidence);
+        if (forced) return forced;
+      }
       return noConfidentMatchResponse(action);
     }
 
@@ -370,6 +444,16 @@ Response format:
           : candidates.length > 0
             ? 0
             : 0;
+
+        if (shouldForceWellnessDualCandidates(input, rawList)) {
+          const forced = wellnessDualResponse(
+            action,
+            dbCategories,
+            threshold,
+            confidence,
+          );
+          if (forced) return forced;
+        }
 
         // No candidates, or model is not confident enough → do not force a guess.
         if (candidates.length === 0 || confidence < threshold) {
