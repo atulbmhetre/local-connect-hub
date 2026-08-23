@@ -153,6 +153,12 @@ serve(async (req) => {
     }
 
     if (tokens.length === 0) {
+      await logFcmDelivery(supabase, {
+        notification_type: userNotificationType(payload),
+        target_phone: userPhone?.trim() || null,
+        success: false,
+        raw_response: "no_fcm_tokens",
+      });
       return new Response(JSON.stringify({ sent: 0 }), { status: 200, headers: CORS_HEADERS });
     }
 

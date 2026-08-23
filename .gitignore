@@ -65,6 +65,9 @@ rls_investigation_summary.txt
 /isolated-*.txt
 /full-playwright-run*.txt
 /full-test-run*.txt
+/full-suite-*.txt
+/accordion-fix-batch.txt
+/notify-fix-suite.txt
 /payment-trust-gap-tests*.txt
 /payment-block-vendor-resolve-tests.txt
 /parchi-scroll-fix-playwright.txt

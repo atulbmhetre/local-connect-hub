@@ -7,6 +7,7 @@ const MONITORED_FUNCTIONS = [
   { key: "parse-image-bill", label: "Bill Scanner" },
   { key: "parse-image-order", label: "Order Scanner" },
   { key: "process-new-category", label: "Category Processor" },
+  { key: "warn-near-deadline", label: "Near-deadline push" },
 ] as const;
 
 type OpenAlert = {

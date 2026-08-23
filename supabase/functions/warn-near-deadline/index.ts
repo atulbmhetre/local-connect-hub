@@ -22,6 +22,54 @@ type InboxRow = {
   type: string;
 };
 
+type ServiceClient = ReturnType<typeof createClient>;
+
+async function raiseNearDeadlineAlert(
+  supabase: ServiceClient,
+  rawError: string,
+): Promise<void> {
+  const truncated = rawError.slice(0, 1000);
+  const { data: existing, error: lookupError } = await supabase
+    .from("admin_alerts")
+    .select("id")
+    .eq("function_name", "warn-near-deadline")
+    .is("resolved_at", null)
+    .maybeSingle();
+  if (lookupError) {
+    console.error("warn-near-deadline admin_alerts lookup failed", lookupError);
+    return;
+  }
+  if (existing?.id) {
+    const { error: updateError } = await supabase
+      .from("admin_alerts")
+      .update({ last_checked_at: new Date().toISOString(), raw_error: truncated })
+      .eq("id", existing.id);
+    if (updateError) {
+      console.error("warn-near-deadline admin_alerts update failed", updateError);
+    }
+    return;
+  }
+  const { error: insertError } = await supabase.from("admin_alerts").insert({
+    function_name: "warn-near-deadline",
+    error_type: "unknown",
+    raw_error: truncated,
+  });
+  if (insertError) {
+    console.error("warn-near-deadline admin_alerts insert failed", insertError);
+  }
+}
+
+async function resolveNearDeadlineAlert(supabase: ServiceClient): Promise<void> {
+  const { error } = await supabase
+    .from("admin_alerts")
+    .update({ resolved_at: new Date().toISOString(), last_checked_at: new Date().toISOString() })
+    .eq("function_name", "warn-near-deadline")
+    .is("resolved_at", null);
+  if (error) {
+    console.error("warn-near-deadline admin_alerts resolve failed", error);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -46,6 +94,10 @@ serve(async (req) => {
 
     if (pendingError) {
       console.error("warn-near-deadline pending query failed", pendingError);
+      await raiseNearDeadlineAlert(
+        supabase,
+        `pending query failed: ${pendingError.message}`,
+      );
       return new Response(JSON.stringify({ pushed: 0 }), {
         status: 200,
         headers: CORS_HEADERS,
@@ -89,6 +141,10 @@ serve(async (req) => {
 
       if (inboxError || !inboxRows?.length) {
         console.error("warn-near-deadline inbox lookup failed", row.id, inboxError);
+        await raiseNearDeadlineAlert(
+          supabase,
+          `inbox lookup miss request=${row.id} err=${inboxError?.message ?? "no matching order_near_deadline_* row"}`,
+        );
         continue;
       }
 
@@ -125,6 +181,10 @@ serve(async (req) => {
         if (!res.ok) {
           const errText = await res.text();
           console.error("warn-near-deadline notify-user failed", res.status, errText);
+          await raiseNearDeadlineAlert(
+            supabase,
+            `notify-user HTTP ${res.status} phone=${userPhone} ${errText}`,
+          );
           continue;
         }
 
@@ -133,6 +193,10 @@ serve(async (req) => {
         if (!(sent > 0)) {
           // sent:0 means no FCM tokens / send failed — leave push_sent false so it retries later.
           console.warn("warn-near-deadline notify-user sent 0, not marking pushed", userPhone);
+          await raiseNearDeadlineAlert(
+            supabase,
+            `notify-user sent:0 phone=${userPhone} type=${payload.type} (retrying; push_sent left false)`,
+          );
           continue;
         }
 
@@ -147,7 +211,15 @@ serve(async (req) => {
         }
       } catch (pushErr) {
         console.error("warn-near-deadline push failed", userPhone, pushErr);
+        await raiseNearDeadlineAlert(
+          supabase,
+          `notify-user throw phone=${userPhone} ${pushErr instanceof Error ? pushErr.message : String(pushErr)}`,
+        );
       }
+    }
+
+    if (pushed > 0) {
+      await resolveNearDeadlineAlert(supabase);
     }
 
     return new Response(JSON.stringify({ pushed }), {

@@ -3,6 +3,10 @@
  * src/lib/sentry.ts, one for each identity failure scope. Prints store
  * event IDs so TEST verification can confirm ingest accepted them.
  *
+ * WARNING: This posts real events to the production Sentry project and
+ * consumes Developer-tier quota. Run manually only when verifying wiring —
+ * never wire into CI, npm scripts, or scheduled jobs.
+ *
  * Usage: node scripts/manual/verify-identity-sentry.mjs
  */
 const DSN =

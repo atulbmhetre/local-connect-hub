@@ -7,6 +7,7 @@ import {
   supabaseAdmin,
   createModeVendor,
   invokeWarnPendingOrdersNearDeadline,
+  invokeWarnNearDeadlinePush,
   uniqueTestPhone,
   cleanupSession38Data,
 } from './helpers/session38';
@@ -181,6 +182,105 @@ test('ND-06: help sent order warns near accept timeout', async () => {
   await invokeWarnPendingOrdersNearDeadline();
 
   await assertNotificationCreated(CUSTOMER_PHONE, 'order_near_deadline_unseen');
+
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', CUSTOMER_PHONE);
+  await supabaseAdmin.from('requests').delete().eq('id', order.id);
+});
+
+async function assertPushHopReachedNotifyUser(opts: {
+  orderId: string;
+  phone: string;
+  expectedType: string;
+}) {
+  const notification = await assertNotificationCreated(opts.phone, opts.expectedType);
+  expect(notification.related_id).toBe(opts.orderId);
+
+  const deviceId = `device_nd_push_${opts.orderId.slice(0, 8)}`;
+  await supabaseAdmin.from('user_devices').upsert({
+    user_phone: opts.phone,
+    device_id: deviceId,
+    fcm_token: `nd-push-dummy-${opts.orderId}`,
+    is_current: true,
+  });
+
+  const since = new Date(Date.now() - 15_000).toISOString();
+  const result = await invokeWarnNearDeadlinePush();
+  expect(typeof result.pushed).toBe('number');
+
+  const { data: logs, error: logError } = await supabaseAdmin
+    .from('fcm_delivery_log')
+    .select('notification_type, success_count, failure_count, raw_response, created_at')
+    .eq('target_phone', opts.phone)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(5);
+  expect(logError, logError?.message).toBeNull();
+  expect(logs?.length, 'notify-user never logged — push hop did not run').toBeGreaterThan(0);
+
+  const { data: requestRow } = await supabaseAdmin
+    .from('requests')
+    .select('near_deadline_push_sent, near_deadline_warned_at')
+    .eq('id', opts.orderId)
+    .single();
+  expect(requestRow?.near_deadline_warned_at).toBeTruthy();
+  // Dummy token cannot deliver; stamp stays false so cron retries.
+  if (!logs?.some((row) => Number(row.success_count) > 0)) {
+    expect(requestRow?.near_deadline_push_sent).toBe(false);
+  }
+
+  await supabaseAdmin.from('user_devices').delete().eq('device_id', deviceId);
+}
+
+test('ND-PUSH-HELP: warn SQL + warn-near-deadline edge reaches notify-user', async () => {
+  const order = await insertRequest({ vendor_id: helpVendor.id });
+  await supabaseAdmin
+    .from('requests')
+    .update({ created_at: new Date(Date.now() - 11 * 60 * 1000).toISOString() })
+    .eq('id', order.id);
+
+  await invokeWarnPendingOrdersNearDeadline();
+  await assertPushHopReachedNotifyUser({
+    orderId: order.id,
+    phone: CUSTOMER_PHONE,
+    expectedType: 'order_near_deadline_unseen',
+  });
+
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', CUSTOMER_PHONE);
+  await supabaseAdmin.from('requests').delete().eq('id', order.id);
+});
+
+test('ND-PUSH-DELIVERY: warn SQL + warn-near-deadline edge reaches notify-user', async () => {
+  const order = await insertRequest({
+    vendor_id: deliveryVendor.id,
+    delivery_slot: 'evening',
+    delivery_slot_deadline: minutesFromNow(45),
+  });
+
+  await invokeWarnPendingOrdersNearDeadline();
+  await assertPushHopReachedNotifyUser({
+    orderId: order.id,
+    phone: CUSTOMER_PHONE,
+    expectedType: 'order_near_deadline_unseen',
+  });
+
+  await supabaseAdmin.from('user_notifications').delete().eq('user_phone', CUSTOMER_PHONE);
+  await supabaseAdmin.from('requests').delete().eq('id', order.id);
+});
+
+test('ND-PUSH-APPOINTMENT: warn SQL + warn-near-deadline edge reaches notify-user', async () => {
+  const order = await insertRequest({
+    vendor_id: apptVendor.id,
+    status: 'seen',
+    appointment_time: minutesFromNow(40),
+    appointment_status: 'pending',
+  });
+
+  await invokeWarnPendingOrdersNearDeadline();
+  await assertPushHopReachedNotifyUser({
+    orderId: order.id,
+    phone: CUSTOMER_PHONE,
+    expectedType: 'order_near_deadline_unconfirmed',
+  });
 
   await supabaseAdmin.from('user_notifications').delete().eq('user_phone', CUSTOMER_PHONE);
   await supabaseAdmin.from('requests').delete().eq('id', order.id);
