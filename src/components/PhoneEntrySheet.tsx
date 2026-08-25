@@ -50,6 +50,7 @@ type VendorRestoreStatus = {
   found: boolean;
   vendor_id: string | null;
   is_banned: boolean;
+  is_active: boolean;
   restore_allowed: boolean;
   deny_reason: string | null;
 };
@@ -59,6 +60,7 @@ type ExistingAccountHit = {
   hasVendor: boolean;
   vendorId: string | null;
   vendorRestorable: boolean;
+  vendorIsActive: boolean;
   totalOrders: number;
 };
 
@@ -117,6 +119,7 @@ async function lookupExistingAccount(phone: string): Promise<{
         vendorRestorable: Boolean(
           hasVendor && vendorStatus?.restore_allowed === true && vendorStatus?.vendor_id,
         ),
+        vendorIsActive: vendorStatus?.is_active === true,
         totalOrders: Number(customerRow?.total_orders ?? 0),
       },
       error: false,
@@ -242,7 +245,7 @@ export function PhoneEntrySheet({
       saveUserPhone(digits);
       await migrateUserPhone(digits, getDeviceId());
       if (existingAccount.vendorRestorable && existingAccount.vendorId) {
-        restoreVendorSession(existingAccount.vendorId);
+        restoreVendorSession(existingAccount.vendorId, existingAccount.vendorIsActive);
       }
       void recordUserReferral(digits, getDeviceId());
       setExistingAccount(null);

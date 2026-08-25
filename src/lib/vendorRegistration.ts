@@ -99,4 +99,8 @@ export function resolveRegistrationShopName(
   return ownerName.trim();
 }
 
-export const MAX_REG_CATEGORIES = 5;
+/** First-time registration: one category = one business. */
+export const MAX_REG_CATEGORIES = 1;
+
+/** Post-registration cap for Add business / My Business. */
+export const MAX_VENDOR_CATEGORIES = 5;

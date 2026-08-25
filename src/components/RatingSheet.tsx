@@ -27,6 +27,7 @@ import { Capacitor } from "@capacitor/core";
 
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getVoiceLang } from "@/lib/voiceUtils";
+import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
 
 import { toast } from "sonner";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
@@ -155,7 +156,11 @@ export function RatingSheet({
         toast.error(s.rating_voiceUnavailable);
         return;
       }
-      await SpeechRecognition.requestPermissions();
+      const micOk = await ensureVoiceMicrophone();
+      if (!micOk) {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
       setIsListeningReview(true);
       const result = await SpeechRecognition.start({
         language: getVoiceLang(),

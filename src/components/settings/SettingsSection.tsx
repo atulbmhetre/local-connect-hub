@@ -102,16 +102,19 @@ export function SettingsParentCollapsible({
   open,
   onToggle,
   children,
+  testId,
 }: {
   label: ReactNode;
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
+  testId?: string;
 }) {
   return (
     <div className="mx-4 mb-4 rounded-2xl border-2 border-brand/25 bg-surface shadow-sm overflow-hidden">
       <button
         type="button"
+        data-testid={testId}
         onClick={onToggle}
         aria-expanded={open}
         className={cn(

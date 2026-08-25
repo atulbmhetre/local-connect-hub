@@ -274,6 +274,14 @@ type Props = {
     is_manual_verified?: boolean | null;
     shop_photo_url?: string | null;
     verification_status?: string | null;
+    gps_match_distance?: number | null;
+    location_accuracy?: number | null;
+    photo_accuracy?: number | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    upi_id?: string | null;
+    upi_qr_url?: string | null;
+    upi_qr_payee_id?: string | null;
   }[];
   trustLevel?: TrustLevel;
   dist: number | null;
@@ -312,28 +320,29 @@ export function RadarVendorCard({
     .trim()
     .toLowerCase();
   const isOwnVendor = readIsOwnVendorCard(vendor.id, vendor.phone);
-  const matchedCategoryId = categories[0]?.category_id ?? null;
+  const matchedCategory = categories[0];
+  const matchedCategoryId = matchedCategory?.category_id ?? null;
   const brandName =
     displayBrandName?.trim() ||
     resolveCategoryBrandName(
-      categories[0]?.brand_name,
+      matchedCategory?.brand_name,
       vendor.shop_name,
       matchedCategoryId,
     ) ||
     vendor.shop_name;
   const categoryReach = resolveCategoryReach(
-    categories[0],
+    matchedCategory,
     {
       serves_at_vendor_place: vendor.serves_at_vendor_place,
       serves_at_customer_place: vendor.serves_at_customer_place,
     },
     matchedCategoryId,
   );
-  const businessTrust = categories[0]
+  const businessTrust = matchedCategory
     ? {
-        is_manual_verified: categories[0].is_manual_verified,
-        shop_photo_url: categories[0].shop_photo_url,
-        verification_status: categories[0].verification_status,
+        is_manual_verified: matchedCategory.is_manual_verified,
+        shop_photo_url: matchedCategory.shop_photo_url,
+        verification_status: matchedCategory.verification_status,
       }
     : {
         is_manual_verified: vendor.is_manual_verified,
@@ -341,16 +350,17 @@ export function RadarVendorCard({
         verification_status: vendor.verification_status,
       };
   
-  // Compute business-specific GPS verification for the matched category
-  const businessLocationData = categories[0] && 'gps_match_distance' in categories[0] ? {
-    vendor_id: vendor.id,
-    category_id: categories[0].category_id,
-    shop_photo_url: (categories[0] as any).shop_photo_url,
-    gps_match_distance: (categories[0] as any).gps_match_distance,
-    location_accuracy: (categories[0] as any).location_accuracy,
-    photo_accuracy: (categories[0] as any).photo_accuracy,
-    verification_status: (categories[0] as any).verification_status,
-  } : null;
+  const businessLocationData = matchedCategoryId
+    ? {
+        vendor_id: vendor.id,
+        category_id: matchedCategoryId,
+        shop_photo_url: matchedCategory?.shop_photo_url,
+        gps_match_distance: matchedCategory?.gps_match_distance ?? null,
+        location_accuracy: matchedCategory?.location_accuracy ?? null,
+        photo_accuracy: matchedCategory?.photo_accuracy ?? null,
+        verification_status: matchedCategory?.verification_status ?? null,
+      }
+    : null;
   
   const { gps: businessGpsVerified } = deriveBusinessLocationPasses(businessLocationData);
 
@@ -544,8 +554,7 @@ export function RadarVendorCard({
       upi_verified: vendor.upi_verified,
       photo_selfie: vendor.photo_selfie,
       businessGpsVerified: businessGpsVerified,
-      // Keep latitude for backward compatibility (will use businessGpsVerified if present)
-      latitude: vendor.latitude,
+      latitude: matchedCategory?.latitude ?? null,
     }) === "green"
       ? "ring-brand/50 shadow-[0_0_24px_rgba(34,197,94,0.25)]"
       : "ring-destructive/30";
@@ -943,8 +952,7 @@ export function RadarVendorCard({
           upi_verified: vendor.upi_verified,
           photo_selfie: vendor.photo_selfie,
           businessGpsVerified: businessGpsVerified,
-          // Keep latitude for backward compatibility (will use businessGpsVerified if present)
-          latitude: vendor.latitude,
+          latitude: matchedCategory?.latitude ?? null,
         })}
         context="radar"
       />

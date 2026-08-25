@@ -16,7 +16,8 @@ export type AdminActionType =
   | "update_config"
   | "delete_review"
   | "admin_check_passed"
-  | "admin_check_failed";
+  | "admin_check_failed"
+  | "force_clear_deletion";
 
 export type AdminTargetType = "vendor" | "user" | "category" | "config" | "vendor_category";
 

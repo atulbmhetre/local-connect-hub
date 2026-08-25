@@ -26,6 +26,7 @@ import {
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, hasBeenWelcomed, markWelcomed } from "@/lib/userIdentity";
 import { registerUserPushToken } from "@/lib/pushNotifications";
+import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/SettingsSection";
@@ -584,7 +585,11 @@ const Index = () => {
         toast.error(s.home_voice_unavailable);
         return;
       }
-      await SpeechRecognition.requestPermissions();
+      const micOk = await ensureVoiceMicrophone();
+      if (!micOk) {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
       setListening(true);
       const result = await SpeechRecognition.start({
         language: "en-IN",

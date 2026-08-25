@@ -2,6 +2,11 @@ import { Capacitor } from "@capacitor/core";
 import { PushNotifications, type PushNotificationSchema } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Geolocation } from "@capacitor/geolocation";
+import {
+  checkNativePermissionStatuses,
+  ensureNativePermissionGranted,
+  isPermissionGranted,
+} from "@/lib/nativePermissions";
 import { supabase } from "@/lib/supabase";
 import { fetchVendorPhone, patchVendorOwn } from "@/lib/vendorPatch";
 import { getDeviceId } from "@/lib/deviceId";
@@ -234,8 +239,8 @@ export async function registerPushToken(
 ) {
   if (!Capacitor.isNativePlatform()) return;
 
-  const permission = await PushNotifications.requestPermissions();
-  if (permission.receive !== "granted") return;
+  const granted = await ensureNativePermissionGranted("notifications", "passive");
+  if (!granted) return;
 
   const knownPhone = options?.vendorPhone?.trim() || null;
 
@@ -251,7 +256,8 @@ export async function registerPushToken(
 
 async function saveUserDeviceLocationSilently(userPhone: string, deviceId: string): Promise<void> {
   try {
-    await Geolocation.requestPermissions();
+    const live = await checkNativePermissionStatuses();
+    if (!isPermissionGranted(live.location)) return;
     const pos = await Geolocation.getCurrentPosition({ timeout: 10_000 });
     const { error } = await supabase.rpc("update_user_device_location", {
       p_user_phone: userPhone,
@@ -266,14 +272,12 @@ async function saveUserDeviceLocationSilently(userPhone: string, deviceId: strin
 }
 
 /**
- * Always invoke the OS notification permission prompt on native.
- * Call this from FirstOpen "Allow" even when no phone is on file yet so Settings
- * reflects real OS state (fixes checkbox / permission mismatch).
+ * Explicit user action (FirstOpen Allow). Live-check first; does not prompt
+ * if already granted or permanently denied.
  */
 export async function requestPushPermissionFromOs(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return false;
-  const permission = await PushNotifications.requestPermissions();
-  return permission.receive === "granted";
+  return ensureNativePermissionGranted("notifications", "explicit");
 }
 
 export async function registerUserPushToken(
@@ -283,7 +287,7 @@ export async function registerUserPushToken(
   if (!Capacitor.isNativePlatform()) return;
 
   if (!options?.skipPermissionRequest) {
-    const granted = await requestPushPermissionFromOs();
+    const granted = await ensureNativePermissionGranted("notifications", "passive");
     if (!granted) {
       captureError(new Error("push_permission_denied"), {
         pushSurface: "registration",
@@ -292,6 +296,9 @@ export async function registerUserPushToken(
       });
       return;
     }
+  } else {
+    const live = await checkNativePermissionStatuses();
+    if (!isPermissionGranted(live.notifications)) return;
   }
 
   const deviceId = getDeviceId();

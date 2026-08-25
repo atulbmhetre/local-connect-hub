@@ -4,7 +4,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { getServiceRoleClient, getSupabaseUrl } from './helpers/testEnv';
-import { loginAsCustomer, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, APP_URL, expandMyAccountAccordion } from './helpers/browser-setup';
 import { mintBrowserSupabaseSession } from './helpers/setup';
 import { strings } from '../src/lib/strings';
 
@@ -62,7 +62,8 @@ test('PROD-SET-FEED-01 — Local Feed collapsible under MY ACCOUNT; radius saves
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 15000 });
 
-  // Sibling under MY ACCOUNT (parent open by default) — body closed until tapped.
+  // Sibling under MY ACCOUNT (parent starts closed) — expand, then body closed until tapped.
+  await expandMyAccountAccordion(page);
   await expect(page.getByTestId('settings-feed-discovery-toggle')).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId('settings-feed-discovery')).not.toBeVisible();
   await expect(page.getByText(EN.nav_feed).first()).toBeVisible();
@@ -111,6 +112,7 @@ test('PROD-SET-PHONE-01 — no-phone customer adds phone from My Identity and po
 
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 10000 });
+  await expandMyAccountAccordion(page);
   await page.getByTestId('settings-identity-toggle').click();
   await expect(page.getByTestId('settings-add-phone')).toBeVisible();
   await page.getByTestId('settings-add-phone').click();
@@ -166,6 +168,7 @@ test('PROD-SET-PHONE-02 — My Identity offers restore for number with history',
 
   await loginAsNoPhoneCustomer(page, `${DEVICE_ID}-exist-${T}`);
   await page.goto(`${APP_URL}/settings`);
+  await expandMyAccountAccordion(page);
   await page.getByTestId('settings-identity-toggle').click();
   await page.getByTestId('settings-add-phone').click();
   await page.getByPlaceholder('98765 43210').fill(EXISTING_PHONE);

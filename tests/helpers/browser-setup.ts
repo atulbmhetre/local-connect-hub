@@ -278,7 +278,7 @@ export async function openVendorMyBusinessTab(page: Page) {
 }
 
 /**
- * Expand My Business identity accordion (base type, shop name, verification).
+ * Expand My Business identity accordion (name, phone, selfie).
  * Required since 258776c — all My Business accordions start closed.
  */
 export async function expandMyBusinessIdentityAccordion(page: Page) {
@@ -321,4 +321,17 @@ export async function expandFirstMyBusinessCategoryAccordion(page: Page) {
   await expect(root.getByTestId('my-business-operations').first()).toBeVisible({
     timeout: 10000,
   });
+}
+
+/**
+ * Expand the Settings MY ACCOUNT parent accordion.
+ * Nested rows (Identity, Account Standing, Preferences, Local Feed) start hidden.
+ */
+export async function expandMyAccountAccordion(page: Page) {
+  const toggle = page.getByTestId('settings-my-account-toggle');
+  await expect(toggle).toBeVisible({ timeout: 15000 });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 }

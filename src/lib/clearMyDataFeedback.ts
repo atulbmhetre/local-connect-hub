@@ -7,13 +7,14 @@ export const CLEAR_MY_DATA_RELOAD_DELAY_MS = 1800;
  */
 export function showClearMyDataSuccessThenReload(opts: {
   message: string;
-  toastSuccess: (message: string) => void;
+  description?: string;
+  toastSuccess: (message: string, description?: string) => void;
   reload?: () => void;
   delayMs?: number;
 }): void {
   const reload = opts.reload ?? (() => window.location.reload());
   const delayMs = opts.delayMs ?? CLEAR_MY_DATA_RELOAD_DELAY_MS;
-  opts.toastSuccess(opts.message);
+  opts.toastSuccess(opts.message, opts.description);
   window.setTimeout(() => {
     reload();
   }, delayMs);

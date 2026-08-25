@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, CheckCircle2, ChevronDown, Loader2, MapPin } from "lucide-react";
+import { CheckCircle2, ChevronDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
@@ -17,6 +17,7 @@ import {
   useCategoryLabel,
   invokeNotifyAdmin,
 } from "@/lib/supabase";
+import { decodeUpiPayeeIdFromImageFile } from "@/lib/upiQrDecode";
 import {
   GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW,
   evaluateGpsMatch,
@@ -25,7 +26,6 @@ import {
 } from "@/lib/gpsMatch";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import {
-  checkAndNotifyAdminGreenReady,
   checkAndNotifyAdminCategoryGreenReady,
 } from "@/lib/vendorGreenReady";
 import { myBusinessSaveVerificationNotifyReasons } from "@/lib/myBusinessSaveNotify";
@@ -36,12 +36,11 @@ import {
   type AvailabilityMode,
   type BaseTypeValue,
   type ReachChoiceValue,
-  baseTypeToVendorType,
   looksLikeGibberish,
   reachChoiceFromFlags,
   reachFlagsFromChoice,
   vendorTypeToBaseType,
-  MAX_REG_CATEGORIES,
+  MAX_VENDOR_CATEGORIES,
   resolveRegistrationShopName,
 } from "@/lib/vendorRegistration";
 import {
@@ -103,7 +102,18 @@ type CategoryEditSettings = {
   location_accuracy: number | null;
   delivery_fulfillment_method: DeliveryFulfillmentMethod;
   delivery_payment_timing: DeliveryPaymentTiming;
+  upi_id: string;
+  upi_qr_url: string | null;
+  upi_qr_payee_id: string | null;
+  base_type: BaseTypeValue;
 };
+
+function rowBaseType(value: unknown): BaseTypeValue {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "visiting") return "none";
+  if (v === "shop" || v === "home" || v === "none") return v;
+  return "";
+}
 
 type Props = {
   vendor: Vendor;
@@ -136,6 +146,10 @@ function settingsFromAccount(account: {
     location_accuracy: null,
     delivery_fulfillment_method: DEFAULT_DELIVERY_FULFILLMENT,
     delivery_payment_timing: DEFAULT_DELIVERY_PAYMENT_TIMING,
+    upi_id: "",
+    upi_qr_url: null,
+    upi_qr_payee_id: null,
+    base_type: "",
   };
 }
 
@@ -154,6 +168,10 @@ function settingsFromCategoryRow(
     location_accuracy?: number | null;
     delivery_fulfillment_method?: string | null;
     delivery_payment_timing?: string | null;
+    upi_id?: string | null;
+    upi_qr_url?: string | null;
+    upi_qr_payee_id?: string | null;
+    base_type?: string | null;
   },
   accountFallback: CategoryEditSettings,
 ): CategoryEditSettings {
@@ -184,6 +202,10 @@ function settingsFromCategoryRow(
       normalizeDeliveryFulfillmentMethod(row.delivery_fulfillment_method),
       normalizeDeliveryPaymentTiming(row.delivery_payment_timing),
     ),
+    upi_id: String(row.upi_id ?? "").trim(),
+    upi_qr_url: String(row.upi_qr_url ?? "").trim() || null,
+    upi_qr_payee_id: String(row.upi_qr_payee_id ?? "").trim() || null,
+    base_type: rowBaseType(row.base_type),
   };
 }
 
@@ -290,11 +312,9 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
 
   const [ownerName, setOwnerName] = useState(vendor.name ?? "");
   const [shopName, setShopName] = useState(vendor.shop_name ?? "");
-  const [baseType, setBaseType] = useState<BaseTypeValue>("");
   const [reachChoice, setReachChoice] = useState<ReachChoiceValue>("");
   const [serviceRadiusKm, setServiceRadiusKm] = useState<number | null>(null);
   const [phone, setPhone] = useState(vendor.phone ?? "");
-  const [upiId, setUpiId] = useState(vendor.upi_id ?? "");
   const [availableCategories, setAvailableCategories] = useState<RegCategoryRow[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<RegCategoryRow[]>([]);
@@ -308,8 +328,10 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const savingLockRef = useRef(false);
-  const [verifyingUpi, setVerifyingUpi] = useState(false);
-  const [updatingLocation, setUpdatingLocation] = useState(false);
+  const [updatingLocationFor, setUpdatingLocationFor] = useState<string | null>(null);
+  const [upiQrUploadingFor, setUpiQrUploadingFor] = useState<string | null>(null);
+  const upiQrInputRef = useRef<HTMLInputElement>(null);
+  const [upiQrTargetId, setUpiQrTargetId] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
   const [gpsMatchFailCount, setGpsMatchFailCount] = useState(0);
@@ -323,16 +345,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const hydrateFromVendor = useCallback((v: Vendor) => {
     setOwnerName(v.name ?? "");
     setShopName(v.shop_name ?? "");
-    setBaseType(
-      v.base_type ? (v.base_type as BaseTypeValue) : vendorTypeToBaseType(v.vendor_type),
-    );
     setReachChoice(
       reachChoiceFromFlags(v.serves_at_vendor_place, v.serves_at_customer_place) ||
         (v.vendor_type === "visiting" ? "customer" : "vendor"),
     );
     setServiceRadiusKm(v.service_radius_km ?? null);
     setPhone(v.phone ?? "");
-    setUpiId(v.upi_id ?? "");
   }, []);
 
   useEffect(() => {
@@ -352,7 +370,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         supabase
           .from("vendor_categories")
           .select(
-            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, delivery_fulfillment_method, delivery_payment_timing, categories(id, label, emoji, service_mode)",
+            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, delivery_fulfillment_method, delivery_payment_timing, upi_id, upi_qr_url, upi_qr_payee_id, base_type, categories(id, label, emoji, service_mode)",
           )
           .eq("vendor_id", vendor.id)
           .eq("status", "approved")
@@ -496,7 +514,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         ? prev.length <= 1
           ? prev
           : prev.filter((id) => id !== categoryId)
-        : prev.length >= MAX_REG_CATEGORIES
+        : prev.length >= MAX_VENDOR_CATEGORIES
           ? prev
           : [...prev, categoryId];
       selectedCategoryIdsRef.current = next;
@@ -547,17 +565,19 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     }));
   };
 
-  const needsRadius = reachChoice === "customer" || reachChoice === "both";
   const shopNameInvalid =
     shopName.trim().length > 0 &&
     (shopName.trim().length <= 1 || looksLikeGibberish(shopName));
+  const primaryShopBaseType =
+    (selectedCategoryIds[0]
+      ? categorySettingsById[selectedCategoryIds[0]]?.base_type
+      : "") ?? "";
   const shopFieldOk =
-    baseType === "shop"
+    primaryShopBaseType === "shop"
       ? shopName.trim().length > 1 && !looksLikeGibberish(shopName)
-      : baseType === "home"
+      : primaryShopBaseType === "home"
         ? !shopNameInvalid
-        : baseType === "none";
-  const radiusOk = !needsRadius || serviceRadiusKm != null;
+        : true;
   const ownerOk = ownerName.trim().length > 1 && !looksLikeGibberish(ownerName);
 
   const multiCategorySettingsOk = selectedCategoryIds.every((id) => {
@@ -565,6 +585,8 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     if (!cfg.reachChoice) return false;
     const needsCatRadius = cfg.reachChoice === "customer" || cfg.reachChoice === "both";
     if (needsCatRadius && cfg.service_radius_km == null) return false;
+    const upi = (cfg.upi_id ?? "").trim();
+    if (upi && !isValidUpi(upi)) return false;
     return true;
   });
 
@@ -575,7 +597,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
 
   const saveReady =
     ownerOk &&
-    baseType !== "" &&
     shopFieldOk &&
     selectedCategoryIds.length > 0 &&
     phone.trim().length > 0 &&
@@ -640,7 +661,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       primaryCategory?.service_mode ?? vendor.service_mode,
     );
 
-    const multi = categoryIdsToSave.length > 1;
     const primaryCatSettings =
       categorySettingsById[categoryIdsToSave[0]] ?? accountDefaultsForInherit();
     const effectiveReachChoice = primaryCatSettings.reachChoice;
@@ -648,13 +668,24 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     const reachFlags = effectiveReachChoice
       ? reachFlagsFromChoice(effectiveReachChoice)
       : null;
-    const mappedVendorType = baseTypeToVendorType(baseType);
-    if (!mappedVendorType || !reachFlags || !primaryLabel || !primaryServiceMode) {
+    if (!reachFlags || !primaryLabel || !primaryServiceMode) {
       releaseSaveLock();
       return;
     }
 
-    const resolvedShopName = resolveRegistrationShopName(baseType, ownerName, shopName);
+    // Empty base_type (pre-Phase-2 rows) must not coerce to "none" or we overwrite
+    // an existing shop brand with the owner name and break Radar card matching.
+    const nameBaseType: BaseTypeValue =
+      primaryCatSettings.base_type === ""
+        ? shopName.trim()
+          ? "shop"
+          : "none"
+        : primaryCatSettings.base_type;
+    const resolvedShopName = resolveRegistrationShopName(
+      nameBaseType,
+      ownerName,
+      shopName,
+    );
     const radiusKm =
       reachFlags.serves_at_customer_place && effectiveRadiusKm != null
         ? effectiveRadiusKm
@@ -686,7 +717,25 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       );
     });
 
-    const upiChanged = upiId.trim() !== (vendor.upi_id ?? "").trim();
+    const upiIds = categoryIdsToSave.map(
+      (id) => (categorySettingsById[id]?.upi_id ?? "").trim(),
+    );
+    const upiQrUrls = categoryIdsToSave.map(
+      (id) => categorySettingsById[id]?.upi_qr_url ?? null,
+    );
+    const upiQrPayeeIds = categoryIdsToSave.map(
+      (id) => categorySettingsById[id]?.upi_qr_payee_id ?? null,
+    );
+    const baseTypes = categoryIdsToSave.map(
+      (id) => categorySettingsById[id]?.base_type || null,
+    );
+    const latitudes = categoryIdsToSave.map(
+      (id) => categorySettingsById[id]?.latitude ?? null,
+    );
+    const longitudes = categoryIdsToSave.map(
+      (id) => categorySettingsById[id]?.longitude ?? null,
+    );
+
     const phoneChanged = phone.trim() !== (vendor.phone ?? "").trim();
 
     const categoryServiceModes = categoryIdsToSave.map((categoryId) => {
@@ -708,19 +757,11 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       shop_name: resolvedShopName.trim(),
       category: primaryLabel,
       service_mode: primaryServiceMode,
-      vendor_type: mappedVendorType,
-      base_type: baseType,
       serves_at_vendor_place: reachFlags.serves_at_vendor_place,
       serves_at_customer_place: reachFlags.serves_at_customer_place,
       service_radius_km: radiusKm,
       phone: phone.trim(),
-      upi_id: upiId.trim() || null,
-      ...(phoneChanged || upiChanged
-        ? {
-            is_manual_verified: false,
-            shop_photo_url: upiChanged ? vendor.shop_photo_url : undefined,
-          }
-        : {}),
+      ...(phoneChanged ? { is_manual_verified: false } : {}),
     };
 
     let saveError: { message: string } | null = null;
@@ -741,6 +782,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               p_service_radius_km: radii,
               p_delivery_fulfillment_methods: deliveryFulfillmentMethods,
               p_delivery_payment_timings: deliveryPaymentTimings,
+              p_upi_ids: upiIds,
+              p_upi_qr_urls: upiQrUrls,
+              p_upi_qr_payee_ids: upiQrPayeeIds,
+              p_base_types: baseTypes,
+              p_latitudes: latitudes,
+              p_longitudes: longitudes,
             }),
           ),
         {
@@ -775,15 +822,11 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       shop_name: resolvedShopName.trim(),
       category: primaryLabel,
       service_mode: primaryServiceMode,
-      vendor_type: mappedVendorType,
-      base_type: baseType,
       serves_at_vendor_place: reachFlags.serves_at_vendor_place,
       serves_at_customer_place: reachFlags.serves_at_customer_place,
       service_radius_km: radiusKm,
       phone: phone.trim(),
-      upi_id: upiId.trim() || null,
-      ...(upiChanged ? { upi_verified: false } : {}),
-      ...(phoneChanged || upiChanged
+      ...(phoneChanged
         ? {
             is_manual_verified: false,
             verification_status: "identity_linked" as VerificationStatus,
@@ -795,7 +838,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
 
     const adminNotifyReasons = myBusinessSaveVerificationNotifyReasons({
       phoneChanged,
-      upiChanged,
+      upiChanged: false,
     });
     if (adminNotifyReasons.length > 0) {
       void invokeNotifyAdmin(
@@ -808,58 +851,28 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     releaseSaveLock();
   };
 
-  const verifyUpi = async () => {
-    const trimmed = upiId.trim();
-    if (!isValidUpi(trimmed)) {
-      toast.error(s.vendor_upi_format_invalid, { description: s.vendor_upi_format_body });
-      return;
-    }
-    if (trimmed !== (vendor.upi_id ?? "").trim()) {
-      toast.error(s.my_business_save_before_verify);
-      return;
-    }
-    setVerifyingUpi(true);
-    const bank = trimmed.split("@")[1] ?? "bank";
+  const handleUpiQrFile = async (categoryId: string, file: File) => {
+    setUpiQrUploadingFor(categoryId);
+    const path = `upi-qr/${vendor.id}/${categoryId}/${Date.now()}_${file.name}`;
     try {
-      const { error } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
-            await supabase.rpc("vendor_verify_upi", {
-              p_vendor_id: vendor.id,
-              p_vendor_phone: vendor.phone,
-              p_upi_id: trimmed,
-            }),
-          ),
-        {
-          onRetrying: () => showNetworkRetryingToast({ retrying: s.network_retrying }),
-          shouldRetry: () => getNavigatorOnline(),
-        },
-      );
-      dismissNetworkRetryingToast();
-      if (error) {
-        toast.error(s.vendor_upi_check_failed, { description: error.message });
+      const { error: upErr } = await supabase.storage.from("vendor-docs").upload(path, file, {
+        contentType: file.type || "image/jpeg",
+        upsert: true,
+      });
+      if (upErr) {
+        toast.error(s.vendor_qr_upload_failed);
         return;
       }
-      void checkAndNotifyAdminGreenReady(vendor.id, {
-        shopName: vendor.shop_name,
-        vendorPhone: vendorPhone || phone.trim(),
+      const { data: pub } = supabase.storage.from("vendor-docs").getPublicUrl(path);
+      const payeeId = await decodeUpiPayeeIdFromImageFile(file);
+      updateCategorySettings(categoryId, {
+        upi_qr_url: pub.publicUrl,
+        upi_qr_payee_id: payeeId,
+        ...(payeeId ? { upi_id: payeeId } : {}),
       });
-      onVendorUpdated({ ...vendor, upi_verified: true });
-      toast.success(`${s.vendor_upi_verified}${bank.toUpperCase()}`, {
-        description: s.vendor_upi_bank_valid,
-      });
-    } catch (err) {
-      dismissNetworkRetryingToast();
-      if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void verifyUpi(), {
-          failed: s.network_failed,
-          retryBtn: s.network_retry_btn,
-        });
-      } else {
-        throw err;
-      }
+      if (!payeeId) toast.error(s.vendor_qr_decode_failed);
     } finally {
-      setVerifyingUpi(false);
+      setUpiQrUploadingFor(null);
     }
   };
 
@@ -1084,18 +1097,15 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     }
   };
 
-  const updateShopLocation = async () => {
-    const anyVerifiedBiz = selectedCategoryIds.some((id) => {
-      const cfg = categorySettingsById[id];
-      const status = cfg?.verification_status;
-      return (
-        cfg?.is_manual_verified === true ||
-        status === "business_verified" ||
-        status === "green_pending" ||
-        (cfg?.shop_photo_url != null && String(cfg.shop_photo_url).trim() !== "")
-      );
-    });
-    if (anyVerifiedBiz) {
+  const updateBusinessLocation = async (categoryId: string) => {
+    const cfg = categorySettingsById[categoryId] ?? accountDefaultsForInherit();
+    const hadPin = cfg.latitude != null && cfg.longitude != null;
+    const verifiedBiz =
+      cfg.is_manual_verified === true ||
+      cfg.verification_status === "business_verified" ||
+      cfg.verification_status === "green_pending" ||
+      (cfg.shop_photo_url != null && String(cfg.shop_photo_url).trim() !== "");
+    if (hadPin && verifiedBiz) {
       const ok = window.confirm(s.vendor_location_reset_confirm);
       if (!ok) return;
     }
@@ -1103,7 +1113,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       toast.error(s.vendor_geo_not_supported);
       return;
     }
-    setUpdatingLocation(true);
+    setUpdatingLocationFor(categoryId);
     const coords = await new Promise<{
       lat: number;
       lng: number;
@@ -1124,24 +1134,70 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       );
     });
     if (!coords) {
-      setUpdatingLocation(false);
+      setUpdatingLocationFor(null);
       return;
     }
 
-    const downgraded = anyVerifiedBiz;
-    // Location coordinates only; the verification downgrade (account +
-    // categories) happens server-side in vendor_clear_category_photo_verifications
-    // (verification_status is field_not_allowed in the generic patch).
-    const patch: Partial<Vendor> = {
+    const ids = selectedCategoryIdsRef.current;
+    const nextSettings = {
+      ...(categorySettingsById[categoryId] ?? accountDefaultsForInherit()),
       latitude: coords.lat,
       longitude: coords.lng,
       location_accuracy: coords.accuracy,
     };
+    const categoryServiceModes = ids.map((id) => {
+      const cat =
+        availableCategories.find((c) => c.id === id) ??
+        selectedCategories.find((c) => c.id === id);
+      const modes = categorySettingsById[id]?.availability_modes ?? [];
+      return pickPrimaryAvailabilityMode(modes, cat?.service_mode);
+    });
+    const categoryModesPayload = buildCategoryModesPayload(
+      ids,
+      Object.fromEntries(ids.map((id) => [id, categorySettingsById[id]?.availability_modes])),
+    );
+    const settingsFor = (id: string) =>
+      id === categoryId ? nextSettings : (categorySettingsById[id] ?? accountDefaultsForInherit());
 
     try {
       const { error } = await withNetworkRetry(
         async () =>
-          throwOnSupabaseNetworkError(await patchVendorOwn(vendor.id, vendor.phone, patch)),
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_update_categories", {
+              p_vendor_id: vendor.id,
+              p_vendor_phone: vendorPhone || phone.trim(),
+              p_category_ids: ids,
+              p_category_service_modes: categoryServiceModes,
+              p_category_modes: categoryModesPayload,
+              p_brand_names: ids.map(() => (vendor.shop_name ?? "").trim()),
+              p_serves_at_vendor_place: ids.map(
+                (id) =>
+                  reachFlagsFromChoice(settingsFor(id).reachChoice)?.serves_at_vendor_place ===
+                  true,
+              ),
+              p_serves_at_customer_place: ids.map(
+                (id) =>
+                  reachFlagsFromChoice(settingsFor(id).reachChoice)?.serves_at_customer_place ===
+                  true,
+              ),
+              p_service_radius_km: ids.map((id) => settingsFor(id).service_radius_km),
+              p_delivery_fulfillment_methods: ids.map(
+                (id) => settingsFor(id).delivery_fulfillment_method,
+              ),
+              p_delivery_payment_timings: ids.map((id) =>
+                deliveryPaymentTimingForFulfillment(
+                  settingsFor(id).delivery_fulfillment_method,
+                  settingsFor(id).delivery_payment_timing,
+                ),
+              ),
+              p_upi_ids: ids.map((id) => (settingsFor(id).upi_id ?? "").trim()),
+              p_upi_qr_urls: ids.map((id) => settingsFor(id).upi_qr_url ?? null),
+              p_upi_qr_payee_ids: ids.map((id) => settingsFor(id).upi_qr_payee_id ?? null),
+              p_base_types: ids.map((id) => settingsFor(id).base_type || null),
+              p_latitudes: ids.map((id) => settingsFor(id).latitude ?? null),
+              p_longitudes: ids.map((id) => settingsFor(id).longitude ?? null),
+            }),
+          ),
         {
           onRetrying: () => showNetworkRetryingToast({ retrying: s.network_retrying }),
           shouldRetry: () => getNavigatorOnline(),
@@ -1152,39 +1208,16 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         toast.error(s.vendor_location_update_failed, { description: error.message });
         return;
       }
-      if (downgraded) {
-        const { error: clearErr } = await supabase.rpc(
-          "vendor_clear_category_photo_verifications",
-          {
-            p_vendor_id: vendor.id,
-            p_vendor_phone: vendor.phone,
-          },
-        );
-        if (clearErr) {
-          toast.error(s.vendor_location_update_failed, { description: clearErr.message });
-          return;
-        }
-        setCategorySettingsById((prev) => {
-          const next = { ...prev };
-          for (const id of selectedCategoryIds) {
-            next[id] = {
-              ...(next[id] ?? accountDefaultsForInherit()),
+      const downgraded = hadPin && verifiedBiz;
+      updateCategorySettings(categoryId, {
+        latitude: coords.lat,
+        longitude: coords.lng,
+        location_accuracy: coords.accuracy,
+        ...(downgraded
+          ? {
               shop_photo_url: null,
               gps_match_distance: null,
               verification_status: "identity_linked",
-              is_manual_verified: false,
-            };
-          }
-          return next;
-        });
-      }
-      onVendorUpdated({
-        ...vendor,
-        ...patch,
-        ...(downgraded
-          ? {
-              verification_status: "identity_linked" as VerificationStatus,
-              shop_photo_url: null,
               is_manual_verified: false,
             }
           : {}),
@@ -1195,7 +1228,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     } catch (err) {
       dismissNetworkRetryingToast();
       if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void updateShopLocation(), {
+        showNetworkFailedToast(() => void updateBusinessLocation(categoryId), {
           failed: s.network_failed,
           retryBtn: s.network_retry_btn,
         });
@@ -1203,21 +1236,16 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         throw err;
       }
     } finally {
-      setUpdatingLocation(false);
+      setUpdatingLocationFor(null);
     }
   };
 
   const hasSelfie = vendor.photo_selfie != null && String(vendor.photo_selfie).trim() !== "";
-  const hasLocation = vendor.latitude != null && vendor.longitude != null;
-  const baseTypeLabel =
-    baseType === "shop"
-      ? s.reg_base_shop
-      : baseType === "home"
-        ? s.reg_base_home
-        : baseType === "none"
-          ? s.reg_base_none
-          : "";
-  const identitySubtitle = [ownerName.trim(), baseTypeLabel].filter(Boolean).join(" · ");
+  const hasAccountLocation = vendor.latitude != null && vendor.longitude != null;
+  const accountBaseType = vendor.base_type
+    ? rowBaseType(vendor.base_type)
+    : vendorTypeToBaseType(vendor.vendor_type);
+  const identitySubtitle = ownerName.trim();
 
   return (
     <div data-testid="vendor-my-business" className="px-4 mb-6 space-y-4">
@@ -1273,56 +1301,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                     error={ownerName.length > 0 && !ownerOk ? s.vendor_name_invalid : undefined}
                   />
 
-                  <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      {s.reg_where_work_from}
-                    </label>
-                    <div className="mt-2 grid grid-cols-1 gap-2">
-                      {(
-                        [
-                          {
-                            value: "shop" as const,
-                            emoji: "🏪",
-                            title: s.reg_base_shop,
-                            desc: s.reg_base_shop_desc,
-                          },
-                          {
-                            value: "home" as const,
-                            emoji: "🏠",
-                            title: s.reg_base_home,
-                            desc: s.reg_base_home_desc,
-                          },
-                          {
-                            value: "none" as const,
-                            emoji: "🚫",
-                            title: s.reg_base_none,
-                            desc: s.reg_base_none_desc,
-                          },
-                        ] as const
-                      ).map((opt) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          data-testid={`my-business-base-${opt.value}`}
-                          onClick={() => setBaseType(opt.value)}
-                          className={cn(
-                            "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
-                            "bg-surface border-surface-border",
-                            baseType === opt.value &&
-                              "border-primary bg-primary/15 ring-1 ring-primary/30",
-                          )}
-                        >
-                          <p className="text-base font-display font-bold text-foreground leading-tight">
-                            {opt.emoji} {opt.title}
-                          </p>
-                          <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
-                            {opt.desc}
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
                   <Field
                     label={s.vendor_phone_label}
                     value={phone}
@@ -1335,23 +1313,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                         : undefined
                     }
                   />
-                  <Field
-                    label={s.vendor_upi_label}
-                    value={upiId}
-                    onChange={setUpiId}
-                    placeholder={s.vendor_upi_placeholder}
-                  />
                 </div>
-
-                <VerifyRow
-                  label={s.vendor_upi_bank_match}
-                  verified={vendor.upi_verified === true}
-                  verifiedLabel={s.my_business_verified}
-                  actionLabel={s.my_business_verify_now}
-                  onAction={() => void verifyUpi()}
-                  actionLoading={verifyingUpi}
-                  actionDisabled={!isValidUpi(upiId.trim())}
-                />
 
                 <VerifyRow
                   label={s.vendor_selfie_title}
@@ -1360,7 +1322,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                   verifiedLabel={s.my_business_verified}
                   actionLabel={hasSelfie ? s.vendor_selfie_reshoot : s.my_business_verify_now}
                   onAction={() => setSelfieCameraOpen(true)}
-                  actionDisabled={!hasLocation && baseType !== "none"}
+                  actionDisabled={!hasAccountLocation && accountBaseType !== "none"}
                 >
                   {hasSelfie && (
                     <img
@@ -1370,20 +1332,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                     />
                   )}
                 </VerifyRow>
-
-                <VerifyRow
-                  label={s.my_business_location_label}
-                  hint={
-                    hasLocation
-                      ? `📍 ${vendor.latitude!.toFixed(4)}, ${vendor.longitude!.toFixed(4)}`
-                      : s.vendor_location_missing_body
-                  }
-                  verified={hasLocation}
-                  verifiedLabel={s.my_business_verified}
-                  actionLabel={s.my_business_confirm_location}
-                  onAction={() => void updateShopLocation()}
-                  actionLoading={updatingLocation}
-                />
               </div>
             )}
           </SettingsCard>
@@ -1396,6 +1344,8 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
             const catNeedsRadius = cfg.reachChoice === "customer" || cfg.reachChoice === "both";
             const catHasShopPhoto =
               cfg.shop_photo_url != null && String(cfg.shop_photo_url).trim() !== "";
+            const catHasLocation = cfg.latitude != null && cfg.longitude != null;
+            const catUpi = (cfg.upi_id ?? "").trim();
             const expanded = expandedCategoryIds.has(cat.id);
             const displayBrand =
               (cat.brand_name ?? "").trim() ||
@@ -1448,29 +1398,140 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                     className="px-4 pb-4 pt-3 space-y-4"
                     data-testid={`my-business-category-settings-${cat.id}`}
                   >
-                    {!isMultiCategory && baseType === "shop" && (
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {s.reg_where_work_from}
+                      </label>
+                      <div className="mt-2 grid grid-cols-1 gap-2">
+                        {(
+                          [
+                            {
+                              value: "shop" as const,
+                              emoji: "🏪",
+                              title: s.reg_base_shop,
+                              desc: s.reg_base_shop_desc,
+                            },
+                            {
+                              value: "home" as const,
+                              emoji: "🏠",
+                              title: s.reg_base_home,
+                              desc: s.reg_base_home_desc,
+                            },
+                            {
+                              value: "none" as const,
+                              emoji: "🚫",
+                              title: s.reg_base_none,
+                              desc: s.reg_base_none_desc,
+                            },
+                          ] as const
+                        ).map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            data-testid={
+                              !isMultiCategory
+                                ? `my-business-base-${opt.value}`
+                                : `my-business-cat-base-${cat.id}-${opt.value}`
+                            }
+                            onClick={() =>
+                              updateCategorySettings(cat.id, { base_type: opt.value })
+                            }
+                            className={cn(
+                              "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98]",
+                              "bg-surface border-surface-border",
+                              cfg.base_type === opt.value &&
+                                "border-primary bg-primary/15 ring-1 ring-primary/30",
+                            )}
+                          >
+                            <p className="text-base font-display font-bold text-foreground leading-tight">
+                              {opt.emoji} {opt.title}
+                            </p>
+                            <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
+                              {opt.desc}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {!isMultiCategory && (
                       <Field
                         label={s.vendor_shop_name}
                         value={shopName}
                         onChange={setShopName}
                         placeholder={s.vendor_shop_placeholder}
-                        required
+                        required={cfg.base_type === "shop"}
                         error={
-                          shopName.length > 0 && !shopFieldOk ? s.vendor_specify_hint : undefined
+                          cfg.base_type === "shop"
+                            ? shopName.length > 0 && !shopFieldOk
+                              ? s.vendor_specify_hint
+                              : undefined
+                            : shopNameInvalid
+                              ? s.vendor_specify_hint
+                              : undefined
                         }
                         testId="my-business-shop-name"
                       />
                     )}
-                    {!isMultiCategory && baseType === "home" && (
-                      <Field
-                        label={s.vendor_shop_name}
-                        value={shopName}
-                        onChange={setShopName}
-                        placeholder={s.vendor_shop_placeholder}
-                        error={shopNameInvalid ? s.vendor_specify_hint : undefined}
-                        testId="my-business-shop-name"
+
+                    <Field
+                      label={s.vendor_upi_label}
+                      value={catUpi}
+                      onChange={(value) => updateCategorySettings(cat.id, { upi_id: value })}
+                      placeholder={s.vendor_upi_placeholder}
+                      error={
+                        catUpi.length > 0 && !isValidUpi(catUpi)
+                          ? s.vendor_upi_format_body
+                          : undefined
+                      }
+                      testId={
+                        isMultiCategory
+                          ? `my-business-cat-upi-${cat.id}`
+                          : "my-business-upi"
+                      }
+                    />
+                    <div>
+                      <label className="text-xs text-muted-foreground">{s.vendor_upi_qr_label}</label>
+                      <button
+                        type="button"
+                        data-testid={
+                          isMultiCategory
+                            ? `my-business-cat-upi-qr-${cat.id}`
+                            : "my-business-upi-qr"
+                        }
+                        disabled={upiQrUploadingFor === cat.id}
+                        onClick={() => {
+                          setUpiQrTargetId(cat.id);
+                          upiQrInputRef.current?.click();
+                        }}
+                        className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
+                      >
+                        {upiQrUploadingFor === cat.id ? s.vendor_uploading : s.vendor_upi_qr_hint}
+                      </button>
+                      {cfg.upi_qr_url ? (
+                        <p className="mt-1 text-[11px] text-muted-foreground truncate">
+                          {cfg.upi_qr_url}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div data-testid={isMultiCategory ? `my-business-cat-location-${cat.id}` : "my-business-location"}>
+                      <VerifyRow
+                        label={s.my_business_location_label}
+                        hint={
+                          catHasLocation
+                            ? `📍 ${Number(cfg.latitude).toFixed(4)}, ${Number(cfg.longitude).toFixed(4)}`
+                            : s.vendor_location_missing_body
+                        }
+                        // Keep Confirm location clickable after the first pin so vendors can re-set
+                        // this business's GPS (VerifyRow hides the action when verified=true).
+                        verified={false}
+                        verifiedLabel={s.my_business_verified}
+                        actionLabel={s.my_business_confirm_location}
+                        onAction={() => void updateBusinessLocation(cat.id)}
+                        actionLoading={updatingLocationFor === cat.id}
                       />
-                    )}
+                    </div>
 
                     <div>
                       <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1597,7 +1658,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                         setShopPhotoCategoryId(cat.id);
                         setCameraOpen(true);
                       }}
-                      actionDisabled={!hasLocation && baseType !== "none"}
+                      actionDisabled={!catHasLocation && cfg.base_type !== "none"}
                     >
                       {gpsMatchFailCount >= GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW &&
                         lastFailedShopShot &&
@@ -1677,7 +1738,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           type="button"
           data-testid="my-business-add-business"
           onClick={() => setAddBusinessOpen(true)}
-          disabled={selectedCategoryIds.length >= MAX_REG_CATEGORIES}
+          disabled={selectedCategoryIds.length >= MAX_VENDOR_CATEGORIES}
           className="w-full rounded-2xl border border-dashed border-primary/50 bg-primary/5 py-3.5 text-sm font-semibold text-primary disabled:opacity-50"
         >
           {s.my_business_add_business}
@@ -1704,6 +1765,18 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         onAdded={() => setCategoriesReloadKey((k) => k + 1)}
       />
 
+      <input
+        ref={upiQrInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          const target = upiQrTargetId;
+          e.target.value = "";
+          if (f && target) void handleUpiQrFile(target, f);
+        }}
+      />
       <LiveCamera open={cameraOpen} onClose={() => setCameraOpen(false)} onCapture={handleShopPhoto} />
       <LiveCamera
         open={selfieCameraOpen}

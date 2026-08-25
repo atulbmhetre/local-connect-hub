@@ -41,7 +41,7 @@ async function captureGps(page: Page) {
   await expect(btn).toContainText(/Location set|लोकेशन सेट/, { timeout: 10000 });
 }
 
-/** Step A: account (name, phone, UPI, base, GPS, selfie). */
+/** Step A: account (name, phone, selfie). */
 async function completeWizardStepA(
   page: Page,
   opts: {
@@ -51,25 +51,11 @@ async function completeWizardStepA(
     base?: 'shop' | 'home' | 'none';
   },
 ) {
-  const base = opts.base ?? 'shop';
   await page.getByPlaceholder('Ramesh Kumar').fill(opts.ownerName);
   await page.getByPlaceholder('+91 98xxxxxxxx').fill(opts.phone);
-  await page.getByPlaceholder('name@okbank').fill(opts.upi ?? 'prod-smoke@upi');
-  const baseLabel =
-    base === 'shop'
-      ? /Shop|दुकान/
-      : base === 'home'
-        ? /Home|घर/
-        : /No fixed place|fixed जगह नाही|कोई fixed/;
-  await page.locator('button').filter({ hasText: baseLabel }).first().click();
-  if (base !== 'none') {
-    await captureGps(page);
-  } else {
-    await page.waitForTimeout(2000);
-  }
   await page.getByTestId('reg-selfie-capture').click();
   await page.waitForTimeout(800);
-  await expect(page.getByRole('button', { name: 'Next' })).toBeEnabled({ timeout: 10000 });
+  await expect(page.getByRole('button', { name: 'Next' })).toBeVisible({ timeout: 10000 });
   await page.getByRole('button', { name: 'Next' }).click();
 }
 
@@ -79,6 +65,8 @@ async function completeWizardStepB(
   opts: {
     categoryLabel: string;
     brandName?: string;
+    upi?: string;
+    base?: 'shop' | 'home' | 'none';
     reach?: 'customer' | 'vendor' | 'both';
     modes: Array<'help' | 'delivery' | 'appointment'>;
     pickRadius?: boolean;
@@ -88,12 +76,25 @@ async function completeWizardStepB(
   const chip = page.getByRole('button', { name: new RegExp(opts.categoryLabel, 'i') });
   await expect(chip.first()).toBeVisible({ timeout: 20000 });
   await chip.first().click();
-  // Shop base requires shop name; home/none use optional brand field.
+  const base = opts.base ?? 'shop';
+  const baseLabel =
+    base === 'shop'
+      ? /Shop|दुकान/
+      : base === 'home'
+        ? /Home|घर/
+        : /No fixed place|fixed जगह नाही|कोई fixed/;
+  await page.locator('button').filter({ hasText: baseLabel }).first().click();
   const brand = opts.brandName ?? `Smoke Shop ${Date.now().toString().slice(-4)}`;
   const shopInput = page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i);
   await expect(shopInput).toBeVisible({ timeout: 5000 });
   await shopInput.fill(brand);
   await expect(shopInput).toHaveValue(brand);
+  if (base !== 'none') {
+    await captureGps(page);
+  } else {
+    await page.waitForTimeout(2000);
+  }
+  await page.getByPlaceholder('name@okbank').fill(opts.upi ?? 'prod-smoke@upi');
   const reach = opts.reach ?? 'vendor';
   if (reach === 'customer') {
     await page.getByRole('button', { name: /At their place/ }).click();
@@ -147,6 +148,7 @@ test.describe('PROD wizard smoke @ prod-build', () => {
     await completeWizardStepB(page, {
       categoryLabel: PROD_CATEGORY,
       brandName: `Smoke Shop ${phone.slice(-4)}`,
+      base: 'shop',
       reach: 'vendor',
       modes: ['help'],
     });
@@ -174,6 +176,7 @@ test.describe('PROD wizard smoke @ prod-build', () => {
     await completeWizardStepB(page, {
       categoryLabel: PROD_CATEGORY,
       brandName: 'Home Brand',
+      base: 'home',
       reach: 'both',
       modes: ['help'],
     });
@@ -201,6 +204,7 @@ test.describe('PROD wizard smoke @ prod-build', () => {
     await completeWizardStepB(page, {
       categoryLabel: PROD_CATEGORY,
       brandName: 'Mobile Brand',
+      base: 'none',
       reach: 'customer',
       modes: ['help'],
     });
@@ -216,32 +220,22 @@ test.describe('PROD wizard smoke @ prod-build', () => {
     await deleteVendor(phone);
   });
 
-  test('guidance toasts block Next on missing fields', async ({ page }) => {
+  test('guidance toasts block Next on missing Step 1 fields', async ({ page }) => {
     await mockGeo(page);
     await enableE2eCameraMock(page);
     await openWizard(page);
 
-    await page.getByRole('button', { name: 'Next' }).click();
-    await expectGuidanceToast(page, /Choose where you work from/i);
-    await expect(page.getByPlaceholder('Ramesh Kumar')).toBeVisible();
-
-    await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
+    // FLAG: pre-Phase-2 this test asserted Step 1 toast order
+    // base_type → name → phone → UPI → GPS → selfie. UPI/base/GPS moved to Step 2.
     await page.getByRole('button', { name: 'Next' }).click();
     await expectGuidanceToast(page, /Enter your name/i);
+    await expect(page.getByPlaceholder('Ramesh Kumar')).toBeVisible();
 
     await page.getByPlaceholder('Ramesh Kumar').fill('Smoke Guidance');
     await page.getByRole('button', { name: 'Next' }).click();
     await expectGuidanceToast(page, /10-digit|mobile|phone/i);
 
     await page.getByPlaceholder('+91 98xxxxxxxx').fill('9910999999');
-    await page.getByRole('button', { name: 'Next' }).click();
-    await expectGuidanceToast(page, /UPI|upi/i);
-
-    await page.getByPlaceholder('name@okbank').fill('guidance@upi');
-    await page.getByRole('button', { name: 'Next' }).click();
-    await expectGuidanceToast(page, /Confirm your location|GPS is required/i);
-
-    await captureGps(page);
     await page.getByRole('button', { name: 'Next' }).click();
     await expectGuidanceToast(page, /Take selfie|selfie/i);
 
@@ -266,6 +260,7 @@ test.describe('PROD wizard smoke @ prod-build', () => {
     await completeWizardStepB(page, {
       categoryLabel: PROD_CATEGORY,
       brandName: `Multi ${phone.slice(-4)}`,
+      base: 'shop',
       reach: 'vendor',
       modes: ['help', 'appointment'],
     });

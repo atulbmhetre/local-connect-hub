@@ -113,6 +113,7 @@ describe("resolveVendorNavigateToCustomerUrl / resolveCustomerNavigateToVendorUr
   it("MAPS-UNIT-11: booking I'll come to you, customer navigates to vendor shop", () => {
     const url = resolveCustomerNavigateToVendorUrl({
       status: "sent",
+      category_id: "salon",
       message: `${VISIT_SHOP} Haircut`,
       vendors: {
         service_mode: "appointment",
@@ -121,6 +122,21 @@ describe("resolveVendorNavigateToCustomerUrl / resolveCustomerNavigateToVendorUr
       },
     });
     expect(url).toBe("https://www.google.com/maps/dir/?api=1&destination=18.5204,73.8567");
+  });
+
+  it("MAPS-UNIT-11b: null category_id → no shop pin even if vendors.lat is set", () => {
+    expect(
+      resolveCustomerNavigateToVendorUrl({
+        status: "sent",
+        category_id: null,
+        message: `${VISIT_SHOP} Haircut`,
+        vendors: {
+          service_mode: "appointment",
+          latitude: 18.5204,
+          longitude: 73.8567,
+        },
+      }),
+    ).toBeNull();
   });
 
   it("MAPS-UNIT-12: booking I'll come to you, vendor side → no map", () => {

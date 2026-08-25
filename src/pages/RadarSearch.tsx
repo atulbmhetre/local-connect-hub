@@ -86,6 +86,12 @@ import {
   type VendorCategoryReputation,
 } from "@/lib/categoryScopedVendor";
 import {
+  expandRadarModeMatches,
+  radarResultKey,
+  stampVendorWithBusiness,
+  usableRadarShopPin,
+} from "@/lib/radarBusinessCards";
+import {
   govEmergencyHelpLinesForTerm,
   isOfficialEmergencyCategory,
   isPharmacyMedicalSearch,
@@ -103,17 +109,34 @@ export type RadarMenuItem = {
   is_available: boolean;
 };
 
+const RADAR_VC_SELECT =
+  "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, is_manual_verified, shop_photo_url, verification_status, gps_match_distance, location_accuracy, photo_accuracy, latitude, longitude, upi_id, upi_qr_url, upi_qr_payee_id, service_mode, categories(label, emoji)";
+
+export type RadarVendorCategory = {
+  label: string;
+  emoji: string;
+  category_id: string;
+  brand_name?: string | null;
+  serves_at_vendor_place?: boolean | null;
+  serves_at_customer_place?: boolean | null;
+  service_radius_km?: number | null;
+  vendor_note?: string | null;
+  is_manual_verified?: boolean | null;
+  shop_photo_url?: string | null;
+  verification_status?: string | null;
+  gps_match_distance?: number | null;
+  location_accuracy?: number | null;
+  photo_accuracy?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  upi_id?: string | null;
+  upi_qr_url?: string | null;
+  upi_qr_payee_id?: string | null;
+  service_mode?: string | null;
+};
+
 export type RadarVendorResult = Vendor & {
-  categories: {
-    label: string;
-    emoji: string;
-    category_id?: string;
-    brand_name?: string | null;
-    serves_at_vendor_place?: boolean | null;
-    serves_at_customer_place?: boolean | null;
-    service_radius_km?: number | null;
-    vendor_note?: string | null;
-  }[];
+  categories: RadarVendorCategory[];
   trustLevel: TrustLevel;
   /** First 5 available menu items, batch-fetched so cards render complete. */
   menuPreview: RadarMenuItem[];
@@ -279,48 +302,17 @@ function buildVendorCategoriesMap(
     gps_match_distance?: number | null;
     location_accuracy?: number | null;
     photo_accuracy?: number | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    upi_id?: string | null;
+    upi_qr_url?: string | null;
+    upi_qr_payee_id?: string | null;
+    service_mode?: string | null;
     categories: { label: string; emoji: string } | { label: string; emoji: string }[] | null;
   }[],
   matchedCategoryIdsByVendor?: Map<string, Set<string>>,
-): Map<
-  string,
-  {
-    label: string;
-    emoji: string;
-    category_id: string;
-    brand_name?: string | null;
-    serves_at_vendor_place?: boolean | null;
-    serves_at_customer_place?: boolean | null;
-    service_radius_km?: number | null;
-    vendor_note?: string | null;
-    is_manual_verified?: boolean | null;
-    shop_photo_url?: string | null;
-    verification_status?: string | null;
-    gps_match_distance?: number | null;
-    location_accuracy?: number | null;
-    photo_accuracy?: number | null;
-  }[]
-> {
-  const map = new Map<
-    string,
-    {
-      label: string;
-      emoji: string;
-      is_primary: boolean;
-      category_id: string;
-      brand_name?: string | null;
-      serves_at_vendor_place?: boolean | null;
-      serves_at_customer_place?: boolean | null;
-      service_radius_km?: number | null;
-      vendor_note?: string | null;
-      is_manual_verified?: boolean | null;
-      shop_photo_url?: string | null;
-      verification_status?: string | null;
-      gps_match_distance?: number | null;
-      location_accuracy?: number | null;
-      photo_accuracy?: number | null;
-    }[]
-  >();
+): Map<string, RadarVendorCategory[]> {
+  const map = new Map<string, (RadarVendorCategory & { is_primary: boolean })[]>();
 
   for (const row of rows) {
     const cat = row.categories;
@@ -344,29 +336,17 @@ function buildVendorCategoriesMap(
       gps_match_distance: row.gps_match_distance,
       location_accuracy: row.location_accuracy,
       photo_accuracy: row.photo_accuracy,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      upi_id: row.upi_id,
+      upi_qr_url: row.upi_qr_url,
+      upi_qr_payee_id: row.upi_qr_payee_id,
+      service_mode: row.service_mode,
     });
     map.set(row.vendor_id, list);
   }
 
-  const out = new Map<
-    string,
-    {
-      label: string;
-      emoji: string;
-      category_id: string;
-      brand_name?: string | null;
-      serves_at_vendor_place?: boolean | null;
-      serves_at_customer_place?: boolean | null;
-      service_radius_km?: number | null;
-      vendor_note?: string | null;
-      is_manual_verified?: boolean | null;
-      shop_photo_url?: string | null;
-      verification_status?: string | null;
-      gps_match_distance?: number | null;
-      location_accuracy?: number | null;
-      photo_accuracy?: number | null;
-    }[]
-  >();
+  const out = new Map<string, RadarVendorCategory[]>();
   for (const [vendorId, list] of map) {
     const matched = matchedCategoryIdsByVendor?.get(vendorId);
     const filtered =
@@ -376,39 +356,7 @@ function buildVendorCategoriesMap(
     filtered.sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
     out.set(
       vendorId,
-      filtered.map(
-        ({
-          label,
-          emoji,
-          category_id,
-          brand_name,
-          serves_at_vendor_place,
-          serves_at_customer_place,
-          service_radius_km,
-          vendor_note,
-          is_manual_verified,
-          shop_photo_url,
-          verification_status,
-          gps_match_distance,
-          location_accuracy,
-          photo_accuracy,
-        }) => ({
-          label,
-          emoji,
-          category_id,
-          brand_name,
-          serves_at_vendor_place,
-          serves_at_customer_place,
-          service_radius_km,
-          vendor_note,
-          is_manual_verified,
-          shop_photo_url,
-          verification_status,
-          gps_match_distance,
-          location_accuracy,
-          photo_accuracy,
-        }),
-      ),
+      filtered.map(({ is_primary: _isPrimary, ...rest }) => rest),
     );
   }
   return out;
@@ -778,7 +726,9 @@ const RadarSearch = () => {
             { shouldRetry: () => getNavigatorOnline() },
           );
           if (modeMatchError) throw modeMatchError;
-          const modeMatches = (modeMatchRows ?? []) as RadarCategoryModeMatch[];
+          const modeMatches = expandRadarModeMatches(
+            (modeMatchRows ?? []) as RadarCategoryModeMatch[],
+          );
           matchedCategoryIdsByVendor = buildMatchedCategoryIdsByVendor(modeMatches);
           vendorIdFilter = [...matchedCategoryIdsByVendor.keys()];
           if (vendorIdFilter.length === 0) {
@@ -804,74 +754,50 @@ const RadarSearch = () => {
             { shouldRetry: () => getNavigatorOnline() },
           );
           if (modeMatchError) throw modeMatchError;
-          vendorIdFilter = [
-            ...new Set(
-              ((modeMatchRows ?? []) as RadarCategoryModeMatch[]).map((row) => row.vendor_id),
-            ),
-          ];
+          const modeMatches = expandRadarModeMatches(
+            (modeMatchRows ?? []) as RadarCategoryModeMatch[],
+          );
+          matchedCategoryIdsByVendor = buildMatchedCategoryIdsByVendor(modeMatches);
+          vendorIdFilter = [...matchedCategoryIdsByVendor.keys()];
           if (vendorIdFilter.length === 0) {
             if (isCurrent()) setResults([]);
             return;
           }
         }
 
-        const categoryModeSearch = term !== "" && matchedCategoryIdsByVendor !== undefined;
-
         const bboxDeltaDeg = Math.max(BBOX_DELTA_DEG, userBracket / KM_PER_DEG_LAT);
 
         let qTrackA = panIndiaOnly || !coords
           ? null
           : supabase
-              .from("vendors")
-              .select("*, verification_status")
-              .eq("is_banned", false)
-              .eq("profile_status", "complete")
-              .or(RADAR_SUBSCRIPTION_OR)
-              .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
+              .from("vendor_categories")
+              .select(RADAR_VC_SELECT)
+              .eq("status", "approved")
+              .or(`service_radius_km.is.null,service_radius_km.lt.${PAN_INDIA_RADIUS_KM}`)
               .gte("latitude", coords.lat - bboxDeltaDeg)
               .lte("latitude", coords.lat + bboxDeltaDeg)
               .gte("longitude", coords.lng - bboxDeltaDeg)
               .lte("longitude", coords.lng + bboxDeltaDeg)
-              .in("id", vendorIdFilter);
+              .in("vendor_id", vendorIdFilter);
 
-        /** Wide-radius vendors may sit outside the customer bbox but still cover the customer. */
+        /** Wide-radius businesses may sit outside the customer bbox but still cover the customer. */
         let qTrackAWide =
           panIndiaOnly || !coords
             ? null
             : supabase
-                .from("vendors")
-                .select("*, verification_status")
-                .eq("is_banned", false)
-                .eq("profile_status", "complete")
-                .or(RADAR_SUBSCRIPTION_OR)
+                .from("vendor_categories")
+                .select(RADAR_VC_SELECT)
+                .eq("status", "approved")
                 .gte("service_radius_km", userBracket)
                 .lt("service_radius_km", PAN_INDIA_RADIUS_KM)
-                .in("id", vendorIdFilter);
-
-        if (qTrackA && selectedMode === "help") {
-          qTrackA = qTrackA.eq("is_active", true);
-        }
-
-        if (qTrackAWide && selectedMode === "help") {
-          qTrackAWide = qTrackAWide.eq("is_active", true);
-        }
+                .in("vendor_id", vendorIdFilter);
 
         let qTrackB = supabase
-          .from("vendors")
-          .select("*, verification_status")
-          .eq("is_banned", false)
-          .eq("profile_status", "complete")
-          .or(RADAR_SUBSCRIPTION_OR)
+          .from("vendor_categories")
+          .select(RADAR_VC_SELECT)
+          .eq("status", "approved")
           .eq("service_radius_km", PAN_INDIA_RADIUS_KM)
-          .in("id", vendorIdFilter);
-
-        if (selectedMode === "help") {
-          qTrackB = qTrackB.eq("is_active", true);
-        }
-
-        if (qTrackA) qTrackA = qTrackA.eq("discoverable", true);
-        if (qTrackAWide) qTrackAWide = qTrackAWide.eq("discoverable", true);
-        qTrackB = qTrackB.eq("discoverable", true);
+          .in("vendor_id", vendorIdFilter);
 
         const [trackAResult, trackAWideResult, trackBResult] = await withTimedRetry(
           async (signal) => {
@@ -901,58 +827,76 @@ const RadarSearch = () => {
           trackQueryHitCap(trackAWideResult.data?.length ?? 0, TRACK_A_LIMIT);
         const trackBHitCap = trackQueryHitCap(trackBResult.data?.length ?? 0, TRACK_B_LIMIT);
 
-        const trackAVendorById = new Map<string, Vendor>();
+        const matchFilter = matchedCategoryIdsByVendor;
+        const keepMatchedBusiness = (row: {
+          vendor_id: string;
+          category_id: string;
+          verification_status?: string | null;
+        }) => {
+          if (row.verification_status === "pending_location_review") return false;
+          if (!matchFilter) return false;
+          return matchFilter.get(row.vendor_id)?.has(row.category_id) === true;
+        };
+
+        type VcTrackRow = Parameters<typeof buildVendorCategoriesMap>[0][number];
+        const trackAByPair = new Map<string, VcTrackRow>();
         for (const row of [
-          ...(trackAResult.data ?? []),
-          ...(trackAWideResult.data ?? []),
+          ...((trackAResult.data ?? []) as VcTrackRow[]),
+          ...((trackAWideResult.data ?? []) as VcTrackRow[]),
         ]) {
-          trackAVendorById.set(row.id, row as Vendor);
+          if (!keepMatchedBusiness(row)) continue;
+          trackAByPair.set(radarResultKey(row.vendor_id, row.category_id), row);
         }
-
-        let trackAVendors = [...trackAVendorById.values()].filter(
-          (v) =>
-            v.latitude != null &&
-            v.longitude != null &&
-            v.latitude !== 0 &&
-            v.longitude !== 0,
-        ) as Vendor[];
-
-        let trackBVendors = (trackBResult.data ?? []) as Vendor[];
-
-        trackAVendors = excludeOfflineHelpVendors(trackAVendors, selectedMode);
-        trackBVendors = excludeOfflineHelpVendors(trackBVendors, selectedMode);
-        trackAVendors = trackAVendors.filter(isVendorSubscriptionVisibleOnRadar);
-        trackBVendors = trackBVendors.filter(isVendorSubscriptionVisibleOnRadar);
+        const trackBByPair = new Map<string, VcTrackRow>();
+        for (const row of (trackBResult.data ?? []) as VcTrackRow[]) {
+          if (!keepMatchedBusiness(row)) continue;
+          trackBByPair.set(radarResultKey(row.vendor_id, row.category_id), row);
+        }
 
         const vendorIds = [
           ...new Set([
-            ...trackAVendors.map((v) => v.id),
-            ...trackBVendors.map((v) => v.id),
+            ...[...trackAByPair.values()].map((r) => r.vendor_id),
+            ...[...trackBByPair.values()].map((r) => r.vendor_id),
           ]),
         ];
 
+        let accountById = new Map<string, Vendor>();
+        if (vendorIds.length > 0) {
+          let qAccounts = supabase
+            .from("vendors")
+            .select("*, verification_status")
+            .eq("is_banned", false)
+            .eq("profile_status", "complete")
+            .or(RADAR_SUBSCRIPTION_OR)
+            .eq("discoverable", true)
+            .in("id", vendorIds);
+          if (selectedMode === "help") {
+            qAccounts = qAccounts.eq("is_active", true);
+          }
+          const accountsResult = await withTimedRetry(
+            async (signal) =>
+              throwOnSupabaseNetworkError(await applyAbortSignal(qAccounts, signal)),
+            { shouldRetry: () => getNavigatorOnline() },
+          );
+          if (accountsResult.error) throw accountsResult.error;
+          let accounts = (accountsResult.data ?? []) as Vendor[];
+          accounts = excludeOfflineHelpVendors(accounts, selectedMode);
+          accounts = accounts.filter(isVendorSubscriptionVisibleOnRadar);
+          accountById = new Map(accounts.map((v) => [v.id, v]));
+        }
+
+        const pruneUnlisted = (map: Map<string, VcTrackRow>) => {
+          for (const [key, row] of [...map.entries()]) {
+            if (!accountById.has(row.vendor_id)) map.delete(key);
+          }
+        };
+        pruneUnlisted(trackAByPair);
+        pruneUnlisted(trackBByPair);
+
         let verificationRows: VendorVerificationRow[] = [];
         let businessRows: BusinessLocationRow[] = [];
-        let categoriesByVendor = new Map<
-          string,
-          {
-            label: string;
-            emoji: string;
-            category_id: string;
-            brand_name?: string | null;
-            serves_at_vendor_place?: boolean | null;
-            serves_at_customer_place?: boolean | null;
-            service_radius_km?: number | null;
-            vendor_note?: string | null;
-            is_manual_verified?: boolean | null;
-            shop_photo_url?: string | null;
-            verification_status?: string | null;
-            gps_match_distance?: number | null;
-            location_accuracy?: number | null;
-            photo_accuracy?: number | null;
-          }[]
-        >();
-        const menuByVendor = new Map<string, RadarMenuItem[]>();
+        let categoriesByVendor = new Map<string, RadarVendorCategory[]>();
+        const menuByBusiness = new Map<string, RadarMenuItem[]>();
         let activeOrderVendorIds = new Set<string>();
         let fulfilledVendorIds = new Set<string>();
         const fulfilledRequestByVendor = new Map<string, string>();
@@ -961,10 +905,6 @@ const RadarSearch = () => {
         if (vendorIds.length > 0) {
           const deviceId = getDeviceId();
           const userPhone = getUserPhone();
-          // Direct saved_vendors/requests reads return zero rows for OTP-off
-          // callers (auth_user_phone() NULL in RLS); use the identity RPCs.
-          // get_saved_vendors mirrors the old scoping (phone when present,
-          // else device); the vendor_id filter moves client-side.
           const [activeResult, fulfilledResult, savedResult] = await withTimedRetry(
             async (signal) => {
               const [active, fulfilled, saved] = await Promise.all([
@@ -1000,20 +940,12 @@ const RadarSearch = () => {
             { shouldRetry: () => getNavigatorOnline() },
           );
 
-          // Card enrichment (not CRITICAL-tier timed in this pass).
-          const [verResult, vcResult, menuResult] = await Promise.all([
+          const [verResult, menuResult] = await Promise.all([
             supabase
               .from("vendor_verification")
               .select("vendor_id, check_type, status, is_latest")
               .in("vendor_id", vendorIds)
               .eq("is_latest", true),
-            supabase
-              .from("vendor_categories")
-              .select(
-                "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, is_manual_verified, shop_photo_url, verification_status, gps_match_distance, location_accuracy, photo_accuracy, categories(label, emoji)",
-              )
-              .in("vendor_id", vendorIds)
-              .eq("status", "approved"),
             supabase
               .from("vendor_menu_items")
               .select("vendor_id, name, price, unit, is_available, category_id, image_url")
@@ -1022,32 +954,13 @@ const RadarSearch = () => {
               .order("sort_order", { ascending: true }),
           ]);
 
-          if (vcResult.error) throw vcResult.error;
-          // Menu/order/saved data only enrich the cards; tolerate failures.
-          // Trust-tier verification also only affects sort weighting and an
-          // (unrendered) tier badge, so a failure here must not blank the whole
-          // search — degrade to "no tier data" (every vendor Unverified) instead.
           if (verResult.error) {
             console.error("radar/vendor_verification", verResult.error);
           }
           verificationRows = (verResult.data ?? []) as VendorVerificationRow[];
-          categoriesByVendor = buildVendorCategoriesMap(
-            ((vcResult.data ?? []) as Parameters<typeof buildVendorCategoriesMap>[0]).filter(
-              (row) => row.verification_status !== "pending_location_review",
-            ),
-            categoryModeSearch ? matchedCategoryIdsByVendor : undefined,
-          );
-          businessRows = (
-            (vcResult.data ?? []) as {
-              vendor_id: string;
-              category_id: string;
-              shop_photo_url?: string | null;
-              gps_match_distance?: number | null;
-              location_accuracy?: number | null;
-              photo_accuracy?: number | null;
-              verification_status?: string | null;
-            }[]
-          ).map((r) => ({
+          const trackRows = [...trackAByPair.values(), ...trackBByPair.values()];
+          categoriesByVendor = buildVendorCategoriesMap(trackRows, matchFilter);
+          businessRows = trackRows.map((r) => ({
             vendor_id: r.vendor_id,
             category_id: r.category_id,
             shop_photo_url: r.shop_photo_url,
@@ -1058,15 +971,9 @@ const RadarSearch = () => {
           }));
 
           for (const row of menuResult.data ?? []) {
-            if (categoryModeSearch) {
-              const matched = matchedCategoryIdsByVendor.get(row.vendor_id);
-              if (matched && matched.size > 0) {
-                if (!row.category_id || !matched.has(row.category_id)) continue;
-              }
-            }
-            const list = menuByVendor.get(row.vendor_id) ?? [];
-            // Rows arrive sorted by sort_order; keep the first 5 per vendor
-            // to match the old per-card .limit(5) preview behaviour.
+            if (!row.category_id) continue;
+            const key = radarResultKey(row.vendor_id, row.category_id);
+            const list = menuByBusiness.get(key) ?? [];
             if (list.length < 5) {
               list.push({
                 name: row.name,
@@ -1074,7 +981,7 @@ const RadarSearch = () => {
                 unit: row.unit,
                 is_available: row.is_available,
               });
-              menuByVendor.set(row.vendor_id, list);
+              menuByBusiness.set(key, list);
             }
           }
           activeOrderVendorIds = new Set((activeResult.data ?? []).map((r) => r.vendor_id));
@@ -1094,9 +1001,8 @@ const RadarSearch = () => {
 
         const trustKeys: Array<{ vendorId: string; categoryId: string }> = [];
         for (const [vid, cats] of categoriesByVendor) {
-          const matched = cats[0];
-          if (matched?.category_id) {
-            trustKeys.push({ vendorId: vid, categoryId: matched.category_id });
+          for (const cat of cats) {
+            if (cat.category_id) trustKeys.push({ vendorId: vid, categoryId: cat.category_id });
           }
         }
         const trustByVendorCategory = computeTrustLevelsByVendorCategory(
@@ -1122,49 +1028,39 @@ const RadarSearch = () => {
           }
         }
 
-        const buildVendorResult = (
+        const buildBusinessResult = (
           v: Vendor,
-          extras: {
-            dist: number | null;
-            isPanIndia?: boolean;
-          },
+          matchedCat: RadarVendorCategory,
+          extras: { dist: number | null; isPanIndia?: boolean },
         ): Ranked => {
-          const cats = categoriesByVendor.get(v.id) ?? [];
-          const matchedCat = cats[0];
-          const matchedId = matchedCat?.category_id ?? null;
+          const matchedId = matchedCat.category_id;
           const displayBrandName = resolveCategoryBrandName(
-            matchedCat?.brand_name,
+            matchedCat.brand_name,
             v.shop_name,
             matchedId,
           );
           const effectiveServiceRadiusKm = resolveCategoryServiceRadius(
-            matchedCat?.service_radius_km,
-            v.service_radius_km,
+            matchedCat.service_radius_km,
+            null,
             matchedId,
           );
           const trustLevel: TrustLevel =
-            matchedId != null
-              ? (trustByVendorCategory.get(vendorCategoryTrustKey(v.id, matchedId)) ??
-                "Unverified")
-              : "Unverified";
-          const rep =
-            matchedId != null
-              ? categoryRepMap.get(vendorCategoryReputationKey(v.id, matchedId))
-              : undefined;
-          // Per-business operational stats — never fall back to account pools.
+            trustByVendorCategory.get(vendorCategoryTrustKey(v.id, matchedId)) ?? "Unverified";
+          const rep = categoryRepMap.get(vendorCategoryReputationKey(v.id, matchedId));
           const fulfilled = rep?.fulfilled ?? 0;
           const displayVendorNote = resolveCategoryVendorNote(
-            matchedCat?.vendor_note,
-            v.vendor_note,
+            matchedCat.vendor_note,
+            null,
             matchedId,
           );
+          const stamped = stampVendorWithBusiness(v as unknown as Record<string, unknown>, matchedCat);
           return {
             vendor: {
-              ...(v as Vendor),
+              ...(stamped as unknown as Vendor),
               vendor_note: displayVendorNote,
-              categories: cats,
+              categories: [matchedCat],
               trustLevel,
-              menuPreview: menuByVendor.get(v.id) ?? [],
+              menuPreview: menuByBusiness.get(radarResultKey(v.id, matchedId)) ?? [],
               hasActiveOrder: activeOrderVendorIds.has(v.id),
               hasFulfilledOrder: fulfilledVendorIds.has(v.id),
               fulfilledRequestId: fulfilledRequestByVendor.get(v.id) ?? null,
@@ -1175,40 +1071,40 @@ const RadarSearch = () => {
               total_helped: fulfilled,
               total_delivered: fulfilled,
               on_time_rate: rep?.onTimeRate ?? null,
-            },
+            } as RadarVendorResult,
             dist: extras.dist,
           };
         };
 
         const trackARanked: Ranked[] = [];
         if (!panIndiaOnly && coords) {
-          for (const v of trackAVendors) {
-            const cats = categoriesByVendor.get(v.id) ?? [];
-            const matchedCat = cats[0];
-            const matchedId =
-              categoryModeSearch && matchedCat?.category_id ? matchedCat.category_id : null;
+          for (const row of trackAByPair.values()) {
+            const v = accountById.get(row.vendor_id);
+            if (!v) continue;
+            const matchedCat = (categoriesByVendor.get(v.id) ?? []).find(
+              (c) => c.category_id === row.category_id,
+            );
+            if (!matchedCat) continue;
+            const pin = usableRadarShopPin(matchedCat.latitude, matchedCat.longitude);
+            if (!pin) continue;
             const reach = resolveCategoryReach(
               matchedCat,
               {
-                serves_at_vendor_place: v.serves_at_vendor_place,
-                serves_at_customer_place: v.serves_at_customer_place,
+                serves_at_vendor_place: matchedCat.serves_at_vendor_place,
+                serves_at_customer_place: matchedCat.serves_at_customer_place,
               },
-              matchedId,
+              matchedCat.category_id,
             );
-            // Delivery search requires customer-place reach for the matched category.
             if (selectedMode === "delivery" && !reach.serves_at_customer_place) continue;
-
             const effectiveRadius = resolveCategoryServiceRadius(
-              matchedCat?.service_radius_km,
-              v.service_radius_km,
-              matchedId,
+              matchedCat.service_radius_km,
+              null,
+              matchedCat.category_id,
             );
-            if (isPanIndiaServiceRadius(effectiveRadius ?? v.service_radius_km)) continue;
-            const dist = distanceKm(coords, { lat: v.latitude!, lng: v.longitude! });
-            if (!passesTrackARadiusFilter(dist, userBracket, effectiveRadius ?? v.service_radius_km)) {
-              continue;
-            }
-            trackARanked.push(buildVendorResult(v, { dist }));
+            if (isPanIndiaServiceRadius(effectiveRadius)) continue;
+            const dist = distanceKm(coords, pin);
+            if (!passesTrackARadiusFilter(dist, userBracket, effectiveRadius)) continue;
+            trackARanked.push(buildBusinessResult(v, matchedCat, { dist }));
           }
           trackARanked.sort((a, b) =>
             compareRadarResults(
@@ -1218,15 +1114,23 @@ const RadarSearch = () => {
           );
         }
 
-        const trackBRanked: Ranked[] = trackBVendors.map((v) =>
-          buildVendorResult(v, { dist: null, isPanIndia: true }),
-        );
+        const trackBRanked: Ranked[] = [];
+        for (const row of trackBByPair.values()) {
+          const v = accountById.get(row.vendor_id);
+          if (!v) continue;
+          const matchedCat = (categoriesByVendor.get(v.id) ?? []).find(
+            (c) => c.category_id === row.category_id,
+          );
+          if (!matchedCat) continue;
+          trackBRanked.push(buildBusinessResult(v, matchedCat, { dist: null, isPanIndia: true }));
+        }
         trackBRanked.sort((a, b) =>
           compareRadarResults(
             { dist: a.dist, trustLevel: a.vendor.trustLevel },
             { dist: b.dist, trustLevel: b.vendor.trustLevel },
           ),
         );
+
 
         const scoped = mergeRadarTracks(trackARanked, trackBRanked, panIndiaOnly);
 
@@ -1317,7 +1221,9 @@ const RadarSearch = () => {
   useEffect(() => {
     if (!highlightVendorId || scanning || results.length === 0) return;
     if (!results.some(({ vendor }) => vendor.id === highlightVendorId)) return;
-    const el = document.getElementById(`radar-vendor-card-${highlightVendorId}`);
+    const el = document.querySelector(
+      `[id^="radar-vendor-card-${highlightVendorId}:"]`,
+    );
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     setFlashVendorId(highlightVendorId);
@@ -1591,10 +1497,17 @@ const RadarSearch = () => {
             {s.radar_delivery_disclaimer}
           </p>
           <div className="space-y-3">
-            {localResults.map(({ vendor, dist }, i) => (
+            {localResults.map(({ vendor, dist }, i) => {
+              const cardKey = radarResultKey(
+                vendor.id,
+                vendor.categories[0]?.category_id ?? "",
+              );
+              return (
               <div
-                key={vendor.id}
-                id={`radar-vendor-card-${vendor.id}`}
+                key={cardKey}
+                id={`radar-vendor-card-${cardKey}`}
+                data-testid="radar-vendor-card"
+                data-category-id={vendor.categories[0]?.category_id ?? undefined}
                 className={cn(
                   flashVendorId === vendor.id &&
                     "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse rounded-2xl",
@@ -1617,16 +1530,24 @@ const RadarSearch = () => {
                   onOrderCancelled={() => void fetchVendors({ silent: true })}
                 />
               </div>
-            ))}
+            );
+            })}
             {!isPanIndiaBracket && panIndiaResults.length > 0 && (
               <p className="px-4 pt-2 pb-1 text-xs font-bold uppercase tracking-widest text-brand">
                 {s.radar_pan_india_section}
               </p>
             )}
-            {panIndiaResults.map(({ vendor, dist }, i) => (
+            {panIndiaResults.map(({ vendor, dist }, i) => {
+              const cardKey = radarResultKey(
+                vendor.id,
+                vendor.categories[0]?.category_id ?? "",
+              );
+              return (
               <div
-                key={vendor.id}
-                id={`radar-vendor-card-${vendor.id}`}
+                key={cardKey}
+                id={`radar-vendor-card-${cardKey}`}
+                data-testid="radar-vendor-card"
+                data-category-id={vendor.categories[0]?.category_id ?? undefined}
                 className={cn(
                   flashVendorId === vendor.id &&
                     "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse rounded-2xl",
@@ -1650,7 +1571,8 @@ const RadarSearch = () => {
                   onOrderCancelled={() => void fetchVendors({ silent: true })}
                 />
               </div>
-            ))}
+            );
+            })}
           </div>
           {resultsTruncated && (
             <p

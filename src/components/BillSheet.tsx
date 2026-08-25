@@ -25,6 +25,7 @@ import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { SettingsPageHeader, SettingsCard } from "@/components/settings/SettingsSection";
 import { getVoiceLang } from "@/lib/voiceUtils";
+import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
 import { billUnitOptions } from "@/lib/billUnits";
 import { captureError } from "@/lib/sentry";
 import { parseBillQuantity, parseBillUnitPrice } from "@/lib/billEdit";
@@ -338,7 +339,11 @@ export function BillSheet({
         toast.error(s.bill_voiceUnavailable);
         return;
       }
-      await SpeechRecognition.requestPermissions();
+      const micOk = await ensureVoiceMicrophone();
+      if (!micOk) {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
       setIsListening(true);
       const speechResult = await SpeechRecognition.start({
         language: getVoiceLang(),

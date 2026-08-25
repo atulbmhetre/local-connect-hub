@@ -11,6 +11,7 @@ import {
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getVoiceLang } from "@/lib/voiceUtils";
+import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { fetchVendorsVisibleToCustomer } from "@/lib/vendorRead";
@@ -1389,7 +1390,11 @@ const MyOrders = () => {
         toast.error(s.home_voice_unavailable);
         return;
       }
-      await SpeechRecognition.requestPermissions();
+      const micOk = await ensureVoiceMicrophone();
+      if (!micOk) {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
       setIsListeningEdit(true);
       const result = await SpeechRecognition.start({
         language: getVoiceLang(),
@@ -1603,13 +1608,16 @@ const MyOrders = () => {
 
   const openPaymentSheet = async (r: RowWithShop, bill: OrderBill) => {
     setPaymentSheetLoadingId(r.id);
-    const { data: vendorData, error } = await supabase
-      .from("vendors")
-      .select("upi_id, upi_qr_url, upi_qr_payee_id, phone")
-      .eq("id", r.vendor_id)
-      .single();
+    const { data: vendorData, error } = r.category_id
+      ? await supabase
+          .from("vendor_categories")
+          .select("upi_id, upi_qr_url, upi_qr_payee_id")
+          .eq("vendor_id", r.vendor_id)
+          .eq("category_id", r.category_id)
+          .maybeSingle()
+      : { data: null, error: null };
     setPaymentSheetLoadingId(null);
-    if (error || !vendorData) {
+    if (error || !r.category_id || !vendorData) {
       toast.error(s.payment_confirm_error);
       return;
     }
@@ -1623,7 +1631,7 @@ const MyOrders = () => {
       vendor_id: r.vendor_id,
       shop_name: r.vendors?.shop_name ?? "",
       upi_id: vendorData.upi_id ?? "",
-      phone: vendorData.phone ?? r.vendors?.phone ?? "",
+      phone: r.vendors?.phone ?? "",
       upi_qr_url: vendorData.upi_qr_url ?? null,
       upi_qr_payee_id: vendorData.upi_qr_payee_id ?? null,
     });

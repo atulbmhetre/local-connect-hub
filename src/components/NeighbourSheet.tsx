@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Phone } from "lucide-react";
 import { toast } from "sonner";
 import {
   Sheet,
@@ -31,11 +30,35 @@ import {
   showNetworkFailedToast,
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
-import { fetchBusinessPhotos, resolveVendorPhoto } from "@/lib/businessPhotoFallback";
+import { RadarVendorCard } from "@/components/RadarVendorCard";
+import { stampVendorWithBusiness, radarResultKey } from "@/lib/radarBusinessCards";
 
 export type SavedVendorInfo = {
   nickname: string;
   category: string;
+};
+
+type NeighbourBusiness = {
+  category_id: string;
+  label: string;
+  emoji: string;
+  brand_name: string | null;
+  service_mode: string | null;
+  serves_at_vendor_place: boolean | null;
+  serves_at_customer_place: boolean | null;
+  service_radius_km: number | null;
+  vendor_note: string | null;
+  is_manual_verified: boolean | null;
+  shop_photo_url: string | null;
+  verification_status: string | null;
+  gps_match_distance: number | null;
+  location_accuracy: number | null;
+  photo_accuracy: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  upi_id: string | null;
+  upi_qr_url: string | null;
+  upi_qr_payee_id: string | null;
 };
 
 type NeighbourSheetProps = {
@@ -64,8 +87,8 @@ export function NeighbourSheet({
   activeDeliveryOrder,
   activeAppointmentOrder,
   categories,
-  onOpenParchi,
-  onOpenAiBridge,
+  onOpenParchi: _onOpenParchi,
+  onOpenAiBridge: _onOpenAiBridge,
   onNavigateOrders,
 }: NeighbourSheetProps) {
   const { s } = useLanguage();
@@ -73,7 +96,7 @@ export function NeighbourSheet({
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameBusy, setNicknameBusy] = useState(false);
-  const [businessPhotos, setBusinessPhotos] = useState<Map<string, string | null>>(new Map());
+  const [businesses, setBusinesses] = useState<NeighbourBusiness[]>([]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -83,21 +106,64 @@ export function NeighbourSheet({
     setNicknameDraft((savedVendor?.nickname ?? "").trim());
   }, [isOpen, savedVendor?.nickname, vendor?.id]);
 
-  // Fetch business-specific photos when sheet opens
   useEffect(() => {
-    if (!isOpen || !vendor || !savedVendor?.category) {
+    if (!isOpen || !vendor) {
+      setBusinesses([]);
       return;
     }
-    
-    const categoryId = categories.find((cat) => cat.label === savedVendor.category)?.id;
-    if (!categoryId) {
-      return;
-    }
-
-    void fetchBusinessPhotos([{ vendorId: vendor.id, categoryId }]).then(
-      (photoMap) => setBusinessPhotos(photoMap)
-    );
-  }, [isOpen, vendor?.id, savedVendor?.category, categories]);
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("vendor_categories")
+        .select(
+          "category_id, brand_name, service_mode, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, is_manual_verified, shop_photo_url, verification_status, gps_match_distance, location_accuracy, photo_accuracy, latitude, longitude, upi_id, upi_qr_url, upi_qr_payee_id, categories(label, emoji)",
+        )
+        .eq("vendor_id", vendor.id)
+        .eq("status", "approved");
+      if (cancelled) return;
+      if (error) {
+        captureError(error, { scope: "neighbourSheet.loadBusinesses", vendorId: vendor.id });
+        setBusinesses([]);
+        return;
+      }
+      const rows: NeighbourBusiness[] = [];
+      for (const row of data ?? []) {
+        if (row.verification_status === "pending_location_review") continue;
+        if (!row.category_id) continue;
+        const joined = row.categories as
+          | { label: string; emoji: string }
+          | { label: string; emoji: string }[]
+          | null;
+        const resolved = Array.isArray(joined) ? joined[0] : joined;
+        rows.push({
+          category_id: row.category_id,
+          label: resolved?.label ?? "",
+          emoji: resolved?.emoji ?? "✨",
+          brand_name: row.brand_name ?? null,
+          service_mode: row.service_mode ?? null,
+          serves_at_vendor_place: row.serves_at_vendor_place ?? null,
+          serves_at_customer_place: row.serves_at_customer_place ?? null,
+          service_radius_km: row.service_radius_km ?? null,
+          vendor_note: row.vendor_note ?? null,
+          is_manual_verified: row.is_manual_verified ?? null,
+          shop_photo_url: row.shop_photo_url ?? null,
+          verification_status: row.verification_status ?? null,
+          gps_match_distance: row.gps_match_distance ?? null,
+          location_accuracy: row.location_accuracy ?? null,
+          photo_accuracy: row.photo_accuracy ?? null,
+          latitude: row.latitude ?? null,
+          longitude: row.longitude ?? null,
+          upi_id: row.upi_id ?? null,
+          upi_qr_url: row.upi_qr_url ?? null,
+          upi_qr_payee_id: row.upi_qr_payee_id ?? null,
+        });
+      }
+      setBusinesses(rows);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, vendor?.id]);
 
   const displayName = savedNeighbourDisplayName(
     savedVendor?.nickname,
@@ -106,15 +172,6 @@ export function NeighbourSheet({
   const categoryLabel = getLabel(vendor?.category ?? savedVendor?.category ?? "") ||
     vendor?.category ||
     "";
-  
-  // Get business-specific photo, falling back to account photo
-  const categoryId = categories.find((cat) => cat.label === savedVendor?.category)?.id;
-  const effectivePhoto = vendor ? resolveVendorPhoto(
-    businessPhotos,
-    vendor.id,
-    categoryId,
-    vendor.shop_photo_url
-  ) : null;
 
   const handleRemove = async () => {
     if (!vendor) return;
@@ -254,8 +311,8 @@ export function NeighbourSheet({
                     aria-hidden
                   />
                   <div className="h-12 w-12 rounded-xl overflow-hidden bg-muted grid place-items-center">
-                    {effectivePhoto ? (
-                      <img src={effectivePhoto} alt="" className="h-full w-full object-cover" />
+                    {vendor.shop_photo_url ? (
+                      <img src={vendor.shop_photo_url} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <span className="text-2xl" aria-hidden>
                         {emojiForVendorCategory(vendor.category, categories)}
@@ -348,132 +405,88 @@ export function NeighbourSheet({
               )}
             </div>
 
-            <div className="mt-6 flex flex-col gap-2">
-              {String(vendor.service_mode ?? "")
-                .trim()
-                .toLowerCase() === "delivery" ? (
-                activeDeliveryOrder ? (
-                  <>
-                    <button
-                      type="button"
-                      className="w-full text-left text-sm text-muted-foreground underline underline-offset-2 py-1"
-                      onClick={() => {
-                        onClose();
-                        onNavigateOrders();
-                      }}
-                    >
-                      {s.yourActiveOrders}
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
-                      onClick={() => {
-                        onClose();
-                        onOpenParchi(vendor);
-                      }}
-                    >
-                      {s.sendNewOrder}
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
-                    onClick={() => {
-                      onClose();
-                      onOpenParchi(vendor);
-                    }}
-                  >
-                    {s.sendOrder}
-                  </button>
-                )
-              ) : String(vendor.service_mode ?? "")
-                  .trim()
-                  .toLowerCase() === "appointment" ? (
-                <>
-                  {activeAppointmentOrder ? (
-                    <>
-                      <button
-                        type="button"
-                        className="w-full text-left text-sm text-muted-foreground underline underline-offset-2 py-1"
-                        onClick={() => {
-                          onClose();
-                          onNavigateOrders();
-                        }}
-                      >
-                        {s.yourActiveBookings}
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
-                        onClick={() => {
-                          onClose();
-                          onOpenParchi(vendor);
-                        }}
-                      >
-                        {s.bookAgain}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
-                      onClick={() => {
-                        onClose();
-                        onOpenParchi(vendor);
-                      }}
-                    >
-                      {s.bookService}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
-                    onClick={onClose}
-                  >
-                    {s.cancel}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full py-2 text-xs font-medium text-destructive hover:underline"
-                    onClick={() => void handleRemove()}
-                  >
-                    {s.removeFromNeighbourhood}
-                  </button>
-                </>
-              ) : (
+            <div className="mt-6 flex flex-col gap-3">
+              {(activeDeliveryOrder || activeAppointmentOrder) && (
                 <button
                   type="button"
-                  className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98]"
+                  className="w-full text-left text-sm text-muted-foreground underline underline-offset-2 py-1"
                   onClick={() => {
                     onClose();
-                    onOpenAiBridge(vendor);
+                    onNavigateOrders();
                   }}
                 >
-                  <Phone className="h-4 w-4" />
-                  {s.connectAiBridge}
+                  {activeAppointmentOrder ? s.yourActiveBookings : s.yourActiveOrders}
                 </button>
               )}
-              {String(vendor.service_mode ?? "")
-                .trim()
-                .toLowerCase() !== "appointment" && (
-                <>
-                  <button
-                    type="button"
-                    className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
-                    onClick={onClose}
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {s.neighbours_businesses_heading}
+              </p>
+              {businesses.map((biz) => {
+                const stamped = stampVendorWithBusiness(
+                  vendor as unknown as Record<string, unknown>,
+                  biz,
+                );
+                const cardVendor = {
+                  ...(stamped as unknown as Vendor),
+                  service_mode: (biz.service_mode ?? vendor.service_mode) as Vendor["service_mode"],
+                };
+                return (
+                  <div
+                    key={radarResultKey(vendor.id, biz.category_id)}
+                    data-testid="neighbour-business-card"
+                    data-category-id={biz.category_id}
                   >
-                    {s.cancel}
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full py-2 text-xs font-medium text-destructive hover:underline"
-                    onClick={() => void handleRemove()}
-                  >
-                    {s.removeFromNeighbourhood}
-                  </button>
-                </>
-              )}
+                    <RadarVendorCard
+                      vendor={cardVendor}
+                      radarServiceMode={biz.service_mode ?? vendor.service_mode ?? undefined}
+                      dist={null}
+                      index={0}
+                      userNeed={biz.label}
+                      categories={[
+                        {
+                          label: biz.label,
+                          emoji: biz.emoji,
+                          category_id: biz.category_id,
+                          brand_name: biz.brand_name,
+                          serves_at_vendor_place: biz.serves_at_vendor_place,
+                          serves_at_customer_place: biz.serves_at_customer_place,
+                          service_radius_km: biz.service_radius_km,
+                          is_manual_verified: biz.is_manual_verified,
+                          shop_photo_url: biz.shop_photo_url,
+                          verification_status: biz.verification_status,
+                          gps_match_distance: biz.gps_match_distance,
+                          location_accuracy: biz.location_accuracy,
+                          photo_accuracy: biz.photo_accuracy,
+                          latitude: biz.latitude,
+                          longitude: biz.longitude,
+                          upi_id: biz.upi_id,
+                          upi_qr_url: biz.upi_qr_url,
+                          upi_qr_payee_id: biz.upi_qr_payee_id,
+                        },
+                      ]}
+                      menuItems={[]}
+                      isSaved
+                      hasOrdered={false}
+                      hasFulfilledOrder={false}
+                      displayBrandName={biz.brand_name ?? undefined}
+                    />
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
+                onClick={onClose}
+              >
+                {s.cancel}
+              </button>
+              <button
+                type="button"
+                className="w-full py-2 text-xs font-medium text-destructive hover:underline"
+                onClick={() => void handleRemove()}
+              >
+                {s.removeFromNeighbourhood}
+              </button>
             </div>
           </>
         )}

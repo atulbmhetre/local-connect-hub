@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { getVoiceLang } from "@/lib/voiceUtils";
 import { captureError } from "@/lib/sentry";
+import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
 import { resolveHelpServiceLocation } from "@/lib/helpServiceLocation";
 import { UpiPaymentPanel } from "@/components/payment/UpiPaymentPanel";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
@@ -193,6 +194,11 @@ export function ParchiSheet({
   const [menuExpanded, setMenuExpanded] = useState(true);
   const [businessGpsVerified, setBusinessGpsVerified] = useState<boolean | null>(null);
   const [categoryVendorNote, setCategoryVendorNote] = useState<string | null>(null);
+  const [businessUpi, setBusinessUpi] = useState<{
+    upi_id: string;
+    upi_qr_url: string | null;
+    upi_qr_payee_id: string | null;
+  } | null>(null);
   const lastVendor = useRef<Vendor | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const phoneSheetOpenRef = useRef(false);
@@ -244,6 +250,7 @@ export function ParchiSheet({
     if (!orderCategoryId || !resolvedVendorId) {
       setBusinessGpsVerified(null);
       setCategoryVendorNote(null);
+      setBusinessUpi(null);
       return;
     }
 
@@ -251,7 +258,7 @@ export function ParchiSheet({
       try {
         const { data, error } = await supabase
           .from("vendor_categories")
-          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status, vendor_note")
+          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status, vendor_note, upi_id, upi_qr_url, upi_qr_payee_id")
           .eq("vendor_id", resolvedVendorId)
           .eq("category_id", orderCategoryId)
           .single();
@@ -259,11 +266,17 @@ export function ParchiSheet({
         if (error || !data) {
           setBusinessGpsVerified(null);
           setCategoryVendorNote(null);
+          setBusinessUpi(null);
           return;
         }
 
         const note = String(data.vendor_note ?? "").trim();
         setCategoryVendorNote(note || null);
+        setBusinessUpi({
+          upi_id: String(data.upi_id ?? "").trim(),
+          upi_qr_url: data.upi_qr_url ?? null,
+          upi_qr_payee_id: data.upi_qr_payee_id ?? null,
+        });
 
         const businessLocationData: BusinessLocationRow = {
           vendor_id: resolvedVendorId,
@@ -279,6 +292,7 @@ export function ParchiSheet({
       } catch (err) {
         console.error("Failed to fetch business GPS data:", err);
         setBusinessGpsVerified(null);
+        setBusinessUpi(null);
       }
     };
 
@@ -587,7 +601,11 @@ export function ParchiSheet({
         toast.error(s.home_voice_unavailable);
         return;
       }
-      await SpeechRecognition.requestPermissions();
+      const micOk = await ensureVoiceMicrophone();
+      if (!micOk) {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
       setIsListening(true);
       const result = await SpeechRecognition.start({
         language: getVoiceLang(),
@@ -1617,10 +1635,22 @@ export function ParchiSheet({
                   amountRupees={order.amount / 100}
                   vendorId={effectiveVendor.id}
                   shopName={effectiveVendor.shop_name}
-                  upiId={effectiveVendor.upi_id}
+                  upiId={businessUpi?.upi_id ?? (orderCategoryId ? "" : effectiveVendor.upi_id)}
                   vendorPhone={effectiveVendor.phone}
-                  qrUrl={(effectiveVendor as VendorWithQr).upi_qr_url}
-                  qrPayeeId={(effectiveVendor as VendorWithQr).upi_qr_payee_id}
+                  qrUrl={
+                    businessUpi
+                      ? businessUpi.upi_qr_url
+                      : orderCategoryId
+                        ? null
+                        : (effectiveVendor as VendorWithQr).upi_qr_url
+                  }
+                  qrPayeeId={
+                    businessUpi
+                      ? businessUpi.upi_qr_payee_id
+                      : orderCategoryId
+                        ? null
+                        : (effectiveVendor as VendorWithQr).upi_qr_payee_id
+                  }
                 />
               </div>
             )}

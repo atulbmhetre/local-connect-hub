@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { test, expect, Page, Locator } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, APP_URL, expandMyBusinessIdentityAccordion, openVendorMyBusinessTab } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, APP_URL, expandMyBusinessIdentityAccordion, openVendorMyBusinessTab, expandMyAccountAccordion } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -138,6 +138,7 @@ async function reloadAndGoHome(page: Page) {
 async function openPreferences(page: Page) {
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
+  await expandMyAccountAccordion(page);
   const prefsToggle = page.getByText(/preferences|प्राथमिक|प्राधान्य/i).first();
   await expect(prefsToggle).toBeVisible({ timeout: 8000 });
   await prefsToggle.click();

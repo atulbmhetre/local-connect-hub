@@ -26,33 +26,19 @@ async function enableE2eCameraMock(page: Page) {
   });
 }
 
-/** Step A: account (name, phone, UPI, base, GPS, selfie, optional referral). */
+/** Step A: account (name, phone, selfie, optional referral). */
 async function completeWizardStepA(
   page: Page,
   opts: {
     ownerName: string;
     phone: string;
-    upi: string;
+    upi?: string;
     base?: 'shop' | 'home' | 'none';
     referralCode?: string;
   },
 ) {
-  const base = opts.base ?? 'shop';
   await page.getByPlaceholder('Ramesh Kumar').fill(opts.ownerName);
   await page.getByPlaceholder('+91 98xxxxxxxx').fill(opts.phone);
-  await page.getByPlaceholder('name@okbank').fill(opts.upi);
-  const baseLabel =
-    base === 'shop' ? /Shop|दुकान/ : base === 'home' ? /Home|घर/ : /No fixed place|fixed/;
-  await page.locator('button').filter({ hasText: baseLabel }).first().click();
-  if (base !== 'none') {
-    await page
-      .getByRole('button', {
-        name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
-      })
-      .click();
-  } else {
-    await page.waitForTimeout(1500);
-  }
   await page.getByTestId('reg-selfie-capture').click();
   await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
@@ -70,6 +56,8 @@ async function completeWizardStepB(
     categoryLabel: string;
     categoryFilter?: RegExp;
     brandName?: string;
+    upi?: string;
+    base?: 'shop' | 'home' | 'none';
     reach?: 'customer' | 'vendor' | 'both';
     modes: Array<'help' | 'delivery' | 'appointment'>;
     pickRadius?: boolean;
@@ -84,9 +72,22 @@ async function completeWizardStepB(
     : page.getByRole('button').filter({ hasText: opts.categoryLabel });
   await expect(chip.first()).toBeVisible({ timeout: 15000 });
   await chip.first().click();
-  // Shop base requires a shop/brand name on Step B (shopFieldOk).
+  const base = opts.base ?? 'shop';
+  const baseLabel =
+    base === 'shop' ? /Shop|दुकान/ : base === 'home' ? /Home|घर/ : /No fixed place|fixed/;
+  await page.locator('button').filter({ hasText: baseLabel }).first().click();
   const brand = opts.brandName ?? `Shop ${Date.now().toString().slice(-4)}`;
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(brand);
+  await page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i).fill(brand);
+  if (base !== 'none') {
+    await page
+      .getByRole('button', {
+        name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
+      })
+      .click();
+  } else {
+    await page.waitForTimeout(1500);
+  }
+  await page.getByPlaceholder('name@okbank').fill(opts.upi ?? 'browserreg@upi');
   const reach = opts.reach ?? 'vendor';
   if (reach === 'customer') {
     await page.getByRole('button', { name: /At their place|उनके पास/ }).click();
@@ -119,6 +120,7 @@ async function addBusinessViaSetupSheet(
   opts: {
     categoryLabel: string;
     brandName?: string;
+    upi?: string;
     reach?: 'customer' | 'vendor' | 'both';
     modes?: Array<'help' | 'delivery' | 'appointment'>;
   },
@@ -132,6 +134,9 @@ async function addBusinessViaSetupSheet(
     .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
   await expect(chip.first()).toBeVisible({ timeout: 15000 });
   await chip.first().click();
+
+  await page.getByTestId('add-business-base-shop').click();
+  await page.getByTestId('add-business-upi').fill(opts.upi ?? 'addbiz@upi');
 
   const reach = opts.reach ?? 'vendor';
   if (reach === 'customer') {
@@ -229,6 +234,7 @@ test('VR-E2E-01: shop vendor registers with GPS via 2-page wizard', async ({ pag
   await completeWizardStepB(page, {
     categoryLabel: category.label,
     brandName: shopName,
+    upi: 'browserreg@upi',
     modes: ['help'],
   });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
@@ -340,6 +346,7 @@ test('VR-MULTI-01: register one business then add second via My Business sheet',
   await completeWizardStepB(page, {
     categoryLabel: electrician.label,
     brandName: shopName,
+    upi: 'multicat@upi',
     modes: ['help'],
   });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
@@ -403,7 +410,9 @@ test('VR-MULTI-01: register one business then add second via My Business sheet',
   await deleteVendorRegistrationArtifacts(vendorId);
 });
 
-test('VR-MULTI-02: register two categories with distinct per-category modes', async ({ page }) => {
+test('VR-MULTI-02: register Electrician, then add Plumber via Add Business with distinct modes', async ({
+  page,
+}) => {
   const electrician = await getActiveCategoryByLabel('Electrician');
   const plumber = await getActiveCategoryByLabel('Plumber');
   const phone = `99015${Date.now().toString().slice(-5)}`;
@@ -421,27 +430,24 @@ test('VR-MULTI-02: register two categories with distinct per-category modes', as
     phone,
     upi: 'dualmode@upi',
   });
-
-  await page.getByRole('button', { name: 'Browse all categories' }).click();
-  const elecChip = page.getByRole('button').filter({ hasText: electrician.label }).first();
-  const plumberChip = page.getByRole('button').filter({ hasText: plumber.label }).first();
-  await expect(elecChip).toBeVisible({ timeout: 15000 });
-  await elecChip.click();
-  await plumberChip.click();
-
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
-  await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
-
-  // Help-default per category: electrician help-only, plumber help+advance bookings.
-  await expect(page.getByTestId(`reg-avail-${electrician.id}-help-on`)).toBeVisible();
-  await page.getByTestId(`reg-avail-${plumber.id}-bookings-yes`).click();
-
-  await page.getByTestId('reg-shop-photo-capture').click();
-  await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
-    timeout: 15000,
+  await completeWizardStepB(page, {
+    categoryLabel: electrician.label,
+    brandName: shopName,
+    upi: 'dualmode@upi',
+    modes: ['help'],
   });
-  await page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी करा/i }).click();
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
+
+  await page.getByRole('button', { name: /Complete verification in Settings/i }).click();
+  await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('vendor-my-business')).toBeVisible({ timeout: 10000 });
+
+  await addBusinessViaSetupSheet(page, {
+    categoryLabel: plumber.label,
+    brandName: `Plumber Brand ${phone.slice(-4)}`,
+    reach: 'vendor',
+    modes: ['appointment'],
+  });
 
   const { data: vendor } = await supabaseAdmin
     .from('vendors')
@@ -449,6 +455,19 @@ test('VR-MULTI-02: register two categories with distinct per-category modes', as
     .eq('phone', phone)
     .single();
   const vendorId = vendor!.id;
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await supabaseAdmin
+          .from('vendor_categories')
+          .select('id')
+          .eq('vendor_id', vendorId);
+        return data?.length ?? 0;
+      },
+      { timeout: 20000 },
+    )
+    .toBe(2);
 
   const { data: vcRows } = await supabaseAdmin
     .from('vendor_categories')
@@ -471,6 +490,7 @@ test('VR-MULTI-02: register two categories with distinct per-category modes', as
 
   await deleteVendorRegistrationArtifacts(vendorId);
 });
+
 test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode category', async ({
   page,
 }) => {
@@ -494,6 +514,7 @@ test('VR-SHOP-DELIVERY-01: shop vendor registers via UI with delivery-mode categ
     categoryLabel: deliveryCat.label,
     categoryFilter: /🚚 Delivery/,
     brandName: shopName,
+    upi: 'deliveryshop@upi',
     modes: ['delivery'],
   });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
@@ -558,6 +579,7 @@ test('VR-SHOP-APPT-01: shop vendor registers via UI with appointment-mode catego
     categoryLabel: appointmentCat.label,
     categoryFilter: /🗓️ Appointment/,
     brandName: shopName,
+    upi: 'apptshop@upi',
     modes: ['appointment'],
   });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
@@ -649,6 +671,7 @@ test('RF-E2E-02: vendor registration with referral code triggers credits and not
   await completeWizardStepB(page, {
     categoryLabel: category.label,
     brandName: shopName,
+    upi: 'referredreg@upi',
     modes: ['help'],
   });
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });

@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium, expect, test } from "@playwright/test";
-import { loginAsVendor, APP_URL } from "./helpers/browser-setup";
+import { loginAsVendor, APP_URL, expandMyAccountAccordion } from "./helpers/browser-setup";
 import {
   supabase,
   supabaseAdmin,
@@ -95,6 +95,7 @@ test.describe("web FCM (real token)", () => {
 
       await page.goto(`${APP_URL}/settings`);
       await expect(page.getByTestId("settings-screen")).toBeVisible({ timeout: 15000 });
+      await expandMyAccountAccordion(page);
       await page.getByTestId("settings-feed-discovery-toggle").click();
       await expect(page.getByTestId("settings-feed-discovery")).toBeVisible();
 

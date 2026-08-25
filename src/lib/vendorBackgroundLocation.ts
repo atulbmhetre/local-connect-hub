@@ -4,6 +4,7 @@ import { BackgroundGeolocation } from "@capgo/background-geolocation";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import { supabase } from "@/lib/supabase";
 import { strings, type Language } from "@/lib/strings";
+import { ensureHelpTrackingPermissions } from "@/lib/nativePermissions";
 import {
   VENDOR_LOCATION_DISTANCE_FILTER_M,
   shouldRestoreOrderTracking,
@@ -98,7 +99,10 @@ function reconcileHelpLiveHeartbeat(): void {
   }
 }
 
-async function ensureWatcherStarted(ctx: VendorCtx): Promise<void> {
+async function ensureWatcherStarted(
+  ctx: VendorCtx,
+  requestMissingPermissions = false,
+): Promise<void> {
   activeCtx = ctx;
   if (!Capacitor.isNativePlatform()) {
     // Web/Playwright: sources still tracked; no FGS. Go-live uses one-shot GPS separately.
@@ -113,11 +117,14 @@ async function ensureWatcherStarted(ctx: VendorCtx): Promise<void> {
   const { title, message } = trackingNotificationCopy();
   startInFlight = (async () => {
     try {
+      if (requestMissingPermissions) {
+        await ensureHelpTrackingPermissions();
+      }
       await BackgroundGeolocation.start(
         {
           backgroundTitle: title,
           backgroundMessage: message,
-          requestPermissions: true,
+          requestPermissions: false,
           stale: false,
           distanceFilter: VENDOR_LOCATION_DISTANCE_FILTER_M,
         },
@@ -159,10 +166,14 @@ async function ensureWatcherStopped(): Promise<void> {
   }
 }
 
-async function addSource(key: string, ctx: VendorCtx): Promise<void> {
+async function addSource(
+  key: string,
+  ctx: VendorCtx,
+  requestMissingPermissions = false,
+): Promise<void> {
   sources.add(key);
   ensureVisibilityListener();
-  await ensureWatcherStarted(ctx);
+  await ensureWatcherStarted(ctx, requestMissingPermissions);
   reconcileHelpLiveHeartbeat();
 }
 
@@ -173,8 +184,11 @@ async function removeSource(key: string): Promise<void> {
 }
 
 /** Case 1 — Help Go-Live continuous tracking. */
-export async function startHelpLiveTracking(ctx: VendorCtx): Promise<void> {
-  await addSource(HELP_SOURCE, ctx);
+export async function startHelpLiveTracking(
+  ctx: VendorCtx,
+  options?: { requestMissingPermissions?: boolean },
+): Promise<void> {
+  await addSource(HELP_SOURCE, ctx, options?.requestMissingPermissions === true);
 }
 
 export async function stopHelpLiveTracking(): Promise<void> {

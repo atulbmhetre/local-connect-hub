@@ -118,13 +118,10 @@ test.afterAll(async () => {
 
 async function fillWizardStepAIdentity(
   page: Page,
-  opts: { name: string; phone: string; upi: string },
+  opts: { name: string; phone: string; upi?: string },
 ) {
   await page.getByPlaceholder('Ramesh Kumar').fill(opts.name);
   await page.getByPlaceholder('+91 98xxxxxxxx').fill(opts.phone);
-  await page.getByPlaceholder('name@okbank').fill(opts.upi);
-  // Base type must be chosen first — otherwise Next stops before phone validation.
-  await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
 }
 
 async function seedOfferPost(

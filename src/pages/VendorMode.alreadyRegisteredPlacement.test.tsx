@@ -42,4 +42,9 @@ describe("Vendor already-registered link placement", () => {
     expect(wizardIdx).toBeGreaterThan(-1);
     expect(linkIdx).toBeLessThan(wizardIdx);
   });
+
+  it("does not reconcile vendor_active while the vendor row is still null", () => {
+    const src = readFileSync(resolve(__dirname, "VendorMode.tsx"), "utf8");
+    expect(src).toMatch(/if \(!vendor\) return;\s*reconcileVendorActiveFlag/);
+  });
 });

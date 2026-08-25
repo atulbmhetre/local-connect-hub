@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { useState } from "react";
 import { strings } from "@/lib/strings";
 import { FirstOpenFlow } from "@/components/FirstOpenFlow";
+import { BottomNav } from "@/components/BottomNav";
 import {
   getUserPhone,
   hasBeenWelcomed,
@@ -134,6 +136,14 @@ vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: vi.fn(() => false) },
 }));
 
+vi.mock("@/lib/nativePermissions", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/nativePermissions")>();
+  return {
+    ...actual,
+    ensureNativePermissionGranted: vi.fn(async () => true),
+  };
+});
+
 vi.mock("@capacitor/push-notifications", () => ({
   PushNotifications: {
     requestPermissions: vi.fn(async () => ({ receive: "granted" })),
@@ -218,6 +228,8 @@ describe("FirstOpenFlow restore", () => {
     await waitFor(() => {
       expect(screen.getByText(strings.en.firstopen_restore_found)).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("firstopen-restore-cta")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("firstopen-restore-back")).not.toBeInTheDocument();
     expect(getUserPhone()).toBe("9876543210");
     expect(mockRpc).toHaveBeenCalledWith("get_vendor_restore_status", {
       p_phone: "9876543210",
@@ -278,6 +290,8 @@ describe("FirstOpenFlow restore", () => {
       expect(screen.getByText(strings.en.firstopen_restore_found)).toBeInTheDocument();
     });
 
+    expect(screen.queryByTestId("firstopen-restore-cta")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("firstopen-restore-back")).not.toBeInTheDocument();
     expect(localStorage.getItem("aaspaas:role")).toBe("vendor");
     expect(localStorage.getItem("aaspaas:vendor_active")).toBe("1");
     expect(localStorage.getItem("aaspaas:vendor_id")).toBe("vendor-test-123");
@@ -311,7 +325,44 @@ describe("FirstOpenFlow restore", () => {
       p_outcome: "success_vendor_offline",
       p_device_id: "test-device-id",
     });
+    expect(localStorage.getItem("aaspaas:vendor_active")).not.toBe("1");
     await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 3000 });
+  });
+
+  it("shows ME·Offline on the vendor tab immediately after offline restore", async () => {
+    mockVendorStatus.set({
+      found: true,
+      vendor_id: "vendor-dualrole-offline",
+      is_active: false,
+      discoverable: true,
+      profile_status: "complete",
+      restore_allowed: true,
+      deny_reason: null,
+    });
+
+    render(
+      <MemoryRouter>
+        <BottomNav />
+        <FirstOpenFlow onComplete={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId("nav-vendor")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("firstopen-returning"));
+    fireEvent.change(screen.getByPlaceholderText("98765 43210"), {
+      target: { value: "9876543210" },
+    });
+    fireEvent.click(screen.getByTestId("firstopen-restore-cta"));
+
+    await waitFor(() => {
+      expect(localStorage.getItem("aaspaas:vendor_id")).toBe("vendor-dualrole-offline");
+    });
+    expect(localStorage.getItem("aaspaas:vendor_active")).not.toBe("1");
+
+    const vendorTab = await screen.findByTestId("nav-vendor");
+    expect(vendorTab).toHaveTextContent(strings.en.nav_vendor_offline);
+    expect(vendorTab).not.toHaveTextContent(strings.en.nav_vendor_online);
   });
 
   it("restores hidden vendor (discoverable=false)", async () => {
@@ -549,11 +600,18 @@ describe("restoreVendorSession", () => {
     localStorage.clear();
   });
 
-  it("sets vendor role and active flag in storage", () => {
-    restoreVendorSession("vendor-abc");
+  it("sets vendor role and active flag when the restored shop is live", () => {
+    restoreVendorSession("vendor-abc", true);
     expect(localStorage.getItem("aaspaas:role")).toBe("vendor");
     expect(localStorage.getItem("aaspaas:vendor_active")).toBe("1");
     expect(localStorage.getItem("aaspaas:vendor_id")).toBe("vendor-abc");
+  });
+
+  it("does not mark the session live when restoring an offline shop", () => {
+    restoreVendorSession("vendor-offline", false);
+    expect(localStorage.getItem("aaspaas:role")).toBe("vendor");
+    expect(localStorage.getItem("aaspaas:vendor_id")).toBe("vendor-offline");
+    expect(localStorage.getItem("aaspaas:vendor_active")).not.toBe("1");
   });
 });
 
@@ -632,13 +690,11 @@ describe("FirstOpenFlow notification permission", () => {
     vi.clearAllMocks();
   });
 
-  it("Allow always calls OS requestPermissions even without a phone", async () => {
+  it("Allow live-checks then requests notification permission even without a phone", async () => {
     const { Capacitor } = await import("@capacitor/core");
-    const { PushNotifications } = await import("@capacitor/push-notifications");
+    const { ensureNativePermissionGranted } = await import("@/lib/nativePermissions");
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-    vi.mocked(PushNotifications.requestPermissions).mockResolvedValue({
-      receive: "granted",
-    } as never);
+    vi.mocked(ensureNativePermissionGranted).mockResolvedValue(true);
 
     const onComplete = vi.fn();
     render(<FirstOpenFlow onComplete={onComplete} />);
@@ -653,10 +709,35 @@ describe("FirstOpenFlow notification permission", () => {
     fireEvent.click(screen.getByTestId("firstopen-notif-allow"));
 
     await waitFor(() => {
-      expect(PushNotifications.requestPermissions).toHaveBeenCalled();
+      expect(ensureNativePermissionGranted).toHaveBeenCalledWith("notifications", "explicit");
     });
     await waitFor(() => expect(onComplete).toHaveBeenCalled());
     expect(getUserPhone()).toBeNull();
+    expect(localStorage.getItem("aaspaas:notif_skip_at")).toBeNull();
+
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+  });
+
+  it("Not now persists aaspaas:notif_skip_at and completes the flow", async () => {
+    const { Capacitor } = await import("@capacitor/core");
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+
+    const onComplete = vi.fn();
+    render(<FirstOpenFlow onComplete={onComplete} />);
+
+    fireEvent.click(screen.getByTestId("firstopen-im-new"));
+    fireEvent.click(screen.getByTestId("firstopen-use-as-customer"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("firstopen-notif-skip")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("firstopen-notif-skip"));
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    const skipAt = localStorage.getItem("aaspaas:notif_skip_at");
+    expect(skipAt).toBeTruthy();
+    expect(Number(skipAt)).toBeGreaterThan(0);
 
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
   });

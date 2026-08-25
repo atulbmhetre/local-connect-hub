@@ -496,13 +496,6 @@ test('RF-REQ-10 — Duplicate vendor referral blocked gracefully', async ({ page
   // Step A — account (referral on this step)
   await page.getByPlaceholder('Ramesh Kumar').fill('RF10 Owner');
   await page.getByPlaceholder('+91 98xxxxxxxx').fill(newPhone);
-  await page.getByPlaceholder('name@okbank').fill('rf10toast@upi');
-  await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
-  await page
-    .getByRole('button', {
-      name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
-    })
-    .click();
   await page.getByTestId('reg-selfie-capture').click();
   await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
@@ -513,7 +506,14 @@ test('RF-REQ-10 — Duplicate vendor referral blocked gracefully', async ({ page
   // Step B — business
   await page.getByRole('button', { name: 'Browse all categories' }).click();
   await page.getByRole('button').filter({ hasText: category.label }).first().click();
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(`RF10 Shop ${T}`);
+  await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
+  await page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i).fill(`RF10 Shop ${T}`);
+  await page
+    .getByRole('button', {
+      name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
+    })
+    .click();
+  await page.getByPlaceholder('name@okbank').fill('rf10toast@upi');
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
   await setRegAvailabilityModes(page, ['delivery']);
   await page.getByTestId('reg-shop-photo-capture').click();

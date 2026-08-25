@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, gotoRadarDelivery, clickRadarOrderCard, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, gotoRadarDelivery, clickRadarOrderCard, APP_URL, expandMyAccountAccordion } from './helpers/browser-setup';
 import { supabase, supabaseAdmin, createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, TEST_VENDOR_PHONE, TEST_SESSION } from './helpers/setup';
 
 const T = Date.now();
@@ -56,6 +56,7 @@ test('ADDR-02: address row visible in settings', async ({ page }) => {
   });
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await expandMyAccountAccordion(page);
   // Find and open delivery addresses section — try flexible match
   const addrSection = page.getByText(/delivery address/i).first();
   await expect(addrSection).toBeVisible({ timeout: 5000 });

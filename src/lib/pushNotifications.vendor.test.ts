@@ -58,7 +58,20 @@ vi.mock("@/lib/sentry", () => ({
   captureError: vi.fn(),
 }));
 
+vi.mock("@/lib/nativePermissions", () => ({
+  ensureNativePermissionGranted: vi.fn(async () => true),
+  checkNativePermissionStatuses: vi.fn(async () => ({
+    notifications: "granted",
+    location: "granted",
+    backgroundLocation: "granted",
+    camera: "granted",
+    microphone: "granted",
+  })),
+  isPermissionGranted: (status: string) => status === "granted" || status === "limited",
+}));
+
 import { persistVendorPushToken, registerPushToken } from "@/lib/pushNotifications";
+import { ensureNativePermissionGranted } from "@/lib/nativePermissions";
 
 describe("persistVendorPushToken", () => {
   beforeEach(() => {
@@ -110,6 +123,13 @@ describe("registerPushToken", () => {
   it("no-ops on web (non-native)", async () => {
     isNativeMock.mockReturnValueOnce(false);
     await registerPushToken("vendor-3", { vendorPhone: "9900022222" });
+    expect(registerMock).not.toHaveBeenCalled();
+  });
+
+  it("does not register when live-check does not grant notification permission", async () => {
+    vi.mocked(ensureNativePermissionGranted).mockResolvedValueOnce(false);
+    await registerPushToken("vendor-4", { vendorPhone: "9900033333" });
+    expect(ensureNativePermissionGranted).toHaveBeenCalledWith("notifications", "passive");
     expect(registerMock).not.toHaveBeenCalled();
   });
 });

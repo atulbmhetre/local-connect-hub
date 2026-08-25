@@ -103,6 +103,16 @@ export function UpiPaymentPanel({
     }
 
     let cancelled = false;
+    void supabase
+      .rpc("snapshot_intended_upi_payee", {
+        p_request_id: orderId,
+        p_device_id: getDeviceId(),
+        p_user_phone: getUserPhone(),
+      })
+      .then(({ error: snapErr }) => {
+        if (cancelled || !snapErr) return;
+        captureError(snapErr, { scope: "upiPaymentPanel.snapshotIntendedUpi", orderId });
+      });
     void (async () => {
       const { data, error } = await supabase.rpc("get_payment_claim_requirements", {
         p_request_id: orderId,

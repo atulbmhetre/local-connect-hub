@@ -144,6 +144,61 @@ test('VR-02: duplicate phone — register_vendor returns 23505, no second row cr
   await deleteVendorRegistrationArtifacts(firstResult.vendorId!);
 });
 
+test('VR-DUAL-01: register_vendor dual-writes UPI/QR/base_type/GPS onto vendor_categories', async () => {
+  const phone = `99003${Date.now().toString().slice(-5)}`;
+  const upi = `dual${Date.now().toString().slice(-6)}@okaxis`;
+  const lat = 18.53111;
+  const lng = 73.84442;
+  const qrUrl = 'https://example.com/test-upi-qr.png';
+  const payeeId = 'dualpayee@okaxis';
+
+  const registerResult = await invokeRegisterVendorRpc({
+    phone,
+    name: 'VR Dual Write Owner',
+    shop_name: `VR Dual Shop ${TEST_SESSION}`,
+    upi_id: upi,
+    upi_qr_url: qrUrl,
+    upi_qr_payee_id: payeeId,
+    base_type: 'shop',
+    latitude: lat,
+    longitude: lng,
+    is_active: false,
+  });
+  expect(registerResult.error).toBeUndefined();
+  expect(registerResult.vendorId).toBeTruthy();
+  const vendorId = registerResult.vendorId!;
+
+  const { data: vendor, error: vendorError } = await supabaseAdmin
+    .from('vendors')
+    .select('upi_id, upi_qr_url, upi_qr_payee_id, base_type, latitude, longitude')
+    .eq('id', vendorId)
+    .single();
+  expect(vendorError).toBeNull();
+  expect(vendor?.upi_id).toBe(upi);
+  expect(vendor?.upi_qr_url).toBe(qrUrl);
+  expect(vendor?.upi_qr_payee_id).toBe(payeeId);
+  expect(vendor?.base_type).toBe('shop');
+  expect(vendor?.latitude).toBeCloseTo(lat, 4);
+  expect(vendor?.longitude).toBeCloseTo(lng, 4);
+
+  const { data: cats, error: catError } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('upi_id, upi_qr_url, upi_qr_payee_id, base_type, latitude, longitude')
+    .eq('vendor_id', vendorId);
+  expect(catError).toBeNull();
+  expect(cats?.length).toBeGreaterThan(0);
+  for (const row of cats ?? []) {
+    expect(row.upi_id).toBe(vendor?.upi_id);
+    expect(row.upi_qr_url).toBe(vendor?.upi_qr_url);
+    expect(row.upi_qr_payee_id).toBe(vendor?.upi_qr_payee_id);
+    expect(row.base_type).toBe(vendor?.base_type);
+    expect(row.latitude).toBeCloseTo(lat, 4);
+    expect(row.longitude).toBeCloseTo(lng, 4);
+  }
+
+  await deleteVendorRegistrationArtifacts(vendorId);
+});
+
 // ─── VERIFICATION STATES ──────────────────────────────────────────────────
 
 test('VV-01: verification_status starts as identity_linked after registration', async () => {

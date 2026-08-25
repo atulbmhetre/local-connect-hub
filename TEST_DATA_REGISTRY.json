@@ -1,0 +1,48 @@
+{
+  "accounts": [
+    {
+      "created_at": "2026-08-25T02:34:30.714Z",
+      "project": "prod",
+      "project_ref": "rpxsyeqskvhjmbkxnpmd",
+      "type": "banned-vendor",
+      "purpose": "Admin ban/unban + banned-vendor restore denial",
+      "phone": "6998266654",
+      "id": "3a1e13d5-f38d-4a6c-b7dd-bca2d62b1fb6",
+      "shop_or_name": "TEST_BannedVendor_Chinchwad"
+    },
+    {
+      "created_at": "2026-08-25T02:34:33.819Z",
+      "project": "prod",
+      "project_ref": "rpxsyeqskvhjmbkxnpmd",
+      "type": "deletion-scheduled-vendor",
+      "purpose": "30-day deletion window + admin_force_clear_deletion",
+      "phone": "6998271315",
+      "id": "a1798c8b-56ae-4284-82dc-7ee1731e39f6",
+      "shop_or_name": "TEST_DeletionScheduled_Chinchwad",
+      "device_id": "test-del-6998271315"
+    },
+    {
+      "created_at": "2026-08-25T02:34:35.051Z",
+      "project": "prod",
+      "project_ref": "rpxsyeqskvhjmbkxnpmd",
+      "type": "banned-customer",
+      "purpose": "Customer ban on FirstOpen / order attempt",
+      "phone": "6998274051",
+      "id": "6998274051",
+      "shop_or_name": "TEST_BannedCustomer",
+      "device_id": "test-ban-cust-6998274051"
+    },
+    {
+      "created_at": "2026-08-25T02:34:35.564Z",
+      "project": "prod",
+      "project_ref": "rpxsyeqskvhjmbkxnpmd",
+      "type": "dual-role",
+      "purpose": "FO-10 same phone is customer + vendor",
+      "phone": "6998275725",
+      "id": "389f76ee-7354-417f-a0f6-1267dc460959",
+      "shop_or_name": "TEST_DualRole_Chinchwad",
+      "device_id": "test-dual-6998275725"
+    }
+  ],
+  "removed": []
+}

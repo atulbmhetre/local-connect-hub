@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { loginAsVendor, APP_URL, expandMyBusinessIdentityAccordion, expandFirstMyBusinessCategoryAccordion } from './helpers/browser-setup';
+import { loginAsVendor, APP_URL, expandFirstMyBusinessCategoryAccordion } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -482,16 +482,18 @@ test('VM-15 — Verified vendor can open My Business and edit base type', async 
   await expect(myBusinessPanel(page).getByTestId('my-business-accordions')).toBeVisible({
     timeout: 10000,
   });
-  await expandMyBusinessIdentityAccordion(page);
-  await page.getByTestId('my-business-base-home').click();
   await expandFirstMyBusinessCategoryAccordion(page);
+  await page.getByTestId('my-business-base-home').click();
   await myBusinessPanel(page).getByTestId('my-business-shop-name').fill('Home Brand');
   await expect(page.getByTestId('my-business-save')).toBeEnabled({ timeout: 10000 });
   await page.getByTestId('my-business-save').click();
   await page.waitForTimeout(2000);
-  const { data } = await supabaseAdmin.from('vendors').select('vendor_type, base_type').eq('id', vendor.id).single();
-  expect(data?.vendor_type).toBe('home');
-  expect(data?.base_type).toBe('home');
+  const { data: vc } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('base_type')
+    .eq('vendor_id', vendor.id)
+    .single();
+  expect(vc?.base_type).toBe('home');
 });
 
 test('VM-10 — Vendor with no incoming orders sees empty state', async ({ page }) => {

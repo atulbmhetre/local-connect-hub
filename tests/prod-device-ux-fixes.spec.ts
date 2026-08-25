@@ -4,7 +4,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { getServiceRoleClient, getSupabaseUrl } from './helpers/testEnv';
-import { loginAsCustomer, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, APP_URL, expandMyAccountAccordion } from './helpers/browser-setup';
 import { openPhoneEntrySheet, submitPhoneNumber } from './helpers/browser-recovery';
 import { strings } from '../src/lib/strings';
 
@@ -272,6 +272,7 @@ test('PROD-UX-03 — Already registered link renders above registration form', a
 test('PROD-UX-04 — Account Standing collapses and expands', async ({ page }) => {
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await page.goto(`${APP_URL}/settings`, { waitUntil: 'domcontentloaded' });
+  await expandMyAccountAccordion(page);
   await expect(page.getByTestId('settings-account-standing-toggle')).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('account-standing-row')).toHaveCount(0);
 

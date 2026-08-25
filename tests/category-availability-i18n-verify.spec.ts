@@ -26,13 +26,6 @@ async function setAppLanguage(page: Page, lang: "hi" | "mr") {
 async function completeStepA(page: Page, phone: string, lang: "hi" | "mr") {
   await page.getByPlaceholder("Ramesh Kumar").fill("I18n Owner");
   await page.getByPlaceholder("+91 98xxxxxxxx").fill(phone);
-  await page.getByPlaceholder("name@okbank").fill("i18n@upi");
-  await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
-  const gpsLabel =
-    lang === "hi"
-      ? /📍 दुकान की लोकेशन लें|Location set|लोकेशन सेट/i
-      : /📍 दुकानाचे लोकेशन घ्या|Location set|लोकेशन सेट/i;
-  await page.getByRole("button", { name: gpsLabel }).click();
   await page.getByTestId("reg-selfie-capture").click();
   await expect(page.getByTestId("reg-selfie-capture")).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
@@ -61,11 +54,14 @@ test.describe("Category availability i18n on-screen verification", () => {
     await completeStepA(page, `99198${Date.now().toString().slice(-5)}`, "hi");
     await page.getByText("सभी categories देखें", { exact: true }).click();
     await page.getByRole("button").filter({ hasText: mechanic.label }).first().click();
+    await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
     await page.getByPlaceholder(/Tyre|टायर/i).fill("HI Mech Shop");
     await page.getByRole("button", { name: /मेरे पास|At my place/i }).click();
     const helpStatement = page.getByTestId("reg-avail-help-on");
     await expect(helpStatement).toBeVisible();
-    await expect(helpStatement).toContainText("तुरंत मदद चालू है");
+    await expect(helpStatement).toContainText("आप तुरंत, मौके पर काम लेते हैं");
+    await expect(page.getByText("आप रिक्वेस्ट कैसे लेते हैं?")).toBeVisible();
+    await expect(page.getByText("ग्राहक आप तक कैसे पहुँचें?")).toBeVisible();
     await expect(page.getByText("क्या आप पहले से बुकिंग भी लेना चाहते हैं?")).toBeVisible();
     await expect(page.getByTestId("reg-avail-bookings-yes")).toContainText("हाँ");
     await expect(page.getByTestId("reg-avail-bookings-no")).toContainText("नहीं");
@@ -79,6 +75,7 @@ test.describe("Category availability i18n on-screen verification", () => {
     await completeStepA(page, `99197${Date.now().toString().slice(-5)}`, "hi");
     await page.getByText("सभी categories देखें", { exact: true }).click();
     await page.getByRole("button").filter({ hasText: grocery.label }).first().click();
+    await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
     await page.getByPlaceholder(/Tyre|टायर/i).fill("HI Groc Shop");
     await page.getByRole("button", { name: /मेरे पास|At my place/i }).click();
 
@@ -104,12 +101,15 @@ test.describe("Category availability i18n on-screen verification", () => {
     await completeStepA(page, `99196${Date.now().toString().slice(-5)}`, "mr");
     await page.getByText("सर्व categories पहा", { exact: true }).click();
     await page.getByRole("button").filter({ hasText: mechanic.label }).first().click();
+    await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
     await page.getByPlaceholder(/Tyre|टायर/i).fill("MR Mech Shop");
     await page.getByRole("button", { name: /माझ्या जागी|At my place/i }).click();
 
     const helpStatement = page.getByTestId("reg-avail-help-on");
     await expect(helpStatement).toBeVisible();
-    await expect(helpStatement).toContainText("तातडीची मदत चालू आहे");
+    await expect(helpStatement).toContainText("तुम्ही तातडीचे, तिथेच काम घेता");
+    await expect(page.getByText("तुम्ही विनंती कशी घेता?")).toBeVisible();
+    await expect(page.getByText("ग्राहक तुम्हाला कुठे भेटू शकतात?")).toBeVisible();
     await expect(page.getByText("तुम्ही आगाऊ बुकिंगही घ्यायची आहे का?")).toBeVisible();
     await expect(page.getByTestId("reg-avail-bookings-yes")).toContainText("होय");
     await expect(page.getByTestId("reg-avail-bookings-no")).toContainText("नाही");
@@ -122,6 +122,7 @@ test.describe("Category availability i18n on-screen verification", () => {
     await completeStepA(page, `99195${Date.now().toString().slice(-5)}`, "mr");
     await page.getByText("सर्व categories पहा", { exact: true }).click();
     await page.getByRole("button").filter({ hasText: grocery.label }).first().click();
+    await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
     await page.getByPlaceholder(/Tyre|टायर/i).fill("MR Groc Shop");
     await page.getByRole("button", { name: /माझ्या जागी|At my place/i }).click();
 

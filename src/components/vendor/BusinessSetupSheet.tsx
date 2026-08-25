@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
@@ -16,7 +16,9 @@ import {
   type Category,
   SHOP_PHOTOS_BUCKET,
   useCategoryLabel,
+  isValidUpi,
 } from "@/lib/supabase";
+import { decodeUpiPayeeIdFromImageFile } from "@/lib/upiQrDecode";
 import {
   GPS_MATCH_FAILS_BEFORE_SOFT_REVIEW,
   evaluateGpsMatch,
@@ -28,9 +30,10 @@ import { cn } from "@/lib/utils";
 import { checkAndNotifyAdminCategoryGreenReady } from "@/lib/vendorGreenReady";
 import {
   type AvailabilityMode,
+  type BaseTypeValue,
   type ReachChoiceValue,
   reachFlagsFromChoice,
-  MAX_REG_CATEGORIES,
+  MAX_VENDOR_CATEGORIES,
 } from "@/lib/vendorRegistration";
 import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAvailabilityModeSelector";
 import {
@@ -83,6 +86,40 @@ function categoryServiceModeChipLabel(
   }
 }
 
+function ChoiceCard({
+  selected,
+  onClick,
+  emoji,
+  title,
+  desc,
+  testId,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  emoji: string;
+  title: string;
+  desc: string;
+  testId?: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      className={cn(
+        "rounded-2xl border-2 p-3 text-left transition-colors active:scale-[0.98] w-full",
+        "bg-surface border-surface-border",
+        selected && "border-primary bg-primary/15 ring-1 ring-primary/30",
+      )}
+    >
+      <p className="text-base font-display font-bold text-foreground leading-tight">
+        {emoji} {title}
+      </p>
+      <p className="mt-1 text-[10px] text-muted-foreground leading-snug">{desc}</p>
+    </button>
+  );
+}
+
 type ColocatedMatch = {
   category_id: string;
   distance_meters: number;
@@ -108,6 +145,13 @@ export function BusinessSetupSheet({
   const [categories, setCategories] = useState<RegCategoryRow[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [baseType, setBaseType] = useState<BaseTypeValue>("");
+  const [upi, setUpi] = useState("");
+  const [upiBlurred, setUpiBlurred] = useState(false);
+  const [upiQrUrl, setUpiQrUrl] = useState("");
+  const [upiQrPayeeId, setUpiQrPayeeId] = useState<string | null>(null);
+  const [upiQrUploading, setUpiQrUploading] = useState(false);
+  const upiQrInputRef = useRef<HTMLInputElement>(null);
   const [reachChoice, setReachChoice] = useState<ReachChoiceValue>("");
   const [serviceRadiusKm, setServiceRadiusKm] = useState<number | null>(null);
   const [availabilityModes, setAvailabilityModes] = useState<AvailabilityMode[]>([]);
@@ -134,6 +178,12 @@ export function BusinessSetupSheet({
   useEffect(() => {
     if (!open) return;
     setSelectedCategoryId(null);
+    setBaseType("");
+    setUpi("");
+    setUpiBlurred(false);
+    setUpiQrUrl("");
+    setUpiQrPayeeId(null);
+    setUpiQrUploading(false);
     setReachChoice("");
     setServiceRadiusKm(null);
     setAvailabilityModes([]);
@@ -170,18 +220,23 @@ export function BusinessSetupSheet({
   }, [open]);
 
   const available = categories.filter((c) => !existingCategoryIds.includes(c.id));
-  const atMax = existingCategoryIds.length >= MAX_REG_CATEGORIES;
+  const atMax = existingCategoryIds.length >= MAX_VENDOR_CATEGORIES;
   const reachFlags = reachChoice ? reachFlagsFromChoice(reachChoice) : null;
   const needsRadius = reachFlags?.serves_at_customer_place === true;
   const radiusOk = !needsRadius || serviceRadiusKm != null;
   const photoReady = shopPhotoBlob != null || inheritFromCategoryId != null;
+  const upiFmtOk = isValidUpi(upi);
   const ready =
     selectedCategoryId != null &&
+    baseType !== "" &&
+    upiFmtOk &&
     reachChoice !== "" &&
     radiusOk &&
     availabilityModes.length > 0 &&
     photoReady &&
     !atMax;
+  const upiFormatError =
+    upiBlurred && upi.trim().length > 0 && !upiFmtOk ? s.vendor_upi_id_format_invalid : undefined;
 
   const acceptShopPhoto = (
     shot: CapturedShot,
@@ -358,6 +413,31 @@ export function BusinessSetupSheet({
     setCameraOpen(true);
   };
 
+  const handleUpiQrFile = async (file: File) => {
+    setUpiQrUploading(true);
+    setUpiQrPayeeId(null);
+    const path = `upi-qr/${Date.now()}_${file.name}`;
+    const { error: upErr } = await supabase.storage.from("vendor-docs").upload(path, file, {
+      contentType: file.type || "image/jpeg",
+      upsert: true,
+    });
+    if (upErr) {
+      toast.error(s.vendor_qr_upload_failed);
+      setUpiQrUploading(false);
+      return;
+    }
+    const { data: pub } = supabase.storage.from("vendor-docs").getPublicUrl(path);
+    setUpiQrUrl(pub.publicUrl);
+    const payeeId = await decodeUpiPayeeIdFromImageFile(file);
+    setUpiQrPayeeId(payeeId);
+    if (payeeId) {
+      setUpi(payeeId);
+    } else {
+      toast.error(s.vendor_qr_decode_failed);
+    }
+    setUpiQrUploading(false);
+  };
+
   const submit = async () => {
     if (!ready || !selectedCategoryId || !reachFlags) return;
     if (!shopPhotoBlob && !inheritFromCategoryId) return;
@@ -408,6 +488,10 @@ export function BusinessSetupSheet({
       p_serves_at_vendor_place: servesVendorPlace,
       p_serves_at_customer_place: servesCustomerPlace,
       p_service_radius_km: radii,
+      p_upi_id: upi.trim(),
+      p_upi_qr_url: upiQrUrl || null,
+      p_upi_qr_payee_id: upiQrPayeeId,
+      p_base_type: baseType,
     });
     if (vcError) {
       setSubmitting(false);
@@ -530,7 +614,7 @@ export function BusinessSetupSheet({
             <SheetDescription>{s.my_business_add_business_hint}</SheetDescription>
           </SheetHeader>
 
-          <div className="px-4 pb-6 space-y-4">
+          <div className="px-4 pb-6 space-y-4" data-testid="add-business-sheet">
             {atMax ? (
               <p className="text-sm text-muted-foreground">
                 {s.vendor_categories_selected(existingCategoryIds.length)}
@@ -590,6 +674,78 @@ export function BusinessSetupSheet({
                       )}
                     </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {s.reg_where_work_from} *
+                  </label>
+                  <div className="mt-2 grid grid-cols-1 gap-2">
+                    <ChoiceCard
+                      selected={baseType === "shop"}
+                      onClick={() => setBaseType("shop")}
+                      emoji="🏪"
+                      title={s.reg_base_shop}
+                      desc={s.reg_base_shop_desc}
+                      testId="add-business-base-shop"
+                    />
+                    <ChoiceCard
+                      selected={baseType === "home"}
+                      onClick={() => setBaseType("home")}
+                      emoji="🏠"
+                      title={s.reg_base_home}
+                      desc={s.reg_base_home_desc}
+                      testId="add-business-base-home"
+                    />
+                    <ChoiceCard
+                      selected={baseType === "none"}
+                      onClick={() => setBaseType("none")}
+                      emoji="🚫"
+                      title={s.reg_base_none}
+                      desc={s.reg_base_none_desc}
+                      testId="add-business-base-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {s.vendor_upi_label} *
+                  </label>
+                  <input
+                    type="text"
+                    data-testid="add-business-upi"
+                    value={upi}
+                    onChange={(e) => setUpi(e.target.value)}
+                    onBlur={() => setUpiBlurred(true)}
+                    placeholder={s.vendor_upi_placeholder}
+                    className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-2.5 text-sm"
+                  />
+                  {upiFormatError && (
+                    <p className="mt-1 text-xs text-destructive">{upiFormatError}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">{s.vendor_upi_qr_label}</label>
+                  <input
+                    ref={upiQrInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void handleUpiQrFile(f);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    data-testid="add-business-upi-qr"
+                    disabled={upiQrUploading}
+                    onClick={() => upiQrInputRef.current?.click()}
+                    className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
+                  >
+                    {upiQrUploading ? s.vendor_uploading : s.vendor_upi_qr_hint}
+                  </button>
                 </div>
 
                 <div>

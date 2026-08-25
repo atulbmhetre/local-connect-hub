@@ -2,6 +2,46 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 
+/**
+ * Supabase Auth Send SMS hook.
+ *
+ * Supabase Auth is the sole OTP authority. This function only delivers the
+ * code Auth already generated (`sms.otp` on the hook payload) as plain SMS
+ * via Exotel's standard SMS-send API — not ExoVerify (which would mint a
+ * second, conflicting OTP).
+ *
+ * Live send requires ALL of the SMS-specific secrets below. Calling-only
+ * secrets (EXOTEL_SID / API_KEY / API_TOKEN) are not enough, so existing
+ * voice credentials cannot accidentally flip this hook live.
+ *
+ * Dormant (any SMS secret missing): log + write `_test_otp_capture`.
+ * Playwright phone-auth tests depend on that path.
+ *
+ * --- Secrets (Dashboard → Project → Edge Functions → Secrets, per project) ---
+ *
+ * Reused from voice, if already present:
+ *   EXOTEL_SID
+ *   EXOTEL_API_KEY
+ *   EXOTEL_API_TOKEN
+ *
+ * SMS-specific (must be added before live send):
+ *   EXOTEL_SMS_FROM          DLT-registered 6-char sender header (From)
+ *   EXOTEL_DLT_ENTITY_ID     VilPower / DLT Principal Entity ID
+ *   EXOTEL_DLT_TEMPLATE_ID   VilPower-approved content template ID
+ *   EXOTEL_SMS_BODY_TEMPLATE Exact approved wording with `{otp}` as the only
+ *                            variable slot (replace VilPower `{#var#}` with `{otp}`)
+ *
+ * Optional:
+ *   EXOTEL_API_HOST          default api.exotel.com (Mumbai: api.in.exotel.com)
+ *   EXOTEL_SMS_TYPE          default transactional (covers OTP + service-implicit)
+ *
+ * Also required for the hook itself (already used):
+ *   SEND_SMS_HOOK_SECRET     Auth hook signing secret
+ *   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY  dormant OTP capture only
+ *
+ * Do not set EXOVERIFY_APP_ID / EXOVERIFY_APP_SECRET — unused.
+ */
+
 type SendSmsHookUser = {
   phone?: string;
 };
@@ -15,6 +55,22 @@ type VerifiedHook = {
   sms: SendSmsHookPayload;
 };
 
+type ExotelSmsConfig = {
+  sid: string;
+  apiKey: string;
+  apiToken: string;
+  from: string;
+  dltEntityId: string;
+  dltTemplateId: string;
+  bodyTemplate: string;
+  apiHost: string;
+  smsType: string;
+};
+
+const OTP_PLACEHOLDER = "{otp}";
+const DEFAULT_EXOTEL_API_HOST = "api.exotel.com";
+const DEFAULT_SMS_TYPE = "transactional";
+
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -26,42 +82,47 @@ function hookError(message: string, httpCode = 500) {
   return jsonResponse({ error: { http_code: httpCode, message } }, httpCode);
 }
 
-function isExoVerifyConfigured(): boolean {
-  return Boolean(
-    Deno.env.get("EXOVERIFY_APP_ID")?.trim() &&
-      Deno.env.get("EXOVERIFY_APP_SECRET")?.trim(),
-  );
+function envTrim(name: string): string {
+  return Deno.env.get(name)?.trim() ?? "";
 }
 
-/** ExoVerify Start Verification API shape (live mode when KYC credentials exist). */
-async function deliverViaExoVerify(phone: string, supabaseOtp: string): Promise<void> {
-  const appId = Deno.env.get("EXOVERIFY_APP_ID")!.trim();
-  const appSecret = Deno.env.get("EXOVERIFY_APP_SECRET")!.trim();
-  const accountSid = Deno.env.get("EXOTEL_SID")?.trim() ?? "default";
+function readExotelSmsConfig(): ExotelSmsConfig | null {
+  const sid = envTrim("EXOTEL_SID");
+  const apiKey = envTrim("EXOTEL_API_KEY");
+  const apiToken = envTrim("EXOTEL_API_TOKEN");
+  const from = envTrim("EXOTEL_SMS_FROM");
+  const dltEntityId = envTrim("EXOTEL_DLT_ENTITY_ID");
+  const dltTemplateId = envTrim("EXOTEL_DLT_TEMPLATE_ID");
+  const bodyTemplate = envTrim("EXOTEL_SMS_BODY_TEMPLATE");
 
-  const auth = btoa(`${appId}:${appSecret}`);
-  const res = await fetch(
-    `https://exoverify.exotel.com/v2/accounts/${accountSid}/verifications/sms`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        application_id: appId,
-        phone_number: phone,
-        // Template vars for DLT-approved templates; Supabase OTP logged for Phase B wiring.
-        replace_vars: [supabaseOtp],
-      }),
-    },
-  );
-
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`ExoVerify Start Verification failed (${res.status}): ${text}`);
+  if (
+    !sid ||
+    !apiKey ||
+    !apiToken ||
+    !from ||
+    !dltEntityId ||
+    !dltTemplateId ||
+    !bodyTemplate.includes(OTP_PLACEHOLDER)
+  ) {
+    return null;
   }
-  console.log("ExoVerify Start Verification response", text);
+
+  return {
+    sid,
+    apiKey,
+    apiToken,
+    from,
+    dltEntityId,
+    dltTemplateId,
+    bodyTemplate,
+    apiHost: envTrim("EXOTEL_API_HOST") || DEFAULT_EXOTEL_API_HOST,
+    smsType: envTrim("EXOTEL_SMS_TYPE") || DEFAULT_SMS_TYPE,
+  };
+}
+
+/** Replace the single `{otp}` slot. Body must otherwise match the DLT template character-for-character. */
+function buildSmsBody(template: string, otp: string): string {
+  return template.split(OTP_PLACEHOLDER).join(otp);
 }
 
 function normalizeE164Phone(phone: string): string {
@@ -71,6 +132,91 @@ function normalizeE164Phone(phone: string): string {
   if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
   if (digits.length === 10) return `+91${digits}`;
   return trimmed.startsWith("+") ? trimmed : `+${digits}`;
+}
+
+function extractExotelSmsStatus(payload: unknown): {
+  sid: string | null;
+  status: string | null;
+} {
+  if (!payload || typeof payload !== "object") {
+    return { sid: null, status: null };
+  }
+  const root = payload as Record<string, unknown>;
+  const message = (root.SMSMessage ?? root.SmsMessage ?? root) as Record<
+    string,
+    unknown
+  >;
+  const sid =
+    typeof message.Sid === "string"
+      ? message.Sid
+      : typeof message.sid === "string"
+        ? message.sid
+        : null;
+  const status =
+    typeof message.Status === "string"
+      ? message.Status
+      : typeof message.status === "string"
+        ? message.status
+        : null;
+  return { sid, status };
+}
+
+async function deliverViaExotelSms(
+  phone: string,
+  supabaseOtp: string,
+  config: ExotelSmsConfig,
+): Promise<void> {
+  const to = normalizeE164Phone(phone);
+  const body = buildSmsBody(config.bodyTemplate, supabaseOtp);
+  const auth = btoa(`${config.apiKey}:${config.apiToken}`);
+
+  const form = new URLSearchParams({
+    From: config.from,
+    To: to,
+    Body: body,
+    DltEntityId: config.dltEntityId,
+    DltTemplateId: config.dltTemplateId,
+    SmsType: config.smsType,
+    Priority: "high",
+    CustomField: "supabase-phone-otp",
+  });
+
+  const res = await fetch(
+    `https://${config.apiHost}/v1/Accounts/${config.sid}/Sms/send.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    },
+  );
+
+  const text = await res.text();
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
+
+  if (!res.ok) {
+    throw new Error(`Exotel SMS send failed (${res.status}): ${text}`);
+  }
+
+  const { sid, status } = extractExotelSmsStatus(parsed);
+  const normalizedStatus = (status ?? "").toLowerCase();
+  if (normalizedStatus.startsWith("failed")) {
+    throw new Error(
+      `Exotel SMS send rejected (status=${status}${sid ? `, sid=${sid}` : ""}): ${text}`,
+    );
+  }
+
+  console.log("Exotel SMS send accepted", {
+    sms_sid: sid,
+    status: status ?? "unknown",
+  });
 }
 
 async function captureOtpForTests(phone: string, otp: string): Promise<void> {
@@ -123,13 +269,14 @@ serve(async (req) => {
   }
 
   try {
-    if (!isExoVerifyConfigured()) {
+    const smsConfig = readExotelSmsConfig();
+    if (!smsConfig) {
       console.log("DORMANT SMS HOOK — would send OTP", { phone, otp });
       await captureOtpForTests(phone, otp);
       return jsonResponse({});
     }
 
-    await deliverViaExoVerify(phone, otp);
+    await deliverViaExotelSms(phone, otp, smsConfig);
     return jsonResponse({});
   } catch (err) {
     const message = err instanceof Error ? err.message : "SMS delivery failed";

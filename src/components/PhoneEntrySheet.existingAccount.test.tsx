@@ -10,6 +10,7 @@ const { mockUsersData, mockVendorStatus, mockRpc } = vi.hoisted(() => {
     found: boolean;
     vendor_id: string | null;
     is_banned?: boolean;
+    is_active?: boolean;
     restore_allowed?: boolean;
     deny_reason?: string | null;
   } | null = null;
@@ -24,6 +25,7 @@ const { mockUsersData, mockVendorStatus, mockRpc } = vi.hoisted(() => {
           found: false,
           vendor_id: null,
           is_banned: false,
+          is_active: false,
           restore_allowed: false,
           deny_reason: "not_found",
         },
@@ -52,6 +54,7 @@ const { mockUsersData, mockVendorStatus, mockRpc } = vi.hoisted(() => {
           found: boolean;
           vendor_id: string | null;
           restore_allowed?: boolean;
+          is_active?: boolean;
           deny_reason?: string | null;
         } | null,
       ) => {
@@ -129,6 +132,7 @@ describe("PhoneEntrySheet existing-account safety net", () => {
       found: true,
       vendor_id: "v-safety-1",
       restore_allowed: true,
+      is_active: true,
       deny_reason: null,
     });
 
@@ -172,5 +176,32 @@ describe("PhoneEntrySheet existing-account safety net", () => {
     expect(screen.getByTestId("phone-entry-existing-continue")).toHaveTextContent(
       strings.en.firstopen_existing_continue,
     );
+  });
+
+  it("restores an offline vendor without marking the session live", async () => {
+    mockVendorStatus.set({
+      found: true,
+      vendor_id: "v-offline-grocery",
+      restore_allowed: true,
+      is_active: false,
+      deny_reason: null,
+    });
+
+    render(
+      <PhoneEntrySheet isOpen onClose={() => {}} onConfirmed={vi.fn()} skipRecovery />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(strings.en.phone_entry_placeholder), {
+      target: { value: "9876543210" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: strings.en.phone_entry_continue }));
+    await waitFor(() => {
+      expect(screen.getByTestId("phone-entry-existing-restore")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("phone-entry-existing-restore"));
+    await waitFor(() => {
+      expect(localStorage.getItem("aaspaas:vendor_id")).toBe("v-offline-grocery");
+    });
+    expect(localStorage.getItem("aaspaas:vendor_active")).not.toBe("1");
   });
 });

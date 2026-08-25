@@ -55,7 +55,7 @@ import {
 } from "@/lib/withNetworkRetry";
 import { notifyVendorIdChanged } from "@/lib/vendorSessionSync";
 import { stopAllVendorLocationTracking } from "@/lib/vendorBackgroundLocation";
-import { getUserPhone, clearUserPhone, ensureUserDeviceLink, saveUserPhone, migrateUserPhone } from "@/lib/userIdentity";
+import { getUserPhone, clearUserPhone, ensureUserDeviceLink, saveUserPhone, migrateUserPhone, restoreVendorSession } from "@/lib/userIdentity";
 import { showClearMyDataSuccessThenReload } from "@/lib/clearMyDataFeedback";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { fetchVendorOwn } from "@/lib/vendorRead";
@@ -127,6 +127,7 @@ import {
   type TrustLevel,
   type VendorVerificationRow,
 } from "@/lib/trustLevel";
+import { resolveAdminBusinessPayeeAndPin } from "@/lib/adminBusinessPayee";
 import { setOverlayBackHandler } from "@/lib/overlayBackBridge";
 
 type AdminVendorCategory = {
@@ -141,6 +142,9 @@ type AdminVendorCategory = {
   photo_accuracy: number | null;
   verification_status: string | null;
   is_manual_verified: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  upi_id: string | null;
 };
 
 type AdminVendorListRow = {
@@ -163,13 +167,14 @@ type AdminVendorListRow = {
   upi_verified: boolean;
   is_banned: boolean;
   ban_reason: string | null;
+  deletion_requested_at: string | null;
   categories: AdminVendorCategory[];
   trustLevel: TrustLevel;
   verifications: VendorVerificationRow[];
 };
 
 const VENDOR_LIST_SELECT =
-  "id, name, shop_name, category, service_mode, vendor_type, phone, is_manual_verified, is_active, is_banned, ban_reason, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified, verification_status";
+  "id, name, shop_name, category, service_mode, vendor_type, phone, is_manual_verified, is_active, is_banned, ban_reason, deletion_requested_at, shop_photo_url, upi_id, latitude, longitude, referral_code, last_updated, gps_match_distance, upi_verified, verification_status";
 
 type AdminVendorListFilter = "attention" | "green_ready" | "all";
 
@@ -217,6 +222,9 @@ function buildAdminVendorCategoriesMap(
     photo_accuracy?: number | null;
     verification_status?: string | null;
     is_manual_verified?: boolean | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    upi_id?: string | null;
     categories:
       | { label: string; emoji: string }
       | { label: string; emoji: string }[]
@@ -245,6 +253,9 @@ function buildAdminVendorCategoriesMap(
       photo_accuracy: row.photo_accuracy != null ? Number(row.photo_accuracy) : null,
       verification_status: row.verification_status ?? null,
       is_manual_verified: row.is_manual_verified === true,
+      latitude: row.latitude != null ? Number(row.latitude) : null,
+      longitude: row.longitude != null ? Number(row.longitude) : null,
+      upi_id: row.upi_id ?? null,
     });
     map.set(row.vendor_id, list);
   }
@@ -323,6 +334,9 @@ function AdminVendorCategoryChips({
               photo_accuracy: null,
               verification_status: null,
               is_manual_verified: false,
+              latitude: null,
+              longitude: null,
+              upi_id: null,
             } satisfies AdminVendorCategory,
           ]
         : [];
@@ -844,6 +858,11 @@ const Settings = () => {
   }>({ open: false, vendor: null });
   const [vendorBanReason, setVendorBanReason] = useState("");
   const [vendorBanAction, setVendorBanAction] = useState<string | null>(null);
+  const [vendorClearDeletionDialog, setVendorClearDeletionDialog] = useState<{
+    open: boolean;
+    vendor: (typeof vendorList)[number] | null;
+  }>({ open: false, vendor: null });
+  const [vendorClearDeletionReason, setVendorClearDeletionReason] = useState("");
   const adminVendorActionLockRef = useRef(new Set<string>());
   const [verifying, setVerifying] = useState<string | null>(null);
   const adminVerifyLockRef = useRef(new Set<string>());
@@ -908,7 +927,7 @@ const Settings = () => {
   // True only when the trust RPC itself failed — distinct from "no row yet",
   // which is a legitimately good standing, not an unknown one.
   const [trustLoadFailed, setTrustLoadFailed] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(true);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [shopOpen, setShopOpen] = useState(() => Boolean(vendorId?.trim()));
   const initialVendorPanelTab =
     (location.state as { vendorSettingsTab?: string } | null)?.vendorSettingsTab === "preferences"
@@ -972,6 +991,26 @@ const Settings = () => {
       permissionRequestInFlightRef.current = false;
     }
   };
+
+  const permissionRevokeHint = (status: NativePermissionStatuses[NativePermissionKind]) =>
+    isPermissionGranted(status) ? (
+      <span
+        className="block mt-1 text-[11px] leading-snug text-muted-foreground"
+        data-testid="settings-permission-revoke-hint"
+      >
+        {s.settings_permission_revoke_hint}
+      </span>
+    ) : null;
+
+  const permissionSublabel = (
+    status: NativePermissionStatuses[NativePermissionKind],
+    base: string,
+  ) => (
+    <>
+      {base}
+      {permissionRevokeHint(status)}
+    </>
+  );
 
   const renderPermissionAction = (
     status: NativePermissionStatuses[NativePermissionKind],
@@ -1427,6 +1466,7 @@ const Settings = () => {
       is_active: boolean;
       is_banned: boolean;
       ban_reason: string | null;
+      deletion_requested_at: string | null;
       shop_photo_url: string | null;
       upi_id: string | null;
       latitude: number | null;
@@ -1445,7 +1485,7 @@ const Settings = () => {
         supabase
           .from("vendor_categories")
           .select(
-            "vendor_id, category_id, is_primary, service_mode, shop_photo_url, gps_match_distance, location_accuracy, photo_accuracy, verification_status, is_manual_verified, categories(label, emoji)",
+            "vendor_id, category_id, is_primary, service_mode, shop_photo_url, gps_match_distance, location_accuracy, photo_accuracy, verification_status, is_manual_verified, latitude, longitude, upi_id, categories(label, emoji)",
           )
           .in("vendor_id", chunk)
           .eq("status", "approved"),
@@ -1510,6 +1550,9 @@ const Settings = () => {
             photo_accuracy: null,
             verification_status: null,
             is_manual_verified: v.is_manual_verified,
+            latitude: null,
+            longitude: null,
+            upi_id: null,
           },
         ];
       }
@@ -2075,6 +2118,40 @@ const Settings = () => {
     }
   };
 
+  const confirmForceClearDeletion = async () => {
+    const v = vendorClearDeletionDialog.vendor;
+    if (!v || !vendorClearDeletionReason.trim()) return;
+    if (adminVendorActionLockRef.current.has(v.id)) return;
+    adminVendorActionLockRef.current.add(v.id);
+    setVendorBanAction(v.id);
+
+    try {
+      const { error } = await supabase.rpc("admin_force_clear_deletion", {
+        p_vendor_id: v.id,
+        p_notes: vendorClearDeletionReason.trim(),
+      });
+      if (error) {
+        console.error("confirmForceClearDeletion", error);
+        toast.error("Failed to clear deletion");
+        return;
+      }
+      logAdminAction(
+        "force_clear_deletion",
+        "vendor",
+        v.id,
+        vendorClearDeletionReason.trim(),
+        adminAuditLabel(),
+      );
+      toast.success("Deletion flag cleared");
+      setVendorClearDeletionDialog({ open: false, vendor: null });
+      setVendorClearDeletionReason("");
+      await loadVendorList();
+    } finally {
+      adminVendorActionLockRef.current.delete(v.id);
+      setVendorBanAction((current) => (current === v.id ? null : current));
+    }
+  };
+
   const confirmBanUser = async () => {
     if (!banDialog.phone || !banReason.trim()) return;
     const bannedPhone = banDialog.phone;
@@ -2225,22 +2302,12 @@ const Settings = () => {
     mode: "verify" | "unverify",
   ) => {
     const cats = vendor.categories.filter((c) => c.category_id);
+    if (cats.length === 0) {
+      toast.error(s.admin_no_business_to_verify);
+      return;
+    }
     if (cats.length <= 1) {
-      const cat =
-        cats[0] ??
-        ({
-          category_id: null,
-          label: vendor.category,
-          emoji: "✨",
-          service_mode: vendor.service_mode ?? "help",
-          is_primary: true,
-          shop_photo_url: vendor.shop_photo_url,
-          gps_match_distance: vendor.gps_match_distance,
-          location_accuracy: null,
-          photo_accuracy: null,
-          verification_status: null,
-          is_manual_verified: vendor.is_manual_verified,
-        } satisfies AdminVendorCategory);
+      const cat = cats[0];
       if (mode === "verify") openVerifySheet(vendor, cat);
       else void confirmUnverifyCategory(vendor.id, cat.category_id);
       return;
@@ -2525,9 +2592,23 @@ const Settings = () => {
       if (key?.startsWith("aaspaas:")) sessionStorage.removeItem(key);
     }
 
+    let notificationNudge: string | undefined;
+    try {
+      const live = await checkNativePermissionStatuses();
+      if (isPermissionGranted(live.notifications)) {
+        notificationNudge = s.settings_clearDataDescription_permissions;
+      }
+    } catch {
+      /* OS check failed — skip the post-clear nudge */
+    }
+
     showClearMyDataSuccessThenReload({
-      message: s.settings_localDataCleared,
-      toastSuccess: (message) => toast.success(message),
+      message: phone ? s.settings_accountDataCleared : s.settings_localDataCleared,
+      description: notificationNudge,
+      toastSuccess: (message, description) =>
+        description
+          ? toast.success(message, { description })
+          : toast.success(message),
     });
   };
 
@@ -2679,6 +2760,28 @@ const Settings = () => {
     }
 
     setVendorDeletionRequestedAt(null);
+
+    let restoredId = vendorId?.trim() || "";
+    let restoredActive = vendor?.is_active === true;
+    if (!restoredId) {
+      const { data } = await supabase.rpc("get_vendor_restore_status", {
+        p_phone: phone,
+      });
+      const status = data as {
+        vendor_id?: string | null;
+        restore_allowed?: boolean;
+        is_active?: boolean;
+      } | null;
+      if (status?.restore_allowed && status.vendor_id) {
+        restoredId = status.vendor_id;
+        restoredActive = status.is_active === true;
+      }
+    }
+    if (restoredId) {
+      restoreVendorSession(restoredId, restoredActive);
+      notifyVendorIdChanged();
+    }
+
     toast.success(s.delete_account_cancelled);
   };
 
@@ -2792,6 +2895,7 @@ const Settings = () => {
         label={s.settings_myAccount}
         open={accountOpen}
         onToggle={() => setAccountOpen((o) => !o)}
+        testId="settings-my-account-toggle"
       >
         <SettingsCollapsible
           label={s.settings_myIdentity}
@@ -3198,7 +3302,10 @@ const Settings = () => {
             <SettingsCard className="mx-0 mb-3 border-surface-border">
               <SettingsRow
                 label={s.settings_permission_notifications}
-                sublabel={s.settings_permission_notifications_sub}
+                sublabel={permissionSublabel(
+                  permissionStatuses.notifications,
+                  s.settings_permission_notifications_sub,
+                )}
               >
                 {renderPermissionAction(permissionStatuses.notifications, () =>
                   void handlePermissionRequest(
@@ -3209,15 +3316,35 @@ const Settings = () => {
               </SettingsRow>
               <SettingsRow
                 label={s.settings_permission_location}
-                sublabel={s.settings_permission_location_sub}
+                sublabel={permissionSublabel(
+                  permissionStatuses.location,
+                  s.settings_permission_location_sub,
+                )}
               >
                 {renderPermissionAction(permissionStatuses.location, () =>
                   void handlePermissionRequest("location", s.settings_permission_location),
                 )}
               </SettingsRow>
               <SettingsRow
+                label={s.settings_permission_background_location}
+                sublabel={permissionSublabel(
+                  permissionStatuses.backgroundLocation,
+                  s.settings_permission_background_location_sub,
+                )}
+              >
+                {renderPermissionAction(permissionStatuses.backgroundLocation, () =>
+                  void handlePermissionRequest(
+                    "backgroundLocation",
+                    s.settings_permission_background_location,
+                  ),
+                )}
+              </SettingsRow>
+              <SettingsRow
                 label={s.settings_permission_camera}
-                sublabel={s.settings_permission_camera_sub}
+                sublabel={permissionSublabel(
+                  permissionStatuses.camera,
+                  s.settings_permission_camera_sub,
+                )}
               >
                 {renderPermissionAction(permissionStatuses.camera, () =>
                   void handlePermissionRequest("camera", s.settings_permission_camera),
@@ -3225,7 +3352,10 @@ const Settings = () => {
               </SettingsRow>
               <SettingsRow
                 label={s.settings_permission_mic}
-                sublabel={s.settings_permission_mic_sub}
+                sublabel={permissionSublabel(
+                  permissionStatuses.microphone,
+                  s.settings_permission_mic_sub,
+                )}
               >
                 {renderPermissionAction(permissionStatuses.microphone, () =>
                   void handlePermissionRequest("microphone", s.settings_permission_mic),
@@ -3727,6 +3857,20 @@ const Settings = () => {
                           Unban
                         </button>
                       )}
+                      {v.deletion_requested_at ? (
+                        <button
+                          type="button"
+                          data-testid="admin-force-clear-deletion"
+                          onClick={() => {
+                            setVendorClearDeletionReason("");
+                            setVendorClearDeletionDialog({ open: true, vendor: v });
+                          }}
+                          disabled={vendorBanAction === v.id}
+                          className="rounded-xl bg-amber-500/10 text-amber-700 border border-amber-500/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                        >
+                          Clear deletion
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -4398,6 +4542,47 @@ const Settings = () => {
           </AlertDialog>
 
           <AlertDialog
+            open={vendorClearDeletionDialog.open}
+            onOpenChange={(open) => {
+              if (!open) {
+                setVendorClearDeletionDialog({ open: false, vendor: null });
+                setVendorClearDeletionReason("");
+              }
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Force-clear scheduled deletion?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This immediately restores the vendor and skips the 30-day wait. A reason is
+                  required for the audit log.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <input
+                type="text"
+                data-testid="admin-force-clear-deletion-reason"
+                value={vendorClearDeletionReason}
+                onChange={(e) => setVendorClearDeletionReason(e.target.value.slice(0, 200))}
+                placeholder="Reason (required)"
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={!vendorClearDeletionReason.trim() || vendorBanAction != null}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmForceClearDeletion();
+                  }}
+                >
+                  Confirm clear
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
             open={banDialog.open}
             onOpenChange={(open) => {
               if (!open) {
@@ -4532,8 +4717,14 @@ const Settings = () => {
         <AlertDialogContent className="rounded-2xl border border-border bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle>{s.settings_clearDataTitle}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {s.settings_clearDataDescription}
+            <AlertDialogDescription asChild>
+              <div>
+                <ul className="list-disc space-y-2 pl-5 text-left">
+                  <li>{s.settings_clearDataDescription_wiped}</li>
+                  <li>{s.settings_clearDataDescription_permissions}</li>
+                  <li>{s.settings_clearDataDescription_kept}</li>
+                </ul>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
@@ -4584,6 +4775,47 @@ const Settings = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      {verifyBusinessPicker.open && verifyBusinessPicker.vendor && (
+        <div className="fixed inset-0 z-50 flex items-end" data-testid="admin-verify-business-picker">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() =>
+              setVerifyBusinessPicker({ open: false, vendor: null, mode: "verify" })
+            }
+          />
+          <div className="relative w-full bg-card rounded-t-3xl p-5 shadow-xl">
+            <div className="w-10 h-1 bg-muted-foreground/30 rounded-full mx-auto mb-5" />
+            <p className="font-display font-bold text-lg mb-3">{s.admin_verify_pick_business}</p>
+            <div className="space-y-2">
+              {(verifyBusinessPicker.mode === "verify"
+                ? verifyBusinessPicker.vendor.categories.filter(
+                    (c) => c.category_id && !c.is_manual_verified,
+                  )
+                : verifyBusinessPicker.vendor.categories.filter(
+                    (c) => c.category_id && c.is_manual_verified,
+                  )
+              ).map((cat) => (
+                <button
+                  key={cat.category_id}
+                  type="button"
+                  className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 text-left text-sm font-semibold"
+                  onClick={() => {
+                    const picked = verifyBusinessPicker.vendor;
+                    const mode = verifyBusinessPicker.mode;
+                    setVerifyBusinessPicker({ open: false, vendor: null, mode: "verify" });
+                    if (!picked) return;
+                    if (mode === "verify") openVerifySheet(picked, cat);
+                    else void confirmUnverifyCategory(picked.id, cat.category_id);
+                  }}
+                >
+                  {cat.emoji} {getLabel(cat.label)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {verifySheet.open && verifySheet.vendor && (
         <div className="fixed inset-0 z-50 flex items-end">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeVerifySheet} />
@@ -4632,11 +4864,8 @@ const Settings = () => {
                         {
                           vendor_id: verifySheet.vendor!.id,
                           category_id: openCategoryId,
-                          shop_photo_url:
-                            openCat?.shop_photo_url ?? verifySheet.vendor!.shop_photo_url,
-                          gps_match_distance:
-                            openCat?.gps_match_distance ??
-                            verifySheet.vendor!.gps_match_distance,
+                          shop_photo_url: openCat?.shop_photo_url ?? null,
+                          gps_match_distance: openCat?.gps_match_distance ?? null,
                           location_accuracy: openCat?.location_accuracy ?? null,
                           photo_accuracy: openCat?.photo_accuracy ?? null,
                           verification_status: openCat?.verification_status ?? null,
@@ -4731,18 +4960,24 @@ const Settings = () => {
             </div>
 
             <div className="rounded-2xl border border-border bg-muted/30 p-4 mb-5 space-y-3 text-sm">
+              {(() => {
+                const payee = resolveAdminBusinessPayeeAndPin(verifySheet.category);
+                if (!payee.hasBusiness) {
+                  return (
+                    <p className="text-sm text-muted-foreground" data-testid="admin-no-business-to-verify">
+                      {s.admin_no_business_to_verify}
+                    </p>
+                  );
+                }
+                return (
+                  <>
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
                   Shop photo
                 </p>
-                {(
-                  verifySheet.category?.shop_photo_url ?? verifySheet.vendor.shop_photo_url
-                )?.trim() ? (
+                {payee.shopPhotoUrl ? (
                   <img
-                    src={
-                      (verifySheet.category?.shop_photo_url ??
-                        verifySheet.vendor.shop_photo_url)!
-                    }
+                    src={payee.shopPhotoUrl}
                     alt="Shop verification"
                     className="w-full h-[100px] object-cover rounded-xl border border-border"
                   />
@@ -4756,15 +4991,13 @@ const Settings = () => {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   GPS
                 </p>
-                {verifySheet.vendor.latitude != null &&
-                verifySheet.vendor.longitude != null ? (
+                {payee.latitude != null && payee.longitude != null ? (
                   <div className="space-y-1">
                     <p className="text-xs text-foreground">
-                      📍 {verifySheet.vendor.latitude.toFixed(5)},{" "}
-                      {verifySheet.vendor.longitude.toFixed(5)}
+                      📍 {payee.latitude.toFixed(5)}, {payee.longitude.toFixed(5)}
                     </p>
                     <a
-                      href={`https://maps.google.com/?q=${verifySheet.vendor.latitude},${verifySheet.vendor.longitude}`}
+                      href={`https://maps.google.com/?q=${payee.latitude},${payee.longitude}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs font-semibold text-brand hover:underline"
@@ -4781,15 +5014,11 @@ const Settings = () => {
                   GPS match
                 </p>
                 {(() => {
-                  const { text, className } = gpsMatchAdminLabel(
-                    verifySheet.category?.gps_match_distance ??
-                      verifySheet.vendor.gps_match_distance,
-                    {
-                      locationAccuracy: verifySheet.category?.location_accuracy,
-                      photoAccuracy: verifySheet.category?.photo_accuracy,
-                      verificationStatus: verifySheet.category?.verification_status,
-                    },
-                  );
+                  const { text, className } = gpsMatchAdminLabel(payee.gpsMatchDistance, {
+                    locationAccuracy: verifySheet.category?.location_accuracy,
+                    photoAccuracy: verifySheet.category?.photo_accuracy,
+                    verificationStatus: verifySheet.category?.verification_status,
+                  });
                   return <p className={cn("text-xs font-medium", className)}>{text}</p>;
                 })()}
               </div>
@@ -4797,13 +5026,16 @@ const Settings = () => {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   UPI ID
                 </p>
-                {verifySheet.vendor.upi_id?.trim() ? (
-                  <p className="text-xs text-foreground">💳 {verifySheet.vendor.upi_id}</p>
+                {payee.upiId ? (
+                  <p className="text-xs text-foreground">💳 {payee.upiId}</p>
                 ) : (
                   <p className="text-xs text-muted-foreground">No UPI added</p>
                 )}
                 <p className="text-[10px] text-muted-foreground mt-1">{s.admin_upi_manual_note}</p>
               </div>
+                  </>
+                );
+              })()}
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   Registered

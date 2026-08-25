@@ -180,24 +180,35 @@ test.afterAll(async () => {
 });
 
 test('VE-04: verified vendor can open My Business and change base type', async ({ page }) => {
-  const { vendor, phone } = await createEditTestVendor({ is_manual_verified: true, vendor_type: 'shop' });
-  await openMyBusinessIdentity(page, phone, vendor.id);
+  const { vendor, phone, categories } = await createEditTestVendor({ is_manual_verified: true, vendor_type: 'shop' });
+  await openMyBusiness(page, phone, vendor.id);
+  await expandBusinessAccordion(page, categories[0].id);
   await page.getByTestId('my-business-base-home').click();
   await saveMyBusiness(page);
-  const { data } = await supabaseAdmin.from('vendors').select('vendor_type, base_type').eq('id', vendor.id).single();
-  expect(data?.vendor_type).toBe('home');
+  const { data } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('base_type')
+    .eq('vendor_id', vendor.id)
+    .eq('category_id', categories[0].id)
+    .single();
   expect(data?.base_type).toBe('home');
 });
 
-test('VE-01: vendor can change vendor_type from shop to home and save', async ({ page }) => {
-  const { vendor, phone } = await createEditTestVendor({ vendor_type: 'shop' });
-  await openMyBusinessIdentity(page, phone, vendor.id);
+test('VE-01: vendor can change business base type from shop to home and save', async ({ page }) => {
+  const { vendor, phone, categories } = await createEditTestVendor({ vendor_type: 'shop' });
+  await openMyBusiness(page, phone, vendor.id);
+  await expandBusinessAccordion(page, categories[0].id);
 
   await page.getByTestId('my-business-base-home').click();
   await saveMyBusiness(page);
 
-  const { data } = await supabaseAdmin.from('vendors').select('vendor_type').eq('id', vendor.id).single();
-  expect(data?.vendor_type).toBe('home');
+  const { data } = await supabaseAdmin
+    .from('vendor_categories')
+    .select('base_type')
+    .eq('vendor_id', vendor.id)
+    .eq('category_id', categories[0].id)
+    .single();
+  expect(data?.base_type).toBe('home');
 });
 
 test('VE-02: vendor can add a second category via Add Business sheet', async ({ page }) => {
@@ -216,6 +227,8 @@ test('VE-02: vendor can add a second category via Add Business sheet', async ({ 
     .filter({ hasText: secondCategory.label })
     .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
   await catBtn.first().click();
+  await page.getByTestId('add-business-base-shop').click();
+  await page.getByTestId('add-business-upi').fill('ve02add@upi');
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
   await setRegAvailabilityModes(page, ['help'], 'add-business-avail');
   await completeAddBusinessShopPhoto(page);

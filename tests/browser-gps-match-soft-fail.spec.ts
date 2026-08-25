@@ -63,13 +63,6 @@ test.describe("GPS match soft-fail + failure logging", () => {
 
     await page.getByPlaceholder("Ramesh Kumar").fill("Gps Soft Fail");
     await page.getByPlaceholder("+91 98xxxxxxxx").fill(phone);
-    await page.getByPlaceholder("name@okbank").fill("gpssoft@okaxis");
-    await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
-    await page
-      .getByRole("button", {
-        name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
-      })
-      .click();
     await page.getByTestId("reg-selfie-capture").click();
     await expect(page.getByTestId("reg-selfie-capture")).toContainText(
       /Retake|Re-shoot|फिर|पुन्हा/i,
@@ -79,9 +72,16 @@ test.describe("GPS match soft-fail + failure logging", () => {
 
     await page.getByRole("button", { name: "Browse all categories" }).click();
     await page.getByRole("button").filter({ hasText: cat!.label }).first().click();
+    await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
     await page
-      .getByPlaceholder("Ramesh Tyre Works")
+      .getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i)
       .fill(`GPS Soft ${Date.now().toString().slice(-4)}`);
+    await page
+      .getByRole("button", {
+        name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
+      })
+      .click();
+    await page.getByPlaceholder("name@okbank").fill("gpssoft@okaxis");
     await page.getByRole("button", { name: /At my place|मेरे पास/ }).click();
     await ensureRegAvailabilityReady(page);
 

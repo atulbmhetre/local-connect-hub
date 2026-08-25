@@ -222,6 +222,7 @@ export const strings = {
     neighbours_nickname_updated: 'Nickname updated',
     neighbours_nickname_cleared: 'Nickname cleared',
     neighbours_nickname_could_not_update: 'Could not update nickname',
+    neighbours_businesses_heading: 'Businesses',
     aiBridge: 'AI-Bridge',
     briefingVendor: 'Briefing vendor via AI…',
     aiBriefUnavailable: 'AI brief unavailable — call directly',
@@ -437,7 +438,7 @@ export const strings = {
     vendor_golive_prompt_body:
       "Tap the power button above to go live. Customers can only find you when you're live.",
     vendor_duplicate_phone:
-      "This number is already registered. Use 'Already registered?' above to find your shop.",
+      "This number is already registered. Use 'Already registered?' above to find your account.",
     vendor_registration_rate_limited:
       'Too many attempts. Please wait a few minutes and try again.',
     vendor_admin_notify_title: '🏪 New vendor registered',
@@ -578,6 +579,7 @@ export const strings = {
     reg_reach_both: 'Both',
     reg_reach_both_desc: 'Shop visits and home service',
     reg_when_available: 'When are you available?',
+    reg_how_take_requests: 'How do you take requests?',
     reg_category_when_available: 'When are you available for this business?',
     reg_avail_help: 'Urgent help',
     reg_avail_help_desc: 'Quick, on-demand requests',
@@ -586,14 +588,14 @@ export const strings = {
     reg_avail_appointment: 'Appointments',
     reg_avail_appointment_desc: 'Scheduled bookings',
     reg_avail_help_on_statement:
-      'Urgent help is on — customers can find you right now for on-the-spot work.',
+      'You take urgent, on-the-spot work — customers can reach you right now.',
     reg_avail_advance_bookings_question:
       'Do you also want to take advance bookings? (e.g. "come Tuesday for a repair")',
     reg_avail_deliver_question: 'Do you deliver to customers, or is it shop pickup only?',
     reg_avail_deliver_yes: 'Yes, we deliver',
     reg_avail_pickup_only: 'Shop pickup only',
     reg_avail_appointment_on_statement:
-      'Scheduled bookings are on — customers can book a time with you.',
+      'You take scheduled bookings — customers can book a time with you.',
     reg_avail_same_day_question:
       'Do you also want urgent same-day availability alongside scheduled bookings?',
     reg_avail_yes: 'Yes',
@@ -615,7 +617,7 @@ export const strings = {
     reg_gps_silent_hint: 'Location captured quietly for distance only — never shown as your address.',
     reg_edit_reach_label: 'Customer reach',
     reg_edit_availability_label: 'Availability modes',
-    my_business_category_availability: 'Availability for this business',
+    my_business_category_availability: 'How you take requests for this business',
     delivery_fulfillment_label: 'How do you deliver?',
     delivery_fulfillment_vendor: 'Myself',
     delivery_fulfillment_agent: 'Through a delivery agent',
@@ -664,6 +666,7 @@ export const strings = {
     category_confirm: 'Confirm',
     category_chooseDifferently: 'Choose differently',
     category_notSure: 'Not sure — show me options',
+    category_noMatchFound: 'No matching category found — try Browse instead',
     category_findButton: 'Find my category',
     category_browseManual: 'Browse all categories',
     category_yes: 'Yes',
@@ -714,6 +717,7 @@ export const strings = {
     vendor_draft_banner_body: 'Add your shop location to appear in search results.',
     vendor_draft_banner_cta: 'Add Location',
     vendor_capture_location: '📍 Capture Shop Location',
+    vendor_capture_location_home: '📍 Capture Home Location',
     vendor_register_btn: 'Register me',
     vendor_register_hint: 'Registration unlocks once a valid phone number is entered.',
     vendor_or: 'or',
@@ -929,11 +933,16 @@ export const strings = {
     settings_verificationRemoved: 'Verification removed',
     settings_devMenuUnlocked: 'Developer menu unlocked',
     settings_clearDataTitle: 'Clear All My Data?',
-    settings_clearDataDescription:
-      'This clears your saved addresses, notifications, neighbourhood list, feed posts, review text, profile preferences, and device tokens from our servers, and removes your phone number and app preferences from this device. Camera, microphone, location, and notification permissions are managed by Android and are not cleared here — change them in system Settings → Apps → AasPaas Pro → Permissions. For safety and accounting, your order history, bills, khata records, referrals, and account standing (including any warnings or suspensions) are kept. This cannot be undone.',
+    settings_clearDataDescription_wiped:
+      'This wipes saved addresses, notifications, neighbourhood list, feed posts, review text, profile preferences, and device tokens from this device — and from our servers if you are signed in.',
+    settings_clearDataDescription_permissions:
+      "OS-level permissions (camera, notifications, location) aren't touched. Change those yourself in your phone's Settings.",
+    settings_clearDataDescription_kept:
+      'Orders, bills, khata records, and referral credits are kept for dispute and audit protection.',
     settings_clearDataConfirm: 'Clear Everything',
     settings_clearDataFailed: "Couldn't clear your data. Please try again.",
     settings_localDataCleared: 'Local data cleared',
+    settings_accountDataCleared: 'Account data cleared from this device and our servers',
     settings_heading: 'Settings',
     settings_tagline: 'Make it yours.',
     settings_register_business: 'Register your business on AasPaas',
@@ -1147,7 +1156,9 @@ export const strings = {
     settings_permission_notifications: 'Notifications',
     settings_permission_notifications_sub: 'Required for order alerts',
     settings_permission_location: 'Location',
-    settings_permission_location_sub: 'Required for help mode tracking',
+    settings_permission_location_sub: 'Required for maps and help tracking while the app is open',
+    settings_permission_background_location: 'Background location',
+    settings_permission_background_location_sub: 'Required to share location while you are live',
     settings_permission_camera: 'Camera',
     settings_permission_camera_sub: 'Required for shop photos',
     settings_permission_mic: 'Microphone',
@@ -1156,6 +1167,8 @@ export const strings = {
     settings_permission_battery_sub: 'Keep app awake for orders',
     settings_permission_request: 'Allow',
     settings_permission_manual: 'Manual',
+    settings_permission_revoke_hint:
+      "To turn this off, go to your phone's Settings > Apps > Aaspaas Pro > Permissions",
     settings_permission_open_settings_body: (name: string) =>
       `Go to Android Settings → Apps → AasPaas Pro → Permissions and enable ${name}.`,
     settings_ok: 'OK',
@@ -1196,12 +1209,16 @@ export const strings = {
     reg_soft_fail_profile:
       "Some business details weren't saved — update them later in My Business.",
     vendor_qr_upload_failed: 'QR upload failed',
+    vendor_qr_decode_failed:
+      "Couldn't read a UPI ID from that image, please enter it manually",
     vendor_uploading: 'Uploading...',
     camera_capture_failed: "Couldn't capture a photo. Please try again.",
     camera_access_failed: 'Camera access failed. Please allow camera permission.',
     camera_go_to_settings: 'Go to Settings',
     camera_cancel: 'Cancel',
+    camera_take_photo: 'Take photo',
     admin_verify_pick_business: 'Select business to verify',
+    admin_no_business_to_verify: 'No business to verify',
     admin_verification_checks_heading: 'Verification checks',
     admin_check_label_upi_format: 'UPI Format',
     admin_check_label_upi_pennydrop: 'UPI Penny-drop',
@@ -2017,6 +2034,7 @@ export const strings = {
     neighbours_nickname_updated: 'उपनाम अपडेट हुआ',
     neighbours_nickname_cleared: 'उपनाम हटाया गया',
     neighbours_nickname_could_not_update: 'उपनाम अपडेट नहीं हो सका',
+    neighbours_businesses_heading: 'व्यवसाय',
     aiBridge: 'AI-Bridge',
     briefingVendor: 'AI द्वारा विक्रेता को जानकारी दी जा रही है…',
     aiBriefUnavailable: 'AI जानकारी उपलब्ध नहीं — सीधे कॉल करें',
@@ -2232,7 +2250,7 @@ export const strings = {
     vendor_golive_prompt_body:
       'लाइव होने के लिए ऊपर पावर बटन दबाएं। जब आप लाइव हों तभी ग्राहक आपको खोज सकते हैं।',
     vendor_duplicate_phone:
-      "यह नंबर पहले से पंजीकृत है। अपनी दुकान खोजने के लिए ऊपर 'पहले से पंजीकृत?' उपयोग करें।",
+      "यह नंबर पहले से पंजीकृत है। अपना खाता खोजने के लिए ऊपर 'पहले से पंजीकृत?' उपयोग करें।",
     vendor_registration_rate_limited:
       'बहुत अधिक प्रयास। कृपया कुछ मिनट प्रतीक्षा करें और पुनः प्रयास करें।',
     vendor_admin_notify_title: '🏪 नया दुकानदार रजिस्टर हुआ',
@@ -2372,6 +2390,7 @@ export const strings = {
     reg_reach_both: 'दोनों',
     reg_reach_both_desc: 'दुकान और घर-सेवा दोनों',
     reg_when_available: 'आप कब उपलब्ध हैं?',
+    reg_how_take_requests: 'आप रिक्वेस्ट कैसे लेते हैं?',
     reg_category_when_available: 'इस व्यवसाय के लिए आप कब उपलब्ध हैं?',
     reg_avail_help: 'तुरंत मदद',
     reg_avail_help_desc: 'जल्दी, on-demand अनुरोध',
@@ -2380,14 +2399,14 @@ export const strings = {
     reg_avail_appointment: 'अपॉइंटमेंट',
     reg_avail_appointment_desc: 'निर्धारित बुकिंग',
     reg_avail_help_on_statement:
-      'तुरंत मदद चालू है — ग्राहक अभी आपको तुरंत काम के लिए ढूँढ सकते हैं।',
+      'आप तुरंत, मौके पर काम लेते हैं — ग्राहक अभी आप तक पहुँच सकते हैं।',
     reg_avail_advance_bookings_question:
       'क्या आप पहले से बुकिंग भी लेना चाहते हैं? (जैसे "मंगलवार को मरम्मत के लिए आना")',
     reg_avail_deliver_question: 'क्या आप डिलीवरी करते हैं, या सिर्फ दुकान से लेना होता है?',
     reg_avail_deliver_yes: 'हाँ, हम डिलीवरी करते हैं',
     reg_avail_pickup_only: 'सिर्फ दुकान से लेना',
     reg_avail_appointment_on_statement:
-      'निर्धारित बुकिंग चालू है — ग्राहक आपके साथ समय बुक कर सकते हैं।',
+      'आप तय समय की बुकिंग लेते हैं — ग्राहक आपके साथ समय बुक कर सकते हैं।',
     reg_avail_same_day_question:
       'क्या आप निर्धारित बुकिंग के साथ तुरंत उसी दिन की सेवा भी देना चाहते हैं?',
     reg_avail_yes: 'हाँ',
@@ -2409,7 +2428,7 @@ export const strings = {
     reg_gps_silent_hint: 'लोकेशन चुपचाप capture — सिर्फ दूरी के लिए, पता नहीं दिखेगा।',
     reg_edit_reach_label: 'ग्राहक पहुँच',
     reg_edit_availability_label: 'उपलब्धता modes',
-    my_business_category_availability: 'इस व्यवसाय की उपलब्धता',
+    my_business_category_availability: 'इस व्यवसाय के लिए आप रिक्वेस्ट कैसे लेते हैं',
     delivery_fulfillment_label: 'आप डिलीवरी कैसे करते हैं?',
     delivery_fulfillment_vendor: 'खुद',
     delivery_fulfillment_agent: 'डिलीवरी एजेंट से',
@@ -2457,6 +2476,7 @@ export const strings = {
     category_confirm: 'पुष्टि करें',
     category_chooseDifferently: 'दूसरी category चुनें',
     category_notSure: 'पक्का नहीं — विकल्प दिखाएँ',
+    category_noMatchFound: 'कोई matching category नहीं मिली — Browse से चुनें',
     category_findButton: 'मेरी category ढूँढें',
     category_browseManual: 'सभी categories देखें',
     category_yes: 'हाँ',
@@ -2506,6 +2526,7 @@ export const strings = {
     vendor_draft_banner_body: 'खोज परिणामों में दिखने के लिए दुकान की लोकेशन जोड़ें।',
     vendor_draft_banner_cta: 'लोकेशन जोड़ें',
     vendor_capture_location: '📍 दुकान की लोकेशन लें',
+    vendor_capture_location_home: '📍 घर की लोकेशन लें',
     vendor_register_btn: 'रजिस्टर करें',
     vendor_register_hint: 'सही फोन नंबर डालने पर रजिस्ट्रेशन होगा।',
     vendor_or: 'या',
@@ -2721,11 +2742,16 @@ export const strings = {
     settings_verificationRemoved: 'सत्यापन हटाया गया',
     settings_devMenuUnlocked: 'डेवलपर मेनू अनलॉक हुआ',
     settings_clearDataTitle: 'सभी डेटा हटाएं?',
-    settings_clearDataDescription:
-      'यह आपके सहेजे गए पते, सूचनाएं, पड़ोसी सूची, फ़ीड पोस्ट, समीक्षा पाठ, प्रोफ़ाइल प्राथमिकताएं और डिवाइस टोकन सर्वर से हटाता है, और इस डिवाइस से आपका फोन नंबर व ऐप प्राथमिकताएं साफ करता है। कैमरा, माइक्रोफ़ोन, लोकेशन और सूचना अनुमतियाँ Android द्वारा नियंत्रित होती हैं — यहाँ साफ नहीं होतीं; सिस्टम Settings → Apps → AasPaas Pro → Permissions में बदलें। सुरक्षा और लेखा के लिए, आपका ऑर्डर इतिहास, बिल, खाता रिकॉर्ड, रेफरल और खाता स्थिति (चेतावनी या निलंबन सहित) रखी जाती है। यह पूर्ववत नहीं किया जा सकता।',
+    settings_clearDataDescription_wiped:
+      'यह इस डिवाइस से सेव पते, नोटिफिकेशन, पड़ोसी लिस्ट, फ़ीड पोस्ट, रिव्यू टेक्स्ट, प्रोफ़ाइल पसंद और डिवाइस टोकन मिटाता है — और साइन-इन होने पर सर्वर से भी।',
+    settings_clearDataDescription_permissions:
+      'फोन की अनुमतियाँ (कैमरा, नोटिफिकेशन, लोकेशन) नहीं छूतीं। इन्हें खुद फोन की Settings में बदलें।',
+    settings_clearDataDescription_kept:
+      'ऑर्डर, बिल, खाता और रेफरल क्रेडिट विवाद/ऑडिट के लिए रखे जाते हैं।',
     settings_clearDataConfirm: 'सब कुछ हटाएं',
     settings_clearDataFailed: 'डेटा साफ नहीं हो सका। कृपया फिर कोशिश करें।',
     settings_localDataCleared: 'लोकल डेटा साफ हुआ',
+    settings_accountDataCleared: 'इस डिवाइस और हमारे सर्वर से खाते का डेटा साफ हुआ',
     settings_heading: 'सेटिंग्स',
     settings_tagline: 'अपना बनाएं।',
     settings_register_business: 'AasPaas पर अपना व्यवसाय जोड़ें',
@@ -2939,7 +2965,9 @@ export const strings = {
     settings_permission_notifications: 'सूचनाएँ',
     settings_permission_notifications_sub: 'ऑर्डर अलर्ट के लिए आवश्यक',
     settings_permission_location: 'लोकेशन',
-    settings_permission_location_sub: 'हेल्प मोड ट्रैकिंग के लिए आवश्यक',
+    settings_permission_location_sub: 'ऐप खुला होने पर मैप और हेल्प ट्रैकिंग के लिए आवश्यक',
+    settings_permission_background_location: 'बैकग्राउंड लोकेशन',
+    settings_permission_background_location_sub: 'लाइव रहते लोकेशन शेयर करने के लिए आवश्यक',
     settings_permission_camera: 'कैमरा',
     settings_permission_camera_sub: 'दुकान की फ़ोटो के लिए आवश्यक',
     settings_permission_mic: 'माइक्रोफ़ोन',
@@ -2948,6 +2976,8 @@ export const strings = {
     settings_permission_battery_sub: 'ऑर्डर के लिए ऐप को सक्रिय रखें',
     settings_permission_request: 'अनुमति दें',
     settings_permission_manual: 'मैन्युअल',
+    settings_permission_revoke_hint:
+      'इसे बंद करने के लिए फोन की Settings > Apps > Aaspaas Pro > Permissions में जाएँ',
     settings_permission_open_settings_body: (name: string) =>
       `Android सेटिंग्स → ऐप्स → AasPaas Pro → अनुमतियाँ में जाकर ${name} चालू करें।`,
     settings_ok: 'ठीक है',
@@ -2988,12 +3018,15 @@ export const strings = {
     reg_soft_fail_profile:
       'कुछ व्यवसाय विवरण सहेजे नहीं गए — बाद में अपडेट करें।',
     vendor_qr_upload_failed: 'QR अपलोड नहीं हो सका',
+    vendor_qr_decode_failed: 'उस तस्वीर से UPI ID नहीं पढ़ सके, कृपया इसे खुद लिखें',
     vendor_uploading: 'अपलोड हो रहा है...',
     camera_capture_failed: 'फोटो कैप्चर नहीं हो सकी। कृपया फिर से प्रयास करें।',
     camera_access_failed: 'कैमरा एक्सेस नहीं मिला। कृपया कैमरा अनुमति दें।',
     camera_go_to_settings: 'सेटिंग्स में जाएं',
     camera_cancel: 'रद्द करें',
+    camera_take_photo: 'फोटो लें',
     admin_verify_pick_business: 'सत्यापित करने के लिए व्यवसाय चुनें',
+    admin_no_business_to_verify: 'सत्यापित करने के लिए कोई व्यवसाय नहीं',
     trust_tier_bronze: 'ब्रॉन्ज',
     trust_tier_silver: 'सिल्वर',
     trust_tier_gold: 'गोल्ड',
@@ -3809,6 +3842,7 @@ export const strings = {
     neighbours_nickname_updated: 'टोपणनाव अपडेट झाले',
     neighbours_nickname_cleared: 'टोपणनाव काढले',
     neighbours_nickname_could_not_update: 'टोपणनाव अपडेट करता आले नाही',
+    neighbours_businesses_heading: 'व्यवसाय',
     aiBridge: 'AI-Bridge',
     briefingVendor: 'AI द्वारे विक्रेत्याला माहिती दिली जात आहे…',
     aiBriefUnavailable: 'AI माहिती उपलब्ध नाही — थेट कॉल करा',
@@ -4024,7 +4058,7 @@ export const strings = {
     vendor_golive_prompt_body:
       'लाइव होण्यासाठी वरील पॉवर बटण दाबा. तुम्ही लाइव्ह असतानाच ग्राहक तुम्हाला शोधू शकतात.',
     vendor_duplicate_phone:
-      "हा नंबर आधीच नोंदणीकृत आहे. तुमचे दुकान शोधण्यासाठी वर 'आधीच नोंदणी केली?' वापरा.",
+      "हा नंबर आधीच नोंदणीकृत आहे. तुमचे खाते शोधण्यासाठी वर 'आधीच नोंदणी केली?' वापरा.",
     vendor_registration_rate_limited:
       'खूप प्रयत्न झाले. कृपया काही मिनिटे थांबा आणि पुन्हा प्रयत्न करा.',
     vendor_admin_notify_title: '🏪 नवीन विक्रेता नोंदणी झाली',
@@ -4164,6 +4198,7 @@ export const strings = {
     reg_reach_both: 'दोन्ही',
     reg_reach_both_desc: 'दुकान आणि home service',
     reg_when_available: 'तुम्ही कधी उपलब्ध आहात?',
+    reg_how_take_requests: 'तुम्ही विनंती कशी घेता?',
     reg_category_when_available: 'या व्यवसायासाठी तुम्ही कधी उपलब्ध आहात?',
     reg_avail_help: 'तातडीची मदत',
     reg_avail_help_desc: 'झटपट on-demand विनंत्या',
@@ -4172,14 +4207,14 @@ export const strings = {
     reg_avail_appointment: 'अपॉइंटमेंट',
     reg_avail_appointment_desc: 'नियोजित बुकिंग',
     reg_avail_help_on_statement:
-      'तातडीची मदत चालू आहे — ग्राहक आत्ताच तुम्हाला त्वरित कामासाठी शोधू शकतात.',
+      'तुम्ही तातडीचे, तिथेच काम घेता — ग्राहक आत्ताच तुमच्यापर्यंत पोहोचू शकतात.',
     reg_avail_advance_bookings_question:
       'तुम्ही आगाऊ बुकिंगही घ्यायची आहे का? (उदा. "मंगळवारी दुरुस्तीसाठी या")',
     reg_avail_deliver_question: 'तुम्ही डिलिव्हरी करता का, की फक्त दुकानातून घेणे?',
     reg_avail_deliver_yes: 'होय, आम्ही डिलिव्हरी करतो',
     reg_avail_pickup_only: 'फक्त दुकानातून घेणे',
     reg_avail_appointment_on_statement:
-      'नियोजित बुकिंग चालू आहे — ग्राहक तुमच्यासोबत वेळ बुक करू शकतात.',
+      'तुम्ही ठरलेल्या वेळेची बुकिंग घेता — ग्राहक तुमच्यासोबत वेळ बुक करू शकतात.',
     reg_avail_same_day_question:
       'नियोजित बुकिंगसोबत तुम्ही तातडीची त्याच दिवसाची सेवा देखील द्यायची आहे का?',
     reg_avail_yes: 'होय',
@@ -4201,7 +4236,7 @@ export const strings = {
     reg_gps_silent_hint: 'लोकेशन शांतपणे capture — फक्त अंतरासाठी, पत्ता दिसणार नाही.',
     reg_edit_reach_label: 'ग्राहक पोहोच',
     reg_edit_availability_label: 'उपलब्धता modes',
-    my_business_category_availability: 'या व्यवसायाची उपलब्धता',
+    my_business_category_availability: 'या व्यवसायासाठी तुम्ही विनंती कशी घेता',
     delivery_fulfillment_label: 'तुम्ही डिलिव्हरी कशी करता?',
     delivery_fulfillment_vendor: 'स्वतः',
     delivery_fulfillment_agent: 'डिलिव्हरी एजंटद्वारे',
@@ -4249,6 +4284,7 @@ export const strings = {
     category_confirm: 'निश्चित करा',
     category_chooseDifferently: 'वेगळी category निवडा',
     category_notSure: 'खात्री नाही — पर्याय दाखवा',
+    category_noMatchFound: 'जुळणारी category सापडली नाही — Browse वापरून निवडा',
     category_findButton: 'माझी category शोधा',
     category_browseManual: 'सर्व categories पहा',
     category_yes: 'होय',
@@ -4298,6 +4334,7 @@ export const strings = {
     vendor_draft_banner_body: 'शोध निकालांमध्ये दिसण्यासाठी दुकानाचे लोकेशन जोडा.',
     vendor_draft_banner_cta: 'लोकेशन जोडा',
     vendor_capture_location: '📍 दुकानाचे लोकेशन घ्या',
+    vendor_capture_location_home: '📍 घराचे लोकेशन घ्या',
     vendor_register_btn: 'नोंदणी करा',
     vendor_register_hint: 'बरोबर फोन नंबर टाकल्यावर नोंदणी होईल.',
     vendor_or: 'किंवा',
@@ -4513,11 +4550,16 @@ export const strings = {
     settings_verificationRemoved: 'सत्यापन काढले',
     settings_devMenuUnlocked: 'डेव्हलपर मेनू अनलॉक झाला',
     settings_clearDataTitle: 'सर्व डेटा हटवायचा?',
-    settings_clearDataDescription:
-      'हे तुमचे जतन केलेले पत्ते, सूचना, शेजारी यादी, फीड पोस्ट, समीक्षा मजकूर, प्रोफाइल प्राधान्ये आणि डिव्हाइस टोकन सर्व्हरवरून साफ करते, आणि या डिव्हाइसवरून तुमचा फोन नंबर व अॅप प्राधान्ये काढते. कॅमेरा, मायक्रोफोन, लोकेशन आणि सूचना परवानग्या Android व्यवस्थापित करते — येथे साफ होत नाहीत; सिस्टम Settings → Apps → AasPaas Pro → Permissions मध्ये बदला. सुरक्षितता व लेखा-जोखा साठी, तुमचा ऑर्डर इतिहास, बिल, खाता नोंदी, रेफरल आणि खाते स्थिती (चेतावणी किंवा निलंबनासह) ठेवली जाते. हे पूर्ववत केले जाऊ शकत नाही.',
+    settings_clearDataDescription_wiped:
+      'हे या डिव्हाइसवरील जतन पत्ते, सूचना, शेजारी यादी, फीड पोस्ट, रिव्यू मजकूर, प्रोफाइल पसंती आणि डिव्हाइस टोकन पुसते — आणि साइन-इन असल्यास सर्व्हरवरूनही.',
+    settings_clearDataDescription_permissions:
+      'फोनच्या परवानग्या (कॅमेरा, सूचना, लोकेशन) हात लावल्या जात नाहीत. त्या फोनच्या Settings मध्ये स्वतः बदला.',
+    settings_clearDataDescription_kept:
+      'ऑर्डर, बिल, खाते आणि रेफरल क्रेडिट वाद/ऑडिट संरक्षणासाठी ठेवले जातात.',
     settings_clearDataConfirm: 'सर्व हटवा',
     settings_clearDataFailed: 'डेटा साफ होऊ शकला नाही. कृपया पुन्हा प्रयत्न करा.',
     settings_localDataCleared: 'स्थानिक डेटा साफ झाला',
+    settings_accountDataCleared: 'या डिव्हाइस आणि आमच्या सर्व्हरवरून खात्याचा डेटा साफ झाला',
     settings_heading: 'सेटिंग्ज',
     settings_tagline: 'तुमचे करा.',
     settings_register_business: 'AasPaas वर तुमचा व्यवसाय नोंदवा',
@@ -4730,7 +4772,9 @@ export const strings = {
     settings_permission_notifications: 'सूचना',
     settings_permission_notifications_sub: 'ऑर्डर अलर्टसाठी आवश्यक',
     settings_permission_location: 'लोकेशन',
-    settings_permission_location_sub: 'हेल्प मोड ट्रॅकिंगसाठी आवश्यक',
+    settings_permission_location_sub: 'अ‍ॅप उघडे असताना नकाशा आणि हेल्प ट्रॅकिंगसाठी आवश्यक',
+    settings_permission_background_location: 'बॅकग्राउंड लोकेशन',
+    settings_permission_background_location_sub: 'लाइव्ह असताना लोकेशन शेअर करण्यासाठी आवश्यक',
     settings_permission_camera: 'कॅमेरा',
     settings_permission_camera_sub: 'दुकानाच्या फोटोसाठी आवश्यक',
     settings_permission_mic: 'मायक्रोफोन',
@@ -4739,6 +4783,8 @@ export const strings = {
     settings_permission_battery_sub: 'ऑर्डरसाठी अ‍ॅप सक्रिय ठेवा',
     settings_permission_request: 'परवानगी द्या',
     settings_permission_manual: 'मॅन्युअल',
+    settings_permission_revoke_hint:
+      'हे बंद करण्यासाठी फोनच्या Settings > Apps > Aaspaas Pro > Permissions मध्ये जा',
     settings_permission_open_settings_body: (name: string) =>
       `Android सेटिंग्ज → अ‍ॅप्स → AasPaas Pro → परवानग्या मध्ये जाऊन ${name} सक्षम करा.`,
     settings_ok: 'ठीक आहे',
@@ -4779,12 +4825,15 @@ export const strings = {
     reg_soft_fail_profile:
       'काही व्यवसाय तपशील जतन झाले नाहीत — नंतर अपडेट करा.',
     vendor_qr_upload_failed: 'QR अपलोड होऊ शकले नाही',
+    vendor_qr_decode_failed: 'त्या प्रतिमेतून UPI ID वाचता आले नाही, कृपया स्वतः लिहा',
     vendor_uploading: 'अपलोड होत आहे...',
     camera_capture_failed: 'फोटो कॅप्चर होऊ शकला नाही. कृपया पुन्हा प्रयत्न करा.',
     camera_access_failed: 'कॅमेरा अ‍ॅक्सेस मिळाला नाही. कृपया कॅमेरा परवानगी द्या.',
     camera_go_to_settings: 'सेटिंग्जमध्ये जा',
     camera_cancel: 'रद्द करा',
+    camera_take_photo: 'फोटो घ्या',
     admin_verify_pick_business: 'सत्यापित करण्यासाठी व्यवसाय निवडा',
+    admin_no_business_to_verify: 'सत्यापित करण्यासाठी व्यवसाय नाही',
     trust_tier_bronze: 'ब्रॉन्ज',
     trust_tier_silver: 'सिल्वर',
     trust_tier_gold: 'गोल्ड',

@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
-import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
-import { PushNotifications } from "@capacitor/push-notifications";
 import { Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/language";
+import { ensureNativePermission } from "@/lib/nativePermissions";
 
 const ONBOARDED_KEY = "aaspaas:vendor_onboarded";
 const TOTAL_STEPS = 5;
@@ -36,7 +35,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
       onAction: async () => {
         setBusy(true);
         try {
-          await PushNotifications.requestPermissions();
+          await ensureNativePermission("notifications", "explicit");
         } catch {
           /* permission prompt best-effort */
         } finally {
@@ -54,6 +53,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
       onAction: async () => {
         setBusy(true);
         try {
+          await ensureNativePermission("location", "explicit");
           await new Promise<void>((resolve, reject) => {
             if (!("geolocation" in navigator)) {
               reject(new Error("unsupported"));
@@ -100,11 +100,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
       onAction: async () => {
         setBusy(true);
         try {
-          await Camera.getPhoto({
-            resultType: CameraResultType.DataUrl,
-            source: CameraSource.Camera,
-            quality: 50,
-          });
+          await ensureNativePermission("camera", "explicit");
         } catch {
           /* permission prompt best-effort */
         } finally {

@@ -153,6 +153,48 @@ test('MOR-01 — get_my_orders returns a no-session phone caller\'s non-done ord
   expect(sentRow.vendor_shop_name).toBe(`!MOR01-${T}`);
 });
 
+test('MOR-P4 — get_my_orders vendor_latitude is vendor_categories pin; null category_id → null GPS', async () => {
+  const vendorId = await seedVendor(`!MORP4-${T}`);
+  const cat = await getActiveCategoryByLabel('Pharmacy');
+  await supabaseAdmin
+    .from('vendors')
+    .update({ latitude: 11.11, longitude: 22.22 })
+    .eq('id', vendorId);
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({ latitude: 18.111, longitude: 73.222 })
+    .eq('vendor_id', vendorId)
+    .eq('category_id', cat.id);
+  const phone = nextPhone('88074');
+  await supabaseAdmin.from('users').upsert({ phone, trust_score: 75 }, { onConflict: 'phone' });
+  const withCat = await seedRequest(vendorId, phone, `devMORP4_${T}`, {
+    category_id: cat.id,
+  });
+  const noCat = await seedRequest(vendorId, phone, `devMORP4_${T}`, {
+    category_id: null,
+  });
+
+  const { data, error } = await supabase.rpc('get_my_orders', {
+    p_user_phone: phone,
+    p_device_id: `devMORP4_${T}`,
+  });
+  expect(error, error?.message).toBeNull();
+  const rows = (data ?? []) as Array<{
+    id: string;
+    category_id: string | null;
+    vendor_latitude: number | null;
+    vendor_longitude: number | null;
+  }>;
+  const catRow = rows.find((r) => r.id === withCat)!;
+  expect(catRow.category_id).toBe(cat.id);
+  expect(catRow.vendor_latitude).toBeCloseTo(18.111, 3);
+  expect(catRow.vendor_longitude).toBeCloseTo(73.222, 3);
+  const nullRow = rows.find((r) => r.id === noCat)!;
+  expect(nullRow.category_id).toBeNull();
+  expect(nullRow.vendor_latitude).toBeNull();
+  expect(nullRow.vendor_longitude).toBeNull();
+});
+
 test('MOR-02 — get_my_orders device-scoped when no phone; other identities see nothing', async () => {
   const vendorId = await seedVendor(`!MOR02-${T}`);
   const deviceId = `devMOR02_${T}`;

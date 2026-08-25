@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, APP_URL, expandMyAccountAccordion } from './helpers/browser-setup';
 import { supabase, supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_i18n_${TEST_SESSION}`;
@@ -27,6 +27,7 @@ async function setLanguage(page: Page, lang: 'en' | 'hi' | 'mr') {
 async function openPreferences(page: Page) {
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
+  await expandMyAccountAccordion(page);
   const prefsToggle = page.getByText(/preferences/i).first();
   await expect(prefsToggle).toBeVisible({ timeout: 5000 });
   await prefsToggle.click();

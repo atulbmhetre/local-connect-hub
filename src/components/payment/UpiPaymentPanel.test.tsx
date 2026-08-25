@@ -78,6 +78,38 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
     });
   });
 
+  it("snapshots intended UPI payee when the unpaid payment sheet is generated", async () => {
+    renderPanel();
+    await waitFor(() => {
+      expect(mockRpc).toHaveBeenCalledWith("snapshot_intended_upi_payee", {
+        p_request_id: "req-1",
+        p_device_id: "test-device",
+        p_user_phone: "9876543210",
+      });
+    });
+  });
+
+  it("does not snapshot intended UPI when payment is already claimed", () => {
+    render(
+      <UpiPaymentPanel
+        idPrefix="test-panel"
+        orderId="req-claimed"
+        paymentStatus="claimed"
+        amountRupees={250}
+        vendorId="vendor-1"
+        shopName="Test Shop"
+        upiId="shop@upi"
+        vendorPhone="9000000000"
+        qrUrl={null}
+        qrPayeeId={null}
+      />,
+    );
+    expect(mockRpc).not.toHaveBeenCalledWith(
+      "snapshot_intended_upi_payee",
+      expect.anything(),
+    );
+  });
+
   it("resolves the VENDOR's own language for the notification, not the customer's", async () => {
     mockRpc.mockImplementation(async (name: string) => {
       if (name === "get_payment_claim_requirements") {

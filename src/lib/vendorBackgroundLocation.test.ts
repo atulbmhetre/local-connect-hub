@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockStart, mockStop, mockPatch, mockInvokeNotifyUser } = vi.hoisted(() => ({
+const { mockStart, mockStop, mockPatch, mockInvokeNotifyUser, isNativeMock } = vi.hoisted(() => ({
   mockStart: vi.fn(async () => undefined),
   mockStop: vi.fn(async () => undefined),
   mockPatch: vi.fn(async () => ({ error: null })),
   mockInvokeNotifyUser: vi.fn(),
+  isNativeMock: vi.fn(() => false),
 }));
 
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => false },
+  Capacitor: { isNativePlatform: () => isNativeMock() },
 }));
 
 vi.mock("@capgo/background-geolocation", () => ({
@@ -28,6 +29,15 @@ vi.mock("@capacitor/geolocation", () => ({
 
 vi.mock("@/lib/vendorPatch", () => ({
   patchVendorOwn: mockPatch,
+}));
+
+vi.mock("@/lib/nativePermissions", () => ({
+  ensureHelpTrackingPermissions: vi.fn(async () => ({
+    location: "granted",
+    backgroundLocation: "granted",
+    notifications: "granted",
+  })),
+  isPermissionGranted: (status: string) => status === "granted" || status === "limited",
 }));
 
 vi.mock("@/lib/supabase", () => ({
@@ -67,6 +77,7 @@ beforeEach(async () => {
   mockStop.mockClear();
   mockPatch.mockClear();
   mockInvokeNotifyUser.mockClear();
+  isNativeMock.mockReturnValue(false);
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -134,6 +145,32 @@ describe("vendorBackgroundLocation sources", () => {
     expect(mockInvokeNotifyUser).toHaveBeenCalled();
     expect(getActiveTrackingSourcesForTests()).toEqual([]);
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it("native start uses requestPermissions: false and only ensures missing perms on go-live", async () => {
+    const { ensureHelpTrackingPermissions } = await import("@/lib/nativePermissions");
+    isNativeMock.mockReturnValue(true);
+
+    await startHelpLiveTracking(ctx);
+    expect(ensureHelpTrackingPermissions).not.toHaveBeenCalled();
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({ requestPermissions: false }),
+      expect.any(Function),
+    );
+
+    await stopHelpLiveTracking();
+    mockStart.mockClear();
+    vi.mocked(ensureHelpTrackingPermissions).mockClear();
+
+    await startHelpLiveTracking(ctx, { requestMissingPermissions: true });
+    expect(ensureHelpTrackingPermissions).toHaveBeenCalled();
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({ requestPermissions: false }),
+      expect.any(Function),
+    );
+
+    await stopHelpLiveTracking();
+    isNativeMock.mockReturnValue(false);
   });
 });
 

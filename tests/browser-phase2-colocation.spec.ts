@@ -31,13 +31,6 @@ async function enableE2eCameraMock(page: Page) {
 async function completeWizardStepA(page: Page, opts: { ownerName: string; phone: string; upi: string }) {
   await page.getByPlaceholder('Ramesh Kumar').fill(opts.ownerName);
   await page.getByPlaceholder('+91 98xxxxxxxx').fill(opts.phone);
-  await page.getByPlaceholder('name@okbank').fill(opts.upi);
-  await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
-  await page
-    .getByRole('button', {
-      name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
-    })
-    .click();
   await page.getByTestId('reg-selfie-capture').click();
   await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
@@ -45,12 +38,22 @@ async function completeWizardStepA(page: Page, opts: { ownerName: string; phone:
   await page.getByRole('button', { name: 'Next' }).click();
 }
 
-async function completeWizardStepB(page: Page, opts: { categoryLabel: string; brandName: string }) {
+async function completeWizardStepB(
+  page: Page,
+  opts: { categoryLabel: string; brandName: string; upi?: string },
+) {
   await page.getByRole('button', { name: 'Browse all categories' }).click();
   const chip = page.getByRole('button').filter({ hasText: opts.categoryLabel });
   await expect(chip.first()).toBeVisible({ timeout: 15000 });
   await chip.first().click();
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(opts.brandName);
+  await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
+  await page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i).fill(opts.brandName);
+  await page
+    .getByRole('button', {
+      name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
+    })
+    .click();
+  await page.getByPlaceholder('name@okbank').fill(opts.upi ?? 'p2colocate@upi');
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
   await ensureRegAvailabilityReady(page);
   await page.getByTestId('reg-shop-photo-capture').click();
@@ -84,6 +87,7 @@ test.describe('Phase 2 colocation write path', () => {
     await completeWizardStepB(page, {
       categoryLabel: electrician.label,
       brandName: shopName,
+      upi: 'p2same@upi',
     });
     await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
@@ -111,6 +115,8 @@ test.describe('Phase 2 colocation write path', () => {
       .filter({ hasText: plumber.label })
       .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
     await plumberChip.first().click();
+    await page.getByTestId('add-business-base-shop').click();
+    await page.getByTestId('add-business-upi').fill('p2sameadd@upi');
     await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
     await setRegAvailabilityModes(page, ['help'], 'add-business-avail');
 
@@ -192,6 +198,7 @@ test.describe('Phase 2 colocation write path', () => {
     await completeWizardStepB(page, {
       categoryLabel: electrician.label,
       brandName: shopName,
+      upi: 'p2far@upi',
     });
     await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 20000 });
 
@@ -213,6 +220,8 @@ test.describe('Phase 2 colocation write path', () => {
       .filter({ hasText: plumber.label })
       .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
     await plumberChip.first().click();
+    await page.getByTestId('add-business-base-shop').click();
+    await page.getByTestId('add-business-upi').fill('p2faradd@upi');
     await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
     await setRegAvailabilityModes(page, ['help'], 'add-business-avail');
 

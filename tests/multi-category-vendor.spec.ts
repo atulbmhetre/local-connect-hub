@@ -804,6 +804,174 @@ test('MCV-16: vendor_update_categories preserves child modes for retained rows',
   }
 });
 
+test('MCV-P3-01: vendor_update_categories writes UPI/base_type only onto newly inserted rows', async () => {
+  const cats = await getActiveCategories(2);
+  const phone = uniqueVendorPhone();
+  const firstUpi = `first${Date.now().toString().slice(-6)}@okaxis`;
+  const firstPayee = `firstpayee${Date.now().toString().slice(-5)}@okaxis`;
+  const secondUpi = `second${Date.now().toString().slice(-6)}@okaxis`;
+  const secondPayee = `secondpayee${Date.now().toString().slice(-5)}@okaxis`;
+  const accountUpi = `account${Date.now().toString().slice(-6)}@okaxis`;
+
+  const reg = await invokeRegisterVendorRpc({
+    phone,
+    upi_id: accountUpi,
+    upi_qr_url: 'https://example.com/first-qr.png',
+    upi_qr_payee_id: firstPayee,
+    base_type: 'shop',
+    category: cats[0].label,
+    category_ids: [cats[0].id],
+    category_service_modes: ['help'],
+    category_modes: { [cats[0].id]: ['help'] },
+  });
+  expect(reg.error).toBeUndefined();
+  const vendorId = reg.vendorId!;
+
+  await supabaseAdmin
+    .from('vendor_categories')
+    .update({
+      upi_id: firstUpi,
+      upi_qr_url: 'https://example.com/first-qr.png',
+      upi_qr_payee_id: firstPayee,
+      base_type: 'shop',
+    })
+    .eq('vendor_id', vendorId)
+    .eq('category_id', cats[0].id);
+
+  try {
+    const { error } = await supabaseAdmin.rpc('vendor_update_categories', {
+      p_vendor_id: vendorId,
+      p_vendor_phone: phone,
+      p_category_ids: [cats[0].id, cats[1].id],
+      p_category_service_modes: ['help', cats[1].service_mode],
+      p_category_modes: {
+        [cats[0].id]: ['help'],
+        [cats[1].id]: [cats[1].service_mode],
+      },
+      p_upi_id: secondUpi,
+      p_upi_qr_url: 'https://example.com/second-qr.png',
+      p_upi_qr_payee_id: secondPayee,
+      p_base_type: 'home',
+    });
+    expect(error, error?.message).toBeNull();
+
+    const { data: rows } = await supabaseAdmin
+      .from('vendor_categories')
+      .select('category_id, upi_id, upi_qr_url, upi_qr_payee_id, base_type')
+      .eq('vendor_id', vendorId);
+    const first = (rows ?? []).find((r) => r.category_id === cats[0].id);
+    const second = (rows ?? []).find((r) => r.category_id === cats[1].id);
+    expect(first?.upi_id).toBe(firstUpi);
+    expect(first?.upi_qr_payee_id).toBe(firstPayee);
+    expect(first?.base_type).toBe('shop');
+    expect(second?.upi_id).toBe(secondUpi);
+    expect(second?.upi_qr_url).toBe('https://example.com/second-qr.png');
+    expect(second?.upi_qr_payee_id).toBe(secondPayee);
+    expect(second?.base_type).toBe('home');
+
+    const { data: vendor } = await supabaseAdmin
+      .from('vendors')
+      .select('upi_id, upi_qr_url, upi_qr_payee_id, base_type')
+      .eq('id', vendorId)
+      .single();
+    expect(vendor?.upi_id).toBe(accountUpi);
+    expect(vendor?.base_type).toBe('shop');
+    expect(vendor?.upi_qr_payee_id).toBe(firstPayee);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+  }
+});
+
+test('MCV-P3-02: vendor_update_categories rejects invalid p_base_type', async () => {
+  const cats = await getActiveCategories(2);
+  const phone = uniqueVendorPhone();
+  const reg = await invokeRegisterVendorRpc({
+    phone,
+    category: cats[0].label,
+    category_ids: [cats[0].id],
+    category_service_modes: ['help'],
+    category_modes: { [cats[0].id]: ['help'] },
+  });
+  expect(reg.error).toBeUndefined();
+  const vendorId = reg.vendorId!;
+
+  try {
+    const { error } = await supabaseAdmin.rpc('vendor_update_categories', {
+      p_vendor_id: vendorId,
+      p_vendor_phone: phone,
+      p_category_ids: [cats[0].id, cats[1].id],
+      p_category_service_modes: ['help', cats[1].service_mode],
+      p_category_modes: {
+        [cats[0].id]: ['help'],
+        [cats[1].id]: [cats[1].service_mode],
+      },
+      p_base_type: 'warehouse',
+    });
+    expect(error).toBeTruthy();
+    expect(error?.message ?? '').toMatch(/base_type_required/);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+  }
+});
+
+test('MCV-P5-01: parallel arrays update existing vendor_categories UPI/GPS/base_type; vendors.* unchanged', async () => {
+  const cats = await getActiveCategories(1);
+  const phone = uniqueVendorPhone();
+  const accountUpi = `acct${Date.now().toString().slice(-6)}@okaxis`;
+  const businessUpi = `biz${Date.now().toString().slice(-6)}@okaxis`;
+  const reg = await invokeRegisterVendorRpc({
+    phone,
+    upi_id: accountUpi,
+    base_type: 'shop',
+    category: cats[0].label,
+    category_ids: [cats[0].id],
+    category_service_modes: ['help'],
+    category_modes: { [cats[0].id]: ['help'] },
+  });
+  expect(reg.error).toBeUndefined();
+  const vendorId = reg.vendorId!;
+
+  try {
+    const { error } = await supabaseAdmin.rpc('vendor_update_categories', {
+      p_vendor_id: vendorId,
+      p_vendor_phone: phone,
+      p_category_ids: [cats[0].id],
+      p_category_service_modes: ['help'],
+      p_category_modes: { [cats[0].id]: ['help'] },
+      p_upi_ids: [businessUpi],
+      p_upi_qr_urls: ['https://example.com/biz-qr.png'],
+      p_upi_qr_payee_ids: [businessUpi],
+      p_base_types: ['home'],
+      p_latitudes: [18.111],
+      p_longitudes: [73.222],
+    });
+    expect(error, error?.message).toBeNull();
+
+    const { data: row } = await supabaseAdmin
+      .from('vendor_categories')
+      .select('upi_id, upi_qr_url, upi_qr_payee_id, base_type, latitude, longitude')
+      .eq('vendor_id', vendorId)
+      .eq('category_id', cats[0].id)
+      .single();
+    expect(row?.upi_id).toBe(businessUpi);
+    expect(row?.upi_qr_url).toBe('https://example.com/biz-qr.png');
+    expect(row?.base_type).toBe('home');
+    expect(row?.latitude).toBeCloseTo(18.111, 3);
+    expect(row?.longitude).toBeCloseTo(73.222, 3);
+
+    const { data: vendor } = await supabaseAdmin
+      .from('vendors')
+      .select('upi_id, base_type, latitude, longitude')
+      .eq('id', vendorId)
+      .single();
+    expect(vendor?.upi_id).toBe(accountUpi);
+    expect(vendor?.base_type).toBe('shop');
+    expect(vendor?.latitude).not.toBeCloseTo(18.111, 3);
+  } finally {
+    await deleteVendorRegistrationArtifacts(vendorId);
+  }
+});
+
 test('MCV-17: vendor_sync_category_modes jsonb never flattens other categories', async () => {
   const cats = await getActiveCategories(2);
   const phone = uniqueVendorPhone();

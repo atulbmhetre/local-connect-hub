@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { captureError } from "@/lib/sentry";
-import { notifyVendorIdChanged, VENDOR_ACTIVE_CHANGED_EVENT } from "@/lib/vendorSessionSync";
+import { notifyVendorIdChanged, reconcileVendorActiveFlag } from "@/lib/vendorSessionSync";
 import {
   applyAbortSignal,
   throwOnSupabaseNetworkError,
@@ -20,7 +20,6 @@ const PHONE_KEY = "aaspaas:user_phone";
 const WELCOMED_KEY = "aaspaas:welcomed";
 const VENDOR_ID_KEY = "aaspaas:vendor_id";
 const ROLE_KEY = "aaspaas:role";
-const VENDOR_ACTIVE_KEY = "aaspaas:vendor_active";
 
 /** localStorage does not fire the `storage` event in the same tab; Home surfaces listen for this. */
 export const USER_PHONE_CHANGED_EVENT = "aaspaas:user_phone_changed";
@@ -217,18 +216,19 @@ export async function migrateUserPhone(
 }
 
 /**
- * Silently restore vendor session after account recovery (active, non-deleted vendor only).
+ * Silently restore vendor session after account recovery.
+ * `isActive` must match the restored row (`get_vendor_restore_status.is_active`)
+ * so BottomNav shows ME·Online / ME·Offline immediately — not a hardcoded live flag.
  */
-export function restoreVendorSession(vendorId: string): void {
+export function restoreVendorSession(vendorId: string, isActive: boolean): void {
   try {
     localStorage.setItem(VENDOR_ID_KEY, vendorId);
     localStorage.setItem(ROLE_KEY, "vendor");
-    localStorage.setItem(VENDOR_ACTIVE_KEY, "1");
   } catch {
     /* ignore */
   }
+  reconcileVendorActiveFlag(isActive);
   notifyVendorIdChanged();
-  window.dispatchEvent(new CustomEvent(VENDOR_ACTIVE_CHANGED_EVENT, { detail: true }));
 }
 
 /**

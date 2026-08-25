@@ -12,7 +12,7 @@ import {
  * so collapsible placement can be asserted without mounting full Settings.
  */
 function FeedDiscoveryCollapsibleHarness() {
-  const [accountOpen, setAccountOpen] = useState(true);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [feedDiscoveryOpen, setFeedDiscoveryOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
   const s = strings.en;
@@ -54,9 +54,12 @@ describe("Local Feed SettingsCollapsible under MY ACCOUNT", () => {
     vi.clearAllMocks();
   });
 
-  it("starts closed and toggles open/closed like siblings", () => {
+  it("starts closed (parent + nested) and toggles open/closed like siblings", () => {
     render(<FeedDiscoveryCollapsibleHarness />);
 
+    expect(screen.queryByTestId("settings-feed-discovery-toggle")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(strings.en.settings_myAccount));
     expect(screen.getByTestId("settings-feed-discovery-toggle")).toBeInTheDocument();
     expect(screen.queryByTestId("settings-feed-discovery")).not.toBeInTheDocument();
 
@@ -72,6 +75,7 @@ describe("Local Feed SettingsCollapsible under MY ACCOUNT", () => {
   it("lives under MY ACCOUNT parent (hidden when parent collapses)", () => {
     render(<FeedDiscoveryCollapsibleHarness />);
 
+    fireEvent.click(screen.getByText(strings.en.settings_myAccount));
     fireEvent.click(screen.getByTestId("settings-feed-discovery-toggle"));
     expect(screen.getByTestId("settings-feed-discovery")).toBeInTheDocument();
 

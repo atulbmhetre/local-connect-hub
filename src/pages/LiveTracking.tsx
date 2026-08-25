@@ -90,7 +90,9 @@ const LiveTracking = () => {
   const navigate = useNavigate();
   const { vendorId } = useParams<{ vendorId: string }>();
   const [searchParams] = useSearchParams();
-  const orderCategoryId = searchParams.get("categoryId") || searchParams.get("category_id");
+  const queryCategoryId = searchParams.get("categoryId") || searchParams.get("category_id");
+  const [orderCategoryId, setOrderCategoryId] = useState<string | null>(queryCategoryId);
+  const [businessBrand, setBusinessBrand] = useState<string | null>(null);
   const { s } = useLanguage();
   const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
@@ -169,6 +171,52 @@ const LiveTracking = () => {
       setLoading(false);
     }
   }, [vendorId, s]);
+
+  useEffect(() => {
+    if (queryCategoryId) {
+      setOrderCategoryId(queryCategoryId);
+      return;
+    }
+    if (!vendorId) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase.rpc("get_my_orders", {
+        p_user_phone: getUserPhone(),
+        p_device_id: getDeviceId(),
+      });
+      if (cancelled || error) return;
+      const match = (data ?? []).find(
+        (row: { vendor_id?: string; category_id?: string | null }) =>
+          row.vendor_id === vendorId && row.category_id,
+      );
+      if (match?.category_id) setOrderCategoryId(String(match.category_id));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vendorId, queryCategoryId]);
+
+  useEffect(() => {
+    if (!vendorId || !orderCategoryId) {
+      setBusinessBrand(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from("vendor_categories")
+        .select("brand_name")
+        .eq("vendor_id", vendorId)
+        .eq("category_id", orderCategoryId)
+        .maybeSingle();
+      if (cancelled) return;
+      const brand = String(data?.brand_name ?? "").trim();
+      setBusinessBrand(brand || null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vendorId, orderCategoryId]);
 
   // Fetch vendor + initial helper coords.
   useEffect(() => {
@@ -643,7 +691,7 @@ const LiveTracking = () => {
             />
           </div>
           <p className="text-xs text-gray-400 truncate">
-            {vendor.shop_name} · {getLabel(vendor.category)}
+            {businessBrand || vendor.shop_name} · {getLabel(vendor.category)}
           </p>
           <p className="text-[10px] uppercase tracking-[0.2em] text-brand mt-0.5 font-bold">
             {s.liveTracking_readyToHelp}

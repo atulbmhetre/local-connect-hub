@@ -67,7 +67,6 @@ import {
   type AvailabilityMode,
   type BaseTypeValue,
   type ReachChoiceValue,
-  MAX_REG_CATEGORIES,
   baseTypeToVendorType,
   looksLikeGibberish,
   reachFlagsFromChoice,
@@ -338,11 +337,13 @@ export function VendorRegistrationWizard({
   const phoneOk = isValidPhone(phone);
   const upiFmtOk = isValidUpi(upi);
 
-  const stepAReady =
-    baseType !== "" && nameOk && phoneOk && upiFmtOk && gpsOk && selfieCaptured;
+  const stepAReady = nameOk && phoneOk && selfieCaptured;
   const stepBReady =
     categoryOk &&
     shopFieldOk &&
+    baseType !== "" &&
+    upiFmtOk &&
+    gpsOk &&
     reachChoice !== "" &&
     radiusOk &&
     modesOk &&
@@ -428,24 +429,12 @@ export function VendorRegistrationWizard({
   };
 
   const tryStepANext = () => {
-    if (baseType === "") {
-      showRegistrationGuidanceToast(s.reg_toast_missing_base_type);
-      return;
-    }
     if (!nameOk) {
       showRegistrationGuidanceToast(s.reg_toast_missing_name);
       return;
     }
     if (!phoneOk) {
       showRegistrationGuidanceToast(s.vendor_phone_invalid_body);
-      return;
-    }
-    if (!upiFmtOk) {
-      showRegistrationGuidanceToast(s.vendor_upi_id_format_invalid);
-      return;
-    }
-    if (!gpsOk) {
-      showRegistrationGuidanceToast(s.reg_toast_missing_gps);
       return;
     }
     if (!selfieCaptured) {
@@ -468,10 +457,9 @@ export function VendorRegistrationWizard({
         { id, label, emoji: emoji ?? "✨", service_mode: serviceModeValue },
       ];
     });
-    setSelectedCategoryIds((prev) => {
-      if (prev.includes(id)) return prev;
-      if (prev.length >= MAX_REG_CATEGORIES) return prev;
-      return [...prev, id];
+    setSelectedCategoryIds([id]);
+    setCategoryModesById({
+      [id]: initialModesForCatalog(resolveCatalogServiceMode(serviceModeValue)),
     });
     setCategorySuggestion(null);
     setPendingNewCategoryCreate(null);
@@ -510,18 +498,17 @@ export function VendorRegistrationWizard({
         return;
       }
       setCategorySuggestion(result);
-      if (result.outcome === "new_suggested" || result.outcome === "medium_new") {
-        setPendingNewCategoryCreate({
-          description: desc,
-          category_name: result.category_name ?? desc,
-          service_mode: result.service_mode ?? "help",
-        });
-        setSelectedCategoryIds([]);
-        setPendingCategoryModes([]);
-      }
-    } catch {
+    } catch (err) {
       dismissNetworkRetryingToast();
       setCategorySuggesting(false);
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleFindCategory(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        toast.error(s.network_failed);
+      }
     }
   };
 
@@ -547,22 +534,20 @@ export function VendorRegistrationWizard({
     setPendingCategoryModes([]);
     setSelectedCategoryIds((prev) => {
       if (prev.includes(categoryId)) {
-        setCategoryModesById((m) => {
-          const next = { ...m };
-          delete next[categoryId];
-          return next;
-        });
-        return prev.filter((id) => id !== categoryId);
+        setCategoryModesById({});
+        return [];
       }
-      if (prev.length >= MAX_REG_CATEGORIES) return prev;
       const cat = allRegCategories.find((c) => c.id === categoryId);
-      if (cat) {
-        setCategoryModesById((m) => ({
-          ...m,
-          [categoryId]: initialModesForCatalog(resolveCatalogServiceMode(cat.service_mode)),
-        }));
-      }
-      return [...prev, categoryId];
+      setCategoryModesById(
+        cat
+          ? {
+              [categoryId]: initialModesForCatalog(
+                resolveCatalogServiceMode(cat.service_mode),
+              ),
+            }
+          : {},
+      );
+      return [categoryId];
     });
   };
 
@@ -583,6 +568,11 @@ export function VendorRegistrationWizard({
     setUpiQrUrl(pub.publicUrl);
     const payeeId = await decodeUpiPayeeIdFromImageFile(file);
     setUpiQrPayeeId(payeeId);
+    if (payeeId) {
+      setUpi(payeeId);
+    } else {
+      toast.error(s.vendor_qr_decode_failed);
+    }
     setUpiQrUploading(false);
   };
 
@@ -670,14 +660,28 @@ export function VendorRegistrationWizard({
 
   const register = async (e: FormEvent) => {
     e.preventDefault();
-    if (!stepAReady || !stepBReady || !reachFlags || !selfieBlob || !shopPhotoBlob) return;
-
+    if (!categoryOk) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_categories);
+      return;
+    }
     if (baseType === "shop" && !shopOk) {
       showRegistrationGuidanceToast(s.reg_toast_missing_shop_name);
       return;
     }
-    if (!categoryOk) {
-      showRegistrationGuidanceToast(s.reg_toast_missing_categories);
+    if (baseType === "") {
+      showRegistrationGuidanceToast(s.reg_toast_missing_base_type);
+      return;
+    }
+    if (!gpsOk) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_gps);
+      return;
+    }
+    if (!upiFmtOk) {
+      showRegistrationGuidanceToast(s.vendor_upi_id_format_invalid);
+      return;
+    }
+    if (reachChoice === "") {
+      showRegistrationGuidanceToast(s.reg_toast_missing_reach);
       return;
     }
     if (!radiusOk) {
@@ -688,6 +692,7 @@ export function VendorRegistrationWizard({
       showRegistrationGuidanceToast(s.reg_toast_missing_availability);
       return;
     }
+    if (!stepAReady || !stepBReady || !reachFlags || !selfieBlob || !shopPhotoBlob) return;
 
     setLoading(true);
     setParentError(null);
@@ -1235,117 +1240,6 @@ export function VendorRegistrationWizard({
             placeholder={s.vendor_phone_placeholder}
             required
           />
-          <RegField
-            label={s.vendor_upi_label}
-            value={upi}
-            onChange={setUpi}
-            onBlur={() => setUpiBlurred(true)}
-            placeholder={s.vendor_upi_placeholder}
-            required
-            error={upiFormatError}
-          />
-          <div>
-            <label className="text-xs text-muted-foreground">{s.vendor_upi_qr_label}</label>
-            <input
-              ref={upiQrInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void handleUpiQrFile(f);
-              }}
-            />
-            <button
-              type="button"
-              disabled={upiQrUploading}
-              onClick={() => upiQrInputRef.current?.click()}
-              className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
-            >
-              {upiQrUploading ? s.vendor_uploading : s.vendor_upi_qr_hint}
-            </button>
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {s.reg_where_work_from} *
-            </label>
-            <div className="mt-2 grid grid-cols-1 gap-2">
-              <ChoiceCard
-                selected={baseType === "shop"}
-                onClick={() => setBaseType("shop")}
-                emoji="🏪"
-                title={s.reg_base_shop}
-                desc={s.reg_base_shop_desc}
-              />
-              <ChoiceCard
-                selected={baseType === "home"}
-                onClick={() => setBaseType("home")}
-                emoji="🏠"
-                title={s.reg_base_home}
-                desc={s.reg_base_home_desc}
-              />
-              <ChoiceCard
-                selected={baseType === "none"}
-                onClick={() => setBaseType("none")}
-                emoji="🚫"
-                title={s.reg_base_none}
-                desc={s.reg_base_none_desc}
-              />
-            </div>
-          </div>
-
-          {baseType !== "" && baseType !== "none" && (
-            <>
-              <p className="text-[11px] text-muted-foreground text-center px-2">
-                {baseType === "shop" ? s.reg_gps_public_hint : s.reg_gps_private_hint}
-              </p>
-              <button
-                type="button"
-                onClick={() => void detectLocation()}
-                className={cn(
-                  "w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold",
-                  coords ? "border-secondary text-secondary bg-secondary/5" : "border-border",
-                )}
-              >
-                {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
-                {coords
-                  ? `${s.vendor_location_set} (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`
-                  : s.vendor_capture_location}
-              </button>
-              {locationInlineError && (
-                <p className="text-xs text-destructive text-center">{locationInlineError}</p>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowLocationHelp((v) => !v)}
-                className="text-xs text-muted-foreground underline w-full"
-              >
-                {s.vendor_location_help_title}
-              </button>
-              {showLocationHelp && (
-                <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
-                  <p>1. {s.vendor_location_help_step1}</p>
-                  <p>2. {s.vendor_location_help_step2}</p>
-                  <p>3. {s.vendor_location_help_step3}</p>
-                </div>
-              )}
-            </>
-          )}
-          {baseType === "none" && (
-            <p className="text-[11px] text-muted-foreground text-center px-2">
-              {locating ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {s.vendor_visiting_location_hint}
-                </span>
-              ) : coords ? (
-                s.reg_gps_silent_hint
-              ) : (
-                s.vendor_visiting_location_hint
-              )}
-            </p>
-          )}
 
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1407,18 +1301,27 @@ export function VendorRegistrationWizard({
                 {s.vendor_categories_label} *
               </label>
               {selectedCategoryIds.length > 0 && (
-                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setShowManualCategories(true)}
+                  className="text-xs text-muted-foreground inline-flex items-center gap-1"
+                >
                   <CheckCircle2 className="h-3.5 w-3.5 text-brand" />
-                  {selectedCategoryIds
-                    .map((id) => getLabel(allRegCategories.find((c) => c.id === id)?.label ?? ""))
-                    .filter(Boolean)
-                    .join(", ")}
-                </span>
+                  {getLabel(
+                    allRegCategories.find((c) => c.id === selectedCategoryIds[0])?.label ?? "",
+                  )}
+                  <span className="underline">{s.category_chooseDifferently}</span>
+                </button>
               )}
               {pendingNewCategoryCreate && selectedCategoryIds.length === 0 && (
-                <span className="text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={() => setShowManualCategories(true)}
+                  className="text-xs text-muted-foreground inline-flex items-center gap-1"
+                >
                   {pendingNewCategoryCreate.category_name}
-                </span>
+                  <span className="underline">{s.category_chooseDifferently}</span>
+                </button>
               )}
             </div>
             <Textarea
@@ -1465,7 +1368,11 @@ export function VendorRegistrationWizard({
             )}
             {(categorySuggestion?.outcome === "new_suggested" ||
               categorySuggestion?.outcome === "medium_new") && (
-              <div className="mt-3 rounded-2xl border border-border bg-muted/40 p-3">
+              <div className="mt-3 rounded-2xl border border-border bg-muted/40 p-3 space-y-2">
+                <p className="text-sm font-semibold">{s.vendor_we_think}</p>
+                <p className="text-sm">
+                  {s.category_didYouMean(categorySuggestion.category_name ?? "")}
+                </p>
                 <button
                   type="button"
                   onClick={confirmNewCategorySuggestion}
@@ -1475,13 +1382,32 @@ export function VendorRegistrationWizard({
                 </button>
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => setShowManualCategories((v) => !v)}
-              className="mt-3 text-xs font-medium text-muted-foreground underline"
-            >
-              {s.category_browseManual}
-            </button>
+            {categorySuggestion != null &&
+              categorySuggestion.outcome !== "high_existing" &&
+              categorySuggestion.outcome !== "new_suggested" &&
+              categorySuggestion.outcome !== "medium_new" && (
+                <div className="mt-3 rounded-2xl border border-border bg-muted/40 p-3 space-y-2">
+                  <p className="text-sm">{s.category_noMatchFound}</p>
+                  <button
+                    type="button"
+                    data-testid="reg-browse-all-categories-nomatch"
+                    onClick={() => setShowManualCategories(true)}
+                    className="w-full rounded-xl border border-border px-3 py-2 text-xs font-semibold"
+                  >
+                    {s.category_browseManual}
+                  </button>
+                </div>
+              )}
+            {selectedCategoryIds.length === 0 && !pendingNewCategoryCreate && (
+              <button
+                type="button"
+                data-testid="reg-browse-all-categories"
+                onClick={() => setShowManualCategories((v) => !v)}
+                className="mt-3 text-xs font-medium text-muted-foreground underline"
+              >
+                {s.category_browseManual}
+              </button>
+            )}
             {showManualCategories && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {regCategoriesLoading ? (
@@ -1489,20 +1415,16 @@ export function VendorRegistrationWizard({
                 ) : (
                   allRegCategories.map((cat) => {
                     const selected = selectedCategoryIds.includes(cat.id);
-                    const atMax =
-                      !selected && selectedCategoryIds.length >= MAX_REG_CATEGORIES;
                     return (
                       <button
                         key={cat.id}
                         type="button"
-                        disabled={atMax}
                         onClick={() => toggleRegCategory(cat.id)}
                         className={cn(
                           "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium",
                           selected
                             ? "border-primary bg-primary/20 ring-1 ring-primary/30"
                             : "border-border bg-card",
-                          atMax && "opacity-40 cursor-not-allowed",
                         )}
                       >
                         {cat.emoji} {getLabel(cat.label)}
@@ -1535,6 +1457,120 @@ export function VendorRegistrationWizard({
               error={homeShopInvalid ? s.vendor_specify_hint : undefined}
             />
           )}
+
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {s.reg_where_work_from} *
+            </label>
+            <div className="mt-2 grid grid-cols-1 gap-2">
+              <ChoiceCard
+                selected={baseType === "shop"}
+                onClick={() => setBaseType("shop")}
+                emoji="🏪"
+                title={s.reg_base_shop}
+                desc={s.reg_base_shop_desc}
+              />
+              <ChoiceCard
+                selected={baseType === "home"}
+                onClick={() => setBaseType("home")}
+                emoji="🏠"
+                title={s.reg_base_home}
+                desc={s.reg_base_home_desc}
+              />
+              <ChoiceCard
+                selected={baseType === "none"}
+                onClick={() => setBaseType("none")}
+                emoji="🚫"
+                title={s.reg_base_none}
+                desc={s.reg_base_none_desc}
+              />
+            </div>
+          </div>
+
+          {baseType !== "" && baseType !== "none" && (
+            <>
+              <p className="text-[11px] text-muted-foreground text-center px-2">
+                {baseType === "shop" ? s.reg_gps_public_hint : s.reg_gps_private_hint}
+              </p>
+              <button
+                type="button"
+                onClick={() => void detectLocation()}
+                className={cn(
+                  "w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold",
+                  coords ? "border-secondary text-secondary bg-secondary/5" : "border-border",
+                )}
+              >
+                {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+                {coords
+                  ? `${s.vendor_location_set} (${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)})`
+                  : baseType === "home"
+                    ? s.vendor_capture_location_home
+                    : s.vendor_capture_location}
+              </button>
+              {locationInlineError && (
+                <p className="text-xs text-destructive text-center">{locationInlineError}</p>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowLocationHelp((v) => !v)}
+                className="text-xs text-muted-foreground underline w-full"
+              >
+                {s.vendor_location_help_title}
+              </button>
+              {showLocationHelp && (
+                <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                  <p>1. {s.vendor_location_help_step1}</p>
+                  <p>2. {s.vendor_location_help_step2}</p>
+                  <p>3. {s.vendor_location_help_step3}</p>
+                </div>
+              )}
+            </>
+          )}
+          {baseType === "none" && (
+            <p className="text-[11px] text-muted-foreground text-center px-2">
+              {locating ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {s.vendor_visiting_location_hint}
+                </span>
+              ) : coords ? (
+                s.reg_gps_silent_hint
+              ) : (
+                s.vendor_visiting_location_hint
+              )}
+            </p>
+          )}
+
+          <RegField
+            label={s.vendor_upi_label}
+            value={upi}
+            onChange={setUpi}
+            onBlur={() => setUpiBlurred(true)}
+            placeholder={s.vendor_upi_placeholder}
+            required
+            error={upiFormatError}
+          />
+          <div>
+            <label className="text-xs text-muted-foreground">{s.vendor_upi_qr_label}</label>
+            <input
+              ref={upiQrInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void handleUpiQrFile(f);
+              }}
+            />
+            <button
+              type="button"
+              disabled={upiQrUploading}
+              onClick={() => upiQrInputRef.current?.click()}
+              className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
+            >
+              {upiQrUploading ? s.vendor_uploading : s.vendor_upi_qr_hint}
+            </button>
+          </div>
 
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1585,7 +1621,7 @@ export function VendorRegistrationWizard({
             pendingNewCategoryCreate && selectedCategoryIds.length === 0 ? (
               <CategoryAvailabilityModeSelector
                 variant="cards"
-                label={s.reg_when_available}
+                label={s.reg_how_take_requests}
                 required
                 testIdPrefix="reg-avail"
                 catalogServiceMode={resolveCatalogServiceMode(
@@ -1594,10 +1630,10 @@ export function VendorRegistrationWizard({
                 value={pendingCategoryModes}
                 onChange={(modes) => setPendingCategoryModes(normalizeAvailabilityModes(modes))}
               />
-            ) : selectedCategoryIds.length === 1 ? (
+            ) : (
               <CategoryAvailabilityModeSelector
                 variant="cards"
-                label={s.reg_when_available}
+                label={s.reg_how_take_requests}
                 required
                 testIdPrefix="reg-avail"
                 catalogServiceMode={resolveCatalogServiceMode(
@@ -1606,32 +1642,6 @@ export function VendorRegistrationWizard({
                 value={categoryModesById[selectedCategoryIds[0]] ?? []}
                 onChange={(modes) => setCategoryModes(selectedCategoryIds[0], modes)}
               />
-            ) : (
-              <div className="space-y-3">
-                {selectedCategoryIds.map((catId) => {
-                  const cat = allRegCategories.find((c) => c.id === catId);
-                  if (!cat) return null;
-                  return (
-                    <div
-                      key={catId}
-                      className="rounded-2xl border border-surface-border bg-muted/20 p-3"
-                    >
-                      <p className="text-sm font-semibold text-foreground mb-2">
-                        {cat.emoji} {getLabel(cat.label)}
-                      </p>
-                      <CategoryAvailabilityModeSelector
-                        variant="cards"
-                        label={s.reg_category_when_available}
-                        required
-                        testIdPrefix={`reg-avail-${cat.id}`}
-                        catalogServiceMode={resolveCatalogServiceMode(cat.service_mode)}
-                        value={categoryModesById[catId] ?? []}
-                        onChange={(modes) => setCategoryModes(catId, modes)}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
             )
           ) : null}
 
@@ -1680,7 +1690,13 @@ export function VendorRegistrationWizard({
             <button
               type="button"
               data-testid="reg-shop-photo-capture"
-              onClick={() => setShopCameraOpen(true)}
+              onClick={() => {
+                if (!gpsOk) {
+                  showRegistrationGuidanceToast(s.reg_toast_missing_gps);
+                  return;
+                }
+                setShopCameraOpen(true);
+              }}
               className={cn(
                 "mt-2 w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold",
                 shopPhotoCaptured

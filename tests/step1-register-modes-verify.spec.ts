@@ -42,13 +42,6 @@ test('STEP1: UI register writes vendor_category_modes + radar match', async ({ p
 
   await page.getByPlaceholder('Ramesh Kumar').fill('Step1 Modes Owner');
   await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
-  await page.getByPlaceholder('name@okbank').fill('step1modes@upi');
-  await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
-  await page
-    .getByRole('button', {
-      name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
-    })
-    .click();
   await page.getByTestId('reg-selfie-capture').click();
   await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
@@ -62,7 +55,14 @@ test('STEP1: UI register writes vendor_category_modes + radar match', async ({ p
     .filter({ hasText: /Help|Delivery|Appointment|Booking/i });
   await expect(chip.first()).toBeVisible({ timeout: 15000 });
   await chip.first().click();
-  await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
+  await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
+  await page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i).fill(shopName);
+  await page
+    .getByRole('button', {
+      name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 दुकानाचे लोकेशन|📍 Capture|Location set/,
+    })
+    .click();
+  await page.getByPlaceholder('name@okbank').fill('step1modes@upi');
   // Match VR-E2E-01: at-my-place reach + help availability (customer-place not required for STEP1).
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
   await setRegAvailabilityModes(page, ['help']);

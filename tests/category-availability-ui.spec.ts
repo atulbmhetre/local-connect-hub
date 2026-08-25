@@ -21,13 +21,6 @@ async function enableE2eCameraMock(page: Page) {
 async function completeWizardStepA(page: Page, phone: string) {
   await page.getByPlaceholder("Ramesh Kumar").fill("Avail UI Owner");
   await page.getByPlaceholder("+91 98xxxxxxxx").fill(phone);
-  await page.getByPlaceholder("name@okbank").fill("availui@upi");
-  await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
-  await page
-    .getByRole("button", {
-      name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 Capture|Location set/,
-    })
-    .click();
   await page.getByTestId("reg-selfie-capture").click();
   await expect(page.getByTestId("reg-selfie-capture")).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
@@ -45,7 +38,14 @@ async function completeWizardStepB(
 ) {
   await page.getByRole("button", { name: "Browse all categories" }).click();
   await page.getByRole("button").filter({ hasText: opts.categoryLabel }).first().click();
-  await page.getByPlaceholder("Ramesh Tyre Works").fill(opts.brandName);
+  await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
+  await page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i).fill(opts.brandName);
+  await page
+    .getByRole("button", {
+      name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 Capture|Location set/,
+    })
+    .click();
+  await page.getByPlaceholder("name@okbank").fill("availui@upi");
   await page.getByRole("button", { name: /At my place|मेरे पास/ }).click();
   await setRegAvailabilityModes(page, opts.modes);
   await page.getByTestId("reg-shop-photo-capture").click();
@@ -72,11 +72,18 @@ test.describe("Category availability plain-language UI", () => {
 
     await page.getByRole("button", { name: "Browse all categories" }).click();
     await page.getByRole("button").filter({ hasText: mechanic.label }).first().click();
-    await page.getByPlaceholder("Ramesh Tyre Works").fill(`Mech ${phone.slice(-4)}`);
+    await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
+    await page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i).fill(`Mech ${phone.slice(-4)}`);
+    await page
+      .getByRole("button", {
+        name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 Capture|Location set/,
+      })
+      .click();
+    await page.getByPlaceholder("name@okbank").fill("availui@upi");
     await page.getByRole("button", { name: /At my place|मेरे पास/ }).click();
 
     await expect(page.getByTestId("reg-avail-help-on")).toBeVisible();
-    await expect(page.getByTestId("reg-avail-help-on")).toContainText(/Urgent help is on|तुरंत मदत/i);
+    await expect(page.getByTestId("reg-avail-help-on")).toContainText(/You take urgent|तुरंत/i);
     await expect(page.getByTestId("reg-avail-deliver-yes")).toHaveCount(0);
     await page.getByTestId("reg-avail-bookings-yes").click();
 
@@ -121,7 +128,14 @@ test.describe("Category availability plain-language UI", () => {
 
     await page.getByRole("button", { name: "Browse all categories" }).click();
     await page.getByRole("button").filter({ hasText: grocery.label }).first().click();
-    await page.getByPlaceholder("Ramesh Tyre Works").fill(`Groc ${phone.slice(-4)}`);
+    await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
+    await page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i).fill(`Groc ${phone.slice(-4)}`);
+    await page
+      .getByRole("button", {
+        name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 Capture|Location set/,
+      })
+      .click();
+    await page.getByPlaceholder("name@okbank").fill("availui@upi");
     await page.getByRole("button", { name: /At my place|मेरे पास/ }).click();
 
     await expect(page.getByTestId("reg-avail-deliver-yes")).toBeVisible();
@@ -154,12 +168,19 @@ test.describe("Category availability plain-language UI", () => {
 
     await page.getByRole("button", { name: "Browse all categories" }).click();
     await page.getByRole("button").filter({ hasText: beautician.label }).first().click();
-    await page.getByPlaceholder("Ramesh Tyre Works").fill(`Beauty ${phone.slice(-4)}`);
+    await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
+    await page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i).fill(`Beauty ${phone.slice(-4)}`);
+    await page
+      .getByRole("button", {
+        name: /📍 Capture Shop Location|📍 दुकान की लोकेशन|📍 Capture|Location set/,
+      })
+      .click();
+    await page.getByPlaceholder("name@okbank").fill("availui@upi");
     await page.getByRole("button", { name: /At my place|मेरे पास/ }).click();
 
     await expect(page.getByTestId("reg-avail-appointment-on")).toBeVisible();
     await expect(page.getByTestId("reg-avail-appointment-on")).toContainText(
-      /Scheduled bookings are on|निर्धारित बुकिंग/i,
+      /You take scheduled bookings|तय समय की बुकिंग|ठरलेल्या वेळेची बुकिंग/i,
     );
     await expect(page.getByTestId("reg-avail-help-on")).toHaveCount(0);
     await expect(page.getByTestId("reg-avail-same-day-yes")).toBeVisible();

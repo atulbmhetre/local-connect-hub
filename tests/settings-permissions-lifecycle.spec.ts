@@ -69,9 +69,10 @@ test('PERM-COPY-01 — Clear All Data dialog states OS permissions are not clear
 
   const dialog = page.getByRole('alertdialog');
   await expect(dialog).toBeVisible({ timeout: 8000 });
-  await expect(dialog).toContainText(/not cleared here/i);
-  await expect(dialog).toContainText(/Camera, microphone, location, and notification permissions/i);
-  await expect(dialog).toContainText(/Android/i);
+  await expect(dialog).toContainText(/aren't touched/i);
+  await expect(dialog).toContainText(/camera/i);
+  await expect(dialog).toContainText(/orders/i);
+  await expect(dialog).toContainText(/khata/i);
 });
 
 test('RESUME-01 — Radar stays on /radar after simulated background → foreground', async ({

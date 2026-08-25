@@ -54,6 +54,8 @@ export type RegisterVendorRpcOptions = {
   availability_modes?: string[];
   /** Authoritative per-category modes. When omitted, each category gets [category_service_modes[i]]. */
   category_modes?: Record<string, string[]>;
+  upi_qr_url?: string | null;
+  upi_qr_payee_id?: string | null;
   /** Preserved from legacy factory; register_vendor always inserts is_active=false. */
   is_active?: boolean;
 };
@@ -100,6 +102,8 @@ export async function invokeRegisterVendorRpc(
     p_serves_at_customer_place: opts.serves_at_customer_place ?? false,
     p_service_radius_km: opts.service_radius_km ?? 15,
     p_availability_modes: availabilityModes,
+    p_upi_qr_url: opts.upi_qr_url ?? null,
+    p_upi_qr_payee_id: opts.upi_qr_payee_id ?? null,
   });
 
   if (error) {
@@ -336,6 +340,9 @@ export async function seedVendorCategory(
       status: 'approved',
       needs_review: opts.needs_review ?? false,
       service_mode: category.service_mode,
+      // Phase 4 radar filters on vendor_categories.latitude/longitude (no vendors.* fallback).
+      latitude: 18.5204,
+      longitude: 73.8567,
       ...(opts.is_manual_verified !== undefined
         ? { is_manual_verified: opts.is_manual_verified }
         : {}),

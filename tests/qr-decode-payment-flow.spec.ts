@@ -203,9 +203,25 @@ test('QRD-01 — decode succeeds on real QR upload, payee ID stored', async ({ p
     await page.goto(`${APP_URL}/vendor`);
     await expect(page.getByPlaceholder('Ramesh Kumar')).toBeVisible({ timeout: 20000 });
 
-    // Step A: account + optional UPI QR (decode happens here)
+    // Step A: account (name, phone, selfie)
     await page.getByPlaceholder('Ramesh Kumar').fill(ownerName);
     await page.getByPlaceholder('+91 98xxxxxxxx').fill(phone);
+    await page.getByTestId('reg-selfie-capture').click();
+    await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
+      timeout: 15000,
+    });
+    await page.getByRole('button', { name: 'Next' }).click();
+
+    // Step B: business + UPI QR decode + GPS + shop photo → Register
+    await page.getByRole('button', { name: 'Browse all categories' }).click();
+    await page.getByRole('button').filter({ hasText: category.label }).first().click();
+    await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
+    await page.getByPlaceholder(/Ramesh Tyre Works|e\.g\. Ramesh Home Kitchen/i).fill(shopName);
+    await page
+      .getByRole('button', {
+        name: /📍 Capture Shop Location|📍 दुकान|Location set/i,
+      })
+      .click();
     await page.getByPlaceholder('name@okbank').fill(FIXTURE_PAYEE);
 
     const fileInput = page.locator('input[type="file"][accept="image/*"]');
@@ -214,22 +230,6 @@ test('QRD-01 — decode succeeds on real QR upload, payee ID stored', async ({ p
       timeout: 20000,
     });
 
-    await page.locator('button').filter({ hasText: /Shop|दुकान/ }).first().click();
-    await page
-      .getByRole('button', {
-        name: /📍 Capture Shop Location|📍 दुकान|Location set/i,
-      })
-      .click();
-    await page.getByTestId('reg-selfie-capture').click();
-    await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
-      timeout: 15000,
-    });
-    await page.getByRole('button', { name: 'Next' }).click();
-
-    // Step B: business + shop photo → Register
-    await page.getByRole('button', { name: 'Browse all categories' }).click();
-    await page.getByRole('button').filter({ hasText: category.label }).first().click();
-    await page.getByPlaceholder('Ramesh Tyre Works').fill(shopName);
     await page.getByRole('button', { name: /At their place|उनके पास/ }).click();
     await page.getByRole('button', { name: '15 km' }).click();
     await setRegAvailabilityModes(page, ['delivery']);

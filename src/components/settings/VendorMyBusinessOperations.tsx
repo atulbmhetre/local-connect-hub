@@ -13,6 +13,7 @@ import {
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { getVoiceLang } from "@/lib/voiceUtils";
+import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
 import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
 import { captureError } from "@/lib/sentry";
 import { CameraSource } from "@capacitor/camera";
@@ -394,7 +395,11 @@ export function VendorMyBusinessOperations({
         toast.error(s.vendor_voice_not_available);
         return;
       }
-      await SpeechRecognition.requestPermissions();
+      const micOk = await ensureVoiceMicrophone();
+      if (!micOk) {
+        toast.error(s.voice_permissionDenied);
+        return;
+      }
       setIsListeningMenu(true);
       const speechResult = await SpeechRecognition.start({
         language: getVoiceLang(),

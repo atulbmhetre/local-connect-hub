@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, loginAsFreshUser, gotoRadarDelivery, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, loginAsFreshUser, gotoRadarDelivery, APP_URL, expandMyAccountAccordion } from './helpers/browser-setup';
 import { createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategories, seedBronzeVendorVerification, seedVendorCategory, TEST_SESSION, supabaseAdmin } from './helpers/setup';
 
 const T = Date.now();
@@ -456,6 +456,7 @@ test('UI-SETTINGS-01: settings screen loads', async ({ page }) => {
 test('UI-SETTINGS-02: theme toggle exists and is clickable', async ({ page }) => {
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await expandMyAccountAccordion(page);
   // Preferences accordion is collapsed — find and expand it
   const preferencesToggle = page.locator('[data-testid="settings-screen"]')
     .getByText(/preferences/i).first();
@@ -470,6 +471,7 @@ test('UI-SETTINGS-02: theme toggle exists and is clickable', async ({ page }) =>
 test('UI-SETTINGS-03: language select visible after expanding preferences', async ({ page }) => {
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await expandMyAccountAccordion(page);
   const preferencesToggle = page.locator('[data-testid="settings-screen"]')
     .getByText(/preferences/i).first();
   await preferencesToggle.click();
@@ -479,6 +481,7 @@ test('UI-SETTINGS-03: language select visible after expanding preferences', asyn
 test('UI-SETTINGS-04: account standing row visible for customer', async ({ page }) => {
   await loginAsCustomer(page, LOCAL_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await expandMyAccountAccordion(page);
   await expect(page.getByTestId('settings-account-standing-toggle')).toBeVisible({ timeout: 8000 });
   await page.getByTestId('settings-account-standing-toggle').click();
   await expect(page.getByTestId('account-standing-row')).toBeVisible({ timeout: 8000 });

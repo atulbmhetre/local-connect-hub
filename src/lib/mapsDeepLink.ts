@@ -70,10 +70,12 @@ export function resolveVendorNavigateToCustomerUrl(
 
 export function resolveCustomerNavigateToVendorUrl(
   row: CustomerMapsFields & {
+    category_id?: string | null;
     vendors?: (VendorMapsFields & { service_mode?: string | null }) | null;
   },
 ): string | null {
   if (!isOrderJobActiveForMaps(row.status)) return null;
+  if (!row.category_id) return null;
   if (String(row.vendors?.service_mode ?? "").trim().toLowerCase() !== "appointment") return null;
   if (!isAppointmentAtVendorShop(row)) return null;
 

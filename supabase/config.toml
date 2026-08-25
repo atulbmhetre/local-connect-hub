@@ -280,14 +280,17 @@ max_frequency = "5s"
 # enabled = true
 # uri = "pg-functions://<database>/<schema>/<hook_name>"
 
-# Send SMS via sms-hook edge function (ExoVerify dormant/live). TEST project URL; overridden per env on push.
+# Send SMS via sms-hook (Exotel SMS-send API; Auth remains the OTP authority).
+# TEST project URL; overridden per env on push.
+# Keep enabled=false until SMS secrets are set on TEST and a real-phone OTP is verified.
+# Hook stays dormant even if enabled, until EXOTEL_SMS_* / DLT secrets are present.
 [auth.hook.send_sms]
 enabled = false
 uri = "https://hhdylnhqdzfabsolwxdz.supabase.co/functions/v1/sms-hook"
 secrets = "env(SEND_SMS_HOOK_SECRET)"
 
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
-# Placeholder credentials satisfy provider enablement when SMS hook handles delivery (dormant until ExoVerify KYC).
+# Placeholder credentials satisfy provider enablement; delivery is sms-hook, not Twilio.
 [auth.sms.twilio]
 enabled = true
 account_sid = "ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

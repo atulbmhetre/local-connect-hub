@@ -7,6 +7,7 @@ import {
   openVendorPreferencesTab,
   openVendorMyBusinessTab,
   expandFirstMyBusinessCategoryAccordion,
+  expandMyAccountAccordion,
   APP_URL,
 } from './helpers/browser-setup';
 import {
@@ -156,9 +157,11 @@ async function createDraftVendor(tag: string): Promise<VendorRow> {
 async function gotoSettings(page: Page) {
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 20000 });
+  await expandMyAccountAccordion(page);
 }
 
 async function expandPreferences(page: Page) {
+  await expandMyAccountAccordion(page);
   await page.getByRole('button', { name: L.preferences }).click();
 }
 
@@ -223,6 +226,7 @@ test('SET-REQ-01 — Customer Settings shows correct sections', async ({ page })
   await gotoSettings(page);
 
   await expect(page.getByRole('button', { name: L.myAccount })).toBeVisible();
+  await expandMyAccountAccordion(page);
   await expect(page.getByTestId('settings-account-standing-toggle')).toBeVisible();
   await page.getByTestId('settings-account-standing-toggle').click();
   await expect(page.getByTestId('account-standing-row')).toBeVisible();
@@ -250,6 +254,7 @@ test('SET-REQ-03 — Account standing shows good status for new customer', async
     .eq('phone', CUSTOMER_PHONE);
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await gotoSettings(page);
+  await expandMyAccountAccordion(page);
 
   await page.getByTestId('settings-account-standing-toggle').click();
   const row = page.getByTestId('account-standing-row');

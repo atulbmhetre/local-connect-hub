@@ -82,6 +82,7 @@ import { cn } from "@/lib/utils";
 import { notifyVendorIdChanged, reconcileVendorActiveFlag } from "@/lib/vendorSessionSync";
 import { useLanguage } from '@/lib/language';
 import { registerPushToken } from "../lib/pushNotifications";
+import { ensureNativePermission, isPermissionGranted } from "@/lib/nativePermissions";
 import { checkAndNotifyAdminGreenReady } from "@/lib/vendorGreenReady";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Textarea } from "@/components/ui/textarea";
@@ -399,10 +400,13 @@ const VendorMode = () => {
     if (stored) setReferralCodeInput(stored);
   }, []);
 
-  // Broadcast vendor "live" state so the BottomNav can pulse the Vendor tab.
+  // Align BottomNav with the loaded row. Skip while `vendor` is still null —
+  // `!!undefined` is false and would clobber a correct restore flag (and flash
+  // ME·Offline for a live shop). Restore already wrote the flag from RPC data.
   useEffect(() => {
-    reconcileVendorActiveFlag(!!vendor?.is_active);
-  }, [vendor?.is_active]);
+    if (!vendor) return;
+    reconcileVendorActiveFlag(!!vendor.is_active);
+  }, [vendor, vendor?.is_active]);
 
   useEffect(() => {
     if (!vendorId) return;
@@ -1081,6 +1085,20 @@ const VendorMode = () => {
     let liveCoords: { lat: number; lng: number } | null = null;
     // Case 1: Help vendors need a fresh fix when going live (continuous tracking follows).
     if (next && offersHelp) {
+      if (Capacitor.isNativePlatform()) {
+        const loc = await ensureNativePermission("location", "explicit");
+        if (!isPermissionGranted(loc)) {
+          const msg = s.vendor_location_error_permission_denied;
+          setLocationInlineError(msg);
+          setShowLocationHelp(true);
+          isTogglingRef.current = false;
+          setVendor({ ...vendor, is_active: !next });
+          toast.error(s.vendor_location_required, {
+            description: msg,
+          });
+          return false;
+        }
+      }
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
           if (!("geolocation" in navigator)) {
@@ -1152,10 +1170,13 @@ const VendorMode = () => {
         dismissRegisteredBanner(vendor.id);
         setGoLivePromptVisible(false);
         if (offersHelp) {
-          void startHelpLiveTracking({
-            vendorId: vendor.id,
-            vendorPhone: vendor.phone,
-          });
+          void startHelpLiveTracking(
+            {
+              vendorId: vendor.id,
+              vendorPhone: vendor.phone,
+            },
+            { requestMissingPermissions: true },
+          );
         }
       } else {
         void stopHelpLiveTracking();

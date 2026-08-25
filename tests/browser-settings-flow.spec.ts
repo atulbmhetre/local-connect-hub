@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, loginAsFreshUser, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, loginAsFreshUser, APP_URL, expandMyAccountAccordion } from './helpers/browser-setup';
 import { supabase, supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_settings_${TEST_SESSION}`;
@@ -17,6 +17,7 @@ test.afterAll(async () => {
 async function openPreferences(page: any) {
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
+  await expandMyAccountAccordion(page);
   const prefsToggle = page.getByText(/preferences/i).first();
   await expect(prefsToggle).toBeVisible({ timeout: 5000 });
   await prefsToggle.click();
@@ -90,6 +91,7 @@ test('SET-06: language selector is interactive and reflects current language', a
 test('SET-07: account standing row visible for customer', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await expandMyAccountAccordion(page);
   await expect(page.getByTestId('settings-account-standing-toggle')).toBeVisible({ timeout: 8000 });
   await page.getByTestId('settings-account-standing-toggle').click();
   await expect(page.getByTestId('account-standing-row')).toBeVisible({ timeout: 8000 });
@@ -98,6 +100,7 @@ test('SET-07: account standing row visible for customer', async ({ page }) => {
 test('SET-08: account standing shows good status for new user', async ({ page }) => {
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.goto(`${APP_URL}/settings`);
+  await expandMyAccountAccordion(page);
   await page.getByTestId('settings-account-standing-toggle').click();
   const standingRow = page.getByTestId('account-standing-row');
   await expect(standingRow).toBeVisible({ timeout: 8000 });
@@ -110,7 +113,8 @@ test('SET-11: Local Feed collapsible under MY ACCOUNT — toggle + radius save',
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
 
-  // Nested under MY ACCOUNT (parent defaults open) — body closed until tapped.
+  // Nested under MY ACCOUNT (parent starts closed) — expand, then body closed until tapped.
+  await expandMyAccountAccordion(page);
   await expect(page.getByTestId('settings-feed-discovery-toggle')).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('settings-feed-discovery')).not.toBeVisible();
 
@@ -199,6 +203,7 @@ test('SET-12: no-phone customer can add phone from My Identity and post announce
 
   await page.goto(`${APP_URL}/settings`);
   await expect(page.getByTestId('settings-screen')).toBeVisible({ timeout: 8000 });
+  await expandMyAccountAccordion(page);
   await page.getByTestId('settings-identity-toggle').click();
   await expect(page.getByTestId('settings-add-phone')).toBeVisible();
   await page.getByTestId('settings-add-phone').click();
@@ -254,6 +259,7 @@ test('SET-13: My Identity phone entry offers restore for known number', async ({
   await loginAsNoPhoneCustomer(page);
 
   await page.goto(`${APP_URL}/settings`);
+  await expandMyAccountAccordion(page);
   await page.getByTestId('settings-identity-toggle').click();
   await page.getByTestId('settings-add-phone').click();
   await page.getByPlaceholder('98765 43210').fill(existing);

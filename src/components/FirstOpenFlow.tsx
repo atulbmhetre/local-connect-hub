@@ -15,6 +15,7 @@ import {
   registerUserPushToken,
   requestPushPermissionFromOs,
 } from "@/lib/pushNotifications";
+import { markNotificationSkip } from "@/lib/nativePermissions";
 import { setFirstOpenBackHandler } from "@/lib/firstOpenBackBridge";
 import { captureError } from "@/lib/sentry";
 import { supabase } from "@/lib/supabase";
@@ -251,7 +252,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         const migration = await migrateUserPhone(digits, getDeviceId());
 
         if (vendorRestorable && vendorStatus?.vendor_id) {
-          restoreVendorSession(vendorStatus.vendor_id);
+          restoreVendorSession(vendorStatus.vendor_id, vendorStatus.is_active === true);
         }
 
         if (!migration.ok) {
@@ -422,81 +423,92 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
       {step === "restore" && (
         <div className="flex flex-1 flex-col px-6 py-10 max-w-md mx-auto w-full">
-          <h1 className="font-display text-2xl font-bold text-foreground leading-tight">
-            {s.firstopen_restore_title}
-          </h1>
-          <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
-            {s.firstopen_restore_body}
-          </p>
-
-          <div className="mt-6 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
-            <span className="text-sm text-muted-foreground font-medium">+91</span>
-            <input
-              type="tel"
-              inputMode="numeric"
-              maxLength={10}
-              placeholder="98765 43210"
-              value={phoneValue}
-              onChange={(e) => {
-                setPhoneValue(e.target.value.replace(/\D/g, "").slice(0, 10));
-                setInlineMessage(null);
-                setAwaitingNoAccountContinue(false);
-              }}
-              disabled={restoreLoading || awaitingNoAccountContinue}
-              className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground/50"
-              autoFocus
-            />
-          </div>
-
-          {inlineMessage && (
+          {inlineMessage === s.firstopen_restore_found ? (
             <p
               data-testid="firstopen-restore-message"
-              className={cn(
-                "mt-3 text-sm leading-relaxed",
-                inlineTone === "success" && "text-brand font-medium",
-                inlineTone === "error" && "text-destructive",
-                inlineTone === "muted" && "text-muted-foreground",
-                inlineTone === "warning" && "text-amber-700 dark:text-amber-400 font-medium",
-              )}
+              className="mt-3 text-sm leading-relaxed text-brand font-medium"
             >
               {inlineMessage}
             </p>
-          )}
-
-          {awaitingNoAccountContinue ? (
-            <button
-              type="button"
-              data-testid="firstopen-no-account-continue"
-              onClick={handleNoAccountContinue}
-              className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
-            >
-              {s.firstopen_no_account_continue}
-            </button>
           ) : (
-            <button
-              type="button"
-              data-testid="firstopen-restore-cta"
-              disabled={restoreLoading}
-              onClick={() => void handleRestore()}
-              className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
-            >
-              {restoreLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : (
-                s.firstopen_restore_cta
-              )}
-            </button>
-          )}
+            <>
+              <h1 className="font-display text-2xl font-bold text-foreground leading-tight">
+                {s.firstopen_restore_title}
+              </h1>
+              <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+                {s.firstopen_restore_body}
+              </p>
 
-          <button
-            type="button"
-            data-testid="firstopen-restore-back"
-            disabled={restoreLoading}
-            onClick={popStep}
-            className="mt-4 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
-          >
-            {s.firstopen_restore_back}
-          </button>
+              <div className="mt-6 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+                <span className="text-sm text-muted-foreground font-medium">+91</span>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="98765 43210"
+                  value={phoneValue}
+                  onChange={(e) => {
+                    setPhoneValue(e.target.value.replace(/\D/g, "").slice(0, 10));
+                    setInlineMessage(null);
+                    setAwaitingNoAccountContinue(false);
+                  }}
+                  disabled={restoreLoading || awaitingNoAccountContinue}
+                  className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground/50"
+                  autoFocus
+                />
+              </div>
+
+              {inlineMessage && (
+                <p
+                  data-testid="firstopen-restore-message"
+                  className={cn(
+                    "mt-3 text-sm leading-relaxed",
+                    inlineTone === "success" && "text-brand font-medium",
+                    inlineTone === "error" && "text-destructive",
+                    inlineTone === "muted" && "text-muted-foreground",
+                    inlineTone === "warning" && "text-amber-700 dark:text-amber-400 font-medium",
+                  )}
+                >
+                  {inlineMessage}
+                </p>
+              )}
+
+              {awaitingNoAccountContinue ? (
+                <button
+                  type="button"
+                  data-testid="firstopen-no-account-continue"
+                  onClick={handleNoAccountContinue}
+                  className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+                >
+                  {s.firstopen_no_account_continue}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="firstopen-restore-cta"
+                  disabled={restoreLoading}
+                  onClick={() => void handleRestore()}
+                  className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
+                >
+                  {restoreLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    s.firstopen_restore_cta
+                  )}
+                </button>
+              )}
+
+              <button
+                type="button"
+                data-testid="firstopen-restore-back"
+                disabled={restoreLoading}
+                onClick={popStep}
+                className="mt-4 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
+              >
+                {s.firstopen_restore_back}
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -583,7 +595,10 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             type="button"
             data-testid="firstopen-notif-skip"
             disabled={notifLoading}
-            onClick={() => setStack(["done"])}
+            onClick={() => {
+              markNotificationSkip();
+              setStack(["done"]);
+            }}
             className="mt-4 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
           >
             {s.firstopen_notif_skip}
