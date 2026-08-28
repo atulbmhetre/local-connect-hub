@@ -77,7 +77,8 @@ async function createNearbyVendor(
       is_active: true,
       profile_status: 'complete',
       discoverable: true,
-      service_radius_km: 9999,
+      // Bounded radius so VC does not inherit pan-India 9999 (Track B 20-cap).
+      service_radius_km: 15,
       is_manual_verified: false,
       // Empty delivery browse uses account-level reach when no category match context.
       serves_at_customer_place: true,
@@ -87,7 +88,12 @@ async function createNearbyVendor(
     .select('id, shop_name, category, service_mode')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category, { serves_at_customer_place: true });
+  const radiusKm =
+    typeof overrides.service_radius_km === 'number' ? overrides.service_radius_km : 15;
+  await seedVendorCategory(vendor.id, category, {
+    serves_at_customer_place: true,
+    service_radius_km: radiusKm,
+  });
   createdVendorIds.push(vendor.id);
   return vendor;
 }

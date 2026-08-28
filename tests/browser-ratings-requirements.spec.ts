@@ -80,13 +80,15 @@ async function createVendor(
       longitude: PUNE.longitude,
       is_active: true,
       profile_status: 'complete',
-      service_radius_km: serviceMode === 'appointment' ? 15 : 9999,
+      service_radius_km: 15,
       ...overrides,
     })
     .select('id, shop_name, category, service_mode, phone')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category);
+  const radiusKm =
+    typeof overrides.service_radius_km === 'number' ? overrides.service_radius_km : 15;
+  await seedVendorCategory(vendor.id, category, { service_radius_km: radiusKm });
   createdVendorIds.push(vendor.id);
   return vendor;
 }
@@ -490,7 +492,9 @@ test('RV-REQ-12 — Appointment fulfilled — Radar shows "Vendor Served Me" res
   await seedFulfilledOrder(vendor.id, `RV-REQ-12-${T}`);
 
   await gotoRadar(page, { q: vendor.category, mode: 'appointment' });
-  const card = page.locator(`#radar-vendor-card-${vendor.id}`);
+  const card = page.locator(
+    `[data-testid="radar-vendor-card"][data-vendor-id="${vendor.id}"]`,
+  );
   await expect(card).toBeVisible({ timeout: 30000 });
   await expect(resolutionButton(card)).toBeVisible();
   await expect(resolutionButton(card)).toHaveText(L.radarVendorServed);

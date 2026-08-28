@@ -157,7 +157,9 @@ async function openParchiSheet(
       ? `&q=${encodeURIComponent(vendor.category)}`
       : '';
   await page.goto(`${APP_URL}/radar?mode=${mode}${q}`);
-  const card = page.locator(`#radar-vendor-card-${vendor.id}`);
+  const card = page.locator(
+    `[data-testid="radar-vendor-card"][data-vendor-id="${vendor.id}"]`,
+  );
   await expect(card).toBeVisible({ timeout: 30000 });
   await card.getByTestId('radar-vendor-card-order-btn').click({ timeout: 10000 });
   await expect(page.getByTestId('parchi-sheet')).toBeVisible({ timeout: 20000 });

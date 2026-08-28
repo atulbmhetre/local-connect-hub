@@ -444,7 +444,10 @@ test('VM-09 — Vendor screen shows correct service mode label', async ({ page }
   await expect(myBusinessPanel(page).getByTestId('my-business-avail-modes')).toBeVisible({
     timeout: 10000,
   });
-  await expect(myBusinessPanel(page).getByTestId('my-business-avail-help-on')).toBeVisible();
+  await expect(myBusinessPanel(page).getByTestId('my-business-avail-choice-urgent')).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
 
   const deliveryVendor = await createVendor('delivery', 'VM09D', { is_active: false });
   await openMyBusinessCategories(page, deliveryVendor);

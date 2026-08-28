@@ -37,7 +37,7 @@ async function createNearbyVendor(tag: string): Promise<{ id: string; shop_name:
       is_active: true,
       profile_status: 'complete',
       discoverable: true,
-      service_radius_km: 9999,
+      service_radius_km: 15,
       is_manual_verified: false,
       serves_at_customer_place: true,
       serves_at_vendor_place: true,
@@ -45,7 +45,10 @@ async function createNearbyVendor(tag: string): Promise<{ id: string; shop_name:
     .select('id, shop_name')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category, { serves_at_customer_place: true });
+  await seedVendorCategory(vendor.id, category, {
+    serves_at_customer_place: true,
+    service_radius_km: 15,
+  });
   createdVendorIds.push(vendor.id);
   return vendor;
 }

@@ -8,6 +8,7 @@ export type FeedAudiencePost = {
 /**
  * Mirrors get_local_feed_posts audience + target_category_id rules for the
  * client-side LocalFeed fallback when the RPC is unavailable.
+ * Customer-facing posts are visible to every reader (including vendor sessions).
  */
 export async function filterPostsByAudienceAndCategory<T extends FeedAudiencePost>(
   posts: T[],
@@ -28,9 +29,10 @@ export async function filterPostsByAudienceAndCategory<T extends FeedAudiencePos
     .eq("status", "approved");
   if (error) {
     console.error("filterPostsByAudienceAndCategory vendor_categories", error);
-    // Fail closed for category-scoped posts when membership cannot be resolved.
+    // Fail closed for category-scoped vendor posts; still show customers-audience.
     return posts.filter((post) => {
       const audience = post.target_audience ?? "customers";
+      if (audience === "customers") return true;
       return (
         (audience === "vendors" || audience === "both") && post.target_category_id == null
       );
@@ -40,6 +42,7 @@ export async function filterPostsByAudienceAndCategory<T extends FeedAudiencePos
 
   return posts.filter((post) => {
     const audience = post.target_audience ?? "customers";
+    if (audience === "customers") return true;
     if (audience !== "vendors" && audience !== "both") return false;
     if (post.target_category_id == null) return true;
     return readerCategoryIds.has(post.target_category_id);

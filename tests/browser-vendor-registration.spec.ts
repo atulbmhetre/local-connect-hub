@@ -405,7 +405,8 @@ test('VR-MULTI-01: register one business then add second via My Business sheet',
     .from('vendor_category_modes')
     .select('mode')
     .eq('vendor_category_id', plumberVc.id);
-  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment', 'help']);
+  // Three-way "scheduled" writes appointment only (no auto-help).
+  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment']);
 
   await deleteVendorRegistrationArtifacts(vendorId);
 });
@@ -486,7 +487,8 @@ test('VR-MULTI-02: register Electrician, then add Plumber via Add Business with 
     .select('mode')
     .eq('vendor_category_id', plumberVc.id);
   expect((elecModes ?? []).map((m) => m.mode).sort()).toEqual(['help']);
-  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment', 'help']);
+  // Three-way "scheduled" writes appointment only (no auto-help).
+  expect((plumberModes ?? []).map((m) => m.mode).sort()).toEqual(['appointment']);
 
   await deleteVendorRegistrationArtifacts(vendorId);
 });
@@ -595,7 +597,10 @@ test('VR-SHOP-APPT-01: shop vendor registers via UI with appointment-mode catego
   await expect(myBusiness.getByText(appointmentCat.label).first()).toBeVisible();
   await expandFirstMyBusinessCategoryAccordion(page);
   await expect(myBusiness.getByTestId('my-business-avail-modes')).toBeVisible();
-  await expect(myBusiness.getByTestId('my-business-avail-appointment-on')).toBeVisible();
+  await expect(myBusiness.getByTestId('my-business-avail-choice-scheduled')).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
 
   const { data: vendor, error: vendorError } = await supabaseAdmin
     .from('vendors')

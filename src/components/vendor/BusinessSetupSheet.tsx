@@ -28,6 +28,8 @@ import {
 import { useLanguage } from "@/lib/language";
 import { cn } from "@/lib/utils";
 import { checkAndNotifyAdminCategoryGreenReady } from "@/lib/vendorGreenReady";
+import { triggerProactiveCategoryAliases } from "@/lib/proactiveCategoryAliases";
+import { triggerCategoryModeConfidenceCheck } from "@/lib/categoryModeConfidence";
 import {
   type AvailabilityMode,
   type BaseTypeValue,
@@ -498,6 +500,7 @@ export function BusinessSetupSheet({
       toast.error(s.vendor_categories_partial_save);
       return;
     }
+    triggerCategoryModeConfidenceCheck(nextIds);
 
     if (vendorNote.trim()) {
       await supabase.rpc("vendor_update_category_profile", {
@@ -539,6 +542,10 @@ export function BusinessSetupSheet({
       void checkAndNotifyAdminCategoryGreenReady(vendor.id, selectedCategoryId, {
         shopName: vendor.shop_name,
         vendorPhone,
+      });
+      triggerProactiveCategoryAliases({
+        vendorId: vendor.id,
+        categoryId: selectedCategoryId,
       });
       setSubmitting(false);
       toast.success(s.my_business_saved);
@@ -594,6 +601,10 @@ export function BusinessSetupSheet({
     void checkAndNotifyAdminCategoryGreenReady(vendor.id, selectedCategoryId, {
       shopName: vendor.shop_name,
       vendorPhone,
+    });
+    triggerProactiveCategoryAliases({
+      vendorId: vendor.id,
+      categoryId: selectedCategoryId,
     });
 
     setSubmitting(false);

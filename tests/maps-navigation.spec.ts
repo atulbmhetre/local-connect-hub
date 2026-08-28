@@ -87,7 +87,10 @@ async function createVendor(
     .select('id, phone, shop_name, service_mode')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category);
+  await seedVendorCategory(vendor.id, category, {
+    latitude: typeof overrides.latitude === 'number' ? overrides.latitude : VENDOR_LAT,
+    longitude: typeof overrides.longitude === 'number' ? overrides.longitude : VENDOR_LNG,
+  });
   createdVendorIds.push(vendor.id);
   return vendor;
 }
@@ -102,6 +105,26 @@ async function seedRequest(
     vendorId,
     typeof fields.service_mode === 'string' ? fields.service_mode : null,
   );
+  let categoryId =
+    typeof fields.category_id === 'string' ? fields.category_id : null;
+  if (!categoryId) {
+    const { data: primary } = await supabaseAdmin
+      .from('vendor_categories')
+      .select('category_id')
+      .eq('vendor_id', vendorId)
+      .eq('is_primary', true)
+      .maybeSingle();
+    categoryId = primary?.category_id ?? null;
+    if (!categoryId) {
+      const { data: anyCat } = await supabaseAdmin
+        .from('vendor_categories')
+        .select('category_id')
+        .eq('vendor_id', vendorId)
+        .limit(1)
+        .maybeSingle();
+      categoryId = anyCat?.category_id ?? null;
+    }
+  }
   const { data, error } = await supabaseAdmin
     .from('requests')
     .insert({
@@ -112,6 +135,7 @@ async function seedRequest(
       status: 'sent',
       ...fields,
       service_mode,
+      category_id: categoryId,
     })
     .select('id')
     .single();

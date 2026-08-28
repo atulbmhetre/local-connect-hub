@@ -13,6 +13,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await cleanupTestVendors();
+  await supabaseAdmin.from('category_search_terms').delete().like('term', `%${TEST_SESSION.toLowerCase()}%`);
   await supabaseAdmin.from('categories').delete().like('label', `%${TEST_SESSION}%`);
   await supabaseAdmin.from('user_notifications').delete().eq('user_phone', TEST_VENDOR_PHONE).in('type', ['category_approved', 'category_rejected']);
   await cleanupTestData();
@@ -43,6 +44,8 @@ test('CAT-02: vendor suggests new category — pending_review = true', async () 
       service_mode: 'delivery',
       is_active: false,
       pending_review: true,
+      status: 'pending_review',
+      proposed_aliases: ['testcatalias', 'test category seed'],
       suggested_by_vendor_id: testVendor.id,
     })
     .select()
@@ -79,12 +82,26 @@ test('AD-08: admin approves category — is_active = true, pending_review = fals
 
   const { data } = await supabaseAdmin
     .from('categories')
-    .select('is_active, pending_review')
+    .select('is_active, pending_review, status')
     .eq('id', testCategoryId)
     .single();
 
   expect(data?.is_active).toBe(true);
   expect(data?.pending_review).toBe(false);
+  expect(data?.status).toBe('active');
+});
+
+test('AD-08c: approve seeds proposed_aliases into category_search_terms', async () => {
+  const { data, error } = await supabaseAdmin
+    .from('category_search_terms')
+    .select('term, source, status')
+    .eq('category_id', testCategoryId)
+    .eq('source', 'manual')
+    .eq('status', 'active');
+
+  expect(error).toBeNull();
+  const terms = (data ?? []).map((r) => r.term).sort();
+  expect(terms).toEqual(['test category seed', 'testcatalias'].sort());
 });
 
 test('AD-08b: vendor notified when category approved', async () => {
@@ -144,6 +161,133 @@ test('AD-09b: vendor notified when category rejected', async () => {
   });
 
   await assertNotificationCreated(TEST_VENDOR_PHONE, 'category_rejected');
+});
+
+test('AD-10: merge pending as alias of existing active category', async () => {
+  const { data: target } = await supabaseAdmin
+    .from('categories')
+    .select('id, label')
+    .eq('is_active', true)
+    .eq('label', 'Mechanic')
+    .maybeSingle();
+  expect(target?.id).toBeTruthy();
+
+  const mergeLabel = `Merge Alias Cat ${TEST_SESSION}`;
+  const { data: pending } = await supabaseAdmin
+    .from('categories')
+    .insert({
+      label: mergeLabel,
+      emoji: '🔀',
+      service_mode: 'help',
+      is_active: false,
+      pending_review: true,
+      status: 'pending_review',
+      proposed_aliases: ['mergealiasone', 'mergealiastwo'],
+      suggested_by_vendor_id: testVendor.id,
+    })
+    .select()
+    .single();
+  expect(pending?.id).toBeTruthy();
+
+  const adminClient = await getAdminSessionClient();
+  const { error } = await adminClient.rpc('admin_merge_category_as_alias', {
+    p_admin_phone: ADMIN_PHONE,
+    p_pending_category_id: pending!.id,
+    p_target_category_id: target!.id,
+  });
+  expect(error).toBeNull();
+
+  const { data: after } = await supabaseAdmin
+    .from('categories')
+    .select('is_active, pending_review, status')
+    .eq('id', pending!.id)
+    .single();
+  expect(after?.is_active).toBe(false);
+  expect(after?.pending_review).toBe(false);
+  expect(after?.status).toBe('merged');
+
+  const { data: terms } = await supabaseAdmin
+    .from('category_search_terms')
+    .select('term')
+    .eq('category_id', target!.id)
+    .in('term', [mergeLabel.toLowerCase(), 'mergealiasone', 'mergealiastwo']);
+  const got = (terms ?? []).map((t) => t.term).sort();
+  expect(got).toEqual(
+    [mergeLabel.toLowerCase(), 'mergealiasone', 'mergealiastwo'].sort(),
+  );
+
+  await supabaseAdmin.from('category_search_terms').delete().eq('category_id', target!.id).in('term', got);
+  await supabaseAdmin.from('categories').delete().eq('id', pending!.id);
+});
+
+test('AD-11: admin approve/reject pending proactive search alias', async () => {
+  const { data: target } = await supabaseAdmin
+    .from('categories')
+    .select('id')
+    .eq('is_active', true)
+    .eq('label', 'Plumber')
+    .maybeSingle();
+  expect(target?.id).toBeTruthy();
+
+  const approveTerm = `p4approve${TEST_SESSION}`.toLowerCase();
+  const { data: pendingApprove, error: insErr } = await supabaseAdmin
+    .from('category_search_terms')
+    .insert({
+      category_id: target!.id,
+      term: approveTerm,
+      source: 'proactive_ai',
+      status: 'pending_review',
+      confidence: 0.91,
+      ai_reasoning: `Phase4 approve probe ${TEST_SESSION}`,
+      suggested_by_vendor_id: testVendor.id,
+    })
+    .select('id')
+    .single();
+  expect(insErr).toBeNull();
+
+  const adminClient = await getAdminSessionClient();
+  const { error: approveErr } = await adminClient.rpc('admin_approve_search_term', {
+    p_admin_phone: ADMIN_PHONE,
+    p_term_id: pendingApprove!.id,
+  });
+  expect(approveErr).toBeNull();
+
+  const { data: approvedRow } = await supabaseAdmin
+    .from('category_search_terms')
+    .select('status')
+    .eq('id', pendingApprove!.id)
+    .single();
+  expect(approvedRow?.status).toBe('active');
+
+  const rejectTerm = `p4reject${TEST_SESSION}`.toLowerCase();
+  const { data: pendingReject, error: ins2Err } = await supabaseAdmin
+    .from('category_search_terms')
+    .insert({
+      category_id: target!.id,
+      term: rejectTerm,
+      source: 'proactive_ai',
+      status: 'pending_review',
+      confidence: 0.77,
+      ai_reasoning: `Phase4 reject probe ${TEST_SESSION}`,
+    })
+    .select('id')
+    .single();
+  expect(ins2Err).toBeNull();
+
+  const { error: rejectErr } = await adminClient.rpc('admin_reject_search_term', {
+    p_admin_phone: ADMIN_PHONE,
+    p_term_id: pendingReject!.id,
+  });
+  expect(rejectErr).toBeNull();
+
+  const { data: gone } = await supabaseAdmin
+    .from('category_search_terms')
+    .select('id')
+    .eq('id', pendingReject!.id)
+    .maybeSingle();
+  expect(gone).toBeNull();
+
+  await supabaseAdmin.from('category_search_terms').delete().eq('id', pendingApprove!.id);
 });
 
 test('CAT-04: category translations exist for active categories', async () => {

@@ -57,14 +57,13 @@ test.describe("Category availability i18n on-screen verification", () => {
     await page.locator("button").filter({ hasText: /Shop|दुकान/ }).first().click();
     await page.getByPlaceholder(/Tyre|टायर/i).fill("HI Mech Shop");
     await page.getByRole("button", { name: /मेरे पास|At my place/i }).click();
-    const helpStatement = page.getByTestId("reg-avail-help-on");
+    const helpStatement = page.getByTestId("reg-avail-choice-urgent");
     await expect(helpStatement).toBeVisible();
-    await expect(helpStatement).toContainText("आप तुरंत, मौके पर काम लेते हैं");
-    await expect(page.getByText("आप रिक्वेस्ट कैसे लेते हैं?")).toBeVisible();
+    await expect(page.getByText("इस व्यवसाय के लिए आप अनुरोध कैसे लेते हैं?")).toBeVisible();
     await expect(page.getByText("ग्राहक आप तक कैसे पहुँचें?")).toBeVisible();
-    await expect(page.getByText("क्या आप पहले से बुकिंग भी लेना चाहते हैं?")).toBeVisible();
-    await expect(page.getByTestId("reg-avail-bookings-yes")).toContainText("हाँ");
-    await expect(page.getByTestId("reg-avail-bookings-no")).toContainText("नहीं");
+    await expect(page.getByTestId("reg-avail-choice-urgent")).toContainText("सिर्फ तुरंत");
+    await expect(page.getByTestId("reg-avail-choice-scheduled")).toContainText("निर्धारित");
+    await expect(page.getByTestId("reg-avail-choice-both")).toContainText("दोनों");
     await page.screenshot({
       path: path.join(OUT_DIR, "hi-mechanic-availability.png"),
       fullPage: true,
@@ -82,7 +81,7 @@ test.describe("Category availability i18n on-screen verification", () => {
     await expect(page.getByText("क्या आप डिलीवरी करते हैं, या सिर्फ दुकान से लेना होता है?")).toBeVisible();
     await expect(page.getByTestId("reg-avail-deliver-yes")).toContainText("हाँ, हम डिलीवरी करते हैं");
     await expect(page.getByTestId("reg-avail-pickup-only")).toContainText("सिर्फ दुकान से लेना");
-    await expect(page.getByTestId("reg-avail-help-on")).toHaveCount(0);
+    await expect(page.getByTestId("reg-avail-choice-urgent")).toHaveCount(0);
     await page.screenshot({
       path: path.join(OUT_DIR, "hi-grocery-availability.png"),
       fullPage: true,
@@ -105,14 +104,13 @@ test.describe("Category availability i18n on-screen verification", () => {
     await page.getByPlaceholder(/Tyre|टायर/i).fill("MR Mech Shop");
     await page.getByRole("button", { name: /माझ्या जागी|At my place/i }).click();
 
-    const helpStatement = page.getByTestId("reg-avail-help-on");
+    const helpStatement = page.getByTestId("reg-avail-choice-urgent");
     await expect(helpStatement).toBeVisible();
-    await expect(helpStatement).toContainText("तुम्ही तातडीचे, तिथेच काम घेता");
-    await expect(page.getByText("तुम्ही विनंती कशी घेता?")).toBeVisible();
+    await expect(page.getByText("या व्यवसायासाठी तुम्ही विनंत्या कशा घेता?")).toBeVisible();
     await expect(page.getByText("ग्राहक तुम्हाला कुठे भेटू शकतात?")).toBeVisible();
-    await expect(page.getByText("तुम्ही आगाऊ बुकिंगही घ्यायची आहे का?")).toBeVisible();
-    await expect(page.getByTestId("reg-avail-bookings-yes")).toContainText("होय");
-    await expect(page.getByTestId("reg-avail-bookings-no")).toContainText("नाही");
+    await expect(page.getByTestId("reg-avail-choice-urgent")).toContainText("तातडीचे");
+    await expect(page.getByTestId("reg-avail-choice-scheduled")).toContainText("नियोजित");
+    await expect(page.getByTestId("reg-avail-choice-both")).toContainText("दोन्ही");
     await page.screenshot({
       path: path.join(OUT_DIR, "mr-mechanic-availability.png"),
       fullPage: true,
@@ -129,7 +127,7 @@ test.describe("Category availability i18n on-screen verification", () => {
     await expect(page.getByText("तुम्ही डिलिव्हरी करता का, की फक्त दुकानातून घेणे?")).toBeVisible();
     await expect(page.getByTestId("reg-avail-deliver-yes")).toContainText("होय, आम्ही डिलिव्हरी करतो");
     await expect(page.getByTestId("reg-avail-pickup-only")).toContainText("फक्त दुकानातून घेणे");
-    await expect(page.getByTestId("reg-avail-help-on")).toHaveCount(0);
+    await expect(page.getByTestId("reg-avail-choice-urgent")).toHaveCount(0);
     await page.screenshot({
       path: path.join(OUT_DIR, "mr-grocery-availability.png"),
       fullPage: true,

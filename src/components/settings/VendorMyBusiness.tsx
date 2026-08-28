@@ -66,6 +66,7 @@ import {
   resolveCatalogServiceMode,
 } from "@/lib/categoryAvailabilityModes";
 import { BusinessSetupSheet } from "@/components/vendor/BusinessSetupSheet";
+import { triggerCategoryModeConfidenceCheck } from "@/lib/categoryModeConfidence";
 import { DeliveryFulfillmentSettings } from "@/components/vendor/DeliveryFulfillmentSettings";
 import { VendorMyBusinessOperations } from "@/components/settings/VendorMyBusinessOperations";
 import {
@@ -848,6 +849,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       );
     }
     toast.success(s.my_business_saved);
+    triggerCategoryModeConfidenceCheck(categoryIdsToSave);
     releaseSaveLock();
   };
 
@@ -1225,6 +1227,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
       toast(downgraded ? s.vendor_reverification_required : s.vendor_location_updated, {
         description: downgraded ? s.vendor_reverification_body : s.vendor_location_updated_body,
       });
+      triggerCategoryModeConfidenceCheck(ids);
     } catch (err) {
       dismissNetworkRetryingToast();
       if (err instanceof NetworkExhaustedError) {

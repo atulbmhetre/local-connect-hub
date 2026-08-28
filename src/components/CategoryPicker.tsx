@@ -1,4 +1,9 @@
-import { type Category, useCategoryLabel } from "@/lib/supabase";
+import { useMemo } from "react";
+import {
+  type Category,
+  groupCategoriesByMode,
+  useCategoryLabel,
+} from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { Mic, X } from "lucide-react";
 
@@ -10,9 +15,29 @@ type Props = {
   categories: Category[];
 };
 
+/**
+ * Empty-SOS / empty-submit browse sheet. Intentionally tap-only (plus mic) —
+ * no free-text search. Mode-grouped to match Home's category browse grid.
+ */
 export const CategoryPicker = ({ open, onClose, onPick, onMic, categories }: Props) => {
   const { s } = useLanguage();
   const getCategoryLabel = useCategoryLabel();
+
+  const groups = useMemo(
+    () =>
+      groupCategoriesByMode(categories, {
+        help: s.category_mode_help,
+        delivery: s.category_mode_delivery,
+        appointment: s.category_mode_appointment,
+      }),
+    [
+      categories,
+      s.category_mode_help,
+      s.category_mode_delivery,
+      s.category_mode_appointment,
+    ],
+  );
+
   if (!open) return null;
   return (
     <div
@@ -37,19 +62,36 @@ export const CategoryPicker = ({ open, onClose, onPick, onMic, categories }: Pro
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          {categories.map((c) => (
-            <button
-              key={c.id}
-              data-testid="category-picker-option"
-              onClick={() => onPick(c.label)}
-              className="aspect-square rounded-2xl bg-muted hover:bg-accent/30 active:scale-95 transition-all flex flex-col items-center justify-center gap-2 border border-border"
+        <div className="space-y-5">
+          {groups.map((group) => (
+            <div
+              key={group.service_mode}
+              data-testid={`category-picker-mode-${group.service_mode}`}
             >
-              <span className="text-4xl">{c.emoji}</span>
-              <span className="font-semibold text-sm text-center px-2 leading-tight">
-                {getCategoryLabel(c.label)}
-              </span>
-            </button>
+              <p
+                className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2"
+                data-testid="category-picker-mode-header"
+              >
+                {group.label}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {group.categories.map((c) => (
+                  <button
+                    key={c.id}
+                    data-testid="category-picker-option"
+                    data-category-label={c.label}
+                    data-service-mode={c.service_mode}
+                    onClick={() => onPick(c.label)}
+                    className="aspect-square rounded-2xl bg-muted hover:bg-accent/30 active:scale-95 transition-all flex flex-col items-center justify-center gap-2 border border-border"
+                  >
+                    <span className="text-4xl">{c.emoji}</span>
+                    <span className="font-semibold text-sm text-center px-2 leading-tight">
+                      {getCategoryLabel(c.label)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
 

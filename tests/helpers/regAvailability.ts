@@ -10,10 +10,14 @@ export async function setRegAvailabilityModes(
   const wantsDelivery = modes.includes("delivery");
   const wantsAppointment = modes.includes("appointment");
 
-  const helpOn = page.getByTestId(`${testIdPrefix}-help-on`);
-  if (await helpOn.isVisible().catch(() => false)) {
-    if (wantsAppointment) {
-      await page.getByTestId(`${testIdPrefix}-bookings-yes`).click();
+  const threeWay = page.getByTestId(`${testIdPrefix}-choice-urgent`);
+  if (await threeWay.isVisible().catch(() => false)) {
+    if (wantsHelp && wantsAppointment) {
+      await page.getByTestId(`${testIdPrefix}-choice-both`).click();
+    } else if (wantsHelp) {
+      await page.getByTestId(`${testIdPrefix}-choice-urgent`).click();
+    } else if (wantsAppointment) {
+      await page.getByTestId(`${testIdPrefix}-choice-scheduled`).click();
     }
     return;
   }
@@ -25,14 +29,6 @@ export async function setRegAvailabilityModes(
     } else {
       await page.getByTestId(`${testIdPrefix}-pickup-only`).click();
     }
-    return;
-  }
-
-  const appointmentOn = page.getByTestId(`${testIdPrefix}-appointment-on`);
-  if (await appointmentOn.isVisible().catch(() => false)) {
-    if (wantsHelp) {
-      await page.getByTestId(`${testIdPrefix}-same-day-yes`).click();
-    }
   }
 }
 
@@ -41,10 +37,19 @@ export async function ensureRegAvailabilityReady(
   page: Page,
   testIdPrefix = "reg-avail",
 ) {
-  if (await page.getByTestId(`${testIdPrefix}-help-on`).isVisible().catch(() => false)) {
-    return;
-  }
-  if (await page.getByTestId(`${testIdPrefix}-appointment-on`).isVisible().catch(() => false)) {
+  const urgent = page.getByTestId(`${testIdPrefix}-choice-urgent`);
+  if (await urgent.isVisible().catch(() => false)) {
+    const bothChecked = await page
+      .getByTestId(`${testIdPrefix}-choice-both`)
+      .getAttribute("aria-checked");
+    const urgentChecked = await urgent.getAttribute("aria-checked");
+    const scheduledChecked = await page
+      .getByTestId(`${testIdPrefix}-choice-scheduled`)
+      .getAttribute("aria-checked");
+    if (bothChecked === "true" || urgentChecked === "true" || scheduledChecked === "true") {
+      return;
+    }
+    await urgent.click();
     return;
   }
   if (await page.getByTestId(`${testIdPrefix}-deliver-yes`).isVisible().catch(() => false)) {

@@ -23,6 +23,7 @@ import {
   MenuPhotoValidationError,
   uploadMenuPhoto,
 } from "@/lib/menuPhotoUpload";
+import { triggerProactiveCategoryAliases } from "@/lib/proactiveCategoryAliases";
 import {
   SettingsCard,
   SettingsRow,
@@ -270,6 +271,7 @@ export function VendorMyBusinessOperations({
     setNewItem({ name: "", price: "", unit: "", description: "", image_url: null });
     setAddingItem(false);
     void loadMenu();
+    triggerProactiveCategoryAliases({ vendorId: vendor.id, categoryId: activeCategoryId });
   };
 
   const saveEditedMenuItem = async () => {
@@ -326,6 +328,7 @@ export function VendorMyBusinessOperations({
     }
     if (item?.image_url) void bestEffortDeleteMenuPhotoByUrl(item.image_url);
     void loadMenu();
+    triggerProactiveCategoryAliases({ vendorId: vendor.id, categoryId: activeCategoryId });
   };
 
   const menuPhotoErrorToast = (err: unknown) => {
@@ -438,6 +441,7 @@ export function VendorMyBusinessOperations({
         }
         void loadMenu();
         toast.success(s.menu_voiceAdded);
+        triggerProactiveCategoryAliases({ vendorId: vendor.id, categoryId: activeCategoryId });
       } else {
         toast.error(s.voice_failed);
       }
@@ -499,6 +503,7 @@ export function VendorMyBusinessOperations({
           }
           void loadMenu();
           toast.success(s.menu_imageAdded);
+          triggerProactiveCategoryAliases({ vendorId: vendor.id, categoryId: activeCategoryId });
         } else {
           toast.error(s.image_failed);
         }

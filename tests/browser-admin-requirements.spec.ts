@@ -26,8 +26,9 @@ const L = {
   markAdminCheckPassed: 'Mark Admin Check Passed',
   markAdminCheckFailed: 'Mark Admin Check Failed',
   pendingCategoriesPrefix: '🗂️ Pending Categories',
-  approve: 'Approve',
+  approve: 'Approve as new',
   reject: 'Reject',
+  mergeAsAlias: 'Merge as alias',
   banReasonPlaceholder: 'Ban reason',
   confirmBan: 'Confirm ban',
   bannedBadge: 'BANNED',
@@ -519,7 +520,7 @@ test('ADM-REQ-05 — Approve category — vendor notified, uses RPC', async ({ p
   await page.getByRole('button', { name: new RegExp(L.pendingCategoriesPrefix) }).click();
   const card = pendingCategoryCard(page, approveLabel);
   await expect(card).toBeVisible({ timeout: 8000 });
-  await card.getByRole('button', { name: '✅ Approve', exact: true }).click();
+  await card.getByRole('button', { name: `✅ ${L.approve}`, exact: true }).click();
   await page.waitForTimeout(2000);
 
   const { data: cat } = await supabaseAdmin

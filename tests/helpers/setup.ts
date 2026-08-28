@@ -327,10 +327,35 @@ export async function seedVendorCategory(
     is_manual_verified?: boolean;
     serves_at_vendor_place?: boolean;
     serves_at_customer_place?: boolean;
+    /**
+     * Per-category radius. When omitted, DB trigger may inherit vendors.service_radius_km
+     * (including pan-India 9999). Pass a bounded value for local Track A radar seeds.
+     */
+    service_radius_km?: number | null;
     /** Child modes for vendor_category_modes. Defaults to [category.service_mode]. */
     modes?: string[];
+    /** Per-business UPI (Phase 2+). When omitted, copies from vendors.* if present. */
+    upi_id?: string | null;
+    upi_qr_url?: string | null;
+    upi_qr_payee_id?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
   } = {},
 ) {
+  let upiId = opts.upi_id;
+  let upiQrUrl = opts.upi_qr_url;
+  let upiQrPayeeId = opts.upi_qr_payee_id;
+  if (upiId === undefined || upiQrUrl === undefined || upiQrPayeeId === undefined) {
+    const { data: vendorRow } = await supabaseAdmin
+      .from('vendors')
+      .select('upi_id, upi_qr_url, upi_qr_payee_id')
+      .eq('id', vendorId)
+      .maybeSingle();
+    if (upiId === undefined) upiId = vendorRow?.upi_id ?? null;
+    if (upiQrUrl === undefined) upiQrUrl = vendorRow?.upi_qr_url ?? null;
+    if (upiQrPayeeId === undefined) upiQrPayeeId = vendorRow?.upi_qr_payee_id ?? null;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('vendor_categories')
     .insert({
@@ -341,8 +366,14 @@ export async function seedVendorCategory(
       needs_review: opts.needs_review ?? false,
       service_mode: category.service_mode,
       // Phase 4 radar filters on vendor_categories.latitude/longitude (no vendors.* fallback).
-      latitude: 18.5204,
-      longitude: 73.8567,
+      latitude: opts.latitude ?? 18.5204,
+      longitude: opts.longitude ?? 73.8567,
+      upi_id: upiId ? String(upiId).trim() || null : null,
+      upi_qr_url: upiQrUrl ?? null,
+      upi_qr_payee_id: upiQrPayeeId ?? null,
+      ...(opts.service_radius_km !== undefined
+        ? { service_radius_km: opts.service_radius_km }
+        : {}),
       ...(opts.is_manual_verified !== undefined
         ? { is_manual_verified: opts.is_manual_verified }
         : {}),

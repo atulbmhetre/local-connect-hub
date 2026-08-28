@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { captureError } from "@/lib/sentry";
 import { formatKhataDate } from "@/lib/khataDisplay";
+import { safeRandomUUID } from "@/lib/safeRandomUUID";
 
 export type BillEditLineItem = {
   id: string;
@@ -62,7 +63,7 @@ export function parseBillEditErrorCode(message: string): BillEditErrorCode | nul
 
 export function newBillEditLineItem(): BillEditLineItem {
   return {
-    id: crypto.randomUUID(),
+    id: safeRandomUUID(),
     description: "",
     quantity: "1",
     unit: "",
@@ -108,7 +109,7 @@ export async function fetchBillLineItems(
     unit: string | null;
     unit_price: number | null;
   }) => ({
-    id: crypto.randomUUID(),
+    id: safeRandomUUID(),
     description: row.description ?? "",
     quantity: String(Number(row.quantity) || 1),
     unit: row.unit ?? "",

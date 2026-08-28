@@ -32,16 +32,17 @@ function nextVendorPhone(): string {
   return `99006${String(T + vendorPhoneSeq).slice(-5)}`;
 }
 
-async function createDeliveryVendor(tag: string) {
+async function createDeliveryVendor(tag: string): Promise<{ id: string; category_id: string }> {
   const category = await getActiveCategoryByServiceMode('delivery');
   const phone = nextVendorPhone();
+  const upiId = `pas-${tag}-${T}@upi`;
   const { data: vendor, error } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: `PAS Vendor ${tag}`,
       shop_name: `!PAS-${tag}-${T}`,
       phone,
-      upi_id: `pas-${tag}-${T}@upi`,
+      upi_id: upiId,
       category: category.label,
       service_mode: 'delivery',
       latitude: 18.5204,
@@ -53,12 +54,12 @@ async function createDeliveryVendor(tag: string) {
     .select('id, phone')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category);
+  await seedVendorCategory(vendor.id, category, { upi_id: upiId });
   createdVendorIds.push(vendor.id);
-  return vendor.id as string;
+  return { id: vendor.id as string, category_id: category.id };
 }
 
-async function seedPaidBillHistory(vendorId: string, amounts: number[]) {
+async function seedPaidBillHistory(vendorId: string, categoryId: string, amounts: number[]) {
   for (let i = 0; i < amounts.length; i++) {
     const { data: req, error } = await supabaseAdmin
       .from('requests')
@@ -69,6 +70,7 @@ async function seedPaidBillHistory(vendorId: string, amounts: number[]) {
         message: `hist-${i}`,
         status: 'fulfilled',
         service_mode: 'delivery',
+        category_id: categoryId,
         delivery_fulfillment_method: 'agent',
         delivery_payment_timing: 'prepaid',
       })
@@ -90,6 +92,7 @@ async function seedPaidBillHistory(vendorId: string, amounts: number[]) {
 
 async function seedExceptionOrder(
   vendorId: string,
+  categoryId: string,
   message: string,
   billTotal: number,
   paymentMode: 'upi' | 'cash' = 'upi',
@@ -104,6 +107,7 @@ async function seedExceptionOrder(
       status: 'fulfilled',
       payment_status: 'unpaid',
       service_mode: 'delivery',
+      category_id: categoryId,
       delivery_slot: 'morning',
       delivery_fulfillment_method: 'agent',
       delivery_payment_timing: 'prepaid',
@@ -172,10 +176,10 @@ test.afterAll(async () => {
 test('PAS-01 — normal-value exception order: no screenshot section, claim succeeds', async ({
   page,
 }) => {
-  const vendorId = await createDeliveryVendor('normal');
-  await seedPaidBillHistory(vendorId, [100, 100, 100, 100]);
+  const vendor = await createDeliveryVendor('normal');
+  await seedPaidBillHistory(vendor.id, vendor.category_id, [100, 100, 100, 100]);
   const msg = `PAS normal ${T}`;
-  const requestId = await seedExceptionOrder(vendorId, msg, 200);
+  const requestId = await seedExceptionOrder(vendor.id, vendor.category_id, msg, 200);
 
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await gotoMyOrders(page);
@@ -210,9 +214,9 @@ test('PAS-01 — normal-value exception order: no screenshot section, claim succ
 test('PAS-02 — first-time vendor pairing: screenshot required and blocks claim until attached', async ({
   page,
 }) => {
-  const vendorId = await createDeliveryVendor('first');
+  const vendor = await createDeliveryVendor('first');
   const msg = `PAS first ${T}`;
-  const requestId = await seedExceptionOrder(vendorId, msg, 150);
+  const requestId = await seedExceptionOrder(vendor.id, vendor.category_id, msg, 150);
 
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await gotoMyOrders(page);
@@ -267,10 +271,10 @@ test('PAS-02 — first-time vendor pairing: screenshot required and blocks claim
 });
 
 test('PAS-03 — 3x+ history average: screenshot required', async ({ page }) => {
-  const vendorId = await createDeliveryVendor('spike');
-  await seedPaidBillHistory(vendorId, [100, 100, 100]);
+  const vendor = await createDeliveryVendor('spike');
+  await seedPaidBillHistory(vendor.id, vendor.category_id, [100, 100, 100]);
   const msg = `PAS spike ${T}`;
-  await seedExceptionOrder(vendorId, msg, 350);
+  await seedExceptionOrder(vendor.id, vendor.category_id, msg, 350);
 
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await gotoMyOrders(page);
@@ -286,18 +290,19 @@ test('PAS-03 — 3x+ history average: screenshot required', async ({ page }) => 
 test('PAS-04 — vendor-self delivery UPI still has no Pay Now (Phase 1 matrix unaffected)', async ({
   page,
 }) => {
-  const vendorId = await createDeliveryVendor('vendor-self');
+  const vendor = await createDeliveryVendor('vendor-self');
   const msg = `PAS vendor-self ${T}`;
   const { data: req, error: reqErr } = await supabaseAdmin
     .from('requests')
     .insert({
-      vendor_id: vendorId,
+      vendor_id: vendor.id,
       user_phone: CUSTOMER_PHONE,
       device_id: DEVICE_ID,
       message: msg,
       status: 'fulfilled',
       payment_status: 'unpaid',
       service_mode: 'delivery',
+      category_id: vendor.category_id,
       delivery_fulfillment_method: 'vendor',
       delivery_payment_timing: 'postpaid',
     })
@@ -307,7 +312,7 @@ test('PAS-04 — vendor-self delivery UPI still has no Pay Now (Phase 1 matrix u
   createdRequestIds.push(req.id);
   const { error: billErr } = await supabaseAdmin.rpc('insert_bill_with_items', {
     p_order_id: req.id,
-    p_vendor_id: vendorId,
+    p_vendor_id: vendor.id,
     p_customer_phone: CUSTOMER_PHONE,
     p_total: 500,
     p_payment_mode: 'upi',

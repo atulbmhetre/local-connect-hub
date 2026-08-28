@@ -139,7 +139,10 @@ function noConfidentMatchResponse(action: GatewayAction) {
   });
 }
 
-/** Body-care queries where Therapist and Beautician must both surface (rule 6). */
+/**
+ * Body-care / wellness queries (rule 6). Therapist was removed from the catalog;
+ * Beautician is the sole wellness category — force it alone when ambiguous.
+ */
 const WELLNESS_AMBIGUOUS_PATTERNS = [
   /\bmassage\b/i,
   /\bphysio(?:therapy)?\b/i,
@@ -147,6 +150,8 @@ const WELLNESS_AMBIGUOUS_PATTERNS = [
   /\bwellness\b/i,
   /\bbody\s*care\b/i,
   /\brelaxation\b/i,
+  /\btherapist\b/i,
+  /\btherapy\b/i,
 ];
 
 function isExplicitSingleWellnessCategoryLookup(input: string): boolean {
@@ -163,12 +168,13 @@ function rawListMentionsWellnessCategory(rawList: readonly unknown[]): boolean {
   for (const raw of rawList) {
     if (typeof raw !== "string") continue;
     const lower = raw.trim().toLowerCase();
+    // Therapist may still appear in model output from stale training; treat as wellness.
     if (lower === "therapist" || lower === "beautician") return true;
   }
   return false;
 }
 
-function shouldForceWellnessDualCandidates(
+function shouldForceWellnessBeautician(
   input: string,
   rawCandidateLabels: readonly unknown[],
 ): boolean {
@@ -179,30 +185,30 @@ function shouldForceWellnessDualCandidates(
   );
 }
 
-function buildWellnessDualCandidates(
+/** Sole wellness catalog category after Therapist removal. */
+function buildWellnessBeauticianCandidate(
   dbCategories: DbCategoryRow[],
 ): ClassifyCandidate[] | null {
-  const therapist = findDbCategory(dbCategories, "Therapist");
   const beautician = findDbCategory(dbCategories, "Beautician");
-  if (!therapist || !beautician) return null;
-  return [candidateFromDbRow(therapist), candidateFromDbRow(beautician)];
+  if (!beautician) return null;
+  return [candidateFromDbRow(beautician)];
 }
 
-function wellnessDualResponse(
+function wellnessBeauticianResponse(
   action: GatewayAction,
   dbCategories: DbCategoryRow[],
   threshold: number,
   modelConfidence: number,
 ) {
-  const dual = buildWellnessDualCandidates(dbCategories);
-  if (!dual) return null;
+  const candidates = buildWellnessBeauticianCandidate(dbCategories);
+  if (!candidates) return null;
   const confidence = Math.max(
     threshold,
     Number.isFinite(modelConfidence) ? modelConfidence : 0,
   );
   return jsonResponse({
     action,
-    result: { candidates: dual, confidence },
+    result: { candidates, confidence },
   });
 }
 
@@ -255,8 +261,13 @@ async function invokeSuggestCategory(
       const suggestRaw = typeof data.category_name === "string" && data.category_name.trim()
         ? [data.category_name.trim()]
         : [];
-      if (shouldForceWellnessDualCandidates(input, suggestRaw)) {
-        const forced = wellnessDualResponse(action, dbCategories, threshold, confidence);
+      if (shouldForceWellnessBeautician(input, suggestRaw)) {
+        const forced = wellnessBeauticianResponse(
+          action,
+          dbCategories,
+          threshold,
+          confidence,
+        );
         if (forced) return forced;
       }
       return noConfidentMatchResponse(action);
@@ -385,7 +396,7 @@ Rules:
 3. "confidence" is a number from 0.0 to 1.0 for how sure you are that the top candidates truly match. Use < ${threshold} when the need is not covered by any listed category or when you are guessing.
 4. If the input asks for a government or emergency service (police, fire, hospital), set "is_government": true and write one short helpful "message"; "candidates" may be empty; set confidence to 1.
 5. NEVER invent labels that are not in the list.
-6. Therapist and Beautician are permanently distinct categories, and BOTH can serve wellness / body-care needs (massage, spa, therapy, physiotherapy, relaxation, salon-style body treatments). For any such wellness-adjacent query that clearly fits those services, include BOTH "Therapist" and "Beautician" when they appear in the list — never pick just one; the customer chooses. If the query is NOT wellness/body-care (e.g. cobbler, shoe repair), do not include them.
+6. Beautician is the sole wellness / body-care category (massage, spa, therapy, physiotherapy, relaxation, salon-style body treatments). Therapist is no longer in the catalog — never suggest it. For any wellness-adjacent query that clearly fits those services, include "Beautician" when it appears in the list. If the query is NOT wellness/body-care (e.g. cobbler, shoe repair), do not include Beautician.
 
 Response format:
 {
@@ -445,8 +456,8 @@ Response format:
             ? 0
             : 0;
 
-        if (shouldForceWellnessDualCandidates(input, rawList)) {
-          const forced = wellnessDualResponse(
+        if (shouldForceWellnessBeautician(input, rawList)) {
+          const forced = wellnessBeauticianResponse(
             action,
             dbCategories,
             threshold,

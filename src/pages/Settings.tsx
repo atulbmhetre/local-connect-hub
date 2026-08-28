@@ -828,11 +828,52 @@ const Settings = () => {
       ai_confidence: string | null;
       ai_confidence_score: number | null;
       ai_reasoning: string | null;
+      ai_service_mode_reasoning: string | null;
+      proposed_aliases: string[];
+      overlap_category_label: string | null;
+      overlap_reasoning: string | null;
+      suggestion_count: number;
       suggested_by_vendor_id: string | null;
       suggested_vendor_name: string | null;
     }[]
   >([]);
+  const [pendingAliases, setPendingAliases] = useState<
+    {
+      id: string;
+      term: string;
+      confidence: number | null;
+      ai_reasoning: string | null;
+      source: string;
+      category_id: string;
+      category_label: string;
+      category_emoji: string;
+      suggested_by_vendor_id: string | null;
+      suggested_vendor_name: string | null;
+    }[]
+  >([]);
+  const [modeConfidenceReviews, setModeConfidenceReviews] = useState<
+    {
+      id: string;
+      category_id: string;
+      category_label: string;
+      category_emoji: string;
+      current_default_mode: string;
+      proposed_mode: string;
+      default_mode_vendor_count: number;
+      proposed_mode_vendor_count: number;
+      created_at: string;
+    }[]
+  >([]);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [pendingAliasAction, setPendingAliasAction] = useState<string | null>(null);
+  const [modeConfidenceAction, setModeConfidenceAction] = useState<string | null>(null);
+  const [modeConfidenceVendors, setModeConfidenceVendors] = useState<
+    Record<string, { shop_name: string | null; phone: string | null }[]>
+  >({});
+  const [modeConfidenceVendorsLoading, setModeConfidenceVendorsLoading] = useState<string | null>(
+    null,
+  );
+  const [modeConfidenceExpanded, setModeConfidenceExpanded] = useState<string | null>(null);
   const [flaggedUsers, setFlaggedUsers] = useState<
     {
       phone: string;
@@ -1077,6 +1118,8 @@ const Settings = () => {
 
   const [activeTab, setActiveTab] = useState<"settings" | "admin">("settings");
   const [pendingCatOpen, setPendingCatOpen] = useState(false);
+  const [pendingAliasOpen, setPendingAliasOpen] = useState(false);
+  const [modeConfidenceOpen, setModeConfidenceOpen] = useState(false);
   const [lowRatingsOpen, setLowRatingsOpen] = useState(false);
   const [recommendationsOpen, setRecommendationsOpen] = useState(false);
   const [recommendations, setRecommendations] = useState<
@@ -1160,6 +1203,14 @@ const Settings = () => {
     open: boolean;
     cat: (typeof pendingCategories)[number] | null;
   }>({ open: false, cat: null });
+  const [mergeCategoryDialog, setMergeCategoryDialog] = useState<{
+    open: boolean;
+    cat: (typeof pendingCategories)[number] | null;
+    targetId: string;
+  }>({ open: false, cat: null, targetId: "" });
+  const [mergeTargetOptions, setMergeTargetOptions] = useState<
+    { id: string; label: string; emoji: string | null }[]
+  >([]);
 
   useEffect(() => {
     void (async () => {
@@ -1662,6 +1713,11 @@ const Settings = () => {
       ai_confidence: string | null;
       ai_confidence_score: number | null;
       ai_reasoning: string | null;
+      ai_service_mode_reasoning: string | null;
+      proposed_aliases: string[] | null;
+      overlap_category_label: string | null;
+      overlap_reasoning: string | null;
+      suggestion_count: number | null;
       suggested_by_vendor_id: string | null;
       status: string;
       pending_review: boolean;
@@ -1671,7 +1727,7 @@ const Settings = () => {
         supabase
           .from("categories")
           .select(
-            "id, label, emoji, service_mode, ai_confidence, ai_confidence_score, ai_reasoning, suggested_by_vendor_id, status, pending_review",
+            "id, label, emoji, service_mode, ai_confidence, ai_confidence_score, ai_reasoning, ai_service_mode_reasoning, proposed_aliases, overlap_category_label, overlap_reasoning, suggestion_count, suggested_by_vendor_id, status, pending_review",
           )
           .or("status.eq.pending_review,and(pending_review.eq.true,is_active.eq.false)")
           .order("created_at", { ascending: false })
@@ -1711,6 +1767,16 @@ const Settings = () => {
         ai_confidence: cat.ai_confidence,
         ai_confidence_score: cat.ai_confidence_score,
         ai_reasoning: cat.ai_reasoning,
+        ai_service_mode_reasoning: cat.ai_service_mode_reasoning,
+        proposed_aliases: Array.isArray(cat.proposed_aliases)
+          ? cat.proposed_aliases.filter((a) => typeof a === "string" && a.trim())
+          : [],
+        overlap_category_label: cat.overlap_category_label,
+        overlap_reasoning: cat.overlap_reasoning,
+        suggestion_count:
+          cat.suggestion_count != null && Number.isFinite(cat.suggestion_count)
+            ? Number(cat.suggestion_count)
+            : 0,
         suggested_by_vendor_id: cat.suggested_by_vendor_id,
         suggested_vendor_name: cat.suggested_by_vendor_id
           ? vendorNameById.get(cat.suggested_by_vendor_id) ?? null
@@ -1722,6 +1788,132 @@ const Settings = () => {
   useEffect(() => {
     if (!isAdmin) return;
     void loadPendingCategories();
+  }, [isAdmin]);
+
+  const loadPendingAliases = async () => {
+    let rows: Array<{
+      id: string;
+      term: string;
+      confidence: number | null;
+      ai_reasoning: string | null;
+      source: string;
+      category_id: string;
+      suggested_by_vendor_id: string | null;
+      categories: { label: string; emoji: string } | { label: string; emoji: string }[] | null;
+    }> = [];
+    try {
+      rows = await fetchAllPages("loadPendingAliases", (from, to) =>
+        supabase
+          .from("category_search_terms")
+          .select(
+            "id, term, confidence, ai_reasoning, source, category_id, suggested_by_vendor_id, categories!inner(label, emoji)",
+          )
+          .eq("status", "pending_review")
+          .order("created_at", { ascending: false })
+          .range(from, to),
+      );
+    } catch (error) {
+      console.error("loadPendingAliases", error);
+      setPendingAliases([]);
+      return;
+    }
+
+    const vendorIds = [
+      ...new Set(
+        rows
+          .map((r) => r.suggested_by_vendor_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      ),
+    ];
+    const vendorNameById = new Map<string, string>();
+    if (vendorIds.length > 0) {
+      const vendors = await fetchByIdChunks<{ id: string; shop_name: string | null }>(
+        "loadPendingAliases/vendors",
+        vendorIds,
+        (chunk) => supabase.from("vendors").select("id, shop_name").in("id", chunk),
+      );
+      for (const v of vendors) {
+        vendorNameById.set(v.id, v.shop_name ?? "Vendor");
+      }
+    }
+
+    setPendingAliases(
+      rows.map((row) => {
+        const cats = row.categories;
+        const cat = Array.isArray(cats) ? cats[0] : cats;
+        return {
+          id: row.id,
+          term: row.term,
+          confidence: row.confidence,
+          ai_reasoning: row.ai_reasoning,
+          source: row.source,
+          category_id: row.category_id,
+          category_label: cat?.label ?? "Category",
+          category_emoji: cat?.emoji ?? "✨",
+          suggested_by_vendor_id: row.suggested_by_vendor_id,
+          suggested_vendor_name: row.suggested_by_vendor_id
+            ? vendorNameById.get(row.suggested_by_vendor_id) ?? null
+            : null,
+        };
+      }),
+    );
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadPendingAliases();
+  }, [isAdmin]);
+
+  const loadModeConfidenceReviews = async () => {
+    let rows: Array<{
+      id: string;
+      category_id: string;
+      current_default_mode: string;
+      proposed_mode: string;
+      default_mode_vendor_count: number;
+      proposed_mode_vendor_count: number;
+      created_at: string;
+      categories: { label: string; emoji: string } | { label: string; emoji: string }[] | null;
+    }> = [];
+    try {
+      rows = await fetchAllPages("loadModeConfidenceReviews", (from, to) =>
+        supabase
+          .from("category_mode_reviews")
+          .select(
+            "id, category_id, current_default_mode, proposed_mode, default_mode_vendor_count, proposed_mode_vendor_count, created_at, categories!inner(label, emoji)",
+          )
+          .eq("status", "pending_review")
+          .order("created_at", { ascending: false })
+          .range(from, to),
+      );
+    } catch (error) {
+      console.error("loadModeConfidenceReviews", error);
+      setModeConfidenceReviews([]);
+      return;
+    }
+
+    setModeConfidenceReviews(
+      rows.map((row) => {
+        const cats = row.categories;
+        const cat = Array.isArray(cats) ? cats[0] : cats;
+        return {
+          id: row.id,
+          category_id: row.category_id,
+          category_label: cat?.label ?? "Category",
+          category_emoji: cat?.emoji ?? "✨",
+          current_default_mode: row.current_default_mode,
+          proposed_mode: row.proposed_mode,
+          default_mode_vendor_count: Number(row.default_mode_vendor_count) || 0,
+          proposed_mode_vendor_count: Number(row.proposed_mode_vendor_count) || 0,
+          created_at: row.created_at,
+        };
+      }),
+    );
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadModeConfidenceReviews();
   }, [isAdmin]);
 
   const loadLowRatings = async () => {
@@ -2259,6 +2451,67 @@ const Settings = () => {
     await loadPendingCategories();
   };
 
+  const openMergeCategoryDialog = async (cat: (typeof pendingCategories)[number]) => {
+    setPendingAction(cat.id);
+    try {
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id, label, emoji")
+        .eq("is_active", true)
+        .or("status.eq.active,status.is.null")
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      const opts = (data ?? []).filter((c) => c.id !== cat.id);
+      setMergeTargetOptions(opts);
+      const overlapMatch = cat.overlap_category_label
+        ? opts.find(
+            (c) =>
+              c.label.trim().toLowerCase() ===
+              cat.overlap_category_label!.trim().toLowerCase(),
+          )
+        : null;
+      setMergeCategoryDialog({
+        open: true,
+        cat,
+        targetId: overlapMatch?.id ?? opts[0]?.id ?? "",
+      });
+    } catch (err) {
+      console.error("openMergeCategoryDialog", err);
+      toast.error("Could not load categories for merge");
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const mergePendingCategoryAsAlias = async () => {
+    const cat = mergeCategoryDialog.cat;
+    const targetId = mergeCategoryDialog.targetId;
+    if (!cat || !targetId) return;
+    setPendingAction(cat.id);
+    const { error } = await supabase.rpc("admin_merge_category_as_alias", {
+      p_admin_phone: adminRpcLabel(),
+      p_pending_category_id: cat.id,
+      p_target_category_id: targetId,
+    });
+    setPendingAction(null);
+    setMergeCategoryDialog({ open: false, cat: null, targetId: "" });
+    if (error) {
+      toast.error("Merge failed: " + error.message);
+      return;
+    }
+    const targetLabel =
+      mergeTargetOptions.find((c) => c.id === targetId)?.label ?? targetId;
+    logAdminAction(
+      "merge_category_as_alias",
+      "category",
+      cat.id,
+      `merged into ${targetLabel}`,
+      adminAuditLabel(),
+    );
+    toast.success(`Merged “${cat.label}” into ${targetLabel}`);
+    await loadPendingCategories();
+  };
+
   const rejectPendingCategory = async (cat: (typeof pendingCategories)[number]) => {
     setPendingAction(cat.id);
     const { error: updateError } = await supabase.rpc("admin_reject_category", {
@@ -2273,6 +2526,129 @@ const Settings = () => {
     await notifyCategoryVendor(cat, "rejected");
     logAdminAction("reject_category", "category", cat.id, null, adminAuditLabel());
     await loadPendingCategories();
+  };
+
+  const approvePendingAlias = async (row: (typeof pendingAliases)[number]) => {
+    setPendingAliasAction(row.id);
+    const { error } = await supabase.rpc("admin_approve_search_term", {
+      p_admin_phone: adminRpcLabel(),
+      p_term_id: row.id,
+    });
+    setPendingAliasAction(null);
+    if (error) {
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    logAdminAction(
+      "approve_search_alias",
+      "search_alias",
+      row.id,
+      `${row.term} → ${row.category_label}`,
+      adminAuditLabel(),
+    );
+    toast.success(`Approved “${row.term}” for ${row.category_label}`);
+    await loadPendingAliases();
+    void import("@/lib/categorySearchTerms").then((m) => m.refreshCategorySearchTermsCache());
+  };
+
+  const rejectPendingAlias = async (row: (typeof pendingAliases)[number]) => {
+    setPendingAliasAction(row.id);
+    const { error } = await supabase.rpc("admin_reject_search_term", {
+      p_admin_phone: adminRpcLabel(),
+      p_term_id: row.id,
+    });
+    setPendingAliasAction(null);
+    if (error) {
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    logAdminAction("reject_search_alias", "search_alias", row.id, row.term, adminAuditLabel());
+    await loadPendingAliases();
+  };
+
+  const loadModeConfidenceVendorSide = async (
+    reviewId: string,
+    categoryId: string,
+    mode: string,
+  ) => {
+    const key = `${reviewId}:${mode}`;
+    if (modeConfidenceVendors[key]) {
+      setModeConfidenceExpanded((cur) => (cur === key ? null : key));
+      return;
+    }
+    setModeConfidenceVendorsLoading(key);
+    const { data, error } = await supabase.rpc("admin_list_category_mode_vendors", {
+      p_admin_phone: adminRpcLabel(),
+      p_category_id: categoryId,
+      p_mode: mode,
+    });
+    setModeConfidenceVendorsLoading(null);
+    if (error) {
+      toast.error("Could not load vendors: " + error.message);
+      return;
+    }
+    const list = (Array.isArray(data) ? data : []).map(
+      (v: { shop_name?: string | null; phone?: string | null }) => ({
+        shop_name: v.shop_name ?? null,
+        phone: v.phone ?? null,
+      }),
+    );
+    setModeConfidenceVendors((prev) => ({ ...prev, [key]: list }));
+    setModeConfidenceExpanded(key);
+  };
+
+  const confirmModeConfidenceReview = async (row: (typeof modeConfidenceReviews)[number]) => {
+    setModeConfidenceAction(row.id);
+    const { error } = await supabase.rpc("admin_confirm_category_mode_review", {
+      p_admin_phone: adminRpcLabel(),
+      p_review_id: row.id,
+    });
+    setModeConfidenceAction(null);
+    if (error) {
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    logAdminAction(
+      "confirm_mode_confidence",
+      "category_mode_review",
+      row.id,
+      `${row.category_label}: ${row.current_default_mode} → ${row.proposed_mode}`,
+      adminAuditLabel(),
+    );
+    toast.success(
+      `Updated ${row.category_label} default to ${getServiceModeLabel(row.proposed_mode)}`,
+    );
+    await loadModeConfidenceReviews();
+  };
+
+  const dismissModeConfidenceReview = async (row: (typeof modeConfidenceReviews)[number]) => {
+    setModeConfidenceAction(row.id);
+    const { error } = await supabase.rpc("admin_dismiss_category_mode_review", {
+      p_admin_phone: adminRpcLabel(),
+      p_review_id: row.id,
+    });
+    setModeConfidenceAction(null);
+    if (error) {
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    logAdminAction(
+      "dismiss_mode_confidence",
+      "category_mode_review",
+      row.id,
+      row.category_label,
+      adminAuditLabel(),
+    );
+    toast.success(`Dismissed mode review for ${row.category_label}`);
+    await loadModeConfidenceReviews();
+  };
+
+  const openVendorInAdminList = (phone: string | null | undefined) => {
+    const q = (phone ?? "").trim();
+    if (!q) return;
+    setVendorListFilter("all");
+    setVendorSearch(q);
+    setVendorModerationOpen(true);
   };
 
   const confidenceBadgeClass = (confidence: string | null, score: number | null) => {
@@ -4021,10 +4397,43 @@ const Settings = () => {
                             : cat.ai_confidence}
                         </span>
                       )}
+                      {cat.suggestion_count > 0 && (
+                        <span className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border">
+                          {s.admin_suggestion_count_label}: {cat.suggestion_count}
+                        </span>
+                      )}
                     </div>
                     {cat.ai_reasoning && (
                       <p className="text-xs text-muted-foreground leading-relaxed">
                         {cat.ai_reasoning}
+                      </p>
+                    )}
+                    {cat.ai_service_mode_reasoning && (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        <span className="font-semibold text-foreground/80">
+                          {s.admin_mode_reasoning_label}:{" "}
+                        </span>
+                        {cat.ai_service_mode_reasoning}
+                      </p>
+                    )}
+                    {cat.proposed_aliases.length > 0 && (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        <span className="font-semibold text-foreground/80">
+                          {s.admin_proposed_aliases_label}:{" "}
+                        </span>
+                        {cat.proposed_aliases.join(", ")}
+                      </p>
+                    )}
+                    {(cat.overlap_category_label || cat.overlap_reasoning) && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                        <span className="font-semibold">
+                          {s.admin_overlap_label}
+                          {cat.overlap_category_label
+                            ? ` → ${cat.overlap_category_label}`
+                            : ""}
+                          :{" "}
+                        </span>
+                        {cat.overlap_reasoning ?? ""}
                       </p>
                     )}
                     {cat.suggested_vendor_name && (
@@ -4032,7 +4441,10 @@ const Settings = () => {
                         Suggested by {cat.suggested_vendor_name}
                       </p>
                     )}
-                    <div className="flex gap-2">
+                    <p className="text-[10px] text-muted-foreground">
+                      {s.admin_approve_as_new_hint}
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
                       <button
                         type="button"
                         onClick={() => void approvePendingCategory(cat)}
@@ -4040,6 +4452,14 @@ const Settings = () => {
                         className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                       >
                         ✅ {s.admin_approve}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void openMergeCategoryDialog(cat)}
+                        disabled={pendingAction === cat.id}
+                        className="flex-1 rounded-xl bg-amber-500/10 text-amber-800 border border-amber-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        🔗 {s.admin_merge_as_alias}
                       </button>
                       <button
                         type="button"
@@ -4052,6 +4472,242 @@ const Settings = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </SettingsCollapsible>
+
+          <SettingsCollapsible
+            label={`${s.admin_pendingAliases} (${pendingAliases.length})`}
+            open={pendingAliasOpen}
+            onToggle={() => setPendingAliasOpen((o) => !o)}
+          >
+            {pendingAliases.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{s.admin_noPendingAliases}</p>
+            ) : (
+              <div className="space-y-3">
+                {pendingAliases.map((row) => (
+                  <div
+                    key={row.id}
+                    data-testid={`pending-alias-card-${row.id}`}
+                    data-alias-term={row.term}
+                    className="rounded-2xl border border-border p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">{row.term}</p>
+                      <span className="text-lg" aria-hidden>
+                        {row.category_emoji}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {row.category_label}
+                      </span>
+                      {row.confidence != null && Number.isFinite(row.confidence) && (
+                        <span
+                          className={`rounded-full text-[10px] font-semibold px-2 py-0.5 ${confidenceBadgeClass(null, row.confidence)}`}
+                        >
+                          {Math.round(row.confidence * 100)}%
+                        </span>
+                      )}
+                      <span
+                        className={`rounded-full text-[10px] font-semibold px-2 py-0.5 border ${
+                          row.source === "corrective_ai"
+                            ? "bg-amber-500/10 text-amber-800 border-amber-500/30 dark:text-amber-400"
+                            : row.source === "proactive_ai"
+                              ? "bg-sky-500/10 text-sky-800 border-sky-500/30 dark:text-sky-400"
+                              : "bg-muted text-muted-foreground border-border"
+                        }`}
+                      >
+                        {row.source === "corrective_ai"
+                          ? s.admin_pending_alias_source_corrective
+                          : row.source === "proactive_ai"
+                            ? s.admin_pending_alias_source_proactive
+                            : row.source === "manual"
+                              ? s.admin_pending_alias_source_manual
+                              : row.source}
+                      </span>
+                    </div>
+                    {row.ai_reasoning && (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {row.ai_reasoning}
+                      </p>
+                    )}
+                    {row.suggested_vendor_name && (
+                      <p className="text-[10px] text-muted-foreground">
+                        {s.admin_pending_alias_source}: {row.suggested_vendor_name}
+                      </p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      {row.source === "corrective_ai"
+                        ? s.admin_pending_alias_corrective_hint
+                        : s.admin_pending_alias_approve_hint}
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => void approvePendingAlias(row)}
+                        disabled={pendingAliasAction === row.id}
+                        className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        ✅ {s.admin_approve_alias}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void rejectPendingAlias(row)}
+                        disabled={pendingAliasAction === row.id}
+                        className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        ❌ {s.admin_reject_alias}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SettingsCollapsible>
+
+          <SettingsCollapsible
+            label={`${s.admin_modeConfidenceReview} (${modeConfidenceReviews.length})`}
+            open={modeConfidenceOpen}
+            onToggle={() => setModeConfidenceOpen((o) => !o)}
+          >
+            {modeConfidenceReviews.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{s.admin_noModeConfidenceReviews}</p>
+            ) : (
+              <div className="space-y-3">
+                {modeConfidenceReviews.map((row) => {
+                  const defaultKey = `${row.id}:${row.current_default_mode}`;
+                  const proposedKey = `${row.id}:${row.proposed_mode}`;
+                  return (
+                    <div
+                      key={row.id}
+                      data-testid={`mode-confidence-card-${row.id}`}
+                      className="rounded-2xl border border-border p-3 space-y-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-lg" aria-hidden>
+                          {row.category_emoji}
+                        </span>
+                        <p className="text-sm font-semibold">{row.category_label}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {s.admin_modeConfidence_currentDefault}:{" "}
+                        <span className="font-semibold text-foreground">
+                          {getServiceModeLabel(row.current_default_mode)}
+                        </span>
+                        {" → "}
+                        {s.admin_modeConfidence_proposed}:{" "}
+                        <span className="font-semibold text-foreground">
+                          {getServiceModeLabel(row.proposed_mode)}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {s.admin_modeConfidence_split}:{" "}
+                        <span className="font-semibold text-foreground">
+                          {getServiceModeLabel(row.current_default_mode)}{" "}
+                          {row.default_mode_vendor_count}
+                        </span>
+                        {" / "}
+                        <span className="font-semibold text-foreground">
+                          {getServiceModeLabel(row.proposed_mode)}{" "}
+                          {row.proposed_mode_vendor_count}
+                        </span>
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {s.admin_modeConfidence_hint}
+                      </p>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <button
+                          type="button"
+                          data-testid={`mode-confidence-view-default-${row.id}`}
+                          onClick={() =>
+                            void loadModeConfidenceVendorSide(
+                              row.id,
+                              row.category_id,
+                              row.current_default_mode,
+                            )
+                          }
+                          disabled={modeConfidenceVendorsLoading === defaultKey}
+                          className="flex-1 rounded-xl bg-muted text-foreground border border-border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                        >
+                          {modeConfidenceExpanded === defaultKey
+                            ? s.admin_modeConfidence_hideVendors
+                            : `${s.admin_modeConfidence_viewVendors} (${getServiceModeLabel(row.current_default_mode)})`}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`mode-confidence-view-proposed-${row.id}`}
+                          onClick={() =>
+                            void loadModeConfidenceVendorSide(
+                              row.id,
+                              row.category_id,
+                              row.proposed_mode,
+                            )
+                          }
+                          disabled={modeConfidenceVendorsLoading === proposedKey}
+                          className="flex-1 rounded-xl bg-muted text-foreground border border-border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                        >
+                          {modeConfidenceExpanded === proposedKey
+                            ? s.admin_modeConfidence_hideVendors
+                            : `${s.admin_modeConfidence_viewVendors} (${getServiceModeLabel(row.proposed_mode)})`}
+                        </button>
+                      </div>
+                      {modeConfidenceExpanded &&
+                        modeConfidenceExpanded.startsWith(`${row.id}:`) &&
+                        modeConfidenceVendors[modeConfidenceExpanded] && (
+                          <div
+                            className="rounded-xl border border-border bg-background/60 p-2 space-y-1"
+                            data-testid={`mode-confidence-vendor-list-${row.id}`}
+                          >
+                            {modeConfidenceVendors[modeConfidenceExpanded].length === 0 ? (
+                              <p className="text-xs text-muted-foreground">No vendors</p>
+                            ) : (
+                              modeConfidenceVendors[modeConfidenceExpanded].map((v, idx) => (
+                                <div
+                                  key={`${v.phone ?? "x"}-${idx}`}
+                                  className="flex items-center justify-between gap-2 text-xs"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="font-medium truncate">
+                                      {v.shop_name || "Vendor"}
+                                    </p>
+                                    <p className="text-muted-foreground">{v.phone || "—"}</p>
+                                  </div>
+                                  {v.phone && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openVendorInAdminList(v.phone)}
+                                      className="shrink-0 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold"
+                                    >
+                                      {s.admin_modeConfidence_openInList}
+                                    </button>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <button
+                          type="button"
+                          data-testid={`mode-confidence-confirm-${row.id}`}
+                          onClick={() => void confirmModeConfidenceReview(row)}
+                          disabled={modeConfidenceAction === row.id}
+                          className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                        >
+                          ✅ {s.admin_modeConfidence_updateDefault}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`mode-confidence-dismiss-${row.id}`}
+                          onClick={() => void dismissModeConfidenceReview(row)}
+                          disabled={modeConfidenceAction === row.id}
+                          className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                        >
+                          ❌ {s.admin_modeConfidence_dismiss}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </SettingsCollapsible>
@@ -4678,6 +5334,56 @@ const Settings = () => {
                   }}
                 >
                   Confirm reject
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={mergeCategoryDialog.open}
+            onOpenChange={(open) => {
+              if (!open) setMergeCategoryDialog({ open: false, cat: null, targetId: "" });
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>{s.admin_merge_pick_title}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {mergeCategoryDialog.cat
+                    ? `“${mergeCategoryDialog.cat.label}” — ${s.admin_merge_pick_body}`
+                    : s.admin_merge_pick_body}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <div className="py-2">
+                <select
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                  value={mergeCategoryDialog.targetId}
+                  onChange={(e) =>
+                    setMergeCategoryDialog((prev) => ({
+                      ...prev,
+                      targetId: e.target.value,
+                    }))
+                  }
+                >
+                  {mergeTargetOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {(opt.emoji ? `${opt.emoji} ` : "") + opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-amber-600 text-white hover:bg-amber-600/90"
+                  disabled={
+                    !mergeCategoryDialog.cat ||
+                    !mergeCategoryDialog.targetId ||
+                    pendingAction != null
+                  }
+                  onClick={() => void mergePendingCategoryAsAlias()}
+                >
+                  {s.admin_merge_confirm}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

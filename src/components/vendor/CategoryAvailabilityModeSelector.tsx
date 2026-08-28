@@ -1,10 +1,12 @@
-import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
 import type { CategoryServiceMode } from "@/lib/categories";
 import type { AvailabilityMode } from "@/lib/vendorRegistration";
 import {
   ensureCatalogBaseModes,
+  helpAppointmentChoiceToModes,
+  helpAppointmentModesToChoice,
+  type HelpAppointmentChoice,
 } from "@/lib/categoryAvailabilityModes";
 
 type Props = {
@@ -75,26 +77,57 @@ function YesNoToggle({
   );
 }
 
-function ModeStatement({
-  testId,
-  children,
+function ThreeWayChoice({
+  question,
+  choice,
+  onChange,
+  urgentLabel,
+  scheduledLabel,
+  bothLabel,
+  testIdPrefix,
   variant,
 }: {
-  testId: string;
-  children: ReactNode;
+  question: string;
+  choice: HelpAppointmentChoice | null;
+  onChange: (next: HelpAppointmentChoice) => void;
+  urgentLabel: string;
+  scheduledLabel: string;
+  bothLabel: string;
+  testIdPrefix: string;
   variant: "cards" | "pills";
 }) {
+  const optionClass = (selected: boolean) =>
+    cn(
+      variant === "pills"
+        ? "rounded-full border px-3 py-1.5 text-sm font-medium text-left"
+        : "rounded-xl border p-3 text-sm font-medium text-left w-full",
+      selected ? "border-primary bg-primary/15 ring-1 ring-primary/30" : "border-border bg-card",
+    );
+
+  const options: { id: HelpAppointmentChoice; label: string; testId: string }[] = [
+    { id: "urgent", label: urgentLabel, testId: `${testIdPrefix}-choice-urgent` },
+    { id: "scheduled", label: scheduledLabel, testId: `${testIdPrefix}-choice-scheduled` },
+    { id: "both", label: bothLabel, testId: `${testIdPrefix}-choice-both` },
+  ];
+
   return (
-    <div
-      data-testid={testId}
-      className={cn(
-        "text-sm text-foreground",
-        variant === "cards"
-          ? "rounded-2xl border-2 border-primary/40 bg-primary/10 p-3"
-          : "rounded-xl border border-primary/30 bg-primary/10 px-3 py-2",
-      )}
-    >
-      {children}
+    <div className="space-y-2" data-testid={`${testIdPrefix}-modes`} role="radiogroup" aria-label={question}>
+      <p className="text-sm text-foreground">{question}</p>
+      <div className={cn("flex gap-2", variant === "cards" ? "flex-col" : "flex-col sm:flex-row sm:flex-wrap")}>
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            role="radio"
+            aria-checked={choice === opt.id}
+            data-testid={opt.testId}
+            onClick={() => onChange(opt.id)}
+            className={optionClass(choice === opt.id)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -116,23 +149,21 @@ export function CategoryAvailabilityModeSelector({
     onChange(ensureCatalogBaseModes(modes, catalogServiceMode));
   };
 
-  const renderHelpDefault = () => (
-    <div className="space-y-3" data-testid={`${testIdPrefix}-modes`}>
-      <ModeStatement testId={`${testIdPrefix}-help-on`} variant={variant}>
-        {s.reg_avail_help_on_statement}
-      </ModeStatement>
-      <YesNoToggle
-        question={s.reg_avail_advance_bookings_question}
-        yesLabel={s.reg_avail_yes}
-        noLabel={s.reg_avail_no}
-        value={selectedModes.includes("appointment")}
-        onChange={(yes) => emit(yes ? ["help", "appointment"] : ["help"])}
-        yesTestId={`${testIdPrefix}-bookings-yes`}
-        noTestId={`${testIdPrefix}-bookings-no`}
+  const renderHelpOrAppointmentThreeWay = () => {
+    const choice = helpAppointmentModesToChoice(selectedModes);
+    return (
+      <ThreeWayChoice
+        question={s.reg_avail_three_way_question}
+        choice={choice}
+        onChange={(next) => emit(helpAppointmentChoiceToModes(next))}
+        urgentLabel={s.reg_avail_choice_urgent}
+        scheduledLabel={s.reg_avail_choice_scheduled}
+        bothLabel={s.reg_avail_choice_both}
+        testIdPrefix={testIdPrefix}
         variant={variant}
       />
-    </div>
-  );
+    );
+  };
 
   const renderDeliveryDefault = () => {
     const delivers = selectedModes.includes("delivery");
@@ -152,24 +183,6 @@ export function CategoryAvailabilityModeSelector({
     );
   };
 
-  const renderAppointmentDefault = () => (
-    <div className="space-y-3" data-testid={`${testIdPrefix}-modes`}>
-      <ModeStatement testId={`${testIdPrefix}-appointment-on`} variant={variant}>
-        {s.reg_avail_appointment_on_statement}
-      </ModeStatement>
-      <YesNoToggle
-        question={s.reg_avail_same_day_question}
-        yesLabel={s.reg_avail_yes}
-        noLabel={s.reg_avail_no}
-        value={selectedModes.includes("help")}
-        onChange={(yes) => emit(yes ? ["appointment", "help"] : ["appointment"])}
-        yesTestId={`${testIdPrefix}-same-day-yes`}
-        noTestId={`${testIdPrefix}-same-day-no`}
-        variant={variant}
-      />
-    </div>
-  );
-
   return (
     <div className={className} role="group" aria-label={label}>
       {label != null && (
@@ -179,11 +192,9 @@ export function CategoryAvailabilityModeSelector({
         </label>
       )}
       <div className={cn(label != null && "mt-2")}>
-        {catalogServiceMode === "help"
-          ? renderHelpDefault()
-          : catalogServiceMode === "delivery"
-            ? renderDeliveryDefault()
-            : renderAppointmentDefault()}
+        {catalogServiceMode === "delivery"
+          ? renderDeliveryDefault()
+          : renderHelpOrAppointmentThreeWay()}
       </div>
     </div>
   );

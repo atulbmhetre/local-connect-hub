@@ -13,13 +13,25 @@ export type AdminActionType =
   | "unban_user"
   | "approve_category"
   | "reject_category"
+  | "merge_category_as_alias"
+  | "approve_search_alias"
+  | "reject_search_alias"
   | "update_config"
   | "delete_review"
   | "admin_check_passed"
   | "admin_check_failed"
-  | "force_clear_deletion";
+  | "force_clear_deletion"
+  | "confirm_mode_confidence"
+  | "dismiss_mode_confidence";
 
-export type AdminTargetType = "vendor" | "user" | "category" | "config" | "vendor_category";
+export type AdminTargetType =
+  | "vendor"
+  | "user"
+  | "category"
+  | "config"
+  | "vendor_category"
+  | "search_alias"
+  | "category_mode_review";
 
 /** Fire-and-forget admin audit row; never blocks the caller. */
 export function logAdminAction(

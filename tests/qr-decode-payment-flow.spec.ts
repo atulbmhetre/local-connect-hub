@@ -61,6 +61,8 @@ async function seedCustomer(phone: string) {
   if (error) throw error;
 }
 
+type VendorWithCategory = VendorRow & { category_id: string };
+
 async function createDeliveryVendor(
   tag: string,
   opts: {
@@ -68,16 +70,17 @@ async function createDeliveryVendor(
     upi_qr_url?: string | null;
     upi_qr_payee_id?: string | null;
   } = {},
-): Promise<VendorRow> {
+): Promise<VendorWithCategory> {
   const category = await getActiveCategoryByServiceMode('delivery');
   const phone = nextVendorPhone();
+  const upiId = opts.upi_id ?? FIXTURE_PAYEE;
   const { data: vendor, error } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: `QRD Vendor ${tag}`,
       shop_name: `!QRD-${tag}-${T}`,
       phone,
-      upi_id: opts.upi_id ?? FIXTURE_PAYEE,
+      upi_id: upiId,
       upi_qr_url: opts.upi_qr_url ?? null,
       upi_qr_payee_id: opts.upi_qr_payee_id ?? null,
       category: category.label,
@@ -91,9 +94,13 @@ async function createDeliveryVendor(
     .select('id, phone, shop_name')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category);
+  await seedVendorCategory(vendor.id, category, {
+    upi_id: upiId,
+    upi_qr_url: opts.upi_qr_url ?? null,
+    upi_qr_payee_id: opts.upi_qr_payee_id ?? null,
+  });
   createdVendorIds.push(vendor.id);
-  return vendor;
+  return { ...vendor, category_id: category.id };
 }
 
 async function seedFulfilledOrderWithUnpaidBill(
@@ -101,6 +108,7 @@ async function seedFulfilledOrderWithUnpaidBill(
   customerPhone: string,
   deviceId: string,
   message: string,
+  categoryId: string,
 ) {
   const { data: request, error: reqError } = await supabaseAdmin
     .from('requests')
@@ -112,6 +120,7 @@ async function seedFulfilledOrderWithUnpaidBill(
       status: 'fulfilled',
       payment_status: 'unpaid',
       service_mode: 'delivery',
+      category_id: categoryId,
       delivery_slot: 'morning',
       delivery_fulfillment_method: 'agent',
       delivery_payment_timing: 'prepaid',
@@ -275,6 +284,7 @@ test('QRD-02 — customer sees QR deep-link Pay button when payee ID exists', as
     customerPhone,
     deviceId,
     msg,
+    vendor.category_id,
   );
 
   try {
@@ -309,6 +319,7 @@ test('QRD-03 — fallback when payee ID is null (static image + immediate UTR)',
     customerPhone,
     deviceId,
     msg,
+    vendor.category_id,
   );
 
   try {

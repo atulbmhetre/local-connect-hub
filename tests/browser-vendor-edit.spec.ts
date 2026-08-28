@@ -437,7 +437,9 @@ test('VE-RADAR-01: multi-category vendor card shows only matched category on sea
       `${APP_URL}/radar?mode=${plumber.service_mode}&q=${encodeURIComponent(plumber.label)}`,
     );
 
-    const card = page.locator(`#radar-vendor-card-${vendor.id}`);
+    const card = page.locator(
+      `[data-testid="radar-vendor-card"][data-vendor-id="${vendor.id}"]`,
+    );
     await expect(card).toBeVisible({ timeout: 20000 });
     await expect(card.getByText(plumber.label, { exact: false }).first()).toBeVisible();
     await expect(card.getByText(electrician.label, { exact: true })).not.toBeVisible();

@@ -1,3 +1,9 @@
+import {
+  registerKnownCategoriesSeed,
+  resolveCanonicalTerms,
+  type CanonicalCategoryMatch,
+} from "@/lib/categorySearchTerms";
+
 export type CategoryServiceMode = "help" | "delivery" | "appointment";
 
 export type KnownCategoryDef = {
@@ -7,7 +13,15 @@ export type KnownCategoryDef = {
   isEmergency: boolean;
 };
 
-/** Unified alias map — single source for Home search, Radar, and classification. */
+export type { CanonicalCategoryMatch, FuzzyCanonicalMatch } from "@/lib/categorySearchTerms";
+export {
+  resolveCanonicalTerms,
+  resolveFuzzyCanonicalTerms,
+  resolveFuzzyCanonicalTermsLocal,
+  FUZZY_CATEGORY_SIMILARITY_THRESHOLD,
+} from "@/lib/categorySearchTerms";
+
+/** @deprecated Prefer DB-backed category_search_terms via resolveCanonicalTerms. Kept for offline seed / rollback. */
 export const KNOWN_CATEGORIES: Record<string, KnownCategoryDef> = {
   beautician: {
     label: "Beautician",
@@ -116,6 +130,13 @@ export const KNOWN_CATEGORIES: Record<string, KnownCategoryDef> = {
   },
 };
 
+registerKnownCategoriesSeed(() =>
+  Object.values(KNOWN_CATEGORIES).map((c) => ({
+    label: c.label,
+    aliases: c.aliases,
+  })),
+);
+
 const KNOWN_CATEGORY_LIST = Object.values(KNOWN_CATEGORIES);
 
 /** Canonical labels for categories whose catalog default service_mode is help. */
@@ -149,14 +170,13 @@ export async function resolveCategoryFromDB(
   return match?.label ?? null;
 }
 
-/** Map free-text / voice input to a canonical category label, or null if no match. */
+/**
+ * Map free-text / voice input to a canonical category label, or null if no match.
+ * Uses DB-backed category_search_terms (cache), with KNOWN_CATEGORIES seed as fallback.
+ * @deprecated Prefer resolveCanonicalTerms for multi-category results.
+ */
 export function resolveCanonicalTerm(rawInput: string): string | null {
-  const t = rawInput.toLowerCase().trim();
-  for (const c of KNOWN_CATEGORY_LIST) {
-    if (c.label.toLowerCase() === t) return c.label;
-    if (c.aliases.some((a) => t.includes(a))) return c.label;
-  }
-  return null;
+  return resolveCanonicalTerms(rawInput)[0]?.label ?? null;
 }
 
 /**

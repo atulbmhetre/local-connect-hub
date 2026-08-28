@@ -356,7 +356,7 @@ test('FD-REQ-13 — Tapping vendor chip on recommendation navigates to Radar wit
   // highlight wrapper + card both match — .first() targets card
   await expect(
     page
-      .locator(`#radar-vendor-card-${vendor.id}`)
+      .locator(`[data-testid="radar-vendor-card"][data-vendor-id="${vendor.id}"]`)
       .or(page.getByTestId('radar-vendor-card').filter({ hasText: vendor.shop_name }))
       .first(),
   ).toBeVisible({ timeout: 20000 });

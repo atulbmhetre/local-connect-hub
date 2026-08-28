@@ -96,8 +96,11 @@ import {
   isOfficialEmergencyCategory,
   isPharmacyMedicalSearch,
   resolveCanonicalTerm,
+  resolveCanonicalTerms,
   showGovHelpAlongsideRadiusExpand,
 } from "@/lib/categories";
+import { refreshCategorySearchTermsCache } from "@/lib/categorySearchTerms";
+import { groupRadarResultsByCategory } from "@/lib/radarResultGroups";
 
 const RADAR_SUBSCRIPTION_OR =
   "subscription_status.is.null,subscription_status.in.(trial,active,grace)";
@@ -162,12 +165,22 @@ function parseRadarMode(raw: string | null): RadarMode | null {
 }
 
 function resolveAllCategoryIdsForTerm(term: string, categories: Category[]): string[] {
-  const resolvedLabel = resolveCanonicalTerm(term);
-  if (resolvedLabel) {
-    const exact = categories.find(
-      (c) => c.label.toLowerCase() === resolvedLabel.toLowerCase(),
-    );
-    if (exact) return [exact.id];
+  const matches = resolveCanonicalTerms(term);
+  if (matches.length > 0) {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const m of matches) {
+      const exact = categories.find(
+        (c) =>
+          c.id === m.categoryId ||
+          c.label.toLowerCase() === m.label.toLowerCase(),
+      );
+      if (exact && !seen.has(exact.id)) {
+        seen.add(exact.id);
+        ids.push(exact.id);
+      }
+    }
+    if (ids.length > 0) return ids;
   }
   const t = term.trim().toLowerCase();
   if (!t) return [];
@@ -479,6 +492,7 @@ const RadarSearch = () => {
       setCategories((data ?? []) as Category[]);
       setCategoriesLoaded(true);
       setCategoriesNetworkStatus(null);
+      void refreshCategorySearchTermsCache();
     } catch (err) {
       dismissNetworkRetryingToast();
       console.error("radar categories load", err);
@@ -1496,84 +1510,102 @@ const RadarSearch = () => {
           <p className="text-center text-[11px] text-muted-foreground px-4 mb-3">
             {s.radar_delivery_disclaimer}
           </p>
-          <div className="space-y-3">
-            {localResults.map(({ vendor, dist }, i) => {
+          {(() => {
+            const localGrouped = groupRadarResultsByCategory(localResults);
+            const panGrouped = groupRadarResultsByCategory(panIndiaResults);
+            const renderCard = (
+              { vendor, dist }: Ranked,
+              i: number,
+              opts?: { showPanIndiaBadge?: boolean },
+            ) => {
               const cardKey = radarResultKey(
                 vendor.id,
                 vendor.categories[0]?.category_id ?? "",
               );
               return (
-              <div
-                key={cardKey}
-                id={`radar-vendor-card-${cardKey}`}
-                data-testid="radar-vendor-card"
-                data-category-id={vendor.categories[0]?.category_id ?? undefined}
-                className={cn(
-                  flashVendorId === vendor.id &&
-                    "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse rounded-2xl",
-                )}
-              >
-                <RadarVendorCard
-                  vendor={vendor}
-                  radarServiceMode={selectedMode}
-                  dist={dist}
-                  index={i}
-                  userNeed={term}
-                  categories={vendor.categories}
-                  trustLevel={vendor.trustLevel}
-                  menuItems={vendor.menuPreview}
-                  isSaved={savedByVendorId[vendor.id] ?? false}
-                  hasOrdered={vendor.hasActiveOrder}
-                  hasFulfilledOrder={vendor.hasFulfilledOrder}
-                  fulfilledRequestId={vendor.fulfilledRequestId}
-                  displayBrandName={vendor.displayBrandName}
-                  onOrderCancelled={() => void fetchVendors({ silent: true })}
-                />
-              </div>
-            );
-            })}
-            {!isPanIndiaBracket && panIndiaResults.length > 0 && (
-              <p className="px-4 pt-2 pb-1 text-xs font-bold uppercase tracking-widest text-brand">
-                {s.radar_pan_india_section}
-              </p>
-            )}
-            {panIndiaResults.map(({ vendor, dist }, i) => {
-              const cardKey = radarResultKey(
-                vendor.id,
-                vendor.categories[0]?.category_id ?? "",
+                <div
+                  key={cardKey}
+                  className={cn(
+                    flashVendorId === vendor.id &&
+                      "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse rounded-2xl",
+                  )}
+                >
+                  <RadarVendorCard
+                    vendor={vendor}
+                    radarServiceMode={selectedMode}
+                    dist={dist}
+                    index={i}
+                    userNeed={term}
+                    categories={vendor.categories}
+                    trustLevel={vendor.trustLevel}
+                    menuItems={vendor.menuPreview}
+                    isSaved={savedByVendorId[vendor.id] ?? false}
+                    hasOrdered={vendor.hasActiveOrder}
+                    hasFulfilledOrder={vendor.hasFulfilledOrder}
+                    fulfilledRequestId={vendor.fulfilledRequestId}
+                    displayBrandName={vendor.displayBrandName}
+                    showPanIndiaBadge={opts?.showPanIndiaBadge}
+                    onOrderCancelled={() => void fetchVendors({ silent: true })}
+                  />
+                </div>
               );
-              return (
-              <div
-                key={cardKey}
-                id={`radar-vendor-card-${cardKey}`}
-                data-testid="radar-vendor-card"
-                data-category-id={vendor.categories[0]?.category_id ?? undefined}
-                className={cn(
-                  flashVendorId === vendor.id &&
-                    "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse rounded-2xl",
+            };
+
+            let cardIndex = 0;
+            return (
+              <div className="space-y-3">
+                {localGrouped.shouldGroup
+                  ? localGrouped.groups.map((group) => (
+                      <div
+                        key={group.categoryId}
+                        className="space-y-3"
+                        data-testid={`radar-category-group-${group.categoryId}`}
+                      >
+                        <p
+                          className="px-4 pt-1 pb-0.5 text-xs font-bold uppercase tracking-widest text-brand flex items-center gap-1.5"
+                          data-testid="radar-category-group-header"
+                        >
+                          <span aria-hidden>{group.emoji}</span>
+                          <span>{getCategoryLabel(group.label)}</span>
+                        </p>
+                        {group.items.map((row) =>
+                          renderCard(row, cardIndex++),
+                        )}
+                      </div>
+                    ))
+                  : localResults.map((row) => renderCard(row, cardIndex++))}
+
+                {!isPanIndiaBracket && panIndiaResults.length > 0 && (
+                  <p className="px-4 pt-2 pb-1 text-xs font-bold uppercase tracking-widest text-brand">
+                    {s.radar_pan_india_section}
+                  </p>
                 )}
-              >
-                <RadarVendorCard
-                  vendor={vendor}
-                  radarServiceMode={selectedMode}
-                  dist={dist}
-                  index={localResults.length + i}
-                  userNeed={term}
-                  categories={vendor.categories}
-                  trustLevel={vendor.trustLevel}
-                  menuItems={vendor.menuPreview}
-                  isSaved={savedByVendorId[vendor.id] ?? false}
-                  hasOrdered={vendor.hasActiveOrder}
-                  hasFulfilledOrder={vendor.hasFulfilledOrder}
-                  fulfilledRequestId={vendor.fulfilledRequestId}
-                  displayBrandName={vendor.displayBrandName}
-                  showPanIndiaBadge
-                  onOrderCancelled={() => void fetchVendors({ silent: true })}
-                />
+
+                {panGrouped.shouldGroup
+                  ? panGrouped.groups.map((group) => (
+                      <div
+                        key={`pan-${group.categoryId}`}
+                        className="space-y-3"
+                        data-testid={`radar-category-group-pan-${group.categoryId}`}
+                      >
+                        <p
+                          className="px-4 pt-1 pb-0.5 text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5"
+                          data-testid="radar-category-group-header"
+                        >
+                          <span aria-hidden>{group.emoji}</span>
+                          <span>{getCategoryLabel(group.label)}</span>
+                        </p>
+                        {group.items.map((row) =>
+                          renderCard(row, cardIndex++, { showPanIndiaBadge: true }),
+                        )}
+                      </div>
+                    ))
+                  : panIndiaResults.map((row) =>
+                      renderCard(row, cardIndex++, { showPanIndiaBadge: true }),
+                    )}
               </div>
             );
-            })}
-          </div>
+          })()}
           {resultsTruncated && (
             <p
               className="mx-4 mt-3 text-center text-xs text-muted-foreground leading-relaxed"

@@ -57,7 +57,9 @@ async function seedCustomer() {
   if (error) throw error;
 }
 
-async function createVendor(tag: string): Promise<VendorRow> {
+type VendorWithCategory = VendorRow & { category_id: string };
+
+async function createVendor(tag: string): Promise<VendorWithCategory> {
   const category = await getActiveCategoryByServiceMode('delivery');
   const phone = nextVendorPhone();
   const { data: vendor, error } = await supabaseAdmin
@@ -78,12 +80,18 @@ async function createVendor(tag: string): Promise<VendorRow> {
     .select('id, phone, shop_name')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category);
+  await seedVendorCategory(vendor.id, category, {
+    upi_id: `prf-vendor-${T}@upi`,
+  });
   createdVendorIds.push(vendor.id);
-  return vendor;
+  return { ...vendor, category_id: category.id };
 }
 
-async function seedFulfilledOrderWithUnpaidBill(vendorId: string, message: string) {
+async function seedFulfilledOrderWithUnpaidBill(
+  vendorId: string,
+  message: string,
+  categoryId: string,
+) {
   const { data: request, error: reqError } = await supabaseAdmin
     .from('requests')
     .insert({
@@ -94,6 +102,7 @@ async function seedFulfilledOrderWithUnpaidBill(vendorId: string, message: strin
       status: 'fulfilled',
       payment_status: 'unpaid',
       service_mode: 'delivery',
+      category_id: categoryId,
       delivery_slot: 'morning',
       delivery_fulfillment_method: 'agent',
       delivery_payment_timing: 'prepaid',
@@ -185,7 +194,7 @@ test.afterAll(async () => {
 test('PRF-01 — Pay Now → simulated resume → Yes → UTR field appears', async ({ page }) => {
   const vendor = await createVendor('01');
   const msg = `PRF-01 resume yes ${T}`;
-  const { requestId } = await seedFulfilledOrderWithUnpaidBill(vendor.id, msg);
+  const { requestId } = await seedFulfilledOrderWithUnpaidBill(vendor.id, msg, vendor.category_id);
 
   try {
     await stubUpiDeepLinkOpen(page);
@@ -217,7 +226,7 @@ test('PRF-01 — Pay Now → simulated resume → Yes → UTR field appears', as
 test('PRF-02 — Pay Now → simulated resume → No → resets to Pay Now', async ({ page }) => {
   const vendor = await createVendor('02');
   const msg = `PRF-02 resume no ${T}`;
-  const { requestId } = await seedFulfilledOrderWithUnpaidBill(vendor.id, msg);
+  const { requestId } = await seedFulfilledOrderWithUnpaidBill(vendor.id, msg, vendor.category_id);
 
   try {
     await stubUpiDeepLinkOpen(page);
@@ -246,7 +255,7 @@ test('PRF-02 — Pay Now → simulated resume → No → resets to Pay Now', asy
 test('PRF-03 — resume prompt does not appear if Pay Now was never tapped', async ({ page }) => {
   const vendor = await createVendor('03');
   const msg = `PRF-03 no pay tap ${T}`;
-  const { requestId } = await seedFulfilledOrderWithUnpaidBill(vendor.id, msg);
+  const { requestId } = await seedFulfilledOrderWithUnpaidBill(vendor.id, msg, vendor.category_id);
 
   try {
     await stubUpiDeepLinkOpen(page);
@@ -274,7 +283,7 @@ test('PRF-03 — resume prompt does not appear if Pay Now was never tapped', asy
 test('PRF-04 — auto-rating does not stack over payment sheet', async ({ page }) => {
   const vendor = await createVendor('04');
   const msg = `PRF-04 auto-rating gate ${T}`;
-  const { requestId } = await seedFulfilledOrderWithUnpaidBill(vendor.id, msg);
+  const { requestId } = await seedFulfilledOrderWithUnpaidBill(vendor.id, msg, vendor.category_id);
 
   try {
     await seedCustomer();

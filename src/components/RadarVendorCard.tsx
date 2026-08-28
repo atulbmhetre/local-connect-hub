@@ -43,6 +43,7 @@ import {
   resolveCategoryReach,
   formatRadarReachLabels,
 } from "@/lib/categoryScopedVendor";
+import { radarResultKey } from "@/lib/radarBusinessCards";
 
 const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
 const VENDOR_SELF_STORAGE_KEY = "aaspaas:vendor_id";
@@ -823,10 +824,15 @@ export function RadarVendorCard({
         ? s.radar_pill_appointment
         : s.radar_pill_help;
 
+  const cardDomId = `radar-vendor-card-${radarResultKey(vendor.id, matchedCategoryId ?? "")}`;
+
   return (
     <>
     <div
+      id={cardDomId}
       data-testid="radar-vendor-card"
+      data-vendor-id={vendor.id}
+      data-category-id={matchedCategoryId ?? undefined}
       className={cn(
         "relative mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-fade-up",
         accentRing,

@@ -28,6 +28,7 @@ import { getVoiceLang } from "@/lib/voiceUtils";
 import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
 import { billUnitOptions } from "@/lib/billUnits";
 import { captureError } from "@/lib/sentry";
+import { safeRandomUUID } from "@/lib/safeRandomUUID";
 import { parseBillQuantity, parseBillUnitPrice } from "@/lib/billEdit";
 import { applyCatalogItemTap } from "@/lib/billMenuCatalog";
 import { BillMenuCatalogPicker } from "@/components/BillMenuCatalogPicker";
@@ -68,7 +69,7 @@ type BillItem = {
 
 function newBillItem(): BillItem {
   return {
-    id: crypto.randomUUID(),
+    id: safeRandomUUID(),
     description: "",
     quantity: "1",
     unit: "",
@@ -108,7 +109,7 @@ export function BillSheet({
     if (!requestItems || requestItems.length === 0) return;
     
     const generatedItems: BillItem[] = requestItems.map((item) => ({
-      id: crypto.randomUUID(),
+      id: safeRandomUUID(),
       description: item.name || "Item",
       quantity: String(item.quantity || 1),
       unit: item.unit || "",
@@ -377,7 +378,7 @@ export function BillSheet({
               unit?: string;
               unit_price?: number;
             }) => ({
-              id: crypto.randomUUID(),
+              id: safeRandomUUID(),
               description: i.description ?? "",
               quantity: String(i.quantity ?? 1),
               unit: i.unit ?? "",
@@ -440,7 +441,7 @@ export function BillSheet({
                   unit?: string;
                   unit_price?: number;
                 }) => ({
-                  id: crypto.randomUUID(),
+                  id: safeRandomUUID(),
                   description: i.description ?? "",
                   quantity: String(i.quantity ?? 1),
                   unit: i.unit ?? "",

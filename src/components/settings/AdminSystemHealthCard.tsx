@@ -4,6 +4,8 @@ import { SettingsCard } from "@/components/settings/SettingsSection";
 
 const MONITORED_FUNCTIONS = [
   { key: "suggest-category", label: "AI Category" },
+  { key: "suggest-category-aliases", label: "AI Aliases" },
+  { key: "propose-corrective-alias", label: "Corrective Aliases" },
   { key: "parse-image-bill", label: "Bill Scanner" },
   { key: "parse-image-order", label: "Order Scanner" },
   { key: "process-new-category", label: "Category Processor" },

@@ -3,13 +3,8 @@ import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.test' });
 
-// Atul's decision: Therapist and Beautician are permanently distinct categories,
-// and BOTH must surface as candidates for ambiguous wellness/massage queries so
-// the tier sheet (customer choice) does the disambiguation — never the system.
-//
-// NOTE: this exercises the ranked Groq path in ai-gateway's classify_category.
-// If GROQ_API_KEY is missing on the project, the gateway silently degrades to
-// the suggest-category single-guess fallback (max 1 candidate) and this fails.
+// Therapist catalog category was removed. Ambiguous wellness/massage queries
+// should surface Beautician (static aliases still map therapist/massage → Beautician).
 
 const GATEWAY_URL = `${process.env.VITE_SUPABASE_URL}/functions/v1/ai-gateway`;
 
@@ -31,13 +26,11 @@ async function classify(term: string): Promise<string[]> {
     .filter(Boolean);
 }
 
-test.describe('ai-gateway classify_category — wellness disambiguation', () => {
-  test('ACW-01: ambiguous wellness query surfaces BOTH Therapist and Beautician as candidates', async () => {
+test.describe('ai-gateway classify_category — wellness', () => {
+  test('ACW-01: ambiguous wellness query surfaces Beautician (Therapist removed)', async () => {
     const labels = await classify('need a massage');
     console.log('ACW-01 candidates for "need a massage":', JSON.stringify(labels));
-    // Order doesn't matter, presence does — the customer picks in the tier sheet.
-    expect(labels).toEqual(
-      expect.arrayContaining(['Therapist', 'Beautician']),
-    );
+    expect(labels).toContain('Beautician');
+    expect(labels).not.toContain('Therapist');
   });
 });

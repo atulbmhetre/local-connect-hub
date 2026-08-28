@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { safeRandomUUID } from '@/lib/safeRandomUUID';
 
 describe('BillSheet Structured Items Logic', () => {
   it('converts structured order items to bill items format', () => {
@@ -27,7 +28,7 @@ describe('BillSheet Structured Items Logic', () => {
 
     // Simulate the generateBillFromOrder logic
     const generatedItems = mockRequestItems.map((item) => ({
-      id: crypto.randomUUID(),
+      id: safeRandomUUID(),
       description: item.name || "Item",
       quantity: String(item.quantity || 1),
       unit: item.unit || "",
@@ -83,7 +84,7 @@ describe('BillSheet Structured Items Logic', () => {
     ];
 
     const generatedItems = mockRequestItems.map((item) => ({
-      id: crypto.randomUUID(),
+      id: safeRandomUUID(),
       description: item.name || "Item",
       quantity: String(item.quantity || 1),
       unit: item.unit || "",

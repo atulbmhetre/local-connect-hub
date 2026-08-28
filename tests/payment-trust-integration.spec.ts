@@ -44,13 +44,14 @@ function nextVendorPhone(): string {
 async function createDeliveryVendor(tag: string, withPaidHistory = false) {
   const category = await getActiveCategoryByServiceMode('delivery');
   const phone = nextVendorPhone();
+  const upiId = `pti-${tag}-${T}@upi`;
   const { data: vendor, error } = await supabaseAdmin
     .from('vendors')
     .insert({
       name: `PTI Vendor ${tag}`,
       shop_name: `!PTI-${tag}-${T}`,
       phone,
-      upi_id: `pti-${tag}-${T}@upi`,
+      upi_id: upiId,
       category: category.label,
       service_mode: 'delivery',
       latitude: 18.5204,
@@ -62,7 +63,10 @@ async function createDeliveryVendor(tag: string, withPaidHistory = false) {
     .select('id, phone, shop_name')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category, { serves_at_customer_place: true });
+  await seedVendorCategory(vendor.id, category, {
+    serves_at_customer_place: true,
+    upi_id: upiId,
+  });
   await supabaseAdmin
     .from('vendor_categories')
     .update({
@@ -84,6 +88,7 @@ async function createDeliveryVendor(tag: string, withPaidHistory = false) {
           message: `hist-${i}`,
           status: 'fulfilled',
           service_mode: 'delivery',
+          category_id: category.id,
           delivery_fulfillment_method: 'agent',
           delivery_payment_timing: 'prepaid',
         })
@@ -102,7 +107,7 @@ async function createDeliveryVendor(tag: string, withPaidHistory = false) {
     }
   }
 
-  return vendor;
+  return { ...vendor, category_id: category.id };
 }
 
 async function placeDeliveryOrder(vendorId: string, message: string) {

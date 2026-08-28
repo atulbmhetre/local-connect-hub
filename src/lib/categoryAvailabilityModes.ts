@@ -13,43 +13,64 @@ export function resolveCatalogServiceMode(
   return "help";
 }
 
-/** Default vendor_category_modes when a category is first selected in the UI. */
+/** Default vendor_category_modes when a category is first selected in the UI.
+ * Help/Appointment start empty — vendor must pick Urgent / Scheduled / Both.
+ * Delivery still defaults to delivery (separate deliver-vs-pickup question).
+ */
 export function initialModesForCatalog(catalog: CategoryServiceMode): AvailabilityMode[] {
   switch (catalog) {
     case "help":
-      return ["help"];
+    case "appointment":
+      return [];
     case "delivery":
       return ["delivery"];
-    case "appointment":
-      return ["appointment"];
     default:
-      return ["help"];
+      return [];
   }
 }
 
 /**
- * Keep only modes valid for the catalog type and ensure the base mode is always on.
- * Help-default: help (+ optional appointment). Delivery-default: delivery OR appointment.
- * Appointment-default: appointment (+ optional help).
+ * Keep only modes valid for the catalog type.
+ * Help/Appointment: help and/or appointment (empty allowed until the vendor picks).
+ * Delivery-default: delivery OR appointment (shop pickup); empty → delivery.
  */
 export function ensureCatalogBaseModes(
   modes: readonly string[] | null | undefined,
   catalog: CategoryServiceMode,
 ): AvailabilityMode[] {
   const normalized = normalizeAvailabilityModes(modes);
-  if (catalog === "help") {
-    const next: AvailabilityMode[] = ["help"];
-    if (normalized.includes("appointment")) next.push("appointment");
-    return next;
-  }
-  if (catalog === "appointment") {
-    const next: AvailabilityMode[] = ["appointment"];
+  if (catalog === "help" || catalog === "appointment") {
+    const next: AvailabilityMode[] = [];
     if (normalized.includes("help")) next.push("help");
+    if (normalized.includes("appointment")) next.push("appointment");
     return next;
   }
   if (normalized.includes("delivery")) return ["delivery"];
   if (normalized.includes("appointment")) return ["appointment"];
   return ["delivery"];
+}
+
+/** Three-way Help↔Appointment choice for the mode selector (null = nothing picked yet). */
+export type HelpAppointmentChoice = "urgent" | "scheduled" | "both";
+
+export function helpAppointmentModesToChoice(
+  modes: readonly string[] | null | undefined,
+): HelpAppointmentChoice | null {
+  const normalized = normalizeAvailabilityModes(modes);
+  const hasHelp = normalized.includes("help");
+  const hasAppt = normalized.includes("appointment");
+  if (hasHelp && hasAppt) return "both";
+  if (hasHelp) return "urgent";
+  if (hasAppt) return "scheduled";
+  return null;
+}
+
+export function helpAppointmentChoiceToModes(
+  choice: HelpAppointmentChoice,
+): AvailabilityMode[] {
+  if (choice === "urgent") return ["help"];
+  if (choice === "scheduled") return ["appointment"];
+  return ["help", "appointment"];
 }
 
 export const AVAILABILITY_MODE_ORDER: AvailabilityMode[] = [

@@ -242,6 +242,7 @@ export type CategorySuggestionOutcome =
   | "new_suggested"
   | "medium_new"
   | "new_pending"
+  /** @deprecated Phase 3 — never returned; human review only. */
   | "new_auto_approved"
   | "low_confidence";
 
@@ -582,7 +583,12 @@ export {
   type GpsMatchFailureSource,
 } from "@/lib/gpsMatch";
 
-import { resolveCanonicalTerm, resolveCategoryFromDB } from "@/lib/categories";
+import {
+  resolveCanonicalTerms,
+  resolveCategoryFromDB,
+  resolveFuzzyCanonicalTerms,
+} from "@/lib/categories";
+import { refreshCategorySearchTermsCache } from "@/lib/categorySearchTerms";
 
 /** One ranked category suggestion from the classify_category gateway action. */
 export type ClassifySearchCandidate = {
@@ -600,7 +606,7 @@ export type ClassifySearchCandidate = {
  * There is intentionally no auto-accepted single guess and no "Other" term.
  */
 export type ClassifySearchForRadarResult =
-  | { outcome: "exact"; query: string }
+  | { outcome: "exact"; query: string; mode?: "help" | "delivery" | "appointment" }
   | { outcome: "hint"; message: string }
   | { outcome: "candidates"; candidates: ClassifySearchCandidate[] }
   | { outcome: "fallback" };
@@ -635,22 +641,90 @@ export async function classifySearchTermForRadar(
   if (!term) return { outcome: "fallback" };
 
   const localCanon = await resolveCategoryFromDB(rawInput, dbCategories);
-  if (localCanon) return { outcome: "exact", query: localCanon };
-
-  // Same alias pre-pass Radar uses (resolveCanonicalTerm on the full phrase —
-  // aliases match via substring includes, so "I am looking for bike mechanic" hits
-  // "mechanic"). Only short-circuit when the resolved label is an active DB category.
-  const aliasCanon = resolveCanonicalTerm(term);
-  if (aliasCanon) {
-    const aliasInDb = dbCategories.find(
-      (c) => c.label.toLowerCase() === aliasCanon.toLowerCase(),
+  if (localCanon) {
+    const hit = dbCategories.find(
+      (c) => c.label.toLowerCase() === localCanon.toLowerCase(),
     );
-    if (aliasInDb) return { outcome: "exact", query: aliasInDb.label };
+    return {
+      outcome: "exact",
+      query: localCanon,
+      mode:
+        hit?.service_mode === "delivery" || hit?.service_mode === "appointment"
+          ? hit.service_mode
+          : hit
+            ? "help"
+            : undefined,
+    };
+  }
+
+  // Same alias pre-pass Radar uses (resolveCanonicalTerms — exact + substring
+  // both directions; returns ALL matching categories for multi-hit terms).
+  const aliasMatches = resolveCanonicalTerms(term)
+    .map((m) =>
+      dbCategories.find((c) => c.label.toLowerCase() === m.label.toLowerCase()),
+    )
+    .filter((c): c is Category => c != null);
+  if (aliasMatches.length === 1) {
+    const only = aliasMatches[0];
+    return {
+      outcome: "exact",
+      query: only.label,
+      mode:
+        only.service_mode === "delivery" || only.service_mode === "appointment"
+          ? only.service_mode
+          : "help",
+    };
+  }
+  if (aliasMatches.length > 1) {
+    // Phase 7: multiple exact aliases are all relevant — send the original
+    // typed term so Radar expands every matching category_id. Do NOT force a
+    // Did-you-mean pick (that permanently drops sibling categories).
+    const modes = new Set(aliasMatches.map((c) => c.service_mode));
+    const shared =
+      modes.size === 1 ? [...modes][0] : undefined;
+    return {
+      outcome: "exact",
+      query: term,
+      mode:
+        shared === "delivery" || shared === "appointment" || shared === "help"
+          ? shared
+          : undefined,
+    };
+  }
+
+  // Phase 6: trigram typo fallback — always "Did you mean" candidates, never silent exact.
+  const fuzzyMatches = await resolveFuzzyCanonicalTerms(term);
+  const fuzzyCats = fuzzyMatches
+    .map((m) =>
+      dbCategories.find((c) => c.label.toLowerCase() === m.label.toLowerCase()),
+    )
+    .filter((c): c is Category => c != null);
+  if (fuzzyCats.length > 0) {
+    const seen = new Set<string>();
+    const candidates = fuzzyCats
+      .filter((c) => {
+        if (seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      })
+      .map(
+        (c): ClassifySearchCandidate => ({
+          label: c.label,
+          emoji: c.emoji?.trim() || "✨",
+          mode:
+            c.service_mode === "delivery" || c.service_mode === "appointment"
+              ? c.service_mode
+              : "help",
+        }),
+      );
+    if (candidates.length > 0) {
+      return { outcome: "candidates", candidates };
+    }
   }
 
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 5_000);
+    const timer = setTimeout(() => ctrl.abort(), 12_000);
     const resp = await fetch(AI_GATEWAY_URL, {
       method: "POST",
       headers: {
@@ -959,6 +1033,7 @@ export async function fetchCategories(): Promise<Category[]> {
   // only answered "does an active vendor exist anywhere?", not whether one is
   // reachable for this customer. Radar is the correct gatekeeper: it enforces
   // distance <= min(customer search bracket, each vendor's service_radius_km).
+  void refreshCategorySearchTermsCache();
   return (data ?? []) as Category[];
 }
 

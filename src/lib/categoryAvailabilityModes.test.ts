@@ -1,84 +1,71 @@
 import { describe, expect, it } from "vitest";
-import { HELP_DEFAULT_CATEGORY_LABELS } from "@/lib/categories";
 import {
   allCategoriesHaveModes,
   buildCategoryModesPayload,
   ensureCatalogBaseModes,
+  helpAppointmentChoiceToModes,
+  helpAppointmentModesToChoice,
   initialModesForCatalog,
   normalizeAvailabilityModes,
   pickPrimaryAvailabilityMode,
-  resolveCatalogServiceMode,
   toggleAvailabilityMode,
   unionAvailabilityModes,
 } from "@/lib/categoryAvailabilityModes";
 
 describe("categoryAvailabilityModes", () => {
-  it("normalizes and orders modes", () => {
+  it("normalizeAvailabilityModes dedupes and orders", () => {
     expect(normalizeAvailabilityModes(["appointment", "help", "help", "bogus"])).toEqual([
       "help",
       "appointment",
     ]);
   });
 
-  it("picks catalog mode when selected", () => {
-    expect(pickPrimaryAvailabilityMode(["delivery", "help"], "help")).toBe("help");
-    expect(pickPrimaryAvailabilityMode(["delivery", "appointment"], "help")).toBe("delivery");
+  it("pickPrimaryAvailabilityMode prefers catalog when present", () => {
+    expect(pickPrimaryAvailabilityMode(["appointment", "help"], "help")).toBe("help");
+    expect(pickPrimaryAvailabilityMode(["appointment"], "help")).toBe("appointment");
   });
 
-  it("toggleAvailabilityMode adds and removes modes independently", () => {
-    expect(toggleAvailabilityMode([], "help")).toEqual(["help"]);
-    expect(toggleAvailabilityMode(["help"], "appointment")).toEqual(["help", "appointment"]);
-    expect(toggleAvailabilityMode(["help", "appointment"], "help")).toEqual(["appointment"]);
+  it("toggleAvailabilityMode keeps at least one by default", () => {
     expect(toggleAvailabilityMode(["help"], "help")).toEqual(["help"]);
-    expect(toggleAvailabilityMode(["help"], "help", { allowEmpty: true })).toEqual([]);
+    expect(toggleAvailabilityMode(["help", "appointment"], "help")).toEqual(["appointment"]);
   });
 
-  it("selecting only Help yields exactly one mode", () => {
-    const afterHelpOnly = toggleAvailabilityMode([], "help");
-    expect(afterHelpOnly).toEqual(["help"]);
-    expect(buildCategoryModesPayload(["cat-1"], { "cat-1": afterHelpOnly })).toEqual({
-      "cat-1": ["help"],
-    });
+  it("allCategoriesHaveModes requires every selected category", () => {
+    expect(allCategoriesHaveModes(["a", "b"], { a: ["help"], b: [] })).toBe(false);
+    expect(allCategoriesHaveModes(["a", "b"], { a: ["help"], b: ["delivery"] })).toBe(true);
   });
 
-  it("builds payload with full multi-mode arrays per category", () => {
-    const ids = ["a", "b"];
-    const map = {
-      a: ["help" as const],
-      b: ["delivery" as const, "appointment" as const],
-    };
-    expect(allCategoriesHaveModes(ids, map)).toBe(true);
-    expect(allCategoriesHaveModes(ids, { a: ["help"], b: [] })).toBe(false);
-    expect(buildCategoryModesPayload(ids, map)).toEqual({
-      a: ["help"],
-      b: ["delivery", "appointment"],
-    });
+  it("buildCategoryModesPayload emits normalized arrays", () => {
+    expect(
+      buildCategoryModesPayload(["c1"], { c1: ["appointment", "help", "help"] }),
+    ).toEqual({ c1: ["help", "appointment"] });
   });
 
-  it("unions modes across categories", () => {
+  it("unionAvailabilityModes merges across categories", () => {
     expect(
       unionAvailabilityModes({
-        a: ["appointment"],
-        b: ["delivery", "help"],
+        a: ["help"],
+        b: ["appointment", "delivery"],
       }),
     ).toEqual(["help", "delivery", "appointment"]);
   });
 
-  it("resolveCatalogServiceMode maps booking to appointment", () => {
-    expect(resolveCatalogServiceMode("booking")).toBe("appointment");
-    expect(resolveCatalogServiceMode("help")).toBe("help");
-  });
-
-  it("initialModesForCatalog matches catalog defaults", () => {
-    expect(initialModesForCatalog("help")).toEqual(["help"]);
+  it("initialModesForCatalog leaves help/appointment unset until the vendor picks", () => {
+    expect(initialModesForCatalog("help")).toEqual([]);
+    expect(initialModesForCatalog("appointment")).toEqual([]);
     expect(initialModesForCatalog("delivery")).toEqual(["delivery"]);
-    expect(initialModesForCatalog("appointment")).toEqual(["appointment"]);
   });
 
-  it("ensureCatalogBaseModes keeps help on for help-default categories", () => {
-    expect(ensureCatalogBaseModes(["appointment"], "help")).toEqual(["help", "appointment"]);
-    expect(ensureCatalogBaseModes(["delivery", "help"], "help")).toEqual(["help"]);
-    expect(ensureCatalogBaseModes([], "help")).toEqual(["help"]);
+  it("ensureCatalogBaseModes allows urgent-only, scheduled-only, or both", () => {
+    expect(ensureCatalogBaseModes(["appointment"], "help")).toEqual(["appointment"]);
+    expect(ensureCatalogBaseModes(["help"], "help")).toEqual(["help"]);
+    expect(ensureCatalogBaseModes(["help", "appointment"], "help")).toEqual([
+      "help",
+      "appointment",
+    ]);
+    expect(ensureCatalogBaseModes([], "help")).toEqual([]);
+    expect(ensureCatalogBaseModes(["help"], "appointment")).toEqual(["help"]);
+    expect(ensureCatalogBaseModes([], "appointment")).toEqual([]);
   });
 
   it("ensureCatalogBaseModes for delivery-default is delivery or pickup appointment", () => {
@@ -87,15 +74,13 @@ describe("categoryAvailabilityModes", () => {
     expect(ensureCatalogBaseModes([], "delivery")).toEqual(["delivery"]);
   });
 
-  it("ensureCatalogBaseModes for appointment-default adds optional help", () => {
-    expect(ensureCatalogBaseModes(["help"], "appointment")).toEqual(["appointment", "help"]);
-    expect(ensureCatalogBaseModes([], "appointment")).toEqual(["appointment"]);
-  });
-
-  it("HELP_DEFAULT_CATEGORY_LABELS includes mechanic and excludes grocery", () => {
-    expect(HELP_DEFAULT_CATEGORY_LABELS).toContain("Mechanic");
-    expect(HELP_DEFAULT_CATEGORY_LABELS).toContain("Electrician");
-    expect(HELP_DEFAULT_CATEGORY_LABELS).not.toContain("Grocery Store");
-    expect(HELP_DEFAULT_CATEGORY_LABELS).not.toContain("Beautician");
+  it("helpAppointment choice maps both ways", () => {
+    expect(helpAppointmentModesToChoice([])).toBeNull();
+    expect(helpAppointmentModesToChoice(["help"])).toBe("urgent");
+    expect(helpAppointmentModesToChoice(["appointment"])).toBe("scheduled");
+    expect(helpAppointmentModesToChoice(["help", "appointment"])).toBe("both");
+    expect(helpAppointmentChoiceToModes("urgent")).toEqual(["help"]);
+    expect(helpAppointmentChoiceToModes("scheduled")).toEqual(["appointment"]);
+    expect(helpAppointmentChoiceToModes("both")).toEqual(["help", "appointment"]);
   });
 });

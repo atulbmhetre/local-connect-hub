@@ -37,6 +37,10 @@ import { captureError } from "@/lib/sentry";
 import { customerOrderShowsLiveLocation } from "@/lib/vendorTrackingPolicy";
 import { savedNeighbourDisplayName } from "@/lib/savedVendors";
 import { fetchBusinessPhotos, resolveVendorPhoto } from "@/lib/businessPhotoFallback";
+import {
+  logUnresolvedSearchTermReturningId,
+  triggerCorrectiveAliasProposal,
+} from "@/lib/correctiveSearchAliases";
 
 type SavedNeighbourTile = {
   savedId: string;
@@ -60,7 +64,7 @@ type SavedVendorRemovalNotice = {
 
 /** Tiered AI-search suggestion sheet state (null = closed). */
 type SuggestSheetState = {
-  /** The user's original free text, preserved verbatim. */
+  /** The user's free text for this classification attempt, preserved verbatim. */
   searchText: string;
   candidates: ClassifySearchCandidate[];
   tier: 1 | 2;
@@ -68,6 +72,8 @@ type SuggestSheetState = {
   rephrasing: boolean;
   /** This classification came from a rephrased search (second attempt). */
   wasRephrased: boolean;
+  /** Prior search text when wasRephrased (for unresolved-term capture). */
+  originalSearchText: string | null;
 };
 
 function isVendorLocationStale(
@@ -118,6 +124,7 @@ const Index = () => {
   const [helpBannerTick, setHelpBannerTick] = useState(0);
   const [removalNotices, setRemovalNotices] = useState<SavedVendorRemovalNotice[]>([]);
   const [welcomed, setWelcomed] = useState(() => hasBeenWelcomed());
+  const [unsavingNeighbourId, setUnsavingNeighbourId] = useState<string | null>(null);
 
   const loadSavedNeighbours = useCallback(async () => {
     setSavedNeighboursError(false);
@@ -186,6 +193,41 @@ const Index = () => {
       setSavedNeighboursBusinessPhotos(new Map());
     }
   }, [categories]);
+
+  const unsaveSavedNeighbour = useCallback(
+    async (vendorId: string) => {
+      if (unsavingNeighbourId) return;
+      setUnsavingNeighbourId(vendorId);
+      const device_id = getDeviceId();
+      const phone = getUserPhone();
+      try {
+        const { error } = await supabase.rpc("unsave_saved_vendor", {
+          p_vendor_id: vendorId,
+          p_device_id: device_id,
+          p_user_phone: phone ?? null,
+        });
+        if (error) {
+          captureError(error, {
+            homeSurface: "saved_neighbours",
+            operation: "unsave_saved_vendor",
+            vendorId,
+          });
+          toast.error(s.couldNotRemove, { description: error.message });
+          return;
+        }
+        try {
+          sessionStorage.removeItem(`aaspaas:saved:${vendorId}`);
+        } catch {
+          /* ignore */
+        }
+        toast.success(s.removedFromNeighbourhood);
+        await loadSavedNeighbours();
+      } finally {
+        setUnsavingNeighbourId(null);
+      }
+    },
+    [unsavingNeighbourId, loadSavedNeighbours, s.couldNotRemove, s.removedFromNeighbourhood],
+  );
 
   useEffect(() => {
     const handler = () => setUserPhone(getUserPhone());
@@ -481,8 +523,15 @@ const Index = () => {
   }
 
   /** No confident category match — growth message, not "browse categories below". */
+  /** No confident category match — growth message, not "browse categories below". */
   const showCategoryUnavailable = () => {
     toast.info(s.search_category_unavailable, { duration: 4000 });
+  };
+
+  /** Graceful degradation after a rephrased search still fails: browse the full grid. */
+  const fallThroughToCategoryGrid = () => {
+    toast.info(s.search_fallback, { duration: 3000 });
+    document.getElementById("category-grid")?.scrollIntoView({ behavior: "smooth" });
   };
 
   /**
@@ -490,14 +539,18 @@ const Index = () => {
    * Only an exact category-label match navigates directly; every AI guess is
    * surfaced as ranked candidates the user must confirm in the suggest sheet.
    */
-  const runFreeTextSearch = async (raw: string) => {
+  const runFreeTextSearch = async (
+    raw: string,
+    wasRephrased = false,
+    originalSearchText: string | null = null,
+  ) => {
     const term = raw.trim();
     if (!term) return;
     setClassifying(true);
     try {
       const r = await classifySearchTermForRadar(term, categories);
       if (r.outcome === "exact") {
-        goToRadar(r.query);
+        goToRadar(r.query, r.mode);
         return;
       }
       if (r.outcome === "hint") {
@@ -505,6 +558,7 @@ const Index = () => {
         return;
       }
       if (r.outcome === "fallback") {
+        // Honesty gate from f703937: no_confident_match stays unavailable, not browse.
         showCategoryUnavailable();
         return;
       }
@@ -513,7 +567,8 @@ const Index = () => {
         candidates: r.candidates,
         tier: 1,
         rephrasing: false,
-        wasRephrased: false,
+        wasRephrased,
+        originalSearchText: wasRephrased ? originalSearchText : null,
       });
     } finally {
       setClassifying(false);
@@ -531,17 +586,43 @@ const Index = () => {
       setSuggest({ ...suggest, tier: 2 });
       return;
     }
-    // Cap: after rejecting all suggestion tiers, stop — do not re-loop AI guesses.
-    setSuggest(null);
-    showCategoryUnavailable();
+    // All candidates rejected. First attempt gets a rephrase prompt; a
+    // rephrased attempt falls through to the browse-categories grid (one rephrase max).
+    if (suggest.wasRephrased) {
+      const bestGuess = suggest.candidates[0];
+      const bestGuessCategoryId = bestGuess
+        ? categories.find(
+            (c) => c.label.toLowerCase() === bestGuess.label.toLowerCase(),
+          )?.id ?? null
+        : null;
+      void (async () => {
+        const unresolvedId = await logUnresolvedSearchTermReturningId({
+          term: suggest.searchText,
+          originalTermIfRephrased: suggest.originalSearchText,
+        });
+        if (bestGuessCategoryId) {
+          triggerCorrectiveAliasProposal({
+            term: suggest.searchText,
+            originalTermIfRephrased: suggest.originalSearchText,
+            bestGuessCategoryId,
+            unresolvedId,
+          });
+        }
+      })();
+      setSuggest(null);
+      fallThroughToCategoryGrid();
+      return;
+    }
+    setSuggest({ ...suggest, rephrasing: true });
   };
 
   const handleSuggestRephrase = async (text: string) => {
     const t = text.trim();
     if (!t) return;
+    const original = suggest?.searchText ?? null;
     setSuggest(null);
     setQuery(t);
-    await runFreeTextSearch(t);
+    await runFreeTextSearch(t, true, original);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -773,8 +854,26 @@ const Index = () => {
                 vendor.shop_photo_url
               );
               return (
-              <button
+              <div
                 key={savedId}
+                className="relative flex-shrink-0 w-44"
+                data-testid="saved-neighbour-tile-wrap"
+              >
+                <button
+                  type="button"
+                  data-testid="saved-neighbour-unsave-btn"
+                  aria-label={s.removeFromNeighbourhood}
+                  disabled={unsavingNeighbourId === vendor.id}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void unsaveSavedNeighbour(vendor.id);
+                  }}
+                  className="absolute -top-1.5 -right-1.5 z-10 h-7 w-7 rounded-full border border-surface-border bg-surface text-muted-foreground shadow-sm grid place-items-center active:scale-95 disabled:opacity-50"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
+                </button>
+              <button
                 data-testid="saved-neighbour-tile"
                 type="button"
                 onClick={async () => {
@@ -791,7 +890,7 @@ const Index = () => {
                   setNeighbourSheetSaved({ nickname, category });
                   setNeighbourSheetOpen(true);
                 }}
-                className="flex-shrink-0 w-44 rounded-2xl border border-surface-border bg-surface text-left px-4 py-3 flex gap-3 active:scale-[0.98] transition-transform"
+                className="w-full rounded-2xl border border-surface-border bg-surface text-left px-4 py-3 flex gap-3 active:scale-[0.98] transition-transform"
               >
                 <div className="relative h-14 w-14 rounded-xl overflow-hidden bg-muted shrink-0 grid place-items-center">
                   {effectivePhoto ? (
@@ -824,6 +923,7 @@ const Index = () => {
                   </p>
                 </div>
               </button>
+              </div>
               );
             })}
           </div>

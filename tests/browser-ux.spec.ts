@@ -500,7 +500,9 @@ test('UX-CARD-01: radar card shows category chips, reach label, Verified badge',
     `${APP_URL}/radar?mode=${categories[0].service_mode}&q=${encodeURIComponent(categories[0].label)}`,
   );
 
-  const card = page.locator(`#radar-vendor-card-${cardVendor!.id}`);
+  const card = page.locator(
+    `[data-testid="radar-vendor-card"][data-vendor-id="${cardVendor!.id}"]`,
+  );
   await expect(card).toBeVisible({ timeout: 20000 });
   const reachLabel = card.getByTestId('radar-reach-label');
   await expect(reachLabel).toBeVisible();

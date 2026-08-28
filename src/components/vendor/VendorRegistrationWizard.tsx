@@ -53,6 +53,9 @@ import {
   showNetworkFailedToast,
 } from "@/lib/networkToast";
 import { captureError } from "@/lib/sentry";
+import { triggerProactiveCategoryAliasesForCategories } from "@/lib/proactiveCategoryAliases";
+import { triggerCategoryModeConfidenceCheck } from "@/lib/categoryModeConfidence";
+import { safeRandomUUID } from "@/lib/safeRandomUUID";
 import {
   allCategoriesHaveModes,
   buildCategoryModesPayload,
@@ -267,7 +270,7 @@ export function VendorRegistrationWizard({
   const [shopPhotoPendingLocationReview, setShopPhotoPendingLocationReview] = useState(false);
   const [gpsMatchFailCount, setGpsMatchFailCount] = useState(0);
   const [lastFailedShopShot, setLastFailedShopShot] = useState<CapturedShot | null>(null);
-  const gpsSessionKeyRef = useRef(`reg-${crypto.randomUUID()}`);
+  const gpsSessionKeyRef = useRef(`reg-${safeRandomUUID()}`);
 
   useEffect(() => {
     void isReferralEnabled().then(setReferralEnabled);
@@ -1204,6 +1207,8 @@ export function VendorRegistrationWizard({
         description: s.vendor_photos_required_body,
       });
     }
+    triggerProactiveCategoryAliasesForCategories(newVendorId, categoryIdsForRpc);
+    triggerCategoryModeConfidenceCheck(categoryIdsForRpc);
     onRegistered(newVendorId, phone.trim());
   };
 

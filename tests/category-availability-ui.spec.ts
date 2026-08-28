@@ -56,7 +56,7 @@ async function completeWizardStepB(
 }
 
 test.describe("Category availability plain-language UI", () => {
-  test("CAV-01: Mechanic shows help statement and bookings toggle writes help+appointment", async ({
+  test("CAV-01: Mechanic three-way Both writes help+appointment", async ({
     page,
   }) => {
     const mechanic = await getActiveCategoryByLabel("Mechanic");
@@ -82,10 +82,17 @@ test.describe("Category availability plain-language UI", () => {
     await page.getByPlaceholder("name@okbank").fill("availui@upi");
     await page.getByRole("button", { name: /At my place|मेरे पास/ }).click();
 
-    await expect(page.getByTestId("reg-avail-help-on")).toBeVisible();
-    await expect(page.getByTestId("reg-avail-help-on")).toContainText(/You take urgent|तुरंत/i);
+    await expect(page.getByTestId("reg-avail-choice-urgent")).toBeVisible();
+    await expect(page.getByTestId("reg-avail-choice-urgent")).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
     await expect(page.getByTestId("reg-avail-deliver-yes")).toHaveCount(0);
-    await page.getByTestId("reg-avail-bookings-yes").click();
+    await page.getByTestId("reg-avail-choice-both").click();
+    await expect(page.getByTestId("reg-avail-choice-both")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
 
     await page.getByTestId("reg-shop-photo-capture").click();
     await expect(page.getByTestId("reg-shop-photo-capture")).toContainText(/Re-shoot|फिर/i, {
@@ -139,7 +146,7 @@ test.describe("Category availability plain-language UI", () => {
     await page.getByRole("button", { name: /At my place|मेरे पास/ }).click();
 
     await expect(page.getByTestId("reg-avail-deliver-yes")).toBeVisible();
-    await expect(page.getByTestId("reg-avail-help-on")).toHaveCount(0);
+    await expect(page.getByTestId("reg-avail-choice-urgent")).toHaveCount(0);
     await page.getByTestId("reg-avail-deliver-yes").click();
 
     await page.getByTestId("reg-shop-photo-capture").click();
@@ -154,7 +161,7 @@ test.describe("Category availability plain-language UI", () => {
     await deleteVendorRegistrationArtifacts(vendor!.id);
   });
 
-  test("CAV-03: Beautician shows appointment statement and same-day toggle", async ({ page }) => {
+  test("CAV-03: Beautician three-way; scheduled-only writes appointment", async ({ page }) => {
     const beautician = await getActiveCategoryByLabel("Beautician");
     const phone = `99103${Date.now().toString().slice(-5)}`;
 
@@ -178,12 +185,13 @@ test.describe("Category availability plain-language UI", () => {
     await page.getByPlaceholder("name@okbank").fill("availui@upi");
     await page.getByRole("button", { name: /At my place|मेरे पास/ }).click();
 
-    await expect(page.getByTestId("reg-avail-appointment-on")).toBeVisible();
-    await expect(page.getByTestId("reg-avail-appointment-on")).toContainText(
-      /You take scheduled bookings|तय समय की बुकिंग|ठरलेल्या वेळेची बुकिंग/i,
+    await expect(page.getByTestId("reg-avail-choice-scheduled")).toBeVisible();
+    await expect(page.getByTestId("reg-avail-choice-scheduled")).toHaveAttribute(
+      "aria-checked",
+      "false",
     );
-    await expect(page.getByTestId("reg-avail-help-on")).toHaveCount(0);
-    await expect(page.getByTestId("reg-avail-same-day-yes")).toBeVisible();
+    await expect(page.getByTestId("reg-avail-deliver-yes")).toHaveCount(0);
+    await page.getByTestId("reg-avail-choice-scheduled").click();
 
     await page.getByTestId("reg-shop-photo-capture").click();
     await page.getByRole("button", { name: /Register me|मुझे रजिस्टर|नोंदणी/i }).click();
@@ -194,6 +202,18 @@ test.describe("Category availability plain-language UI", () => {
       .select("id")
       .eq("phone", phone)
       .single();
+    const { data: vc } = await supabaseAdmin
+      .from("vendor_categories")
+      .select("id")
+      .eq("vendor_id", vendor!.id)
+      .eq("category_id", beautician.id)
+      .single();
+    const { data: modes } = await supabaseAdmin
+      .from("vendor_category_modes")
+      .select("mode")
+      .eq("vendor_category_id", vc!.id);
+    expect((modes ?? []).map((m) => m.mode)).toEqual(["appointment"]);
+
     await deleteVendorRegistrationArtifacts(vendor!.id);
   });
 });

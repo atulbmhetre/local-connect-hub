@@ -41,7 +41,7 @@ async function createVendor(
       is_active: true,
       profile_status: 'complete',
       discoverable: true,
-      service_radius_km: 9999,
+      service_radius_km: 15,
       is_manual_verified: false,
       serves_at_customer_place: true,
       serves_at_vendor_place: true,
@@ -50,7 +50,12 @@ async function createVendor(
     .select('id, shop_name')
     .single();
   if (error) throw error;
-  await seedVendorCategory(vendor.id, category, { serves_at_customer_place: true });
+  const radiusKm =
+    typeof overrides.service_radius_km === 'number' ? overrides.service_radius_km : 15;
+  await seedVendorCategory(vendor.id, category, {
+    serves_at_customer_place: true,
+    service_radius_km: radiusKm,
+  });
   createdVendorIds.push(vendor.id);
   return vendor;
 }

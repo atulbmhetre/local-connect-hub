@@ -27,9 +27,13 @@ type AiSuggestion = {
   match_type: "existing" | "new";
   category_name: string;
   service_mode: "help" | "delivery" | "appointment";
+  service_mode_reasoning: string;
   confidence: number;
   reasoning: string;
   emoji?: string;
+  proposed_aliases: string[];
+  overlap_category_label: string | null;
+  overlap_reasoning: string | null;
 };
 
 type CategoryRow = {
@@ -95,6 +99,22 @@ function extractJson<T>(text: string): T | null {
   }
 }
 
+function normalizeAliases(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const t = item.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!t || t.length < 2 || t.length > 40) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 function normalizeSuggestion(raw: AiSuggestion | null): AiSuggestion | null {
   if (!raw?.category_name?.trim()) return null;
   const confidence = Number(raw.confidence);
@@ -102,13 +122,29 @@ function normalizeSuggestion(raw: AiSuggestion | null): AiSuggestion | null {
   const service_mode = raw.service_mode;
   if (!SERVICE_MODES.has(service_mode)) return null;
   if (raw.match_type !== "existing" && raw.match_type !== "new") return null;
+  const overlapLabel = String(
+    (raw as { overlap_category_label?: string | null }).overlap_category_label ?? "",
+  )
+    .trim();
+  const overlapReason = String(
+    (raw as { overlap_reasoning?: string | null }).overlap_reasoning ?? "",
+  )
+    .trim();
   return {
     match_type: raw.match_type,
     category_name: toTitleCase(raw.category_name),
     service_mode,
+    service_mode_reasoning: String(
+      (raw as { service_mode_reasoning?: string }).service_mode_reasoning ?? "",
+    ).trim(),
     confidence,
     reasoning: String(raw.reasoning ?? "").trim(),
     emoji: raw.emoji?.trim() || "✨",
+    proposed_aliases: normalizeAliases(
+      (raw as { proposed_aliases?: unknown }).proposed_aliases,
+    ),
+    overlap_category_label: overlapLabel || null,
+    overlap_reasoning: overlapReason || null,
   };
 }
 
@@ -129,15 +165,25 @@ Respond ONLY with JSON:
   "match_type": "existing" | "new",
   "category_name": "matched or suggested name",
   "service_mode": "help" | "delivery" | "appointment",
+  "service_mode_reasoning": "one line: urgent now vs scheduled booking vs goods delivery",
   "confidence": 0.0,
-  "reasoning": "one line explanation",
-  "emoji": "single emoji (for new categories)"
+  "reasoning": "one line explanation of the category match",
+  "emoji": "single emoji (for new categories)",
+  "proposed_aliases": ["5 to 8 short search aliases people might type"],
+  "overlap_category_label": "existing category label if this is likely the same real-world business type, else null",
+  "overlap_reasoning": "one sentence why it overlaps that category, else null"
 }
 
 Rules:
 - match_type "existing" only if the business clearly fits an existing category name
 - match_type "new" if no existing category is a good fit
-- service_mode: help = on-demand/emergency visit; delivery = goods delivered; appointment = scheduled service
+- service_mode is about WHEN the customer needs help, NOT about travel/reach:
+  - help = urgent / on-demand now (roadside, emergency, come immediately)
+  - appointment = scheduled / bookable service (salon, tutor, repairs you plan)
+  - delivery = goods brought to the customer
+- service_mode_reasoning must be one short line using that urgent-vs-scheduled-vs-delivery framing
+- proposed_aliases: 5–8 short terms (English/Hinglish spelling variants OK); omit the exact category_name itself
+- overlap_category_label: if this "new" category is likely the same real-world type as an existing active category, set that category's exact label and explain in overlap_reasoning; otherwise both null
 - confidence reflects how sure you are (0.0 to 1.0)`;
 }
 
@@ -180,7 +226,7 @@ async function callClaude(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 400,
+      max_tokens: 800,
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -278,10 +324,25 @@ async function upsertPendingNewCategory(
   threshold: number,
 ): Promise<{
   category_id: string;
-  outcome: "new_pending" | "new_auto_approved";
+  outcome: "new_pending";
 }> {
   const titleLabel = suggestion.category_name;
   const normalized = titleLabel.trim().toLowerCase();
+  const pendingFields = {
+    service_mode: suggestion.service_mode,
+    ai_confidence: suggestion.confidence >= threshold
+      ? "high"
+      : suggestion.confidence >= MEDIUM_MIN
+      ? "medium"
+      : "low",
+    ai_confidence_score: suggestion.confidence,
+    ai_reasoning: suggestion.reasoning,
+    ai_service_mode_reasoning: suggestion.service_mode_reasoning || null,
+    proposed_aliases: suggestion.proposed_aliases,
+    overlap_category_label: suggestion.overlap_category_label,
+    overlap_reasoning: suggestion.overlap_reasoning,
+    emoji: suggestion.emoji ?? "✨",
+  };
 
   const { data: pendingRows, error: pendingError } = await supabase
     .from("categories")
@@ -299,35 +360,20 @@ async function upsertPendingNewCategory(
   );
 
   if (existingPending) {
+    // Phase 3: never auto-approve. Increment count + refresh AI metadata only.
     const nextCount = (existingPending.suggestion_count ?? 0) + 1;
-    const autoApprove = nextCount >= 2;
 
     const { error: updateError } = await supabase
       .from("categories")
       .update({
         suggestion_count: nextCount,
-        ...(autoApprove
-          ? {
-            status: "active",
-            is_active: true,
-            pending_review: false,
-            ai_confidence_score: suggestion.confidence,
-            ai_reasoning: suggestion.reasoning,
-          }
-          : {}),
+        ...pendingFields,
       })
       .eq("id", existingPending.id);
 
     if (updateError) {
       console.error("suggest-category pending update failed", updateError);
       throw new Error("Failed to update category");
-    }
-
-    if (autoApprove) {
-      return {
-        category_id: existingPending.id,
-        outcome: "new_auto_approved",
-      };
     }
 
     return {
@@ -340,21 +386,13 @@ async function upsertPendingNewCategory(
     .from("categories")
     .insert({
       label: titleLabel,
-      emoji: suggestion.emoji ?? "✨",
-      service_mode: suggestion.service_mode,
       is_active: false,
       pending_review: true,
       status: "pending_review",
       sort_order: 99,
       suggested_by_vendor_id: vendorId,
-      ai_confidence: suggestion.confidence >= threshold
-        ? "high"
-        : suggestion.confidence >= MEDIUM_MIN
-        ? "medium"
-        : "low",
-      ai_confidence_score: suggestion.confidence,
-      ai_reasoning: suggestion.reasoning,
       suggestion_count: 1,
+      ...pendingFields,
     })
     .select("id")
     .single();

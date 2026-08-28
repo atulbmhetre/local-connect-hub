@@ -25,7 +25,7 @@ describe("filterPostsByAudienceAndCategory", () => {
     expect(result.map((p) => p.id)).toEqual(["2", "3"]);
   });
 
-  it("shows vendors-only posts to a vendor reader", async () => {
+  it("shows vendors-only posts to a vendor reader and keeps customer-facing posts visible", async () => {
     fromMock.mockReturnValue({
       select: () => ({
         eq: () => ({
@@ -38,7 +38,28 @@ describe("filterPostsByAudienceAndCategory", () => {
       { id: "cust", target_audience: "customers" as const, target_category_id: null },
     ];
     const result = await filterPostsByAudienceAndCategory(posts, "vendor-1");
-    expect(result.map((p) => p.id)).toEqual(["v-only"]);
+    expect(result.map((p) => p.id)).toEqual(["v-only", "cust"]);
+  });
+
+  it("shows customers-audience posts to a vendor reader even when membership lookup fails", async () => {
+    fromMock.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          eq: () => Promise.resolve({ data: null, error: { message: "fail" } }),
+        }),
+      }),
+    });
+    const posts = [
+      { id: "cust", target_audience: "customers" as const, target_category_id: null },
+      { id: "v-all", target_audience: "vendors" as const, target_category_id: null },
+      {
+        id: "v-cat",
+        target_audience: "vendors" as const,
+        target_category_id: "cat-x",
+      },
+    ];
+    const result = await filterPostsByAudienceAndCategory(posts, "vendor-1");
+    expect(result.map((p) => p.id)).toEqual(["cust", "v-all"]);
   });
 
   it("hides category-scoped vendor posts from vendors without that category", async () => {

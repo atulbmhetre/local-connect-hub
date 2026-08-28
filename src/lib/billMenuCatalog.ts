@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { captureError } from "@/lib/sentry";
 import { parseBillQuantity } from "@/lib/billEdit";
+import { safeRandomUUID } from "@/lib/safeRandomUUID";
 
 export type BillCatalogMenuItem = {
   id: string;
@@ -60,7 +61,7 @@ function isBlankPlaceholderLine(line: BillCatalogLine): boolean {
 
 export function lineFromCatalogItem(item: BillCatalogMenuItem): BillCatalogLine {
   return {
-    id: crypto.randomUUID(),
+    id: safeRandomUUID(),
     description: item.name,
     quantity: "1",
     unit: item.unit?.trim() || "",
