@@ -114,8 +114,29 @@ async function tapRestore(page: Page) {
   await page.getByTestId('firstopen-restore-cta').click();
 }
 
+/**
+ * After restore (or Continue), OTP is required when VITE_OTP_ENABLED=true.
+ * Product allows Skip → localStorage identity (no SMS verify in E2E).
+ * On web, skip/complete goes straight to done (notification step is native-only).
+ * Fresh "I'm new" never shows OTP — flow may already be dismissed.
+ */
 async function waitForFlowComplete(page: Page) {
-  await expect(page.getByTestId('first-open-flow')).not.toBeVisible({ timeout: 15000 });
+  const flow = page.getByTestId('first-open-flow');
+  const otpSkip = page.getByTestId('otp-skip-btn');
+
+  await Promise.race([
+    otpSkip.waitFor({ state: 'visible', timeout: 20000 }).then(async () => {
+      await otpSkip.click();
+    }),
+    flow.waitFor({ state: 'hidden', timeout: 20000 }),
+  ]);
+
+  const notifSkip = page.getByTestId('firstopen-notif-skip');
+  if (await notifSkip.isVisible().catch(() => false)) {
+    await notifSkip.click();
+  }
+
+  await expect(flow).not.toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 15000 });
 }
 

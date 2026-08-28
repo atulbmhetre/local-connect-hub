@@ -52,6 +52,7 @@ const values = {
   VITE_ENVIRONMENT: target,
   VITE_SUPABASE_URL: PROJECT_URLS[target],
   VITE_SUPABASE_ANON_KEY: anonKey,
+  VITE_OTP_ENABLED: target === 'test' ? 'true' : 'false',
 };
 
 const original = fs.readFileSync(envPath, 'utf8');
@@ -60,6 +61,7 @@ const KEYS = new Set([
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
   'VITE_ENVIRONMENT',
+  'VITE_OTP_ENABLED',
 ]);
 
 const updated = original
@@ -77,11 +79,17 @@ const updated = original
   })
   .join(original.includes('\r\n') ? '\r\n' : '\n');
 
+const otpLinePresent = /^VITE_OTP_ENABLED=/m.test(updated);
+const finalContent = otpLinePresent
+  ? updated
+  : `${updated}${updated.endsWith('\n') ? '' : '\n'}VITE_OTP_ENABLED=${values.VITE_OTP_ENABLED}\n`;
+
 console.log(`Switching env: development → ${target}`);
 console.log(`VITE_SUPABASE_URL=${values.VITE_SUPABASE_URL}`);
 console.log(`VITE_SUPABASE_ANON_KEY source: ${anonKeyEnvName}`);
+console.log(`VITE_OTP_ENABLED=${values.VITE_OTP_ENABLED}`);
 
-fs.writeFileSync(envPath, updated, 'utf8');
+fs.writeFileSync(envPath, finalContent, 'utf8');
 
 if (target === 'prod') {
   console.log(`

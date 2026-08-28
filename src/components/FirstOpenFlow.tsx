@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/language";
@@ -33,8 +33,11 @@ import {
 } from "@/lib/networkToast";
 import { cn } from "@/lib/utils";
 
-// Phase D: set to true when Exotel KYC is complete and ExoVerify is live
-const OTP_ENABLED = false;
+// Phase D: VITE_OTP_ENABLED=true on TEST builds only (see .env.test / .env.development)
+const OTP_ENABLED = import.meta.env.VITE_OTP_ENABLED === "true";
+
+/** Temporary mobile restore debug — visible in DEV so phone testing can see hang point without DevTools. */
+const RESTORE_DEBUG = import.meta.env.DEV;
 
 type FlowStep =
   | "chooser"
@@ -48,6 +51,8 @@ type Props = {
   onComplete: () => void;
   onVendorRegister?: () => void;
 };
+
+type RestoreDebugLine = { t: string; msg: string };
 
 type VendorRestoreStatus = {
   found: boolean;
@@ -84,10 +89,19 @@ function classifyVendorRestoreOutcome(status: VendorRestoreStatus): string {
 }
 
 function logRestoreOutcome(outcome: string) {
-  void supabase.rpc("log_firstopen_restore", {
-    p_outcome: outcome,
-    p_device_id: getDeviceId(),
-  });
+  try {
+    void supabase.rpc("log_firstopen_restore", {
+      p_outcome: outcome,
+      p_device_id: getDeviceId(),
+    });
+  } catch (err) {
+    console.warn("[firstOpen] log_firstopen_restore skipped", err);
+  }
+}
+
+function restoreDebugStamp(): string {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 }
 
 export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
@@ -107,6 +121,24 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [otpPhone, setOtpPhone] = useState("");
+  const [restoreDebugLines, setRestoreDebugLines] = useState<RestoreDebugLine[]>([]);
+  const [restoreDebugElapsedMs, setRestoreDebugElapsedMs] = useState(0);
+  const restoreDebugT0Ref = useRef(0);
+
+  const pushRestoreDebug = useCallback((msg: string) => {
+    const line = { t: restoreDebugStamp(), msg };
+    console.log(`[restore-debug ${line.t}] ${msg}`);
+    if (!RESTORE_DEBUG) return;
+    setRestoreDebugLines((prev) => [...prev.slice(-40), line]);
+  }, []);
+
+  useEffect(() => {
+    if (!RESTORE_DEBUG || !restoreLoading) return;
+    const id = window.setInterval(() => {
+      setRestoreDebugElapsedMs(Date.now() - restoreDebugT0Ref.current);
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [restoreLoading]);
 
   const pushStep = useCallback((next: FlowStep) => {
     setStack((prev) => [...prev, next]);
@@ -153,7 +185,14 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const proceedAfterRestoreLookup = (digits: string) => {
     if (OTP_ENABLED) {
       void (async () => {
+        pushRestoreDebug(
+          `OTP start phone=…${digits.slice(-4)} online=${String(getNavigatorOnline())}`,
+        );
+        const otpT0 = Date.now();
         const otpResult = await requestPhoneOtp(digits);
+        pushRestoreDebug(
+          `OTP end ok=${otpResult.success} ms=${Date.now() - otpT0} err=${otpResult.error ?? "none"}`,
+        );
         if (otpResult.success) {
           setOtpPhone(digits);
           pushStep("otp_pending");
@@ -166,12 +205,14 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         }
       })();
     } else {
+      pushRestoreDebug("OTP skipped (OTP_ENABLED=false) → notification/done");
       goToNotificationStep();
     }
   };
 
   const handleNoAccountContinue = () => {
     const digits = normalizePhoneDigits(phoneValue);
+    pushRestoreDebug(`Continue after no-account phone=…${digits.slice(-4)}`);
     setAwaitingNoAccountContinue(false);
     setInlineMessage(null);
     proceedAfterRestoreLookup(digits);
@@ -185,13 +226,22 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       return;
     }
 
+    restoreDebugT0Ref.current = Date.now();
+    setRestoreDebugElapsedMs(0);
+    setRestoreDebugLines([]);
+    pushRestoreDebug(
+      `restore tap host=${window.location.host} phone=…${digits.slice(-4)} OTP=${String(OTP_ENABLED)} online=${String(getNavigatorOnline())}`,
+    );
+
     setRestoreLoading(true);
     setInlineMessage(null);
     setAwaitingNoAccountContinue(false);
 
     try {
+      pushRestoreDebug("lookup start (withTimedRetry 12s×3)");
       const [usersResult, vendorStatusResult] = await withTimedRetry(
         async (signal) => {
+          pushRestoreDebug("lookup attempt (rpc pair)");
           const [users, vendorStatus] = await Promise.all([
             applyAbortSignal(
               supabase.rpc("lookup_user_by_phone", { p_phone: digits }),
@@ -207,12 +257,17 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
           return [users, vendorStatus] as const;
         },
         {
-          onRetrying: () =>
-            showNetworkRetryingToast({ retrying: s.network_retrying }),
+          onRetrying: (attempt) => {
+            pushRestoreDebug(`lookup retry after attempt ${attempt}`);
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
           shouldRetry: () => getNavigatorOnline(),
         },
       );
       dismissNetworkRetryingToast();
+      pushRestoreDebug(
+        `lookup end ms=${Date.now() - restoreDebugT0Ref.current} usersErr=${usersResult.error?.message ?? "none"} vendorErr=${vendorStatusResult.error?.message ?? "none"}`,
+      );
 
       if (usersResult.error || vendorStatusResult.error) {
         const rateLimited =
@@ -228,72 +283,100 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         setInlineMessage(s.firstopen_restore_error);
         setInlineTone("error");
         setRestoreLoading(false);
+        pushRestoreDebug("lookup RPC error → spinner cleared");
         return;
       }
 
-      const vendorStatus = (vendorStatusResult.data ?? null) as VendorRestoreStatus | null;
-      const customerRow = usersResult.data?.[0] ?? null;
-      const hasCustomer = customerRow != null;
-      const customerBanned = customerRow?.is_banned === true;
-      const vendorFound = vendorStatus?.found === true;
-      const vendorRestorable = vendorFound && vendorStatus?.restore_allowed === true;
-      const hasAccount = hasCustomer || vendorFound;
+      try {
+        const vendorStatus = (vendorStatusResult.data ?? null) as VendorRestoreStatus | null;
+        const customerRow = usersResult.data?.[0] ?? null;
+        const hasCustomer = customerRow != null;
+        const customerBanned = customerRow?.is_banned === true;
+        const vendorFound = vendorStatus?.found === true;
+        const vendorRestorable = vendorFound && vendorStatus?.restore_allowed === true;
+        const hasAccount = hasCustomer || vendorFound;
+        pushRestoreDebug(
+          `lookup result hasCustomer=${hasCustomer} vendorFound=${vendorFound} deny=${vendorStatus?.deny_reason ?? "n/a"}`,
+        );
 
-      if (customerBanned) {
-        logRestoreOutcome("denied_banned");
-        setInlineMessage(s.customer_account_banned);
+        if (customerBanned) {
+          logRestoreOutcome("denied_banned");
+          setInlineMessage(s.customer_account_banned);
+          setInlineTone("error");
+          setRestoreLoading(false);
+          return;
+        }
+
+        if (hasAccount) {
+          pushRestoreDebug("migrate start");
+          saveUserPhone(digits);
+          const migration = await migrateUserPhone(digits, getDeviceId());
+          pushRestoreDebug(`migrate end ok=${migration.ok}`);
+
+          if (vendorRestorable && vendorStatus?.vendor_id) {
+            restoreVendorSession(vendorStatus.vendor_id, vendorStatus.is_active === true);
+          }
+
+          if (!migration.ok) {
+            captureError(new Error("firstopen_migrate_partial"), {
+              scope: "firstOpen.restore.migrate",
+              savedOk: migration.savedOk,
+              requestsOk: migration.requestsOk,
+              phoneSuffix: digits.slice(-4),
+            });
+            setInlineMessage(s.firstopen_restore_partial);
+            setInlineTone("warning");
+          } else {
+            setInlineMessage(s.firstopen_restore_found);
+            setInlineTone("success");
+          }
+
+          if (vendorRestorable && vendorStatus) {
+            logRestoreOutcome(classifyVendorRestoreOutcome(vendorStatus));
+          } else if (vendorFound && vendorStatus) {
+            logRestoreOutcome(classifyVendorRestoreOutcome(vendorStatus));
+          } else {
+            logRestoreOutcome("success_customer");
+          }
+
+          setRestoreLoading(false);
+          pushRestoreDebug("account found → OTP in 1.2s (spinner cleared)");
+          window.setTimeout(() => {
+            proceedAfterRestoreLookup(digits);
+          }, 1200);
+          return;
+        }
+
+        logRestoreOutcome("not_found");
+        setInlineMessage(s.firstopen_no_account);
+        setInlineTone("muted");
+        setRestoreLoading(false);
+        setAwaitingNoAccountContinue(true);
+        pushRestoreDebug("not_found → Continue (no OTP yet; spinner cleared)");
+        return;
+      } catch (postLookupErr) {
+        const errMsg =
+          postLookupErr instanceof Error
+            ? `${postLookupErr.name}: ${postLookupErr.message}`
+            : String(postLookupErr);
+        pushRestoreDebug(`post-lookup threw ${errMsg}`);
+        captureError(postLookupErr, {
+          scope: "firstOpen.restore.postLookup",
+          phoneSuffix: digits.slice(-4),
+        });
+        logRestoreOutcome("error");
+        setInlineMessage(s.firstopen_restore_error);
         setInlineTone("error");
         setRestoreLoading(false);
         return;
       }
-
-      if (hasAccount) {
-        saveUserPhone(digits);
-        const migration = await migrateUserPhone(digits, getDeviceId());
-
-        if (vendorRestorable && vendorStatus?.vendor_id) {
-          restoreVendorSession(vendorStatus.vendor_id, vendorStatus.is_active === true);
-        }
-
-        if (!migration.ok) {
-          captureError(new Error("firstopen_migrate_partial"), {
-            scope: "firstOpen.restore.migrate",
-            savedOk: migration.savedOk,
-            requestsOk: migration.requestsOk,
-            phoneSuffix: digits.slice(-4),
-          });
-          setInlineMessage(s.firstopen_restore_partial);
-          setInlineTone("warning");
-        } else {
-          setInlineMessage(s.firstopen_restore_found);
-          setInlineTone("success");
-        }
-
-        if (vendorRestorable && vendorStatus) {
-          logRestoreOutcome(classifyVendorRestoreOutcome(vendorStatus));
-        } else if (vendorFound && vendorStatus) {
-          logRestoreOutcome(classifyVendorRestoreOutcome(vendorStatus));
-        } else {
-          logRestoreOutcome("success_customer");
-        }
-
-        setRestoreLoading(false);
-        window.setTimeout(() => {
-          proceedAfterRestoreLookup(digits);
-        }, 1200);
-        return;
-      }
-
-      logRestoreOutcome("not_found");
-      setInlineMessage(s.firstopen_no_account);
-      setInlineTone("muted");
-      setRestoreLoading(false);
-      setAwaitingNoAccountContinue(true);
-      return;
     } catch (err) {
       dismissNetworkRetryingToast();
+      const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      pushRestoreDebug(`lookup threw ${errMsg} ms=${Date.now() - restoreDebugT0Ref.current}`);
       captureError(err, { scope: "firstOpen.restore", phoneSuffix: digits.slice(-4) });
-      logRestoreOutcome("error");
+      setRestoreLoading(false);
+      setInlineTone("error");
       if (isNetworkTimeout(err) || err instanceof NetworkExhaustedError) {
         setInlineMessage(
           isNetworkTimeout(err) ? s.firstopen_restore_timeout : s.network_failed,
@@ -301,8 +384,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       } else {
         setInlineMessage(s.firstopen_restore_error);
       }
-      setInlineTone("error");
-      setRestoreLoading(false);
+      logRestoreOutcome("error");
     }
   };
 
@@ -507,6 +589,23 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
               >
                 {s.firstopen_restore_back}
               </button>
+
+              {RESTORE_DEBUG && restoreDebugLines.length > 0 && (
+                <div
+                  data-testid="firstopen-restore-debug"
+                  className="mt-4 max-h-48 overflow-auto rounded-lg border border-amber-600/60 bg-black/90 p-2 font-mono text-[10px] leading-snug text-amber-100"
+                >
+                  <div className="mb-1 font-sans text-[11px] font-semibold text-amber-300">
+                    restore-debug · spinner {restoreLoading ? "ON" : "off"} ·{" "}
+                    {(restoreDebugElapsedMs / 1000).toFixed(1)}s
+                  </div>
+                  {restoreDebugLines.map((line, i) => (
+                    <div key={`${line.t}-${i}`}>
+                      <span className="text-amber-500/80">{line.t}</span> {line.msg}
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>

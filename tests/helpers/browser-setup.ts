@@ -22,15 +22,39 @@ export async function gotoRadarDelivery(page: Page) {
   await page.getByTestId('radar-search-input').waitFor({ state: 'visible', timeout: 15000 });
 }
 
+/**
+ * Prefer data-vendor-id / data-category-id over parsing the compound
+ * id `radar-vendor-card-${vendorId}:${categoryId}` (legal but brittle).
+ */
+export function radarVendorCard(
+  page: Page,
+  opts: { vendorId?: string; categoryId?: string; shopName?: string } = {},
+) {
+  if (opts.vendorId) {
+    return page.locator(
+      opts.categoryId
+        ? `[data-testid="radar-vendor-card"][data-vendor-id="${opts.vendorId}"][data-category-id="${opts.categoryId}"]`
+        : `[data-testid="radar-vendor-card"][data-vendor-id="${opts.vendorId}"]`,
+    );
+  }
+  if (opts.shopName) {
+    return page.getByTestId('radar-vendor-card').filter({ hasText: opts.shopName });
+  }
+  return page.getByTestId('radar-vendor-card');
+}
+
 /** Click Order on a delivery/booking radar card (falls back to first orderable card). */
 export async function clickRadarOrderCard(
   page: Page,
-  options?: { vendorId?: string; shopName?: string },
+  options?: { vendorId?: string; categoryId?: string; shopName?: string },
 ) {
   if (options?.vendorId) {
-    const byId = page.locator(`#radar-vendor-card-${options.vendorId}`);
-    if (await byId.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await byId.getByTestId('radar-vendor-card-order-btn').click();
+    const byAttrs = radarVendorCard(page, {
+      vendorId: options.vendorId,
+      categoryId: options.categoryId,
+    });
+    if (await byAttrs.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+      await byAttrs.first().getByTestId('radar-vendor-card-order-btn').click();
       return;
     }
   }
