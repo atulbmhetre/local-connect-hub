@@ -40,6 +40,7 @@ import {
 } from "@/lib/withNetworkRetry";
 import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
+import { SecureCallPreDialOverlay } from "@/components/SecureCallPreDialOverlay";
 import { fetchBusinessPhotos, resolveVendorPhoto } from "@/lib/businessPhotoFallback";
 
 // Stalled threshold: if helper coords don't move for 2 minutes, alert.
@@ -112,9 +113,8 @@ const LiveTracking = () => {
   const [now, setNow] = useState(Date.now());
   const [businessPhotos, setBusinessPhotos] = useState<Map<string, string | null>>(new Map());
 
-  // Secure call: in-flight request vs brief post-success "answer on your phone" overlay (AiBridge pattern).
-  const [callInitiating, setCallInitiating] = useState(false);
-  const [callConnecting, setCallConnecting] = useState(false);
+  // Secure call: pre-dial overlay → initiate-call → post-success ringing overlay.
+  const [callPhase, setCallPhase] = useState<"idle" | "predial" | "ringing">("idle");
   const [directCallConfirmOpen, setDirectCallConfirmOpen] = useState(false);
 
   // Flash LED signal (torch) state.
@@ -294,12 +294,12 @@ const LiveTracking = () => {
 
   // After Exotel accepts: brief overlay, then dismiss (call continues on the phone).
   useEffect(() => {
-    if (!callConnecting) return;
+    if (callPhase !== "ringing") return;
     const t = window.setTimeout(() => {
-      setCallConnecting(false);
+      setCallPhase("idle");
     }, SECURE_CALL_SUCCESS_DISMISS_MS);
     return () => window.clearTimeout(t);
-  }, [callConnecting]);
+  }, [callPhase]);
 
   const etaKm = useMemo(() => {
     if (!user || !helper) return null;
@@ -352,21 +352,23 @@ const LiveTracking = () => {
       return;
     }
 
-    setCallInitiating(true);
+    setCallPhase("predial");
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
     const result = await invokeInitiateCall({
       caller_phone: caller,
       vendor_phone: vendorPhone,
       service_mode: vendor.service_mode ?? "help",
     });
-    setCallInitiating(false);
 
     if (!result.success) {
+      setCallPhase("idle");
       setDirectCallConfirmOpen(true);
       return;
     }
 
-    // Honest PSTN bridge UX (same as AiBridge): phone rings; overlay is informational only.
-    setCallConnecting(true);
+    setCallPhase("ringing");
     toast(s.secure_call_connected, {
       description: s.secure_call_connected_body.replace("{name}", vendorDisplayName),
     });
@@ -650,7 +652,7 @@ const LiveTracking = () => {
           </div>
           <button
             onClick={() => void handleVerifyCall()}
-            disabled={callInitiating || callConnecting || !secureCallingLive}
+            disabled={callPhase !== "idle" || !secureCallingLive}
             className="rounded-lg bg-orange-500 text-black px-3 py-1.5 text-xs font-bold active:scale-95 disabled:opacity-50"
           >
             {s.liveTracking_checkBtn}
@@ -704,13 +706,13 @@ const LiveTracking = () => {
         <button
           type="button"
           onClick={() => void handleSecureCall()}
-          disabled={callInitiating || callConnecting || !secureCallingLive}
+          disabled={callPhase !== "idle" || !secureCallingLive}
           className="w-full rounded-2xl bg-brand text-black py-4 flex items-center justify-center gap-2 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_28px_rgba(34,197,94,0.45)] disabled:opacity-60 disabled:active:scale-100"
         >
-          {callInitiating || callConnecting ? (
+          {callPhase !== "idle" ? (
             <>
               <Loader2 className="h-5 w-5 animate-spin" />
-              {callConnecting ? s.secure_call_phone_ringing : s.secure_call_connecting}
+              {callPhase === "ringing" ? s.secure_call_phone_ringing : s.secure_call_predial_title}
             </>
           ) : !secureCallingLive ? (
             <>
@@ -762,17 +764,8 @@ const LiveTracking = () => {
       {/* Screen-flash fallback overlay */}
       {flashing && !torchTrackRef.current && <div className="aaspaas-flash-overlay" />}
 
-      {/* In-flight or brief post-success overlay — no fake mute/speaker/end controls */}
-      {(callInitiating || callConnecting) && (
-        <div className="fixed inset-0 z-50 bg-page-bg/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 px-6">
-          <Loader2 className="h-10 w-10 animate-spin text-brand" />
-          <p className="text-sm font-semibold text-brand">
-            {callConnecting ? s.secure_call_phone_ringing : s.secure_call_connecting}
-          </p>
-          <p className="text-[11px] text-gray-400 text-center max-w-xs">
-            {callConnecting ? s.secure_call_phone_ringing_body : s.secure_call_masked_hint}
-          </p>
-        </div>
+      {callPhase !== "idle" && (
+        <SecureCallPreDialOverlay phase={callPhase === "ringing" ? "ringing" : "predial"} />
       )}
 
       <AlertDialog open={directCallConfirmOpen} onOpenChange={setDirectCallConfirmOpen}>

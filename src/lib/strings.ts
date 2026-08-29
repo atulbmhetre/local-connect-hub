@@ -49,6 +49,14 @@ export const strings = {
     firstopen_otp_invalid: 'Please enter a valid 6-digit code',
     firstopen_otp_wrong: 'Incorrect code. Please try again.',
     firstopen_otp_skip: 'Skip for now',
+    firstopen_restore_verify_cta: 'Verify with OTP',
+    firstopen_restore_skip_verify: 'Skip for now',
+    firstopen_register_phone_title: 'Your mobile number',
+    firstopen_register_phone_body:
+      'Enter your number — we will send a one-time code to verify it.',
+    secure_call_predial_title: 'Connecting your call…',
+    secure_call_predial_body:
+      "You'll receive an incoming call in a few seconds — please answer it to connect.",
     phone_entry_order_context:
       'Your number helps the vendor contact you and track your order.',
     phone_entry_save_context:
@@ -1902,6 +1910,13 @@ export const strings = {
     firstopen_otp_invalid: 'कृपया 6 अंकों का सही कोड दर्ज करें',
     firstopen_otp_wrong: 'गलत कोड। कृपया फिर से प्रयास करें।',
     firstopen_otp_skip: 'अभी छोड़ें',
+    firstopen_restore_verify_cta: 'OTP से सत्यापित करें',
+    firstopen_restore_skip_verify: 'अभी छोड़ें',
+    firstopen_register_phone_title: 'आपका मोबाइल नंबर',
+    firstopen_register_phone_body: 'अपना नंबर दर्ज करें — सत्यापन के लिए एक बार का कोड भेजा जाएगा।',
+    secure_call_predial_title: 'आपकी कॉल कनेक्ट हो रही है…',
+    secure_call_predial_body:
+      'कुछ सेकंड में आपके फ़ोन पर कॉल आएगी — कनेक्ट करने के लिए उठाएँ।',
     phone_entry_order_context:
       'आपका नंबर विक्रेता को आपसे संपर्क करने और ऑर्डर ट्रैक करने में मदद करता है।',
     phone_entry_save_context:
@@ -3751,6 +3766,14 @@ export const strings = {
     firstopen_otp_invalid: 'कृपया 6 अंकी योग्य कोड प्रविष्ट करा',
     firstopen_otp_wrong: 'चुकीचा कोड. कृपया पुन्हा प्रयत्न करा.',
     firstopen_otp_skip: 'आत्ता वगळा',
+    firstopen_restore_verify_cta: 'OTP ने सत्यापित करा',
+    firstopen_restore_skip_verify: 'आत्ता वगळा',
+    firstopen_register_phone_title: 'तुमचा मोबाइल नंबर',
+    firstopen_register_phone_body:
+      'तुमचा नंबर प्रविष्ट करा — सत्यापनासाठी एक वेळचा कोड पाठवला जाईल.',
+    secure_call_predial_title: 'तुमची कॉल कनेक्ट होत आहे…',
+    secure_call_predial_body:
+      'काही सेकंदात तुमच्या फोनवर कॉल येईल — कनेक्ट करण्यासाठी उचला.',
     phone_entry_order_context:
       'तुमचा नंबर विक्रेत्याला तुमच्याशी संपर्क साधण्यास आणि ऑर्डर ट्रॅक करण्यास मदत करतो.',
     phone_entry_save_context:

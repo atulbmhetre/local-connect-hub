@@ -4,12 +4,12 @@ import { Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/language";
 import {
   migrateUserPhone,
-  requestPhoneOtp,
   restoreVendorSession,
   saveUserPhone,
   getUserPhone,
-  verifyPhoneOtp,
 } from "@/lib/userIdentity";
+import { OTP_ENABLED, normalizePhoneDigits, isValidIndianMobile } from "@/lib/phoneOtpEnabled";
+import { PhoneOtpVerification } from "@/components/PhoneOtpVerification";
 import { getDeviceId } from "@/lib/deviceId";
 import {
   registerUserPushToken,
@@ -33,19 +33,22 @@ import {
 } from "@/lib/networkToast";
 import { cn } from "@/lib/utils";
 
-// Phase D: VITE_OTP_ENABLED=true on TEST builds only (see .env.test / .env.development)
-const OTP_ENABLED = import.meta.env.VITE_OTP_ENABLED === "true";
-
 /** Temporary mobile restore debug — visible in DEV so phone testing can see hang point without DevTools. */
 const RESTORE_DEBUG = import.meta.env.DEV;
 
 type FlowStep =
   | "chooser"
   | "new_options"
+  | "register_phone"
   | "restore"
+  | "restore_verify_choice"
   | "otp_pending"
   | "notification_permission"
   | "done";
+
+type RegisterIntent = "customer" | "vendor";
+
+type OtpPurpose = "restore" | "restore_new_phone" | "register_customer" | "register_vendor";
 
 type Props = {
   onComplete: () => void;
@@ -65,13 +68,6 @@ type VendorRestoreStatus = {
   restore_allowed: boolean;
   deny_reason: string | null;
 };
-
-function normalizePhoneDigits(raw: string): string {
-  const cleaned = raw.replace(/\D/g, "");
-  return cleaned.length === 12 && cleaned.startsWith("91")
-    ? cleaned.slice(2)
-    : cleaned;
-}
 
 function classifyVendorRestoreOutcome(status: VendorRestoreStatus): string {
   if (!status.found || status.deny_reason === "not_found") return "not_found";
@@ -110,6 +106,9 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const step = stack[stack.length - 1] ?? "chooser";
 
   const [phoneValue, setPhoneValue] = useState("");
+  const [otpPhone, setOtpPhone] = useState("");
+  const [registerIntent, setRegisterIntent] = useState<RegisterIntent>("customer");
+  const [otpPurpose, setOtpPurpose] = useState<OtpPurpose>("restore");
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [notifLoading, setNotifLoading] = useState(false);
   const [inlineMessage, setInlineMessage] = useState<string | null>(null);
@@ -117,10 +116,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
     "muted",
   );
   const [awaitingNoAccountContinue, setAwaitingNoAccountContinue] = useState(false);
-  const [otpValue, setOtpValue] = useState("");
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [otpPhone, setOtpPhone] = useState("");
   const [restoreDebugLines, setRestoreDebugLines] = useState<RestoreDebugLine[]>([]);
   const [restoreDebugElapsedMs, setRestoreDebugElapsedMs] = useState(0);
   const restoreDebugT0Ref = useRef(0);
@@ -147,7 +142,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const resetTransient = useCallback(() => {
     setInlineMessage(null);
     setAwaitingNoAccountContinue(false);
-    setOtpError(null);
   }, []);
 
   const popStep = useCallback(() => {
@@ -168,7 +162,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
     onComplete();
   }, [step, onComplete]);
 
-  // Hardware back: step within FirstOpen; never leave a blank overlay state.
   useEffect(() => {
     setFirstOpenBackHandler(() => {
       if (step === "done") return true;
@@ -176,38 +169,75 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         popStep();
         return true;
       }
-      // Root chooser — let App exit. Welcomed stays false so reopen shows chooser again.
       return false;
     });
     return () => setFirstOpenBackHandler(null);
   }, [step, stack.length, popStep]);
 
-  const proceedAfterRestoreLookup = (digits: string) => {
-    if (OTP_ENABLED) {
-      void (async () => {
-        pushRestoreDebug(
-          `OTP start phone=…${digits.slice(-4)} online=${String(getNavigatorOnline())}`,
-        );
-        const otpT0 = Date.now();
-        const otpResult = await requestPhoneOtp(digits);
-        pushRestoreDebug(
-          `OTP end ok=${otpResult.success} ms=${Date.now() - otpT0} err=${otpResult.error ?? "none"}`,
-        );
-        if (otpResult.success) {
-          setOtpPhone(digits);
-          pushStep("otp_pending");
-        } else {
-          console.warn(
-            "[Phase D] OTP fallback to localStorage path — no Supabase session established",
-          );
-          console.warn("[Phase B] OTP request failed, falling back:", otpResult.error);
-          goToNotificationStep();
-        }
-      })();
-    } else {
-      pushRestoreDebug("OTP skipped (OTP_ENABLED=false) → notification/done");
+  const beginOtpVerification = useCallback(
+    (digits: string, purpose: OtpPurpose) => {
+      setOtpPhone(digits);
+      setOtpPurpose(purpose);
+      pushStep("otp_pending");
+    },
+    [pushStep],
+  );
+
+  const finishAfterOtpVerified = useCallback(
+    async (digits: string) => {
+      if (
+        otpPurpose === "register_customer" ||
+        otpPurpose === "restore_new_phone" ||
+        otpPurpose === "register_vendor"
+      ) {
+        saveUserPhone(digits);
+        await migrateUserPhone(digits, getDeviceId());
+      }
+      if (otpPurpose === "register_vendor") {
+        onVendorRegister?.();
+        setStack(["done"]);
+        return;
+      }
       goToNotificationStep();
+    },
+    [goToNotificationStep, onVendorRegister, otpPurpose],
+  );
+
+  const handleRegisterPhoneContinue = () => {
+    const digits = normalizePhoneDigits(phoneValue);
+    if (!isValidIndianMobile(digits)) {
+      setInlineMessage(s.vendor_phone_invalid_body);
+      setInlineTone("error");
+      return;
     }
+    setInlineMessage(null);
+    if (!OTP_ENABLED) {
+      if (registerIntent === "vendor") {
+        onVendorRegister?.();
+        setStack(["done"]);
+      } else {
+        goToNotificationStep();
+      }
+      return;
+    }
+    beginOtpVerification(
+      digits,
+      registerIntent === "vendor" ? "register_vendor" : "register_customer",
+    );
+  };
+
+  const handleChooseVerifyOtp = () => {
+    const digits = normalizePhoneDigits(phoneValue);
+    pushRestoreDebug(`restore chose verify OTP phone=…${digits.slice(-4)}`);
+    beginOtpVerification(digits, "restore");
+  };
+
+  const handleSkipVerify = () => {
+    pushRestoreDebug("restore chose skip verify (no SMS)");
+    console.warn(
+      "[Phase D] OTP skipped on restore path — no Supabase session established",
+    );
+    goToNotificationStep();
   };
 
   const handleNoAccountContinue = () => {
@@ -215,12 +245,16 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
     pushRestoreDebug(`Continue after no-account phone=…${digits.slice(-4)}`);
     setAwaitingNoAccountContinue(false);
     setInlineMessage(null);
-    proceedAfterRestoreLookup(digits);
+    if (!OTP_ENABLED) {
+      goToNotificationStep();
+      return;
+    }
+    beginOtpVerification(digits, "restore_new_phone");
   };
 
   const handleRestore = async () => {
     const digits = normalizePhoneDigits(phoneValue);
-    if (digits.length !== 10 || !/^[6-9]/.test(digits)) {
+    if (!isValidIndianMobile(digits)) {
       setInlineMessage(s.vendor_phone_invalid_body);
       setInlineTone("error");
       return;
@@ -283,7 +317,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         setInlineMessage(s.firstopen_restore_error);
         setInlineTone("error");
         setRestoreLoading(false);
-        pushRestoreDebug("lookup RPC error → spinner cleared");
         return;
       }
 
@@ -295,9 +328,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         const vendorFound = vendorStatus?.found === true;
         const vendorRestorable = vendorFound && vendorStatus?.restore_allowed === true;
         const hasAccount = hasCustomer || vendorFound;
-        pushRestoreDebug(
-          `lookup result hasCustomer=${hasCustomer} vendorFound=${vendorFound} deny=${vendorStatus?.deny_reason ?? "n/a"}`,
-        );
 
         if (customerBanned) {
           logRestoreOutcome("denied_banned");
@@ -308,10 +338,8 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         }
 
         if (hasAccount) {
-          pushRestoreDebug("migrate start");
           saveUserPhone(digits);
           const migration = await migrateUserPhone(digits, getDeviceId());
-          pushRestoreDebug(`migrate end ok=${migration.ok}`);
 
           if (vendorRestorable && vendorStatus?.vendor_id) {
             restoreVendorSession(vendorStatus.vendor_id, vendorStatus.is_active === true);
@@ -340,10 +368,13 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
           }
 
           setRestoreLoading(false);
-          pushRestoreDebug("account found → OTP in 1.2s (spinner cleared)");
-          window.setTimeout(() => {
-            proceedAfterRestoreLookup(digits);
-          }, 1200);
+
+          if (!OTP_ENABLED) {
+            goToNotificationStep();
+            return;
+          }
+
+          pushStep("restore_verify_choice");
           return;
         }
 
@@ -352,14 +383,8 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
         setInlineTone("muted");
         setRestoreLoading(false);
         setAwaitingNoAccountContinue(true);
-        pushRestoreDebug("not_found → Continue (no OTP yet; spinner cleared)");
         return;
       } catch (postLookupErr) {
-        const errMsg =
-          postLookupErr instanceof Error
-            ? `${postLookupErr.name}: ${postLookupErr.message}`
-            : String(postLookupErr);
-        pushRestoreDebug(`post-lookup threw ${errMsg}`);
         captureError(postLookupErr, {
           scope: "firstOpen.restore.postLookup",
           phoneSuffix: digits.slice(-4),
@@ -372,8 +397,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       }
     } catch (err) {
       dismissNetworkRetryingToast();
-      const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-      pushRestoreDebug(`lookup threw ${errMsg} ms=${Date.now() - restoreDebugT0Ref.current}`);
       captureError(err, { scope: "firstOpen.restore", phoneSuffix: digits.slice(-4) });
       setRestoreLoading(false);
       setInlineTone("error");
@@ -388,33 +411,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
     }
   };
 
-  const handleVerifyOtp = async () => {
-    const token = otpValue.trim();
-    if (token.length !== 6 || !/^\d{6}$/.test(token)) {
-      setOtpError(s.firstopen_otp_invalid);
-      return;
-    }
-    setOtpLoading(true);
-    setOtpError(null);
-    const result = await verifyPhoneOtp(otpPhone, token);
-    setOtpLoading(false);
-    if (result.success) {
-      console.info("[Phase D] Supabase session established for phone:", otpPhone);
-      goToNotificationStep();
-    } else {
-      setOtpError(s.firstopen_otp_wrong);
-    }
-  };
-
-  const handleSkipOtp = () => {
-    if (!OTP_ENABLED) return;
-    console.warn(
-      "[Phase D] OTP fallback to localStorage path — no Supabase session established",
-    );
-    console.warn("[Phase B] OTP skipped by user");
-    goToNotificationStep();
-  };
-
   const handleAllowNotifications = async () => {
     if (!Capacitor.isNativePlatform()) {
       setStack(["done"]);
@@ -423,7 +419,6 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
     setNotifLoading(true);
     try {
-      // Always hit the real OS prompt so Settings matches OS permission state.
       const granted = await requestPushPermissionFromOs();
       const phone = getUserPhone();
       if (granted && phone) {
@@ -479,7 +474,11 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
           <button
             type="button"
             data-testid="firstopen-vendor-btn"
-            onClick={() => onVendorRegister?.()}
+            onClick={() => {
+              setRegisterIntent("vendor");
+              setPhoneValue("");
+              pushStep("register_phone");
+            }}
             className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
           >
             {s.welcome_register_business}
@@ -487,7 +486,11 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
           <button
             type="button"
             data-testid="firstopen-use-as-customer"
-            onClick={goToNotificationStep}
+            onClick={() => {
+              setRegisterIntent("customer");
+              setPhoneValue("");
+              pushStep("register_phone");
+            }}
             className="w-full rounded-xl border border-border py-3.5 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
           >
             {s.welcome_use_as_customer}
@@ -497,6 +500,53 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             data-testid="firstopen-new-options-back"
             onClick={popStep}
             className="mt-2 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80"
+          >
+            {s.firstopen_restore_back}
+          </button>
+        </div>
+      )}
+
+      {step === "register_phone" && (
+        <div className="flex flex-1 flex-col px-6 py-10 max-w-md mx-auto w-full">
+          <h1 className="font-display text-2xl font-bold text-foreground leading-tight">
+            {s.firstopen_register_phone_title}
+          </h1>
+          <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+            {s.firstopen_register_phone_body}
+          </p>
+          <div className="mt-6 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+            <span className="text-sm text-muted-foreground font-medium">+91</span>
+            <input
+              type="tel"
+              inputMode="numeric"
+              maxLength={10}
+              placeholder="98765 43210"
+              data-testid="firstopen-register-phone-input"
+              value={phoneValue}
+              onChange={(e) => {
+                setPhoneValue(e.target.value.replace(/\D/g, "").slice(0, 10));
+                setInlineMessage(null);
+              }}
+              className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground/50"
+              autoFocus
+            />
+          </div>
+          {inlineMessage && (
+            <p className="mt-3 text-sm text-destructive">{inlineMessage}</p>
+          )}
+          <button
+            type="button"
+            data-testid="firstopen-register-phone-continue"
+            onClick={handleRegisterPhoneContinue}
+            className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+          >
+            {s.phone_entry_continue}
+          </button>
+          <button
+            type="button"
+            data-testid="firstopen-register-phone-back"
+            onClick={popStep}
+            className="mt-4 w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80"
           >
             {s.firstopen_restore_back}
           </button>
@@ -589,78 +639,54 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
               >
                 {s.firstopen_restore_back}
               </button>
-
-              {RESTORE_DEBUG && restoreDebugLines.length > 0 && (
-                <div
-                  data-testid="firstopen-restore-debug"
-                  className="mt-4 max-h-48 overflow-auto rounded-lg border border-amber-600/60 bg-black/90 p-2 font-mono text-[10px] leading-snug text-amber-100"
-                >
-                  <div className="mb-1 font-sans text-[11px] font-semibold text-amber-300">
-                    restore-debug · spinner {restoreLoading ? "ON" : "off"} ·{" "}
-                    {(restoreDebugElapsedMs / 1000).toFixed(1)}s
-                  </div>
-                  {restoreDebugLines.map((line, i) => (
-                    <div key={`${line.t}-${i}`}>
-                      <span className="text-amber-500/80">{line.t}</span> {line.msg}
-                    </div>
-                  ))}
-                </div>
-              )}
             </>
           )}
         </div>
       )}
 
+      {step === "restore_verify_choice" && (
+        <div className="flex flex-1 flex-col justify-center px-6 py-10 max-w-md mx-auto w-full gap-4">
+          <p
+            data-testid="firstopen-restore-message"
+            className="text-sm leading-relaxed text-brand font-medium text-center"
+          >
+            {inlineMessage ?? s.firstopen_restore_found}
+          </p>
+          <p className="text-sm text-muted-foreground text-center leading-relaxed">
+            {s.firstopen_otp_subtitle.replace("{phone}", normalizePhoneDigits(phoneValue))}
+          </p>
+          <button
+            type="button"
+            data-testid="restore-verify-otp-btn"
+            onClick={handleChooseVerifyOtp}
+            className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+          >
+            {s.firstopen_restore_verify_cta}
+          </button>
+          <button
+            type="button"
+            data-testid="restore-skip-verify-btn"
+            onClick={handleSkipVerify}
+            className="w-full text-center text-sm font-semibold text-muted-foreground underline active:opacity-80"
+          >
+            {s.firstopen_restore_skip_verify}
+          </button>
+        </div>
+      )}
+
       {OTP_ENABLED && step === "otp_pending" && (
-        <div
-          className="flex flex-col flex-1 justify-center px-6 gap-6"
-          data-testid="otp-screen"
-        >
-          <div className="flex flex-col gap-2 text-center">
-            <h2 className="text-xl font-semibold">{s.firstopen_otp_title}</h2>
-            <p className="text-sm text-muted-foreground">
-              {s.firstopen_otp_subtitle.replace("{phone}", otpPhone)}
-            </p>
-          </div>
-
-          <input
-            data-testid="otp-input"
-            type="tel"
-            inputMode="numeric"
-            maxLength={6}
-            value={otpValue}
-            onChange={(e) => {
-              setOtpValue(e.target.value.replace(/\D/g, ""));
-              setOtpError(null);
+        <div className="flex flex-1 flex-col justify-center px-6 max-w-md mx-auto w-full">
+          <PhoneOtpVerification
+            phone={otpPhone}
+            onVerified={() => {
+              void finishAfterOtpVerified(otpPhone);
             }}
-            placeholder="------"
-            className="text-center text-2xl tracking-[0.5em] border rounded-xl px-4 py-3 w-full bg-background"
-            autoFocus
+            onRequestFailed={
+              otpPurpose === "restore"
+                ? () => goToNotificationStep()
+                : undefined
+            }
           />
-
-          {otpError && (
-            <p className="text-sm text-destructive text-center">{otpError}</p>
-          )}
-
-          <button
-            type="button"
-            data-testid="otp-verify-btn"
-            onClick={() => void handleVerifyOtp()}
-            disabled={otpLoading || otpValue.length !== 6}
-            className="w-full py-3 rounded-xl bg-brand text-white font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {otpLoading && <Loader2 className="animate-spin w-4 h-4" />}
-            {s.firstopen_otp_verify}
-          </button>
-
-          <button
-            type="button"
-            data-testid="otp-skip-btn"
-            onClick={handleSkipOtp}
-            className="text-sm text-muted-foreground underline text-center"
-          >
-            {s.firstopen_otp_skip}
-          </button>
         </div>
       )}
 

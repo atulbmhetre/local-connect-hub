@@ -34,6 +34,7 @@ import {
 import { mapPublicCategoryOrderStats } from "@/lib/categoryScopedVendor";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
+import { SecureCallPreDialOverlay } from "@/components/SecureCallPreDialOverlay";
 
 export type AiBridgeVendor = Pick<
   Vendor,
@@ -168,8 +169,7 @@ export function AiBridgeSheet({
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefText, setBriefText] = useState<string | null>(null);
   const [briefFailed, setBriefFailed] = useState(false);
-  const [callLoading, setCallLoading] = useState(false);
-  const [connecting, setConnecting] = useState(false);
+  const [callPhase, setCallPhase] = useState<"idle" | "predial" | "ringing">("idle");
   const [directCallConfirmOpen, setDirectCallConfirmOpen] = useState(false);
   const [categoryVendorNote, setCategoryVendorNote] = useState<string | null>(null);
   const [categoryFulfilled, setCategoryFulfilled] = useState<number | null>(null);
@@ -226,8 +226,7 @@ export function AiBridgeSheet({
       setBriefLoading(false);
       setBriefText(null);
       setBriefFailed(false);
-      setCallLoading(false);
-      setConnecting(false);
+      setCallPhase("idle");
       setDirectCallConfirmOpen(false);
       setCategoryFulfilled(null);
       setCategoryOnTimeRate(null);
@@ -285,13 +284,13 @@ export function AiBridgeSheet({
   }, [open, categoryId, vendor.id]);
 
   useEffect(() => {
-    if (!connecting) return;
+    if (callPhase !== "ringing") return;
     const t = window.setTimeout(() => {
-      setConnecting(false);
+      setCallPhase("idle");
       onClose();
     }, 3000);
     return () => window.clearTimeout(t);
-  }, [connecting, onClose]);
+  }, [callPhase, onClose]);
 
   const openDirectTel = () => {
     const vendorPhone = vendor.phone.replace(/[\s\-+]/g, "").trim();
@@ -319,21 +318,24 @@ export function AiBridgeSheet({
       return;
     }
 
-    setCallLoading(true);
+    setCallPhase("predial");
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
     const result = await invokeInitiateCall({
       caller_phone: caller,
       vendor_phone: vendorPhone,
       service_mode: vendor.service_mode ?? "help",
     });
-    setCallLoading(false);
 
     if (!result.success) {
+      setCallPhase("idle");
       setDirectCallConfirmOpen(true);
       return;
     }
 
     onCallSuccess?.(vendor.id);
-    setConnecting(true);
+    setCallPhase("ringing");
   };
 
   const displayVendorNote = resolveCategoryVendorNote(
@@ -428,29 +430,24 @@ export function AiBridgeSheet({
             </p>
           )}
 
-          {connecting ? (
-            <p className="text-sm text-brand text-center py-3">{s.ai_bridge_connecting}</p>
-          ) : (
+          {callPhase === "idle" ? (
             <button
               type="button"
-              disabled={briefLoading || callLoading || !secureCallingLive}
+              disabled={briefLoading || !secureCallingLive}
               onClick={() => void handleCallNow()}
               className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
             >
-              {callLoading ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  {s.secure_call_connecting}
-                </>
-              ) : !secureCallingLive ? (
-                s.secure_call_coming_soon
-              ) : (
-                s.ai_bridge_call_now
-              )}
+              {!secureCallingLive ? s.secure_call_coming_soon : s.ai_bridge_call_now}
             </button>
+          ) : (
+            <p className="text-sm text-brand text-center py-3">{s.secure_call_predial_title}</p>
           )}
         </div>
       </SheetContent>
+
+      {callPhase !== "idle" && (
+        <SecureCallPreDialOverlay phase={callPhase === "ringing" ? "ringing" : "predial"} />
+      )}
 
       <AlertDialog open={directCallConfirmOpen} onOpenChange={setDirectCallConfirmOpen}>
         <AlertDialogContent className="rounded-2xl border border-border bg-card">

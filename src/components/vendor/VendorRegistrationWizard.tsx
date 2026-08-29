@@ -7,11 +7,12 @@ import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAv
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
-import {
-  getReferralCode,
+import { getReferralCode,
   isReferralEnabled,
   referralCodeFromPhone,
 } from "@/lib/referral";
+import { OTP_ENABLED } from "@/lib/phoneOtpEnabled";
+import { PhoneOtpVerification } from "@/components/PhoneOtpVerification";
 import {
   supabase,
   SUPABASE_URL,
@@ -239,6 +240,8 @@ export function VendorRegistrationWizard({
   const [cancelReasons, setCancelReasons] = useState(["", "", "", ""]);
 
   const [phone, setPhone] = useState("");
+  const [stepAOtpOpen, setStepAOtpOpen] = useState(false);
+  const [otpVerifiedPhone, setOtpVerifiedPhone] = useState<string | null>(null);
   const [upi, setUpi] = useState("");
   const [upiBlurred, setUpiBlurred] = useState(false);
   const [upiQrUrl, setUpiQrUrl] = useState("");
@@ -442,6 +445,11 @@ export function VendorRegistrationWizard({
     }
     if (!selfieCaptured) {
       showRegistrationGuidanceToast(s.vendor_selfie_capture);
+      return;
+    }
+    const trimmedPhone = phone.trim();
+    if (OTP_ENABLED && otpVerifiedPhone !== trimmedPhone) {
+      setStepAOtpOpen(true);
       return;
     }
     setRegPage(2);
@@ -1241,7 +1249,10 @@ export function VendorRegistrationWizard({
           <RegField
             label={s.vendor_phone_label}
             value={phone}
-            onChange={setPhone}
+            onChange={(v) => {
+              setPhone(v);
+              if (v.trim() !== otpVerifiedPhone) setOtpVerifiedPhone(null);
+            }}
             placeholder={s.vendor_phone_placeholder}
             required
           />
@@ -1774,6 +1785,19 @@ export function VendorRegistrationWizard({
         onClose={() => setShopCameraOpen(false)}
         onCapture={handleShopPhotoCapture}
       />
+
+      {stepAOtpOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background px-6 py-10">
+          <PhoneOtpVerification
+            phone={phone.trim()}
+            onVerified={() => {
+              setOtpVerifiedPhone(phone.trim());
+              setStepAOtpOpen(false);
+              setRegPage(2);
+            }}
+          />
+        </div>
+      )}
     </form>
   );
 }

@@ -31,6 +31,8 @@ import {
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import { fetchVendorByPhoneLogin, fetchVendorOwn } from "@/lib/vendorRead";
 import { getUserPhone, saveUserPhone } from "@/lib/userIdentity";
+import { OTP_ENABLED } from "@/lib/phoneOtpEnabled";
+import { PhoneOtpVerification } from "@/components/PhoneOtpVerification";
 import {
   startHelpLiveTracking,
   stopHelpLiveTracking,
@@ -375,6 +377,8 @@ const VendorMode = () => {
   const [lookupPhone, setLookupPhone] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const [loginOtpPhone, setLoginOtpPhone] = useState<string | null>(null);
+  const [pendingLoginVendor, setPendingLoginVendor] = useState<Vendor | null>(null);
 
   const pushRegisteredVendorRef = useRef<string | null>(null);
   const alreadyRegisteredRef = useRef<HTMLDivElement>(null);
@@ -983,6 +987,18 @@ const VendorMode = () => {
     window.setTimeout(() => setHighlightAlreadyRegistered(false), 2500);
   };
 
+  const completeVendorLogin = (digits: string, found: Vendor) => {
+    saveUserPhone(digits);
+    localStorage.setItem(STORAGE_KEY, found.id);
+    notifyVendorIdChanged();
+    setVendorId(found.id);
+    setVendor(found);
+    setLookupPhone("");
+    setAlreadyRegistered(false);
+    setLookupError(null);
+    toast.success(s.vendor_welcome_back);
+  };
+
   const lookupVendorByPhone = async (e: FormEvent) => {
     e.preventDefault();
     const cleaned = lookupPhone.replace(/\D/g, "");
@@ -1017,15 +1033,12 @@ const VendorMode = () => {
           toast.error(s.vendor_phone_register_blocked);
           return;
         }
-        saveUserPhone(digits);
-        localStorage.setItem(STORAGE_KEY, found.id);
-        notifyVendorIdChanged();
-        setVendorId(found.id);
-        setVendor(found);
-        setLookupPhone("");
-        setAlreadyRegistered(false);
-        setLookupError(null);
-        toast.success(s.vendor_welcome_back);
+        if (OTP_ENABLED) {
+          setPendingLoginVendor(found);
+          setLoginOtpPhone(digits);
+          return;
+        }
+        completeVendorLogin(digits, found);
       } else {
         setLookupError(s.vendor_not_found);
       }
@@ -1633,6 +1646,19 @@ const VendorMode = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {loginOtpPhone && pendingLoginVendor && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background px-6 py-10">
+          <PhoneOtpVerification
+            phone={loginOtpPhone}
+            onVerified={() => {
+              completeVendorLogin(loginOtpPhone, pendingLoginVendor);
+              setLoginOtpPhone(null);
+              setPendingLoginVendor(null);
+            }}
+          />
+        </div>
+      )}
 
     </AppShell>
   );

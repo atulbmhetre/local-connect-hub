@@ -13,6 +13,8 @@ import {
   saveUserPhone,
   getUserPhone,
 } from "@/lib/userIdentity";
+import { OTP_ENABLED, normalizePhoneDigits, isValidIndianMobile } from "@/lib/phoneOtpEnabled";
+import { PhoneOtpVerification } from "@/components/PhoneOtpVerification";
 import { recordUserReferral } from "@/lib/referral";
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
@@ -62,6 +64,13 @@ type ExistingAccountHit = {
   vendorRestorable: boolean;
   vendorIsActive: boolean;
   totalOrders: number;
+};
+
+type SheetStep = "phone" | "existing" | "otp";
+
+type PendingConfirmation = {
+  digits: string;
+  restoreExisting: boolean;
 };
 
 async function lookupExistingAccount(phone: string): Promise<{
@@ -136,13 +145,6 @@ async function lookupExistingAccount(phone: string): Promise<{
   }
 }
 
-function normalizePhoneDigits(raw: string): string {
-  const cleaned = raw.replace(/\D/g, "");
-  return cleaned.length === 12 && cleaned.startsWith("91")
-    ? cleaned.slice(2)
-    : cleaned;
-}
-
 export function PhoneEntrySheet({
   isOpen,
   onClose,
@@ -153,9 +155,11 @@ export function PhoneEntrySheet({
   const { s } = useLanguage();
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
+  const [step, setStep] = useState<SheetStep>("phone");
   const [existingAccount, setExistingAccount] = useState<ExistingAccountHit | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [pending, setPending] = useState<PendingConfirmation | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -164,6 +168,8 @@ export function PhoneEntrySheet({
     setExistingAccount(null);
     setIsChecking(false);
     setIsRestoring(false);
+    setStep("phone");
+    setPending(null);
   }, [isOpen]);
 
   const contextLine =
@@ -173,15 +179,34 @@ export function PhoneEntrySheet({
         ? s.phone_entry_settings_context
         : s.phone_entry_order_context;
 
-  const completePhoneFlow = (normalized: string) => {
+  const finalizePhone = async (normalized: string, restoreExisting: boolean) => {
     saveUserPhone(normalized);
-    onConfirmed(normalized);
+    if (restoreExisting && existingAccount) {
+      await migrateUserPhone(normalized, getDeviceId());
+      if (existingAccount.vendorRestorable && existingAccount.vendorId) {
+        restoreVendorSession(existingAccount.vendorId, existingAccount.vendorIsActive);
+      }
+    }
     void recordUserReferral(normalized, getDeviceId());
+    onConfirmed(normalized);
+  };
+
+  const beginOtpStep = (digits: string, restoreExisting: boolean) => {
+    setPending({ digits, restoreExisting });
+    setStep("otp");
+  };
+
+  const completePhoneFlow = (normalized: string, restoreExisting = false) => {
+    if (OTP_ENABLED) {
+      beginOtpStep(normalized, restoreExisting);
+      return;
+    }
+    void finalizePhone(normalized, restoreExisting);
   };
 
   const handleConfirm = async () => {
     const digits = normalizePhoneDigits(value);
-    if (digits.length !== 10 || !/^[6-9]/.test(digits)) {
+    if (!isValidIndianMobile(digits)) {
       setError(s.phone_entry_invalid);
       return;
     }
@@ -189,7 +214,6 @@ export function PhoneEntrySheet({
     setIsChecking(true);
     setError("");
     try {
-      // Same number already on this device — no need to re-run safety net.
       if (digits === getUserPhone()?.trim()) {
         onConfirmed(digits);
         return;
@@ -207,8 +231,8 @@ export function PhoneEntrySheet({
         return;
       }
       if (hit) {
-        // Real dual lookup (customer + vendor) — offer restore instead of silent fresh identity.
         setExistingAccount(hit);
+        setStep("existing");
         return;
       }
       if (lookupFailed) {
@@ -216,7 +240,6 @@ export function PhoneEntrySheet({
           setError(s.network_timeout);
           return;
         }
-        // Fail open for mid-flow: don't block ordering on a lookup blip.
         completePhoneFlow(digits);
         return;
       }
@@ -239,23 +262,17 @@ export function PhoneEntrySheet({
 
   const handleRestoreExisting = async () => {
     const digits = normalizePhoneDigits(value);
-    if (!existingAccount || digits.length !== 10) return;
+    if (!existingAccount || !isValidIndianMobile(digits)) return;
     setIsRestoring(true);
     try {
-      saveUserPhone(digits);
-      await migrateUserPhone(digits, getDeviceId());
-      if (existingAccount.vendorRestorable && existingAccount.vendorId) {
-        restoreVendorSession(existingAccount.vendorId, existingAccount.vendorIsActive);
-      }
-      void recordUserReferral(digits, getDeviceId());
+      completePhoneFlow(digits, true);
       setExistingAccount(null);
-      onConfirmed(digits);
     } catch (err) {
       captureError(err, {
         scope: "phoneEntry.restoreExisting",
         phoneSuffix: digits.slice(-4),
       });
-      completePhoneFlow(digits);
+      completePhoneFlow(digits, false);
       setExistingAccount(null);
     } finally {
       setIsRestoring(false);
@@ -264,7 +281,7 @@ export function PhoneEntrySheet({
 
   const handleContinueWithoutRestore = () => {
     const digits = normalizePhoneDigits(value);
-    completePhoneFlow(digits);
+    completePhoneFlow(digits, false);
     setExistingAccount(null);
   };
 
@@ -273,6 +290,8 @@ export function PhoneEntrySheet({
       setExistingAccount(null);
       setIsChecking(false);
       setIsRestoring(false);
+      setStep("phone");
+      setPending(null);
       onClose();
     }
   };
@@ -283,7 +302,18 @@ export function PhoneEntrySheet({
         side="bottom"
         className="bg-card border-t border-border rounded-t-2xl"
       >
-        {existingAccount ? (
+        {step === "otp" && pending ? (
+          <PhoneOtpVerification
+            phone={pending.digits}
+            className="py-4"
+            onVerified={() => {
+              void finalizePhone(pending.digits, pending.restoreExisting).then(() => {
+                setPending(null);
+                setStep("phone");
+              });
+            }}
+          />
+        ) : existingAccount && step === "existing" ? (
           <>
             <SheetHeader className="text-left space-y-1 pr-8">
               <SheetTitle className="font-display text-lg" data-testid="phone-entry-existing-title">
