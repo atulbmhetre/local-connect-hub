@@ -1,6 +1,12 @@
 import { expect, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
-import { loginAsCustomer, mintBrowserSupabaseSession } from './setup';
+import {
+  loginAsCustomer,
+  mintBrowserSupabaseSession,
+  waitForCapturedOtp,
+  latestCapturedOtp,
+  prepareUiOtpSend,
+} from './setup';
 import {
   getAnonKey,
   getAppUrl,
@@ -75,7 +81,90 @@ export async function clickRadarOrderCard(
   await card.getByTestId('radar-vendor-card-order-btn').click();
 }
 
-export { loginAsCustomer };
+export { loginAsCustomer, prepareUiOtpSend };
+
+/**
+ * After phone-registration actions, complete OTP entry when the shared OTP UI is shown.
+ * Reads the code from `_test_otp_capture` (sms-hook dormant write). Never calls
+ * `signInWithOtp` from the test process — a second Auth send is live SMS and
+ * races the UI send that already populated the capture table.
+ * No-op when a non-OTP next screen appears instead (existing-account, restore skip).
+ */
+export async function completeOtpIfVisible(page: Page, phone: string) {
+  const otpInput = page.getByTestId('otp-input');
+  const otpScreen = page.getByTestId('otp-screen');
+  const existingTitle = page.getByTestId('phone-entry-existing-title');
+  const restoreSkip = page.getByTestId('restore-skip-verify-btn');
+
+  const next = await Promise.race([
+    otpScreen.waitFor({ state: 'visible', timeout: 20000 }).then(() => 'otp' as const),
+    existingTitle.waitFor({ state: 'visible', timeout: 20000 }).then(() => 'skip' as const),
+    restoreSkip.waitFor({ state: 'visible', timeout: 20000 }).then(() => 'skip' as const),
+  ]).catch(() => 'none' as const);
+
+  if (next !== 'otp') return;
+
+  // Spinner shares otp-screen; wait for the entry field (send finished or failed).
+  await otpInput.waitFor({ state: 'visible', timeout: 30000 });
+
+  const digits = phone.replace(/\D/g, '').slice(-10);
+  const normalized = `+91${digits}`;
+  const rateLimited = page.getByText(/SMS rate limit|rate limit exceeded/i);
+
+  let otp = await latestCapturedOtp(digits);
+  if (!otp && (await rateLimited.isVisible().catch(() => false))) {
+    // Overlay still shows otp-input after a failed send. Wait out Auth's SMS
+    // cooldown, then resend once via the UI (same path as FirstOpen).
+    console.warn(`[completeOtpIfVisible] UI SMS rate-limited for ${normalized}, waiting 40s`);
+    await page.waitForTimeout(40_000);
+    await prepareUiOtpSend('completeOtpIfVisible-ratelimit');
+    const resend = page.getByTestId('otp-resend-btn');
+    if (await resend.isVisible().catch(() => false)) {
+      await resend.click();
+    }
+    otp = await waitForCapturedOtp(normalized, 30_000);
+  } else if (!otp) {
+    otp = await waitForCapturedOtp(normalized, 30_000);
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await otpInput.fill(otp);
+    const verifyBtn = page.getByTestId('otp-verify-btn');
+    await expect(verifyBtn).toBeEnabled({ timeout: 5000 });
+    await verifyBtn.click();
+    const dismissed = await otpScreen
+      .waitFor({ state: 'hidden', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false);
+    if (dismissed) return;
+    otp =
+      (await latestCapturedOtp(digits)) ??
+      (await waitForCapturedOtp(normalized, 15_000).catch(() => ''));
+    if (!otp) {
+      throw new Error(
+        `completeOtpIfVisible: no captured OTP for ${normalized} after verify (dormant table empty)`,
+      );
+    }
+  }
+
+  throw new Error(`completeOtpIfVisible: OTP screen still visible for ${normalized}`);
+}
+
+/** Reserve a global SMS slot, then run the UI action that calls `signInWithOtp`. */
+export async function prepareAndCompleteOtp(
+  page: Page,
+  phone: string,
+  trigger: () => Promise<void>,
+) {
+  await prepareUiOtpSend('prepareAndCompleteOtp');
+  await trigger();
+  await completeOtpIfVisible(page, phone);
+}
+
+/** Kept for call-site compatibility. Do not send a second OTP — the UI already does. */
+export async function prefetchOtpCapture(_phone: string, _logTag = 'prefetchOtpCapture') {
+  return;
+}
 
 /** Ephemeral TEST admin credentials when env is unset (never committed). */
 const EPHEMERAL_ADMIN_EMAIL = 'playwright-admin-session@aaspaas.test';
@@ -274,13 +363,15 @@ export async function loginAsVendor(
   await page.waitForSelector('[data-testid="home-screen"]', { timeout: 15000 });
 }
 
-// Fresh user — no localStorage at all
+// Fresh user — clear once. Do not addInitScript(localStorage.clear): that
+// wipes identity/session on later navigations (e.g. FirstOpen → /vendor).
 export async function loginAsFreshUser(page: Page) {
-  await page.addInitScript(() => {
+  await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => {
     localStorage.clear();
     sessionStorage.clear();
   });
-  await page.goto(APP_URL);
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-testid="first-open-flow"]', { timeout: 15000 });
 }
 

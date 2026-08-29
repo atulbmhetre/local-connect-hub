@@ -16,6 +16,11 @@ function loadEnvAndResolveBrowsersPath(): void {
 
 loadEnvAndResolveBrowsersPath();
 
+// Node 24 + Windows: libuv UV_HANDLE_CLOSING on process.exit after fetch
+// (nodejs/node#56645). Playwright CLI update-check fetch is one trigger
+// (microsoft/playwright#42402). Disable it; keep a single worker.
+process.env.NO_UPDATE_NOTIFIER = process.env.NO_UPDATE_NOTIFIER || '1';
+
 const defaultBaseURL = (process.env.VITE_APP_URL || 'http://localhost:8081').replace(/\/$/, '');
 process.env.PW_APP_URL = process.env.PW_APP_URL || defaultBaseURL;
 process.env.VITE_APP_URL = defaultBaseURL;
@@ -28,7 +33,11 @@ export default defineConfig({
     timeout: 10000,
   },
   retries: 1,
+  // Explicit 1: Node 24 Windows libuv crash (UV_HANDLE_CLOSING) is worse
+  // with parallel workers tearing down fetch handles. Do not raise this
+  // until this machine is on Node 22 LTS (or a Node 24 build with #61999).
   workers: 1,
+  fullyParallel: false,
   // Prod-only specs: run via playwright.prod-smoke / playwright.prod-full configs.
   testIgnore: [
     '**/prod-vendor-wizard-smoke.spec.ts',
@@ -54,6 +63,7 @@ export default defineConfig({
     env: {
       VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL!,
       VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY!,
+      VITE_OTP_ENABLED: process.env.VITE_OTP_ENABLED ?? 'true',
       VITE_ENVIRONMENT: 'test',
       VITE_FIREBASE_API_KEY: process.env.VITE_FIREBASE_API_KEY ?? '',
       VITE_FIREBASE_AUTH_DOMAIN: process.env.VITE_FIREBASE_AUTH_DOMAIN ?? '',

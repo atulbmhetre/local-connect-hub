@@ -270,9 +270,10 @@ serve(async (req) => {
 
   try {
     const smsConfig = readExotelSmsConfig();
+    // Always capture for Playwright, including live send (TEST reads `_test_otp_capture`).
+    await captureOtpForTests(phone, otp);
     if (!smsConfig) {
       console.log("DORMANT SMS HOOK — would send OTP", { phone, otp });
-      await captureOtpForTests(phone, otp);
       return jsonResponse({});
     }
 

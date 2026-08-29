@@ -791,8 +791,9 @@ async function mintSessionViaAdmin(
 const OTP_COUNT_FILE = path.join(os.tmpdir(), 'aaspaas-otp-count.json');
 const OTP_COUNT_LOCK_FILE = `${OTP_COUNT_FILE}.lock`;
 const OTP_WINDOW_MS = 60_000;
-const OTP_MAX_CALLS = 10;
-const OTP_RATE_LIMIT_RETRY_MS = 35_000;
+/** Supabase project SMS limits are far below 10/min; 10 caused mid-suite "SMS rate limit exceeded". */
+const OTP_MAX_CALLS = 3;
+const OTP_RATE_LIMIT_RETRY_MS = 40_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -801,6 +802,15 @@ function sleep(ms: number): Promise<void> {
 function isSmsRateLimitError(message: string): boolean {
   const normalized = message.toLowerCase();
   return normalized.includes('sms rate limit') || normalized.includes('rate limit exceeded');
+}
+
+function isOtpCooldownError(message: string): boolean {
+  return /after \d+ seconds?/i.test(message);
+}
+
+function otpCooldownMs(message: string): number {
+  const match = message.match(/after (\d+) seconds?/i);
+  return ((match ? Number.parseInt(match[1], 10) : 5) + 1) * 1000;
 }
 
 async function withOtpCountLock<T>(fn: () => T): Promise<T> {
@@ -858,6 +868,12 @@ async function recordOtpCall(): Promise<void> {
     timestamps.push(Date.now());
     writeOtpTimestamps(timestamps);
   });
+}
+
+/** Wait for a global SMS slot, then count the upcoming UI `signInWithOtp`. */
+export async function prepareUiOtpSend(logTag = 'prepareUiOtpSend'): Promise<void> {
+  await waitForOtpSlot(logTag);
+  await recordOtpCall();
 }
 
 async function signInWithOtpThrottled(
@@ -935,6 +951,75 @@ export async function mintBrowserSupabaseSession(
   } catch (err) {
     console.error(`[${logTag}] session mint failed:`, err);
   }
+}
+
+export async function waitForCapturedOtp(
+  phone: string,
+  timeoutMs = 20_000,
+): Promise<string> {
+  const normalized = phone.startsWith("+") ? phone : `+91${phone.replace(/\D/g, "").slice(-10)}`;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { data, error } = await supabaseAdmin
+      .from("_test_otp_capture")
+      .select("otp")
+      .eq("phone", normalized)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (data?.otp) return data.otp;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`OTP not captured for ${normalized} within ${timeoutMs}ms`);
+}
+
+/**
+ * Extra `signInWithOtp` from the test process. Do not use this to drive
+ * PhoneOtpVerification — UI send + `waitForCapturedOtp` is the suite pattern.
+ * Kept for session-mint / phone-auth specs that never show the OTP overlay.
+ */
+export async function triggerOtpCapture(phone: string, logTag = 'triggerOtpCapture'): Promise<void> {
+  const digits = phone.replace(/\D/g, '').slice(-10);
+  const otpClient = createClient(
+    process.env.VITE_SUPABASE_URL!,
+    process.env.VITE_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { error } = await signInWithOtpThrottled(otpClient, `+91${digits}`, logTag);
+    if (!error) return;
+    if (isOtpCooldownError(error.message)) {
+      await sleep(otpCooldownMs(error.message));
+      continue;
+    }
+    if (isSmsRateLimitError(error.message)) {
+      console.warn(`[${logTag}] rate limited — cooldown before retry ${attempt + 2}/6`);
+      await sleep(40_000);
+      continue;
+    }
+    throw new Error(`triggerOtpCapture signInWithOtp failed: ${error.message}`);
+  }
+  throw new Error(`triggerOtpCapture signInWithOtp failed after retries`);
+}
+
+export async function latestCapturedOtp(
+  phone: string,
+  maxAgeMs = 180_000,
+): Promise<string | null> {
+  const digits = phone.replace(/\D/g, '').slice(-10);
+  const normalized = digits.startsWith('+') ? digits : `+91${digits}`;
+  const { data, error } = await supabaseAdmin
+    .from('_test_otp_capture')
+    .select('otp')
+    .eq('phone', normalized)
+    .gte('created_at', new Date(Date.now() - maxAgeMs).toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.otp ?? null;
 }
 
 /** Browser login helper — localStorage identity plus Phase D Supabase session. */

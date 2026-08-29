@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "playwright:install": "dotenv -e .env.local -o -- playwright install chromium",
-    "test:e2e": "dotenv -e .env.local -o -- playwright test",
+    "test:e2e": "dotenv -e .env.local -o -- playwright test --workers=1",
     "check:empty-ts": "node scripts/check-empty-tracked-ts.mjs",
     "db:push:test": "node scripts/db-push.mjs test",
     "db:push:prod": "node scripts/db-push.mjs prod",

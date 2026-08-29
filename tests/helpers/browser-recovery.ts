@@ -1,6 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import { gotoRadarDelivery, clickRadarOrderCard } from './browser-setup';
-import { mintBrowserSupabaseSession } from './setup';
+import { prepareAndCompleteOtp, gotoRadarDelivery, clickRadarOrderCard } from './browser-setup';
 
 export async function dismissWelcomeIfVisible(page: Page) {
   const flow = page.getByTestId('first-open-flow');
@@ -58,25 +57,7 @@ export async function submitPhoneNumber(page: Page, phone: string) {
   const digits = phone.replace(/\D/g, '').slice(0, 10);
   const input = page.getByPlaceholder('98765 43210');
   await input.fill(digits);
-  const sessionReady = await page.evaluate(async (expectedPhone) => {
-    try {
-      const { supabase } = await import('/src/lib/supabase.ts');
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) return false;
-      const raw = session.user?.phone ?? '';
-      const cleaned = raw.replace(/\D/g, '');
-      const sessionPhone =
-        cleaned.length === 12 && cleaned.startsWith('91') ? cleaned.slice(2) : cleaned;
-      return sessionPhone === expectedPhone;
-    } catch {
-      return false;
-    }
-  }, digits);
-  if (!sessionReady) {
-    await mintBrowserSupabaseSession(page, digits, 'submitPhoneNumber');
-  }
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByText('Checking...').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+  await prepareAndCompleteOtp(page, digits, () =>
+    page.getByRole('button', { name: 'Continue' }).click(),
+  );
 }

@@ -1,10 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
-import { APP_URL } from "./helpers/browser-setup";
+import { APP_URL, prepareAndCompleteOtp } from "./helpers/browser-setup";
 import { getActiveCategoryByLabel } from "./helpers/setup";
 import path from "node:path";
 import fs from "node:fs";
 
 const OUT_DIR = path.join(process.cwd(), "tmp", "i18n-availability-screenshots");
+
+test.describe.configure({ timeout: 180_000 });
 
 async function mockVendorGeolocation(page: Page) {
   await page.context().grantPermissions(["geolocation"]);
@@ -31,7 +33,9 @@ async function completeStepA(page: Page, phone: string, lang: "hi" | "mr") {
     timeout: 15000,
   });
   const nextLabel = lang === "hi" ? "आगे" : "पुढे";
-  await page.getByRole("button", { name: nextLabel, exact: true }).click();
+  await prepareAndCompleteOtp(page, phone, () =>
+    page.getByRole("button", { name: nextLabel, exact: true }).click(),
+  );
   const step2Marker = lang === "hi" ? /चरण 2\/2/ : /पायरी 2\/2/;
   await expect(page.getByText(step2Marker)).toBeVisible({ timeout: 10000 });
 }

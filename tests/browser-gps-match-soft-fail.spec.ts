@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { APP_URL } from "./helpers/browser-setup";
+import { APP_URL, prepareAndCompleteOtp } from "./helpers/browser-setup";
 import { ensureRegAvailabilityReady } from "./helpers/regAvailability";
 import {
   supabaseAdmin,
@@ -31,6 +31,7 @@ async function setE2eGeo(
 }
 
 test.describe("GPS match soft-fail + failure logging", () => {
+  test.describe.configure({ timeout: 180_000 });
   const phone = `99006${Date.now().toString().slice(-5)}`;
   let vendorId: string | null = null;
 
@@ -68,7 +69,9 @@ test.describe("GPS match soft-fail + failure logging", () => {
       /Retake|Re-shoot|फिर|पुन्हा/i,
       { timeout: 15000 },
     );
-    await page.getByRole("button", { name: "Next" }).click();
+    await prepareAndCompleteOtp(page, phone, () =>
+      page.getByRole("button", { name: "Next" }).click(),
+    );
 
     await page.getByRole("button", { name: "Browse all categories" }).click();
     await page.getByRole("button").filter({ hasText: cat!.label }).first().click();

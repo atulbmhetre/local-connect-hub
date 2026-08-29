@@ -5,7 +5,7 @@
  * Run: PW_REUSE_DEV_SERVER=true npx playwright test tests/three-way-availability-modes-smoke.spec.ts --retries=0
  */
 import { expect, test, type Page } from "@playwright/test";
-import { APP_URL } from "./helpers/browser-setup";
+import { APP_URL, prepareAndCompleteOtp } from "./helpers/browser-setup";
 import {
   deleteVendorRegistrationArtifacts,
   getActiveCategoryByLabel,
@@ -15,6 +15,8 @@ import { setRegAvailabilityModes } from "./helpers/regAvailability";
 import { loadTestEnv } from "./helpers/testEnv";
 
 loadTestEnv();
+
+test.describe.configure({ timeout: 180_000 });
 
 const SESSION = `twa${Date.now().toString().slice(-8)}`;
 const observations: string[] = [];
@@ -57,7 +59,9 @@ async function registerMechanicWithModes(
   await expect(page.getByTestId("reg-selfie-capture")).toContainText(/Retake|Re-shoot/i, {
     timeout: 15_000,
   });
-  await page.getByRole("button", { name: "Next" }).click();
+  await prepareAndCompleteOtp(page, phone, () =>
+    page.getByRole("button", { name: "Next" }).click(),
+  );
   await expect(page.getByText(/Step 2|चरण 2|पायरी 2/i)).toBeVisible({ timeout: 15_000 });
 
   await page.getByRole("button", { name: /Browse all categories|सभी categories|सर्व categories/i }).click();

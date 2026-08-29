@@ -8,7 +8,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { test, expect, Page, Locator } from '@playwright/test';
-import { loginAsCustomer, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -33,6 +33,8 @@ const L = {
   scanInstruction: 'Scan this QR from PhonePe / GPay / any UPI app',
   enterUtr: 'Enter UTR / Transaction ID',
 } as const;
+
+test.describe.configure({ timeout: 180_000 });
 
 const createdVendorIds: string[] = [];
 const createdRequestIds: string[] = [];
@@ -219,7 +221,9 @@ test('QRD-01 — decode succeeds on real QR upload, payee ID stored', async ({ p
     await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
       timeout: 15000,
     });
-    await page.getByRole('button', { name: 'Next' }).click();
+    await prepareAndCompleteOtp(page, phone, () =>
+      page.getByRole('button', { name: 'Next' }).click(),
+    );
 
     // Step B: business + UPI QR decode + GPS + shop photo → Register
     await page.getByRole('button', { name: 'Browse all categories' }).click();

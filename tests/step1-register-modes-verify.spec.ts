@@ -6,7 +6,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { APP_URL } from './helpers/browser-setup';
+import { APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
 import { setRegAvailabilityModes } from './helpers/regAvailability';
 import { supabaseAdmin, getActiveCategoryByLabel } from './helpers/setup';
 
@@ -24,6 +24,8 @@ async function enableE2eCameraMock(page: Page) {
     (window as unknown as { __E2E_MOCK_CAMERA__?: boolean }).__E2E_MOCK_CAMERA__ = true;
   });
 }
+
+test.describe.configure({ timeout: 180_000 });
 
 test('STEP1: UI register writes vendor_category_modes + radar match', async ({ page }) => {
   const url = process.env.VITE_SUPABASE_URL ?? '';
@@ -46,7 +48,9 @@ test('STEP1: UI register writes vendor_category_modes + radar match', async ({ p
   await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
   });
-  await page.getByRole('button', { name: 'Next' }).click();
+  await prepareAndCompleteOtp(page, phone, () =>
+    page.getByRole('button', { name: 'Next' }).click(),
+  );
 
   await page.getByRole('button', { name: 'Browse all categories' }).click();
   const chip = page

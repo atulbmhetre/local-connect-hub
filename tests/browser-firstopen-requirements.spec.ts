@@ -1,6 +1,8 @@
 import { test, expect, Page } from '@playwright/test';
 import {
   loginAsFreshUser,
+  completeOtpIfVisible,
+  prepareUiOtpSend,
 } from './helpers/browser-setup';
 import {
   supabaseAdmin,
@@ -10,6 +12,7 @@ import {
 import { strings } from '../src/lib/strings';
 
 test.use({ storageState: { cookies: [], origins: [] } });
+test.describe.configure({ timeout: 180_000 });
 
 const T = Date.now();
 const DEVICE_ID = `device_fo_req_${T}`;
@@ -115,20 +118,32 @@ async function tapRestore(page: Page) {
 }
 
 /**
- * After restore (or Continue), OTP is required when VITE_OTP_ENABLED=true.
- * Product allows Skip → localStorage identity (no SMS verify in E2E).
- * On web, skip/complete goes straight to done (notification step is native-only).
- * Fresh "I'm new" never shows OTP — flow may already be dismissed.
+ * Complete FirstOpen: restore skip (pre-SMS) or OTP verify when required.
  */
-async function waitForFlowComplete(page: Page) {
+async function waitForFlowComplete(page: Page, opts?: { otpPhone?: string }) {
   const flow = page.getByTestId('first-open-flow');
-  const otpSkip = page.getByTestId('otp-skip-btn');
+  const restoreSkip = page.getByTestId('restore-skip-verify-btn');
+  const otpInput = page.getByTestId('otp-input');
+
+  const next = await Promise.race([
+    restoreSkip.waitFor({ state: 'visible', timeout: 15000 }).then(() => 'skip' as const),
+    otpInput.waitFor({ state: 'visible', timeout: 15000 }).then(() => 'otp' as const),
+    flow.waitFor({ state: 'hidden', timeout: 15000 }).then(() => 'done' as const),
+  ]).catch(() => 'none' as const);
+
+  if (next === 'skip') {
+    await restoreSkip.click();
+  } else if (next === 'otp' || (next === 'none' && opts?.otpPhone)) {
+    if (!opts?.otpPhone) {
+      throw new Error('OTP screen shown but no otpPhone provided to waitForFlowComplete');
+    }
+    await completeOtpIfVisible(page, opts.otpPhone);
+  }
 
   await Promise.race([
-    otpSkip.waitFor({ state: 'visible', timeout: 20000 }).then(async () => {
-      await otpSkip.click();
-    }),
-    flow.waitFor({ state: 'hidden', timeout: 20000 }),
+    flow.waitFor({ state: 'hidden', timeout: 25000 }),
+    page.getByTestId('home-screen').waitFor({ state: 'visible', timeout: 25000 }),
+    page.waitForURL(/\/vendor/, { timeout: 25000 }),
   ]);
 
   const notifSkip = page.getByTestId('firstopen-notif-skip');
@@ -137,13 +152,20 @@ async function waitForFlowComplete(page: Page) {
   }
 
   await expect(flow).not.toBeVisible({ timeout: 15000 });
-  await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 15000 });
+  if (!/\/vendor/.test(page.url())) {
+    await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 15000 });
+  }
 }
 
 async function skipFirstOpenFlow(page: Page) {
+  const phone = nextCustomerPhone();
+  createdPhones.push(phone);
   await page.getByTestId('firstopen-im-new').click();
   await page.getByTestId('firstopen-use-as-customer').click();
-  await waitForFlowComplete(page);
+  await page.getByTestId('firstopen-register-phone-input').fill(phone);
+  await prepareUiOtpSend('FO-register');
+  await page.getByTestId('firstopen-register-phone-continue').click();
+  await waitForFlowComplete(page, { otpPhone: phone });
 }
 
 test.beforeAll(async () => {
@@ -203,10 +225,10 @@ test('FO-REQ-02 — No account found — starts fresh', async ({ page }) => {
   expect(await lsGet(page, 'aaspaas:welcomed')).toBeNull();
   expect(await lsGet(page, 'aaspaas:user_phone')).toBeNull();
 
+  createdPhones.push(phone);
   await page.getByTestId('firstopen-no-account-continue').click();
-
-  await waitForFlowComplete(page);
-  expect(await lsGet(page, 'aaspaas:user_phone')).toBeNull();
+  await waitForFlowComplete(page, { otpPhone: phone });
+  expect(await lsGet(page, 'aaspaas:user_phone')).toBe(phone);
   expect(await lsGet(page, 'aaspaas:welcomed')).toBe('true');
 });
 
@@ -347,22 +369,29 @@ test('FO-REQ-06 — Admin session login — admin panel accessible', async ({ pa
 
 // ─── SKIP PATH ───────────────────────────────────────────────────────────────
 
-test('FO-REQ-07 — Skip restore — starts fresh, no identity set', async ({ page }) => {
+test('FO-REQ-07 — New customer path verifies OTP and sets identity', async ({ page }) => {
   await loginAsFreshUser(page);
   await skipFirstOpenFlow(page);
 
-  expect(await lsGet(page, 'aaspaas:user_phone')).toBeNull();
+  expect(await lsGet(page, 'aaspaas:user_phone')).toMatch(/^88020/);
   expect(await lsGet(page, 'aaspaas:welcomed')).toBe('true');
   await expect(page.getByTestId('home-screen')).toBeVisible();
 });
 
 test('FO-REQ-08 — Vendor registration button navigates correctly', async ({ page }) => {
+  const phone = nextVendorPhone();
+  createdPhones.push(phone);
   await loginAsFreshUser(page);
   await page.getByTestId('firstopen-im-new').click();
   await expect(page.getByTestId('firstopen-vendor-btn')).toBeVisible({ timeout: 8000 });
   await page.getByTestId('firstopen-vendor-btn').click();
+  await page.getByTestId('firstopen-register-phone-input').fill(phone);
+  await prepareUiOtpSend('FO-REQ-08');
+  await page.getByTestId('firstopen-register-phone-continue').click();
+  await waitForFlowComplete(page, { otpPhone: phone });
 
   await expect(page).toHaveURL(/vendor/, { timeout: 10000 });
+  expect(await lsGet(page, 'aaspaas:user_phone')).toBe(phone);
   expect(await lsGet(page, 'aaspaas:welcomed')).toBe('true');
   await expect(page.getByTestId('first-open-flow')).not.toBeVisible({ timeout: 5000 });
 });

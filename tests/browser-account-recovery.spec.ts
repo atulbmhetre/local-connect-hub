@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { APP_URL } from './helpers/browser-setup';
+import { APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
 import {
   cleanupTestData,
   cleanupTestVendors,
@@ -13,7 +13,6 @@ import {
   uniqueBrowserPhone,
 } from './helpers/session38';
 import { openPhoneEntrySheet, submitPhoneNumber } from './helpers/browser-recovery';
-import { mintBrowserSupabaseSession } from './helpers/setup';
 import { strings } from '../src/lib/strings';
 
 const TEST_DEVICE_ID = `device_reco_${TEST_SESSION}`;
@@ -21,6 +20,8 @@ const FRESH_PHONE = uniqueBrowserPhone('8801');
 const EXISTING_PHONE = uniqueBrowserPhone('8802');
 const EN = strings.en;
 const T = Date.now();
+
+test.describe.configure({ timeout: 180_000 });
 
 let testVendor: { id: string; shop_name: string };
 
@@ -125,7 +126,9 @@ test('RECOV-02: known phone under new-path customer offers restore safety net', 
   // Before choosing, phone must not be silently saved as a fresh identity.
   expect(await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'))).toBeNull();
 
-  await page.getByTestId('phone-entry-existing-continue').click();
+  await prepareAndCompleteOtp(page, EXISTING_PHONE, () =>
+    page.getByTestId('phone-entry-existing-continue').click(),
+  );
   const savedPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
   expect(savedPhone).toBe(EXISTING_PHONE);
 });
@@ -144,11 +147,12 @@ test('RECOV-03: restore from safety net proceeds with order', async ({ page }) =
     vendorId: testVendor.id,
     deviceId: TEST_DEVICE_ID,
   });
-  await mintBrowserSupabaseSession(page, EXISTING_PHONE, 'RECOV-03');
   await submitPhoneNumber(page, EXISTING_PHONE);
 
   await expect(page.getByTestId('phone-entry-existing-title')).toBeVisible({ timeout: 10000 });
-  await page.getByTestId('phone-entry-existing-restore').click();
+  await prepareAndCompleteOtp(page, EXISTING_PHONE, () =>
+    page.getByTestId('phone-entry-existing-restore').click(),
+  );
 
   const savedPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
   expect(savedPhone).toBe(EXISTING_PHONE);

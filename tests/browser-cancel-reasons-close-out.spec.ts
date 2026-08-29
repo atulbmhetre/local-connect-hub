@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, openVendorMyBusinessTab, expandFirstMyBusinessCategoryAccordion, APP_URL } from './helpers/browser-setup';
+import { loginAsVendor, openVendorMyBusinessTab, expandFirstMyBusinessCategoryAccordion, APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -8,6 +8,8 @@ import {
   TEST_SESSION,
 } from './helpers/setup';
 import { resolveCancelReasonsForCategory } from '../src/lib/categoryScopedVendor';
+
+test.describe.configure({ timeout: 180_000 });
 
 // Closes out the two confirmed Cancel Reasons bugs:
 //  1. Single-category shadowing — Settings previously wrote edits to legacy
@@ -248,7 +250,9 @@ test('HV-FALLBACK-01 — hidden vendor with no stored phone is NOT logged out; r
 
   // Entering the phone restores the account (hidden vendors included).
   await page.getByPlaceholder('98765 43210').fill(vendor.phone);
-  await page.getByRole('button', { name: /find my account/i }).click();
+  await prepareAndCompleteOtp(page, vendor.phone, () =>
+    page.getByRole('button', { name: /find my account/i }).click(),
+  );
 
   await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 20000 });
   const storedPhone = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));

@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, openVendorPreferencesTab, APP_URL } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, openVendorPreferencesTab, APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
 import {
   supabase,
   supabaseAdmin,
@@ -18,6 +18,8 @@ function referralCodeFromPhone(phone: string): string {
 
 /** Unique suffix for all test data in this file. */
 const T = Date.now();
+
+test.describe.configure({ timeout: 180_000 });
 const CUSTOMER_PHONE = `88009${String(T).slice(-5)}`;
 const DEVICE_ID = `device_rf_${T}`;
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
@@ -501,7 +503,9 @@ test('RF-REQ-10 — Duplicate vendor referral blocked gracefully', async ({ page
     timeout: 15000,
   });
   await page.getByPlaceholder('e.g. MAT-9973').fill(referrerCode);
-  await page.getByRole('button', { name: 'Next' }).click();
+  await prepareAndCompleteOtp(page, newPhone, () =>
+    page.getByRole('button', { name: 'Next' }).click(),
+  );
 
   // Step B — business
   await page.getByRole('button', { name: 'Browse all categories' }).click();

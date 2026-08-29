@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { APP_URL, expandFirstMyBusinessCategoryAccordion } from './helpers/browser-setup';
+import { APP_URL, expandFirstMyBusinessCategoryAccordion, prepareAndCompleteOtp } from './helpers/browser-setup';
 import { setRegAvailabilityModes } from './helpers/regAvailability';
 import {
   supabase,
@@ -14,6 +14,8 @@ import {
   TEST_ADMIN_PHONE,
   TEST_SESSION,
 } from './helpers/setup';
+
+test.describe.configure({ timeout: 180_000 });
 
 async function mockVendorGeolocation(page: Page) {
   await page.context().grantPermissions(['geolocation']);
@@ -46,7 +48,9 @@ async function completeWizardStepA(
   if (opts.referralCode) {
     await page.getByPlaceholder('e.g. MAT-9973').fill(opts.referralCode);
   }
-  await page.getByRole('button', { name: 'Next' }).click();
+  await prepareAndCompleteOtp(page, opts.phone, () =>
+    page.getByRole('button', { name: 'Next' }).click(),
+  );
 }
 
 /** Step B: single business + shop photo → Register. */

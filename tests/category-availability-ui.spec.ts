@@ -1,11 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
-import { APP_URL } from "./helpers/browser-setup";
+import { APP_URL, prepareAndCompleteOtp } from "./helpers/browser-setup";
 import {
   supabaseAdmin,
   deleteVendorRegistrationArtifacts,
   getActiveCategoryByLabel,
 } from "./helpers/setup";
 import { setRegAvailabilityModes } from "./helpers/regAvailability";
+
+test.describe.configure({ timeout: 180_000 });
 
 async function mockVendorGeolocation(page: Page) {
   await page.context().grantPermissions(["geolocation"]);
@@ -25,7 +27,9 @@ async function completeWizardStepA(page: Page, phone: string) {
   await expect(page.getByTestId("reg-selfie-capture")).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
   });
-  await page.getByRole("button", { name: "Next" }).click();
+  await prepareAndCompleteOtp(page, phone, () =>
+    page.getByRole("button", { name: "Next" }).click(),
+  );
 }
 
 async function completeWizardStepB(

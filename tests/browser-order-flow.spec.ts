@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, loginAsFreshUser, gotoRadarDelivery, APP_URL, expandMyAccountAccordion } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, loginAsFreshUser, gotoRadarDelivery, APP_URL, expandMyAccountAccordion, prepareAndCompleteOtp } from './helpers/browser-setup';
 import { createTestVendor, createTestCustomer, cleanupTestData, cleanupTestVendors, getActiveCategories, seedBronzeVendorVerification, seedVendorCategory, TEST_SESSION, supabaseAdmin } from './helpers/setup';
 
 const T = Date.now();
@@ -10,6 +10,8 @@ let placedOrderId: string;
 
 const PHASE_D_TEST_DEBT =
   'Phase D test debt — needs session-aware test redesign. Tracked for dedicated test session.';
+
+test.describe.configure({ timeout: 180_000 });
 
 test.beforeAll(async () => {
   // Default /radar is help mode; delivery empty-browse needs customer-place reach.
@@ -61,10 +63,15 @@ test('CO-02: welcome card hidden when already welcomed', async ({ page }) => {
 });
 
 test('CO-03: welcome explore button dismisses welcome card', async ({ page }) => {
+  const phone = `8800${String(Date.now()).slice(-6)}`;
   await loginAsFreshUser(page);
   await expect(page.getByTestId('first-open-flow')).toBeVisible({ timeout: 8000 });
   await page.getByTestId('firstopen-im-new').click();
   await page.getByTestId('firstopen-use-as-customer').click();
+  await page.getByTestId('firstopen-register-phone-input').fill(phone);
+  await prepareAndCompleteOtp(page, phone, () =>
+    page.getByTestId('firstopen-register-phone-continue').click(),
+  );
   // Welcome card should be gone and welcomed flag set
   await expect(page.getByTestId('first-open-flow')).not.toBeVisible({ timeout: 5000 });
   const welcomed = await page.evaluate(() => localStorage.getItem('aaspaas:welcomed'));
@@ -72,10 +79,15 @@ test('CO-03: welcome explore button dismisses welcome card', async ({ page }) =>
 });
 
 test('CO-04: welcome vendor button navigates to vendor registration', async ({ page }) => {
+  const phone = `9900${String(Date.now()).slice(-6)}`;
   await loginAsFreshUser(page);
   await expect(page.getByTestId('first-open-flow')).toBeVisible({ timeout: 8000 });
   await page.getByTestId('firstopen-im-new').click();
   await page.getByTestId('firstopen-vendor-btn').click();
+  await page.getByTestId('firstopen-register-phone-input').fill(phone);
+  await prepareAndCompleteOtp(page, phone, () =>
+    page.getByTestId('firstopen-register-phone-continue').click(),
+  );
   // Should navigate to vendor tab or registration flow
   await expect(page).toHaveURL(/vendor/);
 });

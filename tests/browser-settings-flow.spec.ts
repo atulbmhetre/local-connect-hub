@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { loginAsCustomer, loginAsVendor, loginAsFreshUser, APP_URL, expandMyAccountAccordion } from './helpers/browser-setup';
+import { loginAsCustomer, loginAsVendor, loginAsFreshUser, APP_URL, expandMyAccountAccordion, prepareAndCompleteOtp } from './helpers/browser-setup';
 import { supabase, supabaseAdmin, createTestVendor, cleanupTestData, cleanupTestVendors, TEST_CUSTOMER_PHONE, TEST_SESSION } from './helpers/setup';
 
 const TEST_DEVICE_ID = `device_settings_${TEST_SESSION}`;
 let testVendor: any;
+
+test.describe.configure({ timeout: 180_000 });
 
 test.beforeAll(async () => {
   testVendor = await createTestVendor();
@@ -212,7 +214,9 @@ test('SET-12: no-phone customer can add phone from My Identity and post announce
     timeout: 5000,
   });
   await page.getByPlaceholder('98765 43210').fill(phone);
-  await page.getByRole('button', { name: /^Continue$/i }).click();
+  await prepareAndCompleteOtp(page, phone, () =>
+    page.getByRole('button', { name: /^Continue$/i }).click(),
+  );
   await expect(page.getByText(/Phone number saved/i)).toBeVisible({ timeout: 10000 });
   expect(await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'))).toBe(phone);
   await expect(page.getByTestId('settings-identity-phone')).toContainText(phone, { timeout: 8000 });
@@ -268,7 +272,9 @@ test('SET-13: My Identity phone entry offers restore for known number', async ({
   await expect(page.getByTestId('phone-entry-existing-title')).toBeVisible({ timeout: 10000 });
   expect(await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'))).toBeNull();
 
-  await page.getByTestId('phone-entry-existing-restore').click();
+  await prepareAndCompleteOtp(page, existing, () =>
+    page.getByTestId('phone-entry-existing-restore').click(),
+  );
   await expect(page.getByText(/Phone number saved/i)).toBeVisible({ timeout: 10000 });
   expect(await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'))).toBe(existing);
 });

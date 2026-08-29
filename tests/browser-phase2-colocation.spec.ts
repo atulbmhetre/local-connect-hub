@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { APP_URL } from './helpers/browser-setup';
+import { APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
 import { ensureRegAvailabilityReady, setRegAvailabilityModes } from './helpers/regAvailability';
 import {
   supabaseAdmin,
@@ -35,7 +35,9 @@ async function completeWizardStepA(page: Page, opts: { ownerName: string; phone:
   await expect(page.getByTestId('reg-selfie-capture')).toContainText(/Retake|Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
   });
-  await page.getByRole('button', { name: 'Next' }).click();
+  await prepareAndCompleteOtp(page, opts.phone, () =>
+    page.getByRole('button', { name: 'Next' }).click(),
+  );
 }
 
 async function completeWizardStepB(
@@ -62,6 +64,8 @@ async function completeWizardStepB(
   });
   await page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी करा/i }).click();
 }
+
+test.describe.configure({ timeout: 180_000 });
 
 test.describe('Phase 2 colocation write path', () => {
   test('P2-A: same location shows reuse and inherits photo without admin green', async ({
