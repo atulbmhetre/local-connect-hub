@@ -2,6 +2,7 @@ import { test, expect, Page, Locator } from '@playwright/test';
 import { loginAsCustomer, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
+  vendorPhoneById,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
 } from './helpers/setup';
@@ -116,6 +117,7 @@ async function seedFulfilledOrderWithUnpaidBill(
   const { error: billError } = await supabaseAdmin.rpc('insert_bill_with_items', {
     p_order_id: request.id,
     p_vendor_id: vendorId,
+      p_vendor_phone: await vendorPhoneById(vendorId),
     p_customer_phone: CUSTOMER_PHONE,
     p_total: billTotal,
     p_payment_mode: 'upi',

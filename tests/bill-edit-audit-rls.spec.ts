@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import {
   supabaseAdmin,
+  vendorPhoneById,
   getFirstActiveCategory,
   invokeRegisterVendorRpc,
   deleteVendorRegistrationArtifacts,
@@ -71,6 +72,7 @@ async function seedBill(vendorId: string, userPhone: string) {
   const { data: billId, error: billErr } = await supabaseAdmin.rpc('insert_bill_with_items', {
     p_order_id: req.id,
     p_vendor_id: vendorId,
+      p_vendor_phone: await vendorPhoneById(vendorId),
     p_customer_phone: userPhone,
     p_total: 100,
     p_payment_mode: 'cash',

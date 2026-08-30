@@ -5,6 +5,7 @@ import { test, expect, Page } from '@playwright/test';
 import { loginAsCustomer, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
+  vendorPhoneById,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
 } from './helpers/setup';
@@ -120,6 +121,7 @@ async function seedExceptionOrder(
   const { error: billError } = await supabaseAdmin.rpc('insert_bill_with_items', {
     p_order_id: request.id,
     p_vendor_id: vendorId,
+      p_vendor_phone: await vendorPhoneById(vendorId),
     p_customer_phone: CUSTOMER_PHONE,
     p_total: billTotal,
     p_payment_mode: paymentMode,
@@ -313,6 +315,7 @@ test('PAS-04 — vendor-self delivery UPI still has no Pay Now (Phase 1 matrix u
   const { error: billErr } = await supabaseAdmin.rpc('insert_bill_with_items', {
     p_order_id: req.id,
     p_vendor_id: vendor.id,
+      p_vendor_phone: await vendorPhoneById(vendor.id),
     p_customer_phone: CUSTOMER_PHONE,
     p_total: 500,
     p_payment_mode: 'upi',

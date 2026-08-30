@@ -2,6 +2,7 @@ import { test, expect, Page, Locator } from '@playwright/test';
 import { loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
   supabaseAdmin,
+  vendorPhoneById,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
 } from './helpers/setup';
@@ -100,6 +101,7 @@ async function insertCashBillViaRpc(opts: {
   const { data, error } = await supabaseAdmin.rpc('insert_bill_with_items', {
     p_order_id: opts.requestId,
     p_vendor_id: opts.vendorId,
+      p_vendor_phone: await vendorPhoneById(opts.vendorId),
     p_customer_phone: opts.customerPhone,
     p_total: opts.total,
     p_payment_mode: 'cash',

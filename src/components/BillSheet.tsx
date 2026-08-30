@@ -508,9 +508,17 @@ export function BillSheet({
       unit: i.unit.trim() || null,
     }));
 
+    const vendorPhone = getUserPhone()?.trim();
+    if (!vendorPhone) {
+      toast.error(s.bill_sendFailed);
+      releaseSendingLock();
+      return;
+    }
+
     const { data: billId, error: billError } = await supabase.rpc("insert_bill_with_items", {
       p_order_id: requestId,
       p_vendor_id: vendorId,
+      p_vendor_phone: vendorPhone,
       p_customer_phone: userPhone,
       p_total: totalAmount,
       p_payment_mode: paymentMode,

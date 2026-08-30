@@ -6,6 +6,7 @@ import { loginAsCustomer, APP_URL } from './helpers/browser-setup';
 import {
   supabase,
   supabaseAdmin,
+  vendorPhoneById,
   createTestVendor,
   createTestCustomer,
   cleanupTestData,
@@ -48,6 +49,7 @@ async function seedAcceptedUpiBill(message: string) {
   const { error: billErr } = await supabase.rpc('insert_bill_with_items', {
     p_order_id: req.id,
     p_vendor_id: vendor.id,
+      p_vendor_phone: await vendorPhoneById(vendor.id),
     p_customer_phone: CUSTOMER_PHONE,
     p_total: 199,
     p_payment_mode: 'upi',

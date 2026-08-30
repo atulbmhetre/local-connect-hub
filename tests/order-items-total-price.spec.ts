@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { supabaseAdmin, createTestVendor, cleanupTestVendors } from './helpers/setup';
+import { supabaseAdmin,
+  vendorPhoneById, createTestVendor, cleanupTestVendors } from './helpers/setup';
 
 const T = Date.now();
 
@@ -45,6 +46,7 @@ test('OITP-01 — insert_bill_with_items sets total_price on every line item', a
   const { data: billId, error: billError } = await supabaseAdmin.rpc('insert_bill_with_items', {
     p_order_id: request.id,
     p_vendor_id: testVendor.id,
+      p_vendor_phone: await vendorPhoneById(testVendor.id),
     p_customer_phone: customerPhone,
     p_total: expectedTotal,
     p_payment_mode: 'cash',

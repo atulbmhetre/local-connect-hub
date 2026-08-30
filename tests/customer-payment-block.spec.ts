@@ -6,6 +6,7 @@ import { loginAsCustomer, APP_URL } from "./helpers/browser-setup";
 import {
   supabase,
   supabaseAdmin,
+  vendorPhoneById,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
   invokeRegisterVendorRpc,
@@ -173,6 +174,7 @@ async function seedBlockingBill(opts: {
   const { error: billError } = await supabaseAdmin.rpc("insert_bill_with_items", {
     p_order_id: request.id,
     p_vendor_id: opts.vendorId,
+      p_vendor_phone: await vendorPhoneById(opts.vendorId),
     p_customer_phone: opts.userPhone ?? null,
     p_total: 250,
     p_payment_mode: opts.paymentMode ?? "upi",

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   supabase,
   supabaseAdmin,
+  vendorPhoneById,
   createTestVendor,
   createTestCustomer,
   cleanupTestData,
@@ -50,6 +51,7 @@ async function insertCashBill(opts: {
   const { data, error } = await supabase.rpc('insert_bill_with_items', {
     p_order_id: opts.requestId,
     p_vendor_id: opts.vendorId,
+      p_vendor_phone: await vendorPhoneById(opts.vendorId),
     p_customer_phone: opts.customerPhone,
     p_total: opts.total,
     p_payment_mode: 'cash',
@@ -421,6 +423,7 @@ test('ABK-09: already-red blocks insert_bill_with_items (khata mode)', async () 
     const { data: billId, error } = await supabase.rpc('insert_bill_with_items', {
       p_order_id: requestId,
       p_vendor_id: testVendor.id,
+      p_vendor_phone: await vendorPhoneById(testVendor.id),
       p_customer_phone: userPhone,
       p_total: 100,
       p_payment_mode: 'khata',
@@ -465,6 +468,7 @@ test('ABK-10: crossing into red on this bill is allowed', async () => {
     const { data: billId, error } = await supabase.rpc('insert_bill_with_items', {
       p_order_id: requestId,
       p_vendor_id: testVendor.id,
+      p_vendor_phone: await vendorPhoneById(testVendor.id),
       p_customer_phone: userPhone,
       p_total: billTotal,
       p_payment_mode: 'khata',
@@ -503,6 +507,7 @@ test('ABK-11: no red limit (0) does not block khata bill', async () => {
     const { data: billId, error } = await supabase.rpc('insert_bill_with_items', {
       p_order_id: requestId,
       p_vendor_id: testVendor.id,
+      p_vendor_phone: await vendorPhoneById(testVendor.id),
       p_customer_phone: userPhone,
       p_total: billTotal,
       p_payment_mode: 'khata',

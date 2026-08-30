@@ -6,6 +6,7 @@ import { test, expect } from '@playwright/test';
 import {
   supabase,
   supabaseAdmin,
+  vendorPhoneById,
   createTestVendor,
   createTestCustomer,
   cleanupTestData,
@@ -91,6 +92,7 @@ async function insertBill(requestId: string, paymentMode: 'cash' | 'upi' | 'khat
   const { data, error } = await supabase.rpc('insert_bill_with_items', {
     p_order_id: requestId,
     p_vendor_id: vendor.id,
+      p_vendor_phone: await vendorPhoneById(vendor.id),
     p_customer_phone: CUSTOMER_PHONE,
     p_total: 175,
     p_payment_mode: paymentMode,

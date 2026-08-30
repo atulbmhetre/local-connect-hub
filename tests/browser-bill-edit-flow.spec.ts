@@ -3,6 +3,7 @@ import { loginAsVendor, APP_URL } from './helpers/browser-setup';
 import {
   supabase,
   supabaseAdmin,
+  vendorPhoneById,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
 } from './helpers/setup';
@@ -99,6 +100,7 @@ async function insertBill(opts: {
   const { data, error } = await supabaseAdmin.rpc('insert_bill_with_items', {
     p_order_id: opts.requestId,
     p_vendor_id: opts.vendorId,
+      p_vendor_phone: await vendorPhoneById(opts.vendorId),
     p_customer_phone: opts.customerPhone,
     p_total: opts.total,
     p_payment_mode: opts.paymentMode,

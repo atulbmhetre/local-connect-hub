@@ -20,6 +20,7 @@ import { fetchEditedBillIds, type VendorEditBillResult } from "@/lib/billEdit";
 import { AiBridgeSheet, type AiBridgeVendor } from "@/components/AiBridgeSheet";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { getUserPhone } from "@/lib/userIdentity";
+import { getDeviceId } from "@/lib/deviceId";
 import { addBreadcrumb, captureError } from "@/lib/sentry";
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import {
@@ -1375,9 +1376,13 @@ export function IncomingOrdersSection({
       toast.error(s.payment_confirm_error);
       return;
     }
+    // p_device_id blocks same-device customer self-confirm only. It is not a
+    // vendor-session proof: a caller who knows the vendor phone and uses a
+    // different device_id than the order still succeeds.
     const { error } = await supabase.rpc("confirm_upi_payment", {
       p_request_id: requestId,
       p_vendor_phone: vendorPhone,
+      p_device_id: getDeviceId(),
     });
     setConfirmingPaymentId(null);
     if (error) {
@@ -1413,9 +1418,12 @@ export function IncomingOrdersSection({
       toast.error(s.payment_dispute_error);
       return;
     }
+    // Same limitation as confirm_upi_payment: same-device self-dispute only,
+    // not a complete anti-spoof of vendor phone.
     const { error } = await supabase.rpc("dispute_upi_payment", {
       p_request_id: requestId,
       p_vendor_phone: vendorPhone,
+      p_device_id: getDeviceId(),
     });
     setDisputingPaymentId(null);
     if (error) {
@@ -1793,11 +1801,18 @@ export function IncomingOrdersSection({
     };
 
     try {
+      const vendorPhone = getUserPhone()?.trim();
+      if (!vendorPhone) {
+        toast.error(s.bill_sendFailed);
+        return;
+      }
+
       const vendorNote = ledgerVendorNote.trim();
 
       const { data: billId, error } = await supabase.rpc("insert_bill_with_items", {
         p_order_id: ledgerOrderId,
         p_vendor_id: vendorId,
+        p_vendor_phone: vendorPhone,
         p_customer_phone: ledgerUserPhone,
         p_total: amount,
         p_payment_mode: "khata",
