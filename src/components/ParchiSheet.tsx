@@ -40,6 +40,7 @@ import {
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, isPhoneKnown, migrateUserPhone } from "@/lib/userIdentity";
 import { filterMenuItemsByCategoryContext, resolveCategoryVendorNote } from "@/lib/categoryScopedVendor";
+import { formatVisitFeeAmount } from "@/lib/visitFee";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
@@ -175,6 +176,10 @@ export function ParchiSheet({
   const [appointmentTiming, setAppointmentTiming] = useState<"instant" | "scheduled">(
     "scheduled",
   );
+  const [recurrenceKind, setRecurrenceKind] = useState<
+    "one_time" | "daily" | "weekly" | "custom"
+  >("one_time");
+  const [recurrenceCustomDays, setRecurrenceCustomDays] = useState("3");
   const [offlineApptError, setOfflineApptError] = useState(false);
   const [trustBlock, setTrustBlock] = useState<
     "banned" | "suspended" | "payment_block" | null
@@ -194,6 +199,7 @@ export function ParchiSheet({
   const [menuExpanded, setMenuExpanded] = useState(true);
   const [businessGpsVerified, setBusinessGpsVerified] = useState<boolean | null>(null);
   const [categoryVendorNote, setCategoryVendorNote] = useState<string | null>(null);
+  const [inspectionFee, setInspectionFee] = useState<number | null>(null);
   const [businessUpi, setBusinessUpi] = useState<{
     upi_id: string;
     upi_qr_url: string | null;
@@ -219,6 +225,8 @@ export function ParchiSheet({
     setHelpLocation(null);
     setDeliverySlot("asap");
     setAppointmentTiming("scheduled");
+    setRecurrenceKind("one_time");
+    setRecurrenceCustomDays("3");
     setOfflineApptError(false);
     setSelectedAddressId(null);
     setNewAddress("");
@@ -250,6 +258,7 @@ export function ParchiSheet({
     if (!orderCategoryId || !resolvedVendorId) {
       setBusinessGpsVerified(null);
       setCategoryVendorNote(null);
+      setInspectionFee(null);
       setBusinessUpi(null);
       return;
     }
@@ -258,7 +267,7 @@ export function ParchiSheet({
       try {
         const { data, error } = await supabase
           .from("vendor_categories")
-          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status, vendor_note, upi_id, upi_qr_url, upi_qr_payee_id")
+          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status, vendor_note, inspection_fee, upi_id, upi_qr_url, upi_qr_payee_id")
           .eq("vendor_id", resolvedVendorId)
           .eq("category_id", orderCategoryId)
           .single();
@@ -266,12 +275,14 @@ export function ParchiSheet({
         if (error || !data) {
           setBusinessGpsVerified(null);
           setCategoryVendorNote(null);
+          setInspectionFee(null);
           setBusinessUpi(null);
           return;
         }
 
         const note = String(data.vendor_note ?? "").trim();
         setCategoryVendorNote(note || null);
+        setInspectionFee(formatVisitFeeAmount(data.inspection_fee));
         setBusinessUpi({
           upi_id: String(data.upi_id ?? "").trim(),
           upi_qr_url: data.upi_qr_url ?? null,
@@ -303,6 +314,9 @@ export function ParchiSheet({
   const isDeliveryMode = resolvedServiceMode === "delivery";
   const isAppointmentMode = resolvedServiceMode === "appointment";
   const isHelpMode = resolvedServiceMode === "help";
+  const showRecurrence =
+    (isDeliveryMode && deliverySlot !== "asap" && deliverySlot !== "tomorrow") ||
+    (isAppointmentMode && appointmentTiming === "scheduled");
 
   const resolvedReach = orderCategoryReach ?? {
     serves_at_vendor_place: effectiveVendor?.serves_at_vendor_place === true,
@@ -347,6 +361,12 @@ export function ParchiSheet({
       setDeliverySlot("tomorrow");
     }
   }, [isOpen, isDeliveryMode, deliverySlot, canServeAtCustomer]);
+
+  useEffect(() => {
+    if (!showRecurrence && recurrenceKind !== "one_time") {
+      setRecurrenceKind("one_time");
+    }
+  }, [showRecurrence, recurrenceKind]);
 
   useEffect(() => {
     if (!isOpen || !resolvedVendorId) return;
@@ -754,11 +774,16 @@ export function ParchiSheet({
       const device_id = getDeviceId();
       // Capture structured items before submission (for auto-bill generation)
       const structuredItems = buildStructuredItems();
-      
-        const { error } = await withNetworkRetry(
-          async () =>
-            throwOnSupabaseNetworkError(
-              await supabase.rpc("create_customer_request", {
+      const wantsRecurring = showRecurrence && recurrenceKind !== "one_time";
+      const customDays = Number.parseInt(recurrenceCustomDays, 10);
+      if (wantsRecurring && recurrenceKind === "custom") {
+        if (!Number.isFinite(customDays) || customDays < 2 || customDays > 30) {
+          toast.error(s.parchi_recurrence_custom_days);
+          return;
+        }
+      }
+
+      const orderPayload = {
                 p_device_id: device_id,
                 p_vendor_id: v.id,
                 p_message: text.slice(0, config.maxOrderMessageChars) + locationNote,
@@ -779,7 +804,18 @@ export function ParchiSheet({
                 p_service_mode: resolvedServiceMode,
                 p_items: structuredItems,
                 p_service_location: serviceLocation,
-              }),
+      };
+
+        const { error } = await withNetworkRetry(
+          async () =>
+            throwOnSupabaseNetworkError(
+              wantsRecurring
+                ? await supabase.rpc("create_recurring_order", {
+                    ...orderPayload,
+                    p_interval_kind: recurrenceKind,
+                    p_interval_days: recurrenceKind === "custom" ? customDays : null,
+                  })
+                : await supabase.rpc("create_customer_request", orderPayload),
             ),
           {
             onRetrying: () => {
@@ -874,6 +910,9 @@ export function ParchiSheet({
       resolvedServiceMode,
       isAppointmentMode,
       isDeliveryMode,
+      showRecurrence,
+      recurrenceKind,
+      recurrenceCustomDays,
       config.maxOrderMessageChars,
       s,
       fetchPaymentBlockStatus,
@@ -1036,6 +1075,8 @@ export function ParchiSheet({
     effectiveVendor.vendor_note,
     orderCategoryId,
   );
+  const displayInspectionFee =
+    inspectionFee ?? formatVisitFeeAmount(effectiveVendor.inspection_fee);
 
   const getAvailableSlots = () => {
     const now = new Date();
@@ -1356,6 +1397,57 @@ export function ParchiSheet({
               </div>
             )}
 
+            {showRecurrence && (
+              <div className="space-y-2" data-testid="parchi-recurrence">
+                <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
+                  {s.parchi_recurrenceLabel}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      ["one_time", s.parchi_recurrence_one_time],
+                      ["daily", s.parchi_recurrence_daily],
+                      ["weekly", s.parchi_recurrence_weekly],
+                      ["custom", s.parchi_recurrence_custom],
+                    ] as const
+                  ).map(([kind, label]) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      data-testid={`parchi-recurrence-${kind}`}
+                      onClick={() => setRecurrenceKind(kind)}
+                      className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
+                        recurrenceKind === kind
+                          ? "border-brand bg-brand/15 text-brand"
+                          : "border-surface-border bg-surface text-gray-400"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {recurrenceKind === "custom" && (
+                  <label className="block space-y-1">
+                    <span className="text-xs text-gray-500">{s.parchi_recurrence_custom_days}</span>
+                    <input
+                      type="number"
+                      min={2}
+                      max={30}
+                      data-testid="parchi-recurrence-custom-days"
+                      value={recurrenceCustomDays}
+                      onChange={(e) => setRecurrenceCustomDays(e.target.value.replace(/[^\d]/g, "").slice(0, 2))}
+                      className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    />
+                  </label>
+                )}
+                {recurrenceKind !== "one_time" && (
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    {s.parchi_recurrence_hint}
+                  </p>
+                )}
+              </div>
+            )}
+
             {menuItems.length > 0 && (
               <div className="border border-surface-border rounded-2xl overflow-hidden">
                 <button
@@ -1661,6 +1753,14 @@ export function ParchiSheet({
           </div>
           {!trustBlock && (
             <div className="shrink-0 border-t border-surface-border bg-page-bg px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2">
+              {displayInspectionFee != null && (
+                <p
+                  data-testid="parchi-inspection-fee"
+                  className="text-sm font-semibold text-center text-foreground"
+                >
+                  {s.parchi_inspection_fee.replace("{amount}", String(displayInspectionFee))}
+                </p>
+              )}
               {resolvedServiceMode === "appointment" ? (
                 <p className="text-[11px] text-muted-foreground text-center">
                   {s.parchi_cancellationAppt}

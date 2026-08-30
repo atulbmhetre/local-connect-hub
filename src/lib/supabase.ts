@@ -495,6 +495,8 @@ export type Vendor = {
   /** Hyperlocal service vs delivery; drives reputation copy on cards. */
   service_mode?: "help" | "delivery" | "appointment" | "booking";
   vendor_note?: string | null;
+  /** Optional per-business visit/inspection fee in rupees. */
+  inspection_fee?: number | null;
   cancel_reason_1: string | null;
   cancel_reason_2: string | null;
   cancel_reason_3: string | null;

@@ -5,6 +5,7 @@ import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
 import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { BusinessVerificationBadge } from "@/components/VerificationBadge";
 import { SettingsCard } from "@/components/settings/SettingsSection";
+import { Switch } from "@/components/ui/switch";
 import {
   supabase,
   type Vendor,
@@ -40,7 +41,7 @@ import {
   reachChoiceFromFlags,
   reachFlagsFromChoice,
   vendorTypeToBaseType,
-  MAX_VENDOR_CATEGORIES,
+  VENDOR_BUSINESS_SOFT_CAP,
   resolveRegistrationShopName,
 } from "@/lib/vendorRegistration";
 import {
@@ -67,6 +68,8 @@ import {
 } from "@/lib/categoryAvailabilityModes";
 import { BusinessSetupSheet } from "@/components/vendor/BusinessSetupSheet";
 import { triggerCategoryModeConfidenceCheck } from "@/lib/categoryModeConfidence";
+import { parseInspectionFeeInput } from "@/lib/visitFee";
+import { getUserPhone } from "@/lib/userIdentity";
 import { DeliveryFulfillmentSettings } from "@/components/vendor/DeliveryFulfillmentSettings";
 import { VendorMyBusinessOperations } from "@/components/settings/VendorMyBusinessOperations";
 import {
@@ -93,6 +96,8 @@ type CategoryEditSettings = {
   reachChoice: ReachChoiceValue;
   service_radius_km: number | null;
   vendor_note: string;
+  is_paused: boolean;
+  inspection_fee: string;
   shop_photo_url: string | null;
   gps_match_distance: number | null;
   verification_status: string | null;
@@ -107,6 +112,8 @@ type CategoryEditSettings = {
   upi_qr_url: string | null;
   upi_qr_payee_id: string | null;
   base_type: BaseTypeValue;
+  review_status: "approved" | "pending_review" | "rejected";
+  review_reason: string | null;
 };
 
 function rowBaseType(value: unknown): BaseTypeValue {
@@ -137,6 +144,8 @@ function settingsFromAccount(account: {
       ) || "customer",
     service_radius_km: inherited.service_radius_km,
     vendor_note: "",
+    is_paused: false,
+    inspection_fee: "",
     shop_photo_url: null,
     gps_match_distance: null,
     verification_status: null,
@@ -151,6 +160,8 @@ function settingsFromAccount(account: {
     upi_qr_url: null,
     upi_qr_payee_id: null,
     base_type: "",
+    review_status: "approved",
+    review_reason: null,
   };
 }
 
@@ -160,6 +171,8 @@ function settingsFromCategoryRow(
     serves_at_customer_place?: boolean | null;
     service_radius_km?: number | null;
     vendor_note?: string | null;
+    is_paused?: boolean | null;
+    inspection_fee?: number | string | null;
     shop_photo_url?: string | null;
     gps_match_distance?: number | null;
     verification_status?: string | null;
@@ -173,6 +186,8 @@ function settingsFromCategoryRow(
     upi_qr_url?: string | null;
     upi_qr_payee_id?: string | null;
     base_type?: string | null;
+    status?: string | null;
+    review_reason?: string | null;
   },
   accountFallback: CategoryEditSettings,
 ): CategoryEditSettings {
@@ -186,6 +201,11 @@ function settingsFromCategoryRow(
         ? Number(row.service_radius_km)
         : accountFallback.service_radius_km,
     vendor_note: String(row.vendor_note ?? "").trim(),
+    is_paused: row.is_paused === true,
+    inspection_fee:
+      row.inspection_fee != null && Number(row.inspection_fee) > 0
+        ? String(Math.round(Number(row.inspection_fee)))
+        : "",
     shop_photo_url: row.shop_photo_url ?? null,
     gps_match_distance:
       row.gps_match_distance != null ? Number(row.gps_match_distance) : null,
@@ -207,6 +227,11 @@ function settingsFromCategoryRow(
     upi_qr_url: String(row.upi_qr_url ?? "").trim() || null,
     upi_qr_payee_id: String(row.upi_qr_payee_id ?? "").trim() || null,
     base_type: rowBaseType(row.base_type),
+    review_status:
+      row.status === "pending_review" || row.status === "rejected"
+        ? row.status
+        : "approved",
+    review_reason: String(row.review_reason ?? "").trim() || null,
   };
 }
 
@@ -371,10 +396,10 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         supabase
           .from("vendor_categories")
           .select(
-            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, delivery_fulfillment_method, delivery_payment_timing, upi_id, upi_qr_url, upi_qr_payee_id, base_type, categories(id, label, emoji, service_mode)",
+            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, is_paused, inspection_fee, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, delivery_fulfillment_method, delivery_payment_timing, upi_id, upi_qr_url, upi_qr_payee_id, base_type, status, review_reason, categories(id, label, emoji, service_mode)",
           )
           .eq("vendor_id", vendor.id)
-          .eq("status", "approved")
+          .in("status", ["approved", "pending_review", "rejected"])
           .order("is_primary", { ascending: false }),
       ]);
 
@@ -515,7 +540,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         ? prev.length <= 1
           ? prev
           : prev.filter((id) => id !== categoryId)
-        : prev.length >= MAX_VENDOR_CATEGORIES
+        : prev.length >= 50
           ? prev
           : [...prev, categoryId];
       selectedCategoryIdsRef.current = next;
@@ -564,6 +589,75 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         ...patch,
       },
     }));
+  };
+
+  const patchCategoryProfile = async (
+    categoryId: string,
+    patch: Record<string, unknown>,
+  ) => {
+    const vendorPhone = (userPhone ?? vendor.phone ?? getUserPhone() ?? "").trim();
+    if (!vendorPhone) {
+      throw new Error("identity_required");
+    }
+    const { error } = await withNetworkRetry(
+      async () =>
+        throwOnSupabaseNetworkError(
+          await supabase.rpc("vendor_update_category_profile", {
+            p_vendor_id: vendor.id,
+            p_vendor_phone: vendorPhone,
+            p_category_id: categoryId,
+            p_patch: patch,
+          }),
+        ),
+      {
+        onRetrying: () => {
+          showNetworkRetryingToast({ retrying: s.network_retrying });
+        },
+        shouldRetry: () => getNavigatorOnline(),
+      },
+    );
+    dismissNetworkRetryingToast();
+    if (error) throw error;
+  };
+
+  const savePause = async (categoryId: string, paused: boolean) => {
+    const previous = categorySettingsById[categoryId]?.is_paused === true;
+    updateCategorySettings(categoryId, { is_paused: paused });
+    try {
+      await patchCategoryProfile(categoryId, { is_paused: paused });
+      toast.success(paused ? s.vendor_pause_saved : s.vendor_unpause_saved);
+    } catch (err) {
+      updateCategorySettings(categoryId, { is_paused: previous });
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void savePause(categoryId, paused), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+        return;
+      }
+      toast.error(s.vendor_pause_save_failed);
+    }
+  };
+
+  const saveInspectionFee = async (categoryId: string) => {
+    const raw = categorySettingsById[categoryId]?.inspection_fee ?? "";
+    const parsed = parseInspectionFeeInput(raw);
+    try {
+      await patchCategoryProfile(categoryId, { inspection_fee: parsed });
+      updateCategorySettings(categoryId, {
+        inspection_fee: parsed != null ? String(parsed) : "",
+      });
+      toast.success(s.vendor_inspection_fee_saved);
+    } catch (err) {
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void saveInspectionFee(categoryId), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+        return;
+      }
+      toast.error(s.vendor_inspection_fee_save_failed);
+    }
   };
 
   const shopNameInvalid =
@@ -1376,6 +1470,30 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                       {cat.emoji} {getLabel(cat.label)}
                     </p>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">{displayBrand}</p>
+                    {cfg.review_status === "pending_review" && (
+                      <p
+                        className="text-[10px] text-amber-600 font-medium mt-0.5"
+                        data-testid={`my-business-pending-review-${cat.id}`}
+                      >
+                        {s.my_business_pending_review}
+                      </p>
+                    )}
+                    {cfg.review_status === "rejected" && (
+                      <p
+                        className="text-[10px] text-destructive font-medium mt-0.5"
+                        data-testid={`my-business-rejected-${cat.id}`}
+                      >
+                        {s.my_business_rejected}
+                        {cfg.review_reason
+                          ? ` — ${s.my_business_rejected_reason}: ${cfg.review_reason}`
+                          : ""}
+                      </p>
+                    )}
+                    {cfg.is_paused && cfg.review_status === "approved" && (
+                      <p className="text-[10px] text-amber-600 font-medium mt-0.5">
+                        {s.vendor_pause_business}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <BusinessVerificationBadge
@@ -1401,6 +1519,59 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                     className="px-4 pb-4 pt-3 space-y-4"
                     data-testid={`my-business-category-settings-${cat.id}`}
                   >
+                    <div
+                      className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-3"
+                      data-testid={`my-business-pause-row-${cat.id}`}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">
+                          {s.vendor_pause_business}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+                          {s.vendor_pause_business_hint}
+                        </p>
+                      </div>
+                      <Switch
+                        className="data-[state=checked]:bg-amber-500"
+                        checked={cfg.is_paused}
+                        disabled={cfg.review_status !== "approved"}
+                        onCheckedChange={(checked) => void savePause(cat.id, checked)}
+                        data-testid={`my-business-pause-${cat.id}`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {s.vendor_inspection_fee_label}
+                      </label>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 mb-1.5">
+                        {s.vendor_inspection_fee_hint}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          data-testid={`my-business-inspection-fee-${cat.id}`}
+                          value={cfg.inspection_fee}
+                          onChange={(e) =>
+                            updateCategorySettings(cat.id, {
+                              inspection_fee: e.target.value.replace(/[^\d]/g, "").slice(0, 5),
+                            })
+                          }
+                          placeholder={s.vendor_inspection_fee_placeholder}
+                          className="flex-1 bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <button
+                          type="button"
+                          data-testid={`my-business-inspection-fee-save-${cat.id}`}
+                          onClick={() => void saveInspectionFee(cat.id)}
+                          className="text-xs font-semibold text-brand hover:underline shrink-0"
+                        >
+                          {s.vendor_save_note}
+                        </button>
+                      </div>
+                    </div>
+
                     <div>
                       <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         {s.reg_where_work_from}
@@ -1718,7 +1889,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                       }
                     />
 
-                    {isMultiCategory && (
+                    {isMultiCategory && cfg.review_status === "approved" && (
                       <button
                         type="button"
                         data-testid={`my-business-remove-cat-${cat.id}`}
@@ -1741,12 +1912,17 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           type="button"
           data-testid="my-business-add-business"
           onClick={() => setAddBusinessOpen(true)}
-          disabled={selectedCategoryIds.length >= MAX_VENDOR_CATEGORIES}
           className="w-full rounded-2xl border border-dashed border-primary/50 bg-primary/5 py-3.5 text-sm font-semibold text-primary disabled:opacity-50"
         >
           {s.my_business_add_business}
         </button>
-        <p className="text-xs text-muted-foreground text-center">{s.my_business_add_business_hint}</p>
+        <p className="text-xs text-muted-foreground text-center">
+          {selectedCategoryIds.filter(
+            (id) => (categorySettingsById[id]?.review_status ?? "approved") === "approved",
+          ).length >= VENDOR_BUSINESS_SOFT_CAP
+            ? s.my_business_add_business_review_hint
+            : s.my_business_add_business_hint}
+        </p>
         <button
           type="button"
           data-testid="my-business-save"
@@ -1765,6 +1941,11 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         vendor={vendor}
         existingCategoryIds={selectedCategoryIds}
         existingSettings={categorySettingsById}
+        approvedCount={
+          selectedCategoryIds.filter(
+            (id) => (categorySettingsById[id]?.review_status ?? "approved") === "approved",
+          ).length
+        }
         onAdded={() => setCategoriesReloadKey((k) => k + 1)}
       />
 
