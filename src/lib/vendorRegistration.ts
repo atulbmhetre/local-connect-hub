@@ -103,4 +103,8 @@ export function resolveRegistrationShopName(
 export const MAX_REG_CATEGORIES = 1;
 
 /** Post-registration cap for Add business / My Business. */
-export const MAX_VENDOR_CATEGORIES = 5;
+/** First 5 businesses go live immediately. 6th+ save but need admin review. */
+export const VENDOR_BUSINESS_SOFT_CAP = 5;
+
+/** @deprecated Use VENDOR_BUSINESS_SOFT_CAP. Kept as an alias so call sites compile. */
+export const MAX_VENDOR_CATEGORIES = VENDOR_BUSINESS_SOFT_CAP;

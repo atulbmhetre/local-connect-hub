@@ -35,7 +35,7 @@ import {
   type BaseTypeValue,
   type ReachChoiceValue,
   reachFlagsFromChoice,
-  MAX_VENDOR_CATEGORIES,
+  VENDOR_BUSINESS_SOFT_CAP,
 } from "@/lib/vendorRegistration";
 import { CategoryAvailabilityModeSelector } from "@/components/vendor/CategoryAvailabilityModeSelector";
 import {
@@ -62,6 +62,7 @@ type Props = {
   vendor: Vendor;
   existingCategoryIds: string[];
   existingSettings: Record<string, BusinessSetupExistingSettings>;
+  approvedCount?: number;
   onAdded: () => void;
 };
 
@@ -138,6 +139,7 @@ export function BusinessSetupSheet({
   vendor,
   existingCategoryIds,
   existingSettings,
+  approvedCount,
   onAdded,
 }: Props) {
   const { s } = useLanguage();
@@ -222,7 +224,8 @@ export function BusinessSetupSheet({
   }, [open]);
 
   const available = categories.filter((c) => !existingCategoryIds.includes(c.id));
-  const atMax = existingCategoryIds.length >= MAX_VENDOR_CATEGORIES;
+  const liveCount = approvedCount ?? existingCategoryIds.length;
+  const needsAdminReview = liveCount >= VENDOR_BUSINESS_SOFT_CAP;
   const reachFlags = reachChoice ? reachFlagsFromChoice(reachChoice) : null;
   const needsRadius = reachFlags?.serves_at_customer_place === true;
   const radiusOk = !needsRadius || serviceRadiusKm != null;
@@ -236,7 +239,7 @@ export function BusinessSetupSheet({
     radiusOk &&
     availabilityModes.length > 0 &&
     photoReady &&
-    !atMax;
+    available.length > 0;
   const upiFormatError =
     upiBlurred && upi.trim().length > 0 && !upiFmtOk ? s.vendor_upi_id_format_invalid : undefined;
 
@@ -548,7 +551,7 @@ export function BusinessSetupSheet({
         categoryId: selectedCategoryId,
       });
       setSubmitting(false);
-      toast.success(s.my_business_saved);
+      toast.success(needsAdminReview ? s.my_business_pending_review_toast : s.my_business_saved);
       onOpenChange(false);
       onAdded();
       return;
@@ -608,7 +611,7 @@ export function BusinessSetupSheet({
     });
 
     setSubmitting(false);
-    toast.success(s.my_business_saved);
+    toast.success(needsAdminReview ? s.my_business_pending_review_toast : s.my_business_saved);
     onOpenChange(false);
     onAdded();
   };
@@ -622,11 +625,13 @@ export function BusinessSetupSheet({
         >
           <SheetHeader className="px-4 pt-4 pb-2 text-left">
             <SheetTitle>{s.my_business_add_business}</SheetTitle>
-            <SheetDescription>{s.my_business_add_business_hint}</SheetDescription>
+            <SheetDescription data-testid="add-business-review-hint">
+              {needsAdminReview ? s.my_business_add_business_review_hint : s.my_business_add_business_hint}
+            </SheetDescription>
           </SheetHeader>
 
           <div className="px-4 pb-6 space-y-4" data-testid="add-business-sheet">
-            {atMax ? (
+            {available.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {s.vendor_categories_selected(existingCategoryIds.length)}
               </p>

@@ -22,7 +22,11 @@ export type AdminActionType =
   | "admin_check_failed"
   | "force_clear_deletion"
   | "confirm_mode_confidence"
-  | "dismiss_mode_confidence";
+  | "dismiss_mode_confidence"
+  | "approve_vendor_business"
+  | "reject_vendor_business"
+  | "approve_category_license"
+  | "reject_category_license";
 
 export type AdminTargetType =
   | "vendor"

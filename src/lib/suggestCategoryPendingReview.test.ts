@@ -22,4 +22,15 @@ describe("suggest-category Phase 3 pending review", () => {
     expect(src).toContain("overlap_reasoning");
     expect(src).toContain("urgent-vs-scheduled");
   });
+
+  it("asks AI for license_type and never auto-approves the license", () => {
+    expect(src).toContain("license_type");
+    expect(src).toContain("license_reasoning");
+    expect(src).toContain("license_review_status");
+    expect(src).toContain("pending_review");
+    expect(src).toContain("backfill_licenses");
+    expect(src).not.toMatch(/license_review_status:\s*"approved"/);
+    expect(src).toContain("applyLicenseConfidenceGate");
+    expect(src).toContain("NEVER return Shop and Establishment");
+  });
 });

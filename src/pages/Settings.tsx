@@ -835,6 +835,22 @@ const Settings = () => {
       suggestion_count: number;
       suggested_by_vendor_id: string | null;
       suggested_vendor_name: string | null;
+      license_type: string | null;
+      license_confidence_score: number | null;
+      license_reasoning: string | null;
+      license_review_status: string | null;
+    }[]
+  >([]);
+  const [pendingLicenses, setPendingLicenses] = useState<
+    {
+      id: string;
+      label: string;
+      emoji: string | null;
+      license_type: string | null;
+      license_confidence_score: number | null;
+      license_reasoning: string | null;
+      is_active: boolean;
+      status: string | null;
     }[]
   >([]);
   const [pendingAliases, setPendingAliases] = useState<
@@ -849,6 +865,26 @@ const Settings = () => {
       category_emoji: string;
       suggested_by_vendor_id: string | null;
       suggested_vendor_name: string | null;
+    }[]
+  >([]);
+  const [pendingVendorBusinesses, setPendingVendorBusinesses] = useState<
+    {
+      vendor_category_id: string;
+      vendor_id: string;
+      shop_name: string | null;
+      vendor_phone: string | null;
+      vendor_name: string | null;
+      category_id: string;
+      category_label: string;
+      category_emoji: string | null;
+      brand_name: string | null;
+      created_at: string;
+      approved_businesses: Array<{
+        category_id: string;
+        label: string;
+        emoji: string | null;
+        brand_name: string | null;
+      }>;
     }[]
   >([]);
   const [modeConfidenceReviews, setModeConfidenceReviews] = useState<
@@ -866,6 +902,9 @@ const Settings = () => {
   >([]);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [pendingAliasAction, setPendingAliasAction] = useState<string | null>(null);
+  const [pendingLicenseAction, setPendingLicenseAction] = useState<string | null>(null);
+  const [licenseBackfillRunning, setLicenseBackfillRunning] = useState(false);
+  const [pendingBusinessAction, setPendingBusinessAction] = useState<string | null>(null);
   const [modeConfidenceAction, setModeConfidenceAction] = useState<string | null>(null);
   const [modeConfidenceVendors, setModeConfidenceVendors] = useState<
     Record<string, { shop_name: string | null; phone: string | null }[]>
@@ -1118,7 +1157,9 @@ const Settings = () => {
 
   const [activeTab, setActiveTab] = useState<"settings" | "admin">("settings");
   const [pendingCatOpen, setPendingCatOpen] = useState(false);
+  const [pendingLicenseOpen, setPendingLicenseOpen] = useState(false);
   const [pendingAliasOpen, setPendingAliasOpen] = useState(false);
+  const [pendingBusinessOpen, setPendingBusinessOpen] = useState(false);
   const [modeConfidenceOpen, setModeConfidenceOpen] = useState(false);
   const [lowRatingsOpen, setLowRatingsOpen] = useState(false);
   const [recommendationsOpen, setRecommendationsOpen] = useState(false);
@@ -1203,6 +1244,11 @@ const Settings = () => {
     open: boolean;
     cat: (typeof pendingCategories)[number] | null;
   }>({ open: false, cat: null });
+  const [rejectBusinessDialog, setRejectBusinessDialog] = useState<{
+    open: boolean;
+    row: (typeof pendingVendorBusinesses)[number] | null;
+    reason: string;
+  }>({ open: false, row: null, reason: "" });
   const [mergeCategoryDialog, setMergeCategoryDialog] = useState<{
     open: boolean;
     cat: (typeof pendingCategories)[number] | null;
@@ -1721,13 +1767,17 @@ const Settings = () => {
       suggested_by_vendor_id: string | null;
       status: string;
       pending_review: boolean;
+      license_type: string | null;
+      license_confidence_score: number | null;
+      license_reasoning: string | null;
+      license_review_status: string | null;
     }> = [];
     try {
       rows = await fetchAllPages("loadPendingCategories", (from, to) =>
         supabase
           .from("categories")
           .select(
-            "id, label, emoji, service_mode, ai_confidence, ai_confidence_score, ai_reasoning, ai_service_mode_reasoning, proposed_aliases, overlap_category_label, overlap_reasoning, suggestion_count, suggested_by_vendor_id, status, pending_review",
+            "id, label, emoji, service_mode, ai_confidence, ai_confidence_score, ai_reasoning, ai_service_mode_reasoning, proposed_aliases, overlap_category_label, overlap_reasoning, suggestion_count, suggested_by_vendor_id, status, pending_review, license_type, license_confidence_score, license_reasoning, license_review_status",
           )
           .or("status.eq.pending_review,and(pending_review.eq.true,is_active.eq.false)")
           .order("created_at", { ascending: false })
@@ -1781,6 +1831,10 @@ const Settings = () => {
         suggested_vendor_name: cat.suggested_by_vendor_id
           ? vendorNameById.get(cat.suggested_by_vendor_id) ?? null
           : null,
+        license_type: cat.license_type,
+        license_confidence_score: cat.license_confidence_score,
+        license_reasoning: cat.license_reasoning,
+        license_review_status: cat.license_review_status,
       })),
     );
   };
@@ -1788,6 +1842,31 @@ const Settings = () => {
   useEffect(() => {
     if (!isAdmin) return;
     void loadPendingCategories();
+  }, [isAdmin]);
+
+  const loadPendingLicenses = async () => {
+    const { data, error } = await supabase.rpc("admin_list_pending_category_licenses");
+    if (error) {
+      console.error("loadPendingLicenses", error);
+      setPendingLicenses([]);
+      return;
+    }
+    const rows = (data ?? []) as Array<{
+      id: string;
+      label: string;
+      emoji: string | null;
+      license_type: string | null;
+      license_confidence_score: number | null;
+      license_reasoning: string | null;
+      is_active: boolean;
+      status: string | null;
+    }>;
+    setPendingLicenses(rows);
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadPendingLicenses();
   }, [isAdmin]);
 
   const loadPendingAliases = async () => {
@@ -1862,6 +1941,41 @@ const Settings = () => {
   useEffect(() => {
     if (!isAdmin) return;
     void loadPendingAliases();
+  }, [isAdmin]);
+
+  const loadPendingVendorBusinesses = async () => {
+    const { data, error } = await supabase.rpc("admin_list_pending_vendor_businesses");
+    if (error) {
+      console.error("loadPendingVendorBusinesses", error);
+      setPendingVendorBusinesses([]);
+      return;
+    }
+    const rows = (data ?? []) as Array<{
+      vendor_category_id: string;
+      vendor_id: string;
+      shop_name: string | null;
+      vendor_phone: string | null;
+      vendor_name: string | null;
+      category_id: string;
+      category_label: string;
+      category_emoji: string | null;
+      brand_name: string | null;
+      created_at: string;
+      approved_businesses: unknown;
+    }>;
+    setPendingVendorBusinesses(
+      rows.map((r) => ({
+        ...r,
+        approved_businesses: Array.isArray(r.approved_businesses)
+          ? (r.approved_businesses as (typeof pendingVendorBusinesses)[number]["approved_businesses"])
+          : [],
+      })),
+    );
+  };
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadPendingVendorBusinesses();
   }, [isAdmin]);
 
   const loadModeConfidenceReviews = async () => {
@@ -2451,6 +2565,83 @@ const Settings = () => {
     await loadPendingCategories();
   };
 
+  const approvePendingLicense = async (row: (typeof pendingLicenses)[number]) => {
+    setPendingLicenseAction(row.id);
+    const { error } = await supabase.rpc("admin_approve_category_license", {
+      p_admin_phone: adminRpcLabel(),
+      p_category_id: row.id,
+    });
+    setPendingLicenseAction(null);
+    if (error) {
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    logAdminAction(
+      "approve_category_license",
+      "category",
+      row.id,
+      row.license_type,
+      adminAuditLabel(),
+    );
+    toast.success(`Approved license for ${row.label}`);
+    await loadPendingLicenses();
+    await loadPendingCategories();
+  };
+
+  const rejectPendingLicense = async (row: (typeof pendingLicenses)[number]) => {
+    setPendingLicenseAction(row.id);
+    const { error } = await supabase.rpc("admin_reject_category_license", {
+      p_admin_phone: adminRpcLabel(),
+      p_category_id: row.id,
+    });
+    setPendingLicenseAction(null);
+    if (error) {
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    logAdminAction(
+      "reject_category_license",
+      "category",
+      row.id,
+      row.license_type,
+      adminAuditLabel(),
+    );
+    await loadPendingLicenses();
+    await loadPendingCategories();
+  };
+
+  const runLicenseBackfill = async () => {
+    if (licenseBackfillRunning) return;
+    setLicenseBackfillRunning(true);
+    try {
+      let remaining = 1;
+      let classified = 0;
+      let loops = 0;
+      while (remaining > 0 && loops < 40) {
+        loops += 1;
+        const { data, error } = await supabase.functions.invoke("suggest-category", {
+          body: { backfill_licenses: true, device_id: getDeviceId() },
+        });
+        if (error || !data?.success) {
+          toast.error(error?.message || data?.error || "License classification failed");
+          break;
+        }
+        const batch = Array.isArray(data.results) ? data.results.length : 0;
+        classified += batch;
+        remaining = Number(data.remaining ?? 0);
+        if (!Number.isFinite(remaining) || remaining < 0) remaining = 0;
+      }
+      toast.success(
+        classified > 0
+          ? `Classified ${classified} categories — pending your review`
+          : "No unclassified categories left",
+      );
+      await loadPendingLicenses();
+    } finally {
+      setLicenseBackfillRunning(false);
+    }
+  };
+
   const openMergeCategoryDialog = async (cat: (typeof pendingCategories)[number]) => {
     setPendingAction(cat.id);
     try {
@@ -2564,6 +2755,56 @@ const Settings = () => {
     }
     logAdminAction("reject_search_alias", "search_alias", row.id, row.term, adminAuditLabel());
     await loadPendingAliases();
+  };
+
+  const approvePendingVendorBusiness = async (
+    row: (typeof pendingVendorBusinesses)[number],
+  ) => {
+    setPendingBusinessAction(row.vendor_category_id);
+    const { error } = await supabase.rpc("admin_approve_vendor_business", {
+      p_admin_phone: adminRpcLabel(),
+      p_vendor_category_id: row.vendor_category_id,
+    });
+    setPendingBusinessAction(null);
+    if (error) {
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    logAdminAction(
+      "approve_vendor_business",
+      "vendor_category",
+      row.vendor_category_id,
+      `${row.shop_name ?? row.vendor_phone} → ${row.category_label}`,
+      adminAuditLabel(),
+    );
+    toast.success(`Approved ${row.category_label} for ${row.shop_name ?? row.vendor_phone}`);
+    await loadPendingVendorBusinesses();
+  };
+
+  const rejectPendingVendorBusiness = async (
+    row: (typeof pendingVendorBusinesses)[number],
+    reason: string,
+  ) => {
+    setPendingBusinessAction(row.vendor_category_id);
+    const { error } = await supabase.rpc("admin_reject_vendor_business", {
+      p_admin_phone: adminRpcLabel(),
+      p_vendor_category_id: row.vendor_category_id,
+      p_reason: reason.trim() || null,
+    });
+    setPendingBusinessAction(null);
+    if (error) {
+      toast.error("Update failed: " + error.message);
+      return;
+    }
+    logAdminAction(
+      "reject_vendor_business",
+      "vendor_category",
+      row.vendor_category_id,
+      reason.trim() || null,
+      adminAuditLabel(),
+    );
+    toast.success(`Rejected ${row.category_label} for ${row.shop_name ?? row.vendor_phone}`);
+    await loadPendingVendorBusinesses();
   };
 
   const loadModeConfidenceVendorSide = async (
@@ -4436,6 +4677,21 @@ const Settings = () => {
                         {cat.overlap_reasoning ?? ""}
                       </p>
                     )}
+                    {cat.license_type && (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        <span className="font-semibold text-foreground/80">
+                          {s.admin_license_type_label}:{" "}
+                        </span>
+                        {cat.license_type}
+                        {cat.license_confidence_score != null
+                          ? ` (${Math.round(cat.license_confidence_score * 100)}%)`
+                          : ""}
+                        {cat.license_review_status
+                          ? ` · ${cat.license_review_status}`
+                          : ""}
+                        {cat.license_reasoning ? ` — ${cat.license_reasoning}` : ""}
+                      </p>
+                    )}
                     {cat.suggested_vendor_name && (
                       <p className="text-[10px] text-muted-foreground">
                         Suggested by {cat.suggested_vendor_name}
@@ -4468,6 +4724,79 @@ const Settings = () => {
                         className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                       >
                         ❌ {s.admin_reject}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SettingsCollapsible>
+
+          <SettingsCollapsible
+            label={`${s.admin_pendingLicenses} (${pendingLicenses.length})`}
+            open={pendingLicenseOpen}
+            onToggle={() => setPendingLicenseOpen((o) => !o)}
+          >
+            <button
+              type="button"
+              data-testid="admin-license-backfill"
+              onClick={() => void runLicenseBackfill()}
+              disabled={licenseBackfillRunning}
+              className="mb-3 w-full rounded-xl border border-border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+            >
+              {licenseBackfillRunning ? s.admin_license_backfill_running : s.admin_license_backfill}
+            </button>
+            {pendingLicenses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{s.admin_noPendingLicenses}</p>
+            ) : (
+              <div className="space-y-3">
+                {pendingLicenses.map((row) => (
+                  <div
+                    key={row.id}
+                    data-testid={`pending-license-card-${row.id}`}
+                    className="rounded-2xl border border-border p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-lg" aria-hidden>
+                        {row.emoji}
+                      </span>
+                      <p className="text-sm font-semibold">{row.label}</p>
+                      <span className="rounded-full bg-secondary/10 text-secondary text-[10px] font-semibold px-2 py-0.5 border border-secondary/30">
+                        {row.license_type ?? s.admin_generic_license}
+                      </span>
+                      {row.license_confidence_score != null &&
+                        Number.isFinite(row.license_confidence_score) && (
+                          <span
+                            className={`rounded-full text-[10px] font-semibold px-2 py-0.5 ${confidenceBadgeClass(null, row.license_confidence_score)}`}
+                          >
+                            {Math.round(row.license_confidence_score * 100)}%
+                          </span>
+                        )}
+                    </div>
+                    {row.license_reasoning && (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {row.license_reasoning}
+                      </p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      {s.admin_license_approve_hint}
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => void approvePendingLicense(row)}
+                        disabled={pendingLicenseAction === row.id}
+                        className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        ✅ {s.admin_approve_license}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void rejectPendingLicense(row)}
+                        disabled={pendingLicenseAction === row.id}
+                        className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        ❌ {s.admin_reject_license}
                       </button>
                     </div>
                   </div>
@@ -4556,6 +4885,78 @@ const Settings = () => {
                         className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                       >
                         ❌ {s.admin_reject_alias}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SettingsCollapsible>
+
+          <SettingsCollapsible
+            label={`${s.admin_pendingBusinesses} (${pendingVendorBusinesses.length})`}
+            open={pendingBusinessOpen}
+            onToggle={() => setPendingBusinessOpen((o) => !o)}
+          >
+            {pendingVendorBusinesses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{s.admin_noPendingBusinesses}</p>
+            ) : (
+              <div className="space-y-3">
+                {pendingVendorBusinesses.map((row) => (
+                  <div
+                    key={row.vendor_category_id}
+                    data-testid={`pending-business-card-${row.vendor_category_id}`}
+                    className="rounded-2xl border border-border p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">
+                        {row.shop_name ?? row.vendor_name ?? "Vendor"}
+                      </p>
+                      {row.vendor_phone && (
+                        <span className="text-[10px] text-muted-foreground">{row.vendor_phone}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground/80">
+                        {s.admin_pending_business_new}:{" "}
+                      </span>
+                      <span aria-hidden>{row.category_emoji}</span> {row.category_label}
+                      {row.brand_name ? ` · ${row.brand_name}` : ""}
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="font-semibold text-foreground/80">
+                        {s.admin_pending_business_existing}:{" "}
+                      </span>
+                      {row.approved_businesses.length === 0
+                        ? "—"
+                        : row.approved_businesses
+                            .map(
+                              (b) =>
+                                `${b.emoji ?? ""} ${b.label}${b.brand_name ? ` (${b.brand_name})` : ""}`.trim(),
+                            )
+                            .join(" · ")}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">{s.admin_pending_business_hint}</p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        data-testid={`pending-business-approve-${row.vendor_category_id}`}
+                        onClick={() => void approvePendingVendorBusiness(row)}
+                        disabled={pendingBusinessAction === row.vendor_category_id}
+                        className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        ✅ {s.admin_approve}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`pending-business-reject-${row.vendor_category_id}`}
+                        onClick={() =>
+                          setRejectBusinessDialog({ open: true, row, reason: "" })
+                        }
+                        disabled={pendingBusinessAction === row.vendor_category_id}
+                        className="flex-1 rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        ❌ {s.admin_reject}
                       </button>
                     </div>
                   </div>
@@ -5331,6 +5732,50 @@ const Settings = () => {
                     const cat = rejectCategoryDialog.cat;
                     setRejectCategoryDialog({ open: false, cat: null });
                     if (cat) void rejectPendingCategory(cat);
+                  }}
+                >
+                  Confirm reject
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={rejectBusinessDialog.open}
+            onOpenChange={(open) => {
+              if (!open) setRejectBusinessDialog({ open: false, row: null, reason: "" });
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>{s.admin_pending_business_reject_title}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {s.admin_pending_business_reject_body}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <input
+                type="text"
+                data-testid="pending-business-reject-reason"
+                value={rejectBusinessDialog.reason}
+                onChange={(e) =>
+                  setRejectBusinessDialog((prev) => ({
+                    ...prev,
+                    reason: e.target.value.slice(0, 280),
+                  }))
+                }
+                placeholder={s.admin_pending_business_reject_reason}
+                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={!rejectBusinessDialog.row || pendingBusinessAction != null}
+                  onClick={() => {
+                    const row = rejectBusinessDialog.row;
+                    const reason = rejectBusinessDialog.reason;
+                    setRejectBusinessDialog({ open: false, row: null, reason: "" });
+                    if (row) void rejectPendingVendorBusiness(row, reason);
                   }}
                 >
                   Confirm reject
