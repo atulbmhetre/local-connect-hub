@@ -323,6 +323,21 @@ const MyOrders = () => {
     [s],
   );
   const [rows, setRows] = useState<RowWithShop[]>([]);
+  const [recurringOrders, setRecurringOrders] = useState<
+    {
+      id: string;
+      vendor_id: string;
+      shop_name: string | null;
+      category_label: string | null;
+      service_mode: string;
+      interval_kind: string;
+      interval_days: number;
+      status: string;
+      delivery_slot: string | null;
+      next_run_at: string;
+    }[]
+  >([]);
+  const [recurringActionId, setRecurringActionId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBill>>({});
   const [editedBillIds, setEditedBillIds] = useState<Set<string>>(() => new Set());
@@ -573,6 +588,59 @@ const MyOrders = () => {
     setMyReviews(map);
   };
 
+  const loadRecurring = async () => {
+    const device_id = getDeviceId();
+    const userPhone = getUserPhone();
+    const { data, error } = await supabase.rpc("list_my_recurring_orders", {
+      p_user_phone: userPhone ?? null,
+      p_device_id: device_id ?? null,
+    });
+    if (error) {
+      captureError(error, { scope: "myOrders.loadRecurring" });
+      setRecurringOrders([]);
+      return;
+    }
+    setRecurringOrders(
+      ((data ?? []) as typeof recurringOrders).map((row) => ({
+        id: row.id,
+        vendor_id: row.vendor_id,
+        shop_name: row.shop_name ?? null,
+        category_label: row.category_label ?? null,
+        service_mode: row.service_mode,
+        interval_kind: row.interval_kind,
+        interval_days: Number(row.interval_days) || 1,
+        status: row.status,
+        delivery_slot: row.delivery_slot ?? null,
+        next_run_at: row.next_run_at,
+      })),
+    );
+  };
+
+  const setRecurringStatus = async (id: string, status: "paused" | "active" | "cancelled") => {
+    if (recurringActionId) return;
+    setRecurringActionId(id);
+    const device_id = getDeviceId();
+    const userPhone = getUserPhone();
+    try {
+      const { error } = await supabase.rpc("customer_set_recurring_order_status", {
+        p_recurring_order_id: id,
+        p_status: status,
+        p_user_phone: userPhone ?? null,
+        p_device_id: device_id ?? null,
+      });
+      if (error) {
+        toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
+        return;
+      }
+      if (status === "cancelled") {
+        toast.success(s.myOrders_recurringStopped);
+      }
+      await loadRecurring();
+    } finally {
+      setRecurringActionId(null);
+    }
+  };
+
   const loadMyKhata = async () => {
     const userPhone = getUserPhone();
     if (!userPhone) return;
@@ -744,6 +812,7 @@ const MyOrders = () => {
       void loadBills(list.map((r) => r.id));
       void loadMyReviews();
       void loadMyKhata();
+      void loadRecurring();
       if (!opts?.silent) setLoading(false);
     } catch (err) {
       if (!mounted.current) return;
@@ -1681,6 +1750,77 @@ const MyOrders = () => {
           </button>
         )}
       </div>
+
+      {recurringOrders.length > 0 && (
+        <>
+          <SettingsSectionLabel>{s.myOrders_recurringHeading}</SettingsSectionLabel>
+          <SettingsCard>
+            {recurringOrders.map((ro, idx) => {
+              const intervalLabel =
+                ro.interval_kind === "daily"
+                  ? s.myOrders_recurringDaily
+                  : ro.interval_kind === "weekly"
+                    ? s.myOrders_recurringWeekly
+                    : s.myOrders_recurringCustom.replace("{days}", String(ro.interval_days));
+              return (
+                <div
+                  key={ro.id}
+                  data-testid={`recurring-order-card-${ro.id}`}
+                  className={cn(
+                    "px-4 py-3.5 space-y-2",
+                    idx < recurringOrders.length - 1 && "border-b border-surface-border",
+                  )}
+                >
+                  <div className="flex justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-foreground truncate">
+                        {ro.shop_name ?? s.myOrders_shopFallback}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {intervalLabel}
+                        {ro.category_label ? ` · ${ro.category_label}` : ""}
+                        {ro.status === "paused" ? ` · ${s.myOrders_recurringPaused}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {ro.status === "active" ? (
+                      <button
+                        type="button"
+                        data-testid={`recurring-order-pause-${ro.id}`}
+                        disabled={recurringActionId === ro.id}
+                        onClick={() => void setRecurringStatus(ro.id, "paused")}
+                        className="flex-1 rounded-xl border border-surface-border py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        {s.myOrders_recurringPause}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid={`recurring-order-resume-${ro.id}`}
+                        disabled={recurringActionId === ro.id}
+                        onClick={() => void setRecurringStatus(ro.id, "active")}
+                        className="flex-1 rounded-xl border border-surface-border py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        {s.myOrders_recurringResume}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      data-testid={`recurring-order-stop-${ro.id}`}
+                      disabled={recurringActionId === ro.id}
+                      onClick={() => void setRecurringStatus(ro.id, "cancelled")}
+                      className="flex-1 rounded-xl border border-destructive/40 text-destructive py-2 text-xs font-semibold disabled:opacity-50"
+                    >
+                      {s.myOrders_recurringStop}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </SettingsCard>
+        </>
+      )}
 
       {myKhata.length > 0 && (
         <>
