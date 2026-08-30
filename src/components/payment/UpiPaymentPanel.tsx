@@ -13,6 +13,10 @@ import { cn } from "@/lib/utils";
 import { isValidPaymentUtr } from "@/lib/validation";
 import { MIN_PAYMENT_AWAY_MS } from "@/lib/paymentResume";
 import { uploadPaymentProof } from "@/lib/paymentProofUpload";
+import {
+  paymentDestinationsChanged,
+  type BilledPaymentDestination,
+} from "@/lib/paymentDestinationChanged";
 
 export interface UpiPaymentPanelProps {
   /** Prefix for DOM ids (kept distinct per surface for tests/labels). */
@@ -67,6 +71,8 @@ export function UpiPaymentPanel({
   const [requiresScreenshot, setRequiresScreenshot] = useState(false);
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [screenshotUploading, setScreenshotUploading] = useState(false);
+  const [billedDestination, setBilledDestination] =
+    useState<BilledPaymentDestination | null>(null);
 
   const payTappedRef = useRef(payTapped);
   const userConfirmedPaidRef = useRef(userConfirmedPaid);
@@ -93,6 +99,7 @@ export function UpiPaymentPanel({
     setSubmitting(false);
     setScreenshotUrl(null);
     setScreenshotUploading(false);
+    setBilledDestination(null);
     payTappedAtRef.current = null;
   }, [orderId, paymentStatus]);
 
@@ -112,6 +119,22 @@ export function UpiPaymentPanel({
       .then(({ error: snapErr }) => {
         if (cancelled || !snapErr) return;
         captureError(snapErr, { scope: "upiPaymentPanel.snapshotIntendedUpi", orderId });
+      });
+    void supabase
+      .from("requests")
+      .select(
+        "billed_upi_id, billed_upi_qr_url, billed_upi_payee_id, billed_payment_phone, billed_payment_snapshot_at",
+      )
+      .eq("id", orderId)
+      .maybeSingle()
+      .then(({ data, error: billedErr }) => {
+        if (cancelled) return;
+        if (billedErr) {
+          captureError(billedErr, { scope: "upiPaymentPanel.billedDestination", orderId });
+          setBilledDestination(null);
+          return;
+        }
+        setBilledDestination((data as BilledPaymentDestination | null) ?? null);
       });
     void (async () => {
       const { data, error } = await supabase.rpc("get_payment_claim_requirements", {
@@ -290,6 +313,13 @@ export function UpiPaymentPanel({
     shopName,
   ]);
 
+  const showUpdatedNotice = paymentDestinationsChanged(billedDestination, {
+    upiId,
+    qrUrl: vendorQrUrl || null,
+    qrPayeeId: vendorQrPayeeId || null,
+    paymentPhone: vendorPhone,
+  });
+
   const tabs: { id: PaymentTab; label: string }[] = [
     { id: "upi", label: s.payment_tab_upi },
     { id: "mobile", label: s.payment_tab_mobile },
@@ -424,6 +454,14 @@ export function UpiPaymentPanel({
   return (
     <div className="space-y-4">
       {header}
+      {showUpdatedNotice ? (
+        <p
+          data-testid={`${idPrefix}-payment-details-updated`}
+          className="text-xs text-muted-foreground leading-snug rounded-xl border border-surface-border bg-muted/40 px-3 py-2"
+        >
+          {s.payment_details_updated}
+        </p>
+      ) : null}
       <div className="flex border-b border-surface-border">
         {tabs.map((tab) => (
           <button
@@ -444,6 +482,14 @@ export function UpiPaymentPanel({
 
       {activeTab === "upi" && (
         <div className="space-y-3">
+          {upiId ? (
+            <p
+              data-testid={`${idPrefix}-upi-id`}
+              className="text-sm text-foreground font-medium break-all text-center"
+            >
+              {upiId}
+            </p>
+          ) : null}
           {!payTapped && (
             <button
               type="button"
@@ -459,6 +505,14 @@ export function UpiPaymentPanel({
 
       {activeTab === "mobile" && (
         <div className="space-y-3">
+          {vendorPhone ? (
+            <p
+              data-testid={`${idPrefix}-mobile`}
+              className="text-sm text-foreground font-medium text-center"
+            >
+              {vendorPhone}
+            </p>
+          ) : null}
           {!payTapped && (
             <button
               type="button"
@@ -476,35 +530,42 @@ export function UpiPaymentPanel({
         <div className="space-y-3 text-center">
           {!vendorQrUrl && !vendorQrPayeeId ? (
             <p className="text-xs text-muted-foreground">{s.payment_qr_missing}</p>
-          ) : vendorQrPayeeId ? (
-            <div className="space-y-3">
-              {!payTapped && (
-                <button
-                  type="button"
-                  onClick={handlePayNowQr}
-                  className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
-                >
-                  {s.payment_pay_now}
-                </button>
-              )}
-              {returnPromptBlock}
-            </div>
           ) : (
-            <>
-              <img
-                src={vendorQrUrl}
-                alt=""
-                className="mx-auto h-[200px] w-[200px] rounded-lg border border-surface-border object-contain"
-              />
-              <p className="text-sm text-foreground">
-                <span className="font-bold">₹{amountLabel}</span>{" "}
-                {s.payment_amount_label}
-              </p>
-              <p className="text-xs text-muted-foreground">{s.payment_scan_instruction}</p>
-              <p className="text-xs text-muted-foreground">
-                {s.payment_enter_amount.replace("{amount}", amountLabel)}
-              </p>
-            </>
+            <div className="space-y-3">
+              {vendorQrUrl ? (
+                <img
+                  data-testid={`${idPrefix}-qr-image`}
+                  src={vendorQrUrl}
+                  alt=""
+                  className="mx-auto h-[200px] w-[200px] rounded-lg border border-surface-border object-contain"
+                />
+              ) : null}
+              {vendorQrPayeeId ? (
+                <>
+                  {!payTapped && (
+                    <button
+                      type="button"
+                      onClick={handlePayNowQr}
+                      className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
+                    >
+                      {s.payment_pay_now}
+                    </button>
+                  )}
+                  {returnPromptBlock}
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-foreground">
+                    <span className="font-bold">₹{amountLabel}</span>{" "}
+                    {s.payment_amount_label}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{s.payment_scan_instruction}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {s.payment_enter_amount.replace("{amount}", amountLabel)}
+                  </p>
+                </>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -4,8 +4,9 @@ import { UpiPaymentPanel } from "@/components/payment/UpiPaymentPanel";
 import { strings } from "@/lib/strings";
 import { MIN_PAYMENT_AWAY_MS } from "@/lib/paymentResume";
 
-const { mockRpc, mockInvokeNotifyVendor, captureError } = vi.hoisted(() => ({
+const { mockRpc, mockFrom, mockInvokeNotifyVendor, captureError } = vi.hoisted(() => ({
   mockRpc: vi.fn(),
+  mockFrom: vi.fn(),
   mockInvokeNotifyVendor: vi.fn(),
   captureError: vi.fn(),
 }));
@@ -13,7 +14,7 @@ const { mockRpc, mockInvokeNotifyVendor, captureError } = vi.hoisted(() => ({
 vi.mock("@/lib/sentry", () => ({ captureError }));
 
 vi.mock("@/lib/supabase", () => ({
-  supabase: { rpc: mockRpc },
+  supabase: { rpc: mockRpc, from: mockFrom },
   invokeNotifyVendor: mockInvokeNotifyVendor,
 }));
 
@@ -34,6 +35,24 @@ vi.mock("@capacitor/app", () => ({
 
 const UTR = "123456789012";
 
+const MATCHING_BILLED = {
+  billed_upi_id: "shop@upi",
+  billed_upi_qr_url: null,
+  billed_upi_payee_id: null,
+  billed_payment_phone: "9000000000",
+  billed_payment_snapshot_at: "2026-08-30T07:00:00Z",
+};
+
+function mockBilledRow(row: typeof MATCHING_BILLED | null) {
+  mockFrom.mockReturnValue({
+    select: () => ({
+      eq: () => ({
+        maybeSingle: async () => ({ data: row, error: null }),
+      }),
+    }),
+  });
+}
+
 function renderPanel(amountRupees = 250) {
   return render(
     <UpiPaymentPanel
@@ -52,6 +71,7 @@ function renderPanel(amountRupees = 250) {
 }
 
 async function payAndSubmitUtr() {
+  await waitFor(() => expect(mockFrom).toHaveBeenCalled());
   fireEvent.click(screen.getByText(strings.en.payment_pay_now));
   const nowSpy = vi.spyOn(Date, "now").mockReturnValue(Date.now() + MIN_PAYMENT_AWAY_MS);
   fireEvent(document, new Event("visibilitychange"));
@@ -67,6 +87,7 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal("open", vi.fn());
+    mockBilledRow(MATCHING_BILLED);
     mockRpc.mockImplementation(async (name: string) => {
       if (name === "get_payment_claim_requirements") {
         return {
@@ -179,10 +200,11 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
     );
   });
 
-  it("does not show the resume prompt if the customer returns before the minimum away duration", () => {
+  it("does not show the resume prompt if the customer returns before the minimum away duration", async () => {
+    renderPanel();
+    await waitFor(() => expect(mockFrom).toHaveBeenCalled());
     vi.useFakeTimers();
     try {
-      renderPanel();
       fireEvent.click(screen.getByText(strings.en.payment_pay_now));
       vi.advanceTimersByTime(MIN_PAYMENT_AWAY_MS - 1);
       fireEvent(document, new Event("visibilitychange"));
@@ -225,5 +247,52 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
         p_user_phone: "9876543210",
       });
     });
+  });
+
+  it("shows one notice when live Pay destinations differ from the bill freeze", async () => {
+    mockBilledRow({
+      ...MATCHING_BILLED,
+      billed_upi_id: "old@upi",
+      billed_upi_qr_url: "https://cdn.example/old.png",
+      billed_upi_payee_id: "old@upi",
+      billed_payment_phone: "9000000001",
+    });
+    render(
+      <UpiPaymentPanel
+        idPrefix="test-panel"
+        orderId="req-1"
+        paymentStatus="unpaid"
+        amountRupees={250}
+        vendorId="vendor-1"
+        shopName="Test Shop"
+        upiId="new@upi"
+        vendorPhone="9000000002"
+        qrUrl="https://cdn.example/new.png"
+        qrPayeeId="new@upi"
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("test-panel-payment-details-updated")).toHaveTextContent(
+        strings.en.payment_details_updated,
+      );
+    });
+    expect(screen.getByTestId("test-panel-upi-id")).toHaveTextContent("new@upi");
+    fireEvent.click(screen.getByText(strings.en.payment_tab_mobile));
+    expect(screen.getByTestId("test-panel-mobile")).toHaveTextContent("9000000002");
+    fireEvent.click(screen.getByText(strings.en.payment_tab_qr));
+    expect(screen.getByTestId("test-panel-qr-image")).toHaveAttribute(
+      "src",
+      "https://cdn.example/new.png",
+    );
+    expect(screen.getAllByTestId("test-panel-payment-details-updated")).toHaveLength(1);
+  });
+
+  it("does not show the notice when live destinations match the bill freeze", async () => {
+    renderPanel();
+    await waitFor(() => {
+      expect(mockFrom).toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId("test-panel-payment-details-updated")).not.toBeInTheDocument();
+    expect(screen.getByTestId("test-panel-upi-id")).toHaveTextContent("shop@upi");
   });
 });
