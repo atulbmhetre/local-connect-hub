@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsVendor, openVendorMyBusinessTab, expandFirstMyBusinessCategoryAccordion, APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
+import { loginAsVendor, openVendorMyBusinessTab, expandFirstMyBusinessCategoryAccordion, APP_URL, prepareAndCompleteOtp, completeOtpIfVisible, prepareUiOtpSend } from './helpers/browser-setup';
 import {
   supabaseAdmin,
   getActiveCategoryByServiceMode,
@@ -279,9 +279,16 @@ test('HV-FALLBACK-02 — discoverable vendor with no stored phone self-heals via
     localStorage.setItem('aaspaas:device_id', `device_hv2_${Date.now()}`);
   }, vendor.id);
 
+  await prepareUiOtpSend('hv-fallback-02');
   await page.goto(`${APP_URL}/vendor`);
 
-  // Dashboard loads without re-login; the recovered phone is backfilled.
+  // Returning-vendor OTP overlay (session phone does not match). Complete it
+  // before asserting on the dashboard, same as completeOtpIfVisible elsewhere.
+  await expect(page.getByTestId('vendor-returning-otp')).toBeVisible({ timeout: 20000 });
+  await completeOtpIfVisible(page, vendor.phone);
+  await expect(page.getByTestId('vendor-returning-otp')).toHaveCount(0);
+
+  // Dashboard loads; the recovered phone is backfilled.
   await expect(page.getByTestId('vendor-status-badge')).toBeVisible({ timeout: 20000 });
   await expect
     .poll(async () => page.evaluate(() => localStorage.getItem('aaspaas:user_phone')), {

@@ -429,3 +429,6 @@ entrypoint = "./functions/ai-gateway/index.ts"
 
 [functions.sms-hook]
 verify_jwt = false
+
+[functions.exotel-call-status]
+verify_jwt = false

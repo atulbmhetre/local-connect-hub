@@ -347,6 +347,8 @@ serve(async (req) => {
 
     const timeLimit = timeLimitSeconds(body.service_mode);
     const auth = btoa(`${exotelApiKey}:${exotelApiToken}`);
+    const callbackSecret = Deno.env.get("EXOTEL_STATUS_CALLBACK_SECRET")?.trim() ?? "";
+    const vendorLast10 = last10Digits(vendorPhone);
 
     const form = new URLSearchParams({
       From: callerPhone,
@@ -354,21 +356,58 @@ serve(async (req) => {
       CallerId: exotelCallerId,
       TimeLimit: String(timeLimit),
       Record: "false",
+      CustomField: `${link.requestId}|${vendorLast10}`,
     });
+    if (callbackSecret && supabaseUrl) {
+      // Token-only URL: verify_jwt is off on the receiver. Do not append
+      // SUPABASE_ANON_KEY — JWTs blow past typical vendor URL length limits.
+      const callback = new URL("/functions/v1/exotel-call-status", supabaseUrl);
+      callback.searchParams.set("token", callbackSecret);
+      form.set("StatusCallback", callback.toString());
+      console.log("initiate-call: StatusCallback attached", {
+        host: callback.host,
+        path: callback.pathname,
+      });
+    }
 
-    const exotelRes = await fetch(
-      `https://api.exotel.com/v1/Accounts/${exotelSid}/Calls/connect`,
-      {
+    const connectUrl = `https://api.exotel.com/v1/Accounts/${exotelSid}/Calls/connect`;
+    const postConnect = (body: URLSearchParams) =>
+      fetch(connectUrl, {
         method: "POST",
         headers: {
           Authorization: `Basic ${auth}`,
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: form.toString(),
-      },
-    );
+        body: body.toString(),
+      });
 
-    const responseText = await exotelRes.text();
+    // Prefer array-encoded terminal events + JSON payload. Fall back if this
+    // account's v1 rejects those params (StatusCallbackEvents=terminal 400s).
+    let exotelRes: Response;
+    let responseText: string;
+    if (form.has("StatusCallback")) {
+      const withEvents = new URLSearchParams(form);
+      withEvents.set("StatusCallbackEvents[]", "terminal");
+      withEvents.set("StatusCallbackContentType", "application/json");
+      exotelRes = await postConnect(withEvents);
+      responseText = await exotelRes.text();
+      if (!exotelRes.ok) {
+        console.error("initiate-call: Events[] variant rejected", exotelRes.status, responseText.slice(0, 300));
+        const withJson = new URLSearchParams(form);
+        withJson.set("StatusCallbackContentType", "application/json");
+        exotelRes = await postConnect(withJson);
+        responseText = await exotelRes.text();
+      }
+      if (!exotelRes.ok) {
+        console.error("initiate-call: JSON content-type variant rejected", exotelRes.status, responseText.slice(0, 300));
+        exotelRes = await postConnect(form);
+        responseText = await exotelRes.text();
+      }
+    } else {
+      exotelRes = await postConnect(form);
+      responseText = await exotelRes.text();
+    }
+
     let parsed: unknown = null;
     try {
       parsed = JSON.parse(responseText);

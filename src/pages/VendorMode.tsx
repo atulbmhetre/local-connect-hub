@@ -30,8 +30,13 @@ import {
 } from "@/lib/supabase";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import { fetchVendorByPhoneLogin, fetchVendorOwn } from "@/lib/vendorRead";
-import { getUserPhone, saveUserPhone } from "@/lib/userIdentity";
-import { OTP_ENABLED } from "@/lib/phoneOtpEnabled";
+import {
+  getAuthSessionPhone,
+  getUserPhone,
+  saveUserPhone,
+  sessionPhoneMatchesVendor,
+} from "@/lib/userIdentity";
+import { OTP_ENABLED, normalizePhoneDigits } from "@/lib/phoneOtpEnabled";
 import { PhoneOtpVerification } from "@/components/PhoneOtpVerification";
 import {
   startHelpLiveTracking,
@@ -384,6 +389,7 @@ const VendorMode = () => {
   const alreadyRegisteredRef = useRef<HTMLDivElement>(null);
   const isTogglingRef = useRef(false);
   const vendorFetchInFlightRef = useRef(false);
+  const vendorSessionReadyRef = useRef(!OTP_ENABLED);
   const [highlightAlreadyRegistered, setHighlightAlreadyRegistered] = useState(false);
   const [goLivePromptVisible, setGoLivePromptVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -478,9 +484,27 @@ const VendorMode = () => {
             setNetworkLoadStatus(null);
           }
         } else {
+          const loaded = data as Vendor;
+          if (OTP_ENABLED) {
+            const sessionPhone = await getAuthSessionPhone();
+            if (cancelled || isTogglingRef.current) return;
+            if (!sessionPhoneMatchesVendor(sessionPhone, loaded.phone)) {
+              vendorSessionReadyRef.current = false;
+              const otpPhone = normalizePhoneDigits(loaded.phone ?? "") || getUserPhone() || "";
+              if (otpPhone.length === 10) {
+                setPendingLoginVendor(loaded);
+                setLoginOtpPhone(otpPhone);
+                setVendor(null);
+                setNetworkLoadStatus(null);
+                setError(null);
+                return;
+              }
+            }
+          }
+          vendorSessionReadyRef.current = true;
           // Reconcile badge immediately on read (ban force-offline, etc.).
-          reconcileVendorActiveFlag(!!(data as Vendor).is_active);
-          setVendor(data as Vendor);
+          reconcileVendorActiveFlag(!!loaded.is_active);
+          setVendor(loaded);
           setNetworkLoadStatus(null);
           setError(null);
           const [{ data: modeRows }, { data: categoryPhotoRows }] = await Promise.all([
@@ -512,7 +536,7 @@ const VendorMode = () => {
                 ? true
                 : primary != null
                   ? false
-                  : (data as Vendor).is_manual_verified === true,
+                  : loaded.is_manual_verified === true,
             );
           }
         }
@@ -540,7 +564,7 @@ const VendorMode = () => {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "vendors", filter: `id=eq.${vendorId}` },
         (payload) => {
-          if (isTogglingRef.current) return;
+          if (isTogglingRef.current || !vendorSessionReadyRef.current) return;
           const next = payload.new as Vendor;
           reconcileVendorActiveFlag(!!next.is_active);
           setVendor(next);
@@ -959,8 +983,13 @@ const VendorMode = () => {
       setError(vendorFetchError?.message ?? "Could not load registered vendor");
       return;
     }
-    saveUserPhone(vendorPhone);
+    const sessionPhone = await getAuthSessionPhone();
+    saveUserPhone(
+      sessionPhoneMatchesVendor(sessionPhone, vendorPhone) ? sessionPhone! : vendorPhone,
+    );
     localStorage.setItem(STORAGE_KEY, newVendorId);
+    vendorSessionReadyRef.current =
+      !OTP_ENABLED || sessionPhoneMatchesVendor(sessionPhone, vendorPhone);
     notifyVendorIdChanged();
     pushRegisteredVendorRef.current = newVendorId;
     void registerPushToken(newVendorId, { vendorPhone });
@@ -987,9 +1016,17 @@ const VendorMode = () => {
     window.setTimeout(() => setHighlightAlreadyRegistered(false), 2500);
   };
 
-  const completeVendorLogin = (digits: string, found: Vendor) => {
-    saveUserPhone(digits);
+  const completeVendorLogin = async (digits: string, found: Vendor) => {
+    // verifyPhoneOtp already persisted the Auth session. Keep it; localStorage
+    // is only a UI cache for vendor_id / phone.
+    const sessionPhone = await getAuthSessionPhone();
+    const phone = sessionPhoneMatchesVendor(sessionPhone, digits)
+      ? sessionPhone!
+      : digits;
+    saveUserPhone(phone);
     localStorage.setItem(STORAGE_KEY, found.id);
+    vendorSessionReadyRef.current =
+      !OTP_ENABLED || sessionPhoneMatchesVendor(sessionPhone, found.phone);
     notifyVendorIdChanged();
     setVendorId(found.id);
     setVendor(found);
@@ -1038,7 +1075,7 @@ const VendorMode = () => {
           setLoginOtpPhone(digits);
           return;
         }
-        completeVendorLogin(digits, found);
+        await completeVendorLogin(digits, found);
       } else {
         setLookupError(s.vendor_not_found);
       }
@@ -1648,13 +1685,17 @@ const VendorMode = () => {
       </AlertDialog>
 
       {loginOtpPhone && pendingLoginVendor && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background px-6 py-10">
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-background px-6 py-10"
+          data-testid={vendorId ? "vendor-returning-otp" : "vendor-find-account-otp"}
+        >
           <PhoneOtpVerification
             phone={loginOtpPhone}
             onVerified={() => {
-              completeVendorLogin(loginOtpPhone, pendingLoginVendor);
-              setLoginOtpPhone(null);
-              setPendingLoginVendor(null);
+              void completeVendorLogin(loginOtpPhone, pendingLoginVendor).then(() => {
+                setLoginOtpPhone(null);
+                setPendingLoginVendor(null);
+              });
             }}
           />
         </div>

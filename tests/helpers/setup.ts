@@ -22,6 +22,19 @@ export const supabase = createClient(getSupabaseUrl(), getAnonKey());
 /** Bypass RLS for test seed/cleanup on restricted tables (vendor_categories, vendor_verification). */
 export const supabaseAdmin = getServiceRoleClient();
 
+/** Phone for a seeded vendor — used when RPCs require p_vendor_phone. */
+export async function vendorPhoneById(vendorId: string): Promise<string> {
+  const { data, error } = await supabaseAdmin
+    .from("vendors")
+    .select("phone")
+    .eq("id", vendorId)
+    .single();
+  if (error || !data?.phone) {
+    throw new Error(`vendorPhoneById: ${error?.message ?? "not found"}`);
+  }
+  return data.phone as string;
+}
+
 export const TEST_SESSION = `test_${Date.now()}`;
 
 export const TEST_VENDOR_PHONE = '9900099001';

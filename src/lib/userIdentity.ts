@@ -8,12 +8,34 @@ import {
   withTimedRetry,
 } from "@/lib/withNetworkRetry";
 
+/** 10-digit app phone from Auth or vendor row (`+91`, `91`, or 10 digits). */
+export function normalizeAuthPhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+  if (digits.length === 10) return digits;
+  if (digits.length > 10 && digits.startsWith("91")) return digits.slice(-10);
+  return null;
+}
+
 // Phase D: get phone from real Supabase session, strips 91 prefix
 async function getSessionPhone(): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user?.phone) return null;
-  const raw = session.user.phone; // stored as "91XXXXXXXXXX"
-  return raw.startsWith('91') && raw.length === 12 ? raw.slice(2) : raw;
+  return normalizeAuthPhone(session?.user?.phone ?? null);
+}
+
+/** Live Auth session phone only — never localStorage. Null if signed out / expired. */
+export async function getAuthSessionPhone(): Promise<string | null> {
+  return getSessionPhone();
+}
+
+export function sessionPhoneMatchesVendor(
+  sessionPhone: string | null | undefined,
+  vendorPhone: string | null | undefined,
+): boolean {
+  const a = normalizeAuthPhone(sessionPhone ?? null);
+  const b = normalizeAuthPhone(vendorPhone ?? null);
+  return !!a && !!b && a === b;
 }
 
 const PHONE_KEY = "aaspaas:user_phone";

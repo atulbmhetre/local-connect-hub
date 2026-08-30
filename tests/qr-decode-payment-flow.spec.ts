@@ -11,6 +11,7 @@ import { test, expect, Page, Locator } from '@playwright/test';
 import { loginAsCustomer, APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
 import {
   supabaseAdmin,
+  vendorPhoneById,
   getActiveCategoryByServiceMode,
   seedVendorCategory,
 } from './helpers/setup';
@@ -33,6 +34,44 @@ const L = {
   scanInstruction: 'Scan this QR from PhonePe / GPay / any UPI app',
   enterUtr: 'Enter UTR / Transaction ID',
 } as const;
+
+/**
+ * Wizard has no success toast / decoded-preview. The only decode-success
+ * signal is handleUpiQrFile calling setUpi(payeeId). Leave the UPI field
+ * empty and wait for that fill; retry the upload if jsQR is slow in headless.
+ */
+async function uploadQrAndWaitForDecode(page: Page): Promise<void> {
+  const wizard = page.getByTestId('vendor-registration-wizard');
+  const upiInput = wizard.getByPlaceholder('name@okbank');
+  const fileInput = wizard.locator('input[type="file"][accept="image/*"]');
+  const attempts = 3;
+  const perAttemptMs = 15_000;
+
+  await upiInput.scrollIntoViewIfNeeded();
+  await expect(upiInput).toHaveValue('');
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    await fileInput.setInputFiles([]);
+    await fileInput.setInputFiles(FIXTURE_QR_IMAGE);
+    try {
+      await expect(upiInput).toHaveValue(FIXTURE_PAYEE, { timeout: perAttemptMs });
+      await expect(wizard.getByRole('button', { name: L.uploadQrHint })).toBeEnabled({
+        timeout: 10_000,
+      });
+      return;
+    } catch (err) {
+      const uploadFailed = page.getByText('QR upload failed');
+      if (await uploadFailed.isVisible().catch(() => false)) {
+        throw new Error(
+          'QRD-01: QR upload failed before decode. vendor-docs must allow authenticated upi-qr/ uploads after OTP.',
+        );
+      }
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -136,6 +175,7 @@ async function seedFulfilledOrderWithUnpaidBill(
   const { error: billError } = await supabaseAdmin.rpc('insert_bill_with_items', {
     p_order_id: request.id,
     p_vendor_id: vendorId,
+      p_vendor_phone: await vendorPhoneById(vendorId),
     p_customer_phone: customerPhone,
     p_total: billTotal,
     p_payment_mode: 'upi',
@@ -235,13 +275,7 @@ test('QRD-01 — decode succeeds on real QR upload, payee ID stored', async ({ p
         name: /📍 Capture Shop Location|📍 दुकान|Location set/i,
       })
       .click();
-    await page.getByPlaceholder('name@okbank').fill(FIXTURE_PAYEE);
-
-    const fileInput = page.locator('input[type="file"][accept="image/*"]');
-    await fileInput.setInputFiles(FIXTURE_QR_IMAGE);
-    await expect(page.getByRole('button', { name: L.uploadQrHint })).toBeVisible({
-      timeout: 20000,
-    });
+    await uploadQrAndWaitForDecode(page);
 
     await page.getByRole('button', { name: /At their place|उनके पास/ }).click();
     await page.getByRole('button', { name: '15 km' }).click();
