@@ -21,6 +21,8 @@ type RequestBody = {
   create_pending?: boolean;
   healthCheck?: boolean;
   device_id?: string;
+  backfill_licenses?: boolean;
+  category_id?: string;
 };
 
 type AiSuggestion = {
@@ -34,6 +36,15 @@ type AiSuggestion = {
   proposed_aliases: string[];
   overlap_category_label: string | null;
   overlap_reasoning: string | null;
+  license_type: string;
+  license_reasoning: string;
+};
+
+type LicenseWriteFields = {
+  license_type: string;
+  license_confidence_score: number;
+  license_reasoning: string | null;
+  license_review_status: "pending_review";
 };
 
 type CategoryRow = {
@@ -44,6 +55,8 @@ type CategoryRow = {
 };
 
 const SERVICE_MODES = new Set(["help", "delivery", "appointment"]);
+const GENERIC_LICENSE = "generic";
+const BACKFILL_BATCH = 5;
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -145,7 +158,101 @@ function normalizeSuggestion(raw: AiSuggestion | null): AiSuggestion | null {
     ),
     overlap_category_label: overlapLabel || null,
     overlap_reasoning: overlapReason || null,
+    license_type: String((raw as { license_type?: string }).license_type ?? "").trim() ||
+      GENERIC_LICENSE,
+    license_reasoning: String(
+      (raw as { license_reasoning?: string }).license_reasoning ?? "",
+    ).trim(),
   };
+}
+
+function licenseNormKey(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeProposedLicenseType(raw: unknown): string {
+  const t = String(raw ?? "").trim();
+  if (!t) return GENERIC_LICENSE;
+  const n = licenseNormKey(t);
+  if (
+    n === "generic" ||
+    n === "none" ||
+    n === "n a" ||
+    n === "na" ||
+    n === "null" ||
+    n === "no license" ||
+    (n.includes("shop") && n.includes("establish"))
+  ) {
+    return GENERIC_LICENSE;
+  }
+  if (n.includes("fssai") || n === "food license") return "FSSAI License";
+  if (n.includes("drug") || n.includes("form 20") || n.includes("form 21")) {
+    return "Drug License";
+  }
+  if (n.includes("medical") || n.includes("nmc") || n === "mci") {
+    return "Medical Registration";
+  }
+  if (n.includes("trade license") || n === "trade") return "Trade License";
+  if (n.includes("gst")) return "GST Registration";
+  return toTitleCase(t);
+}
+
+function applyLicenseConfidenceGate(
+  type: string,
+  confidence: number,
+  threshold: number,
+): string {
+  if (type === GENERIC_LICENSE) return GENERIC_LICENSE;
+  if (Number.isFinite(confidence) && confidence >= threshold) return type;
+  return GENERIC_LICENSE;
+}
+
+function licenseWriteFields(
+  suggestion: AiSuggestion,
+  threshold: number,
+): LicenseWriteFields {
+  const proposed = normalizeProposedLicenseType(suggestion.license_type);
+  const gated = applyLicenseConfidenceGate(proposed, suggestion.confidence, threshold);
+  let reasoning = (suggestion.license_reasoning || suggestion.reasoning || "").trim();
+  if (gated === GENERIC_LICENSE && proposed !== GENERIC_LICENSE) {
+    reasoning =
+      `Stored as generic (confidence ${suggestion.confidence.toFixed(2)} < ${threshold}). AI proposed "${proposed}". ${reasoning}`
+        .trim();
+  }
+  return {
+    license_type: gated,
+    license_confidence_score: suggestion.confidence,
+    license_reasoning: reasoning || null,
+    license_review_status: "pending_review",
+  };
+}
+
+async function callerIsAdmin(
+  req: Request,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<boolean> {
+  const auth = req.headers.get("Authorization") ?? "";
+  const token = auth.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return false;
+  if (token === serviceRoleKey) return true;
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  if (!anonKey) return false;
+  const userClient = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await userClient.rpc("is_admin_session");
+  if (error) {
+    console.error("suggest-category is_admin_session", error);
+    return false;
+  }
+  return data === true;
 }
 
 function buildPrompt(categories: CategoryRow[], description: string): string {
@@ -171,7 +278,9 @@ Respond ONLY with JSON:
   "emoji": "single emoji (for new categories)",
   "proposed_aliases": ["5 to 8 short search aliases people might type"],
   "overlap_category_label": "existing category label if this is likely the same real-world business type, else null",
-  "overlap_reasoning": "one sentence why it overlaps that category, else null"
+  "overlap_reasoning": "one sentence why it overlaps that category, else null",
+  "license_type": "specific Indian government license/registration name, or generic",
+  "license_reasoning": "one line why that license applies, or why generic"
 }
 
 Rules:
@@ -184,7 +293,10 @@ Rules:
 - service_mode_reasoning must be one short line using that urgent-vs-scheduled-vs-delivery framing
 - proposed_aliases: 5–8 short terms (English/Hinglish spelling variants OK); omit the exact category_name itself
 - overlap_category_label: if this "new" category is likely the same real-world type as an existing active category, set that category's exact label and explain in overlap_reasoning; otherwise both null
-- confidence reflects how sure you are (0.0 to 1.0)`;
+- confidence reflects how sure you are of this classification overall (0.0 to 1.0); it is also used to gate license_type
+- license_type is the sector-specific Indian government license or registration that distinctly applies (examples: "FSSAI License", "Drug License", "Medical Registration", "Trade License", "GST Registration"). Use "generic" when no distinct sector-specific license applies
+- NEVER return Shop and Establishment / Shops & Establishment as license_type — that is collected separately for every business
+- license_reasoning must be one short line`;
 }
 
 async function loadConfig(
@@ -226,7 +338,7 @@ async function callClaude(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 800,
+      max_tokens: 1000,
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -342,6 +454,7 @@ async function upsertPendingNewCategory(
     overlap_category_label: suggestion.overlap_category_label,
     overlap_reasoning: suggestion.overlap_reasoning,
     emoji: suggestion.emoji ?? "✨",
+    ...licenseWriteFields(suggestion, threshold),
   };
 
   const { data: pendingRows, error: pendingError } = await supabase
@@ -411,6 +524,115 @@ async function upsertPendingNewCategory(
   return { category_id: inserted.id, outcome: "new_pending" };
 }
 
+async function runLicenseBackfill(
+  supabase: ReturnType<typeof createClient>,
+  activeCategories: CategoryRow[],
+  model: string,
+  threshold: number,
+  categoryId?: string,
+): Promise<{
+  results: Array<{
+    category_id: string;
+    label: string;
+    license_type: string;
+    license_confidence_score: number;
+    license_reasoning: string | null;
+    error?: string;
+  }>;
+  remaining: number;
+}> {
+  let query = supabase
+    .from("categories")
+    .select("id, label, emoji, service_mode")
+    .eq("is_active", true)
+    .or("status.eq.active,status.is.null")
+    .is("license_review_status", null)
+    .order("sort_order", { ascending: true });
+
+  if (categoryId) {
+    query = supabase
+      .from("categories")
+      .select("id, label, emoji, service_mode")
+      .eq("id", categoryId)
+      .is("license_review_status", null);
+  }
+
+  const { data: rows, error } = await query;
+  if (error) {
+    console.error("suggest-category license backfill lookup failed", error);
+    throw new Error("Database error");
+  }
+
+  const pending = (rows ?? []) as CategoryRow[];
+  const batch = pending.slice(0, BACKFILL_BATCH);
+  const remaining = Math.max(0, pending.length - batch.length);
+  const results: Array<{
+    category_id: string;
+    label: string;
+    license_type: string;
+    license_confidence_score: number;
+    license_reasoning: string | null;
+    error?: string;
+  }> = [];
+
+  for (const cat of batch) {
+    const description =
+      `Existing catalog category: "${cat.label}". Classify this Indian local-business type.`;
+    try {
+      const suggestion = await callClaude(model, buildPrompt(activeCategories, description));
+      const fields = licenseWriteFields(suggestion, threshold);
+      const { error: updateError } = await supabase
+        .from("categories")
+        .update(fields)
+        .eq("id", cat.id)
+        .is("license_review_status", null);
+      if (updateError) {
+        console.error("suggest-category license backfill update failed", cat.id, updateError);
+        results.push({
+          category_id: cat.id,
+          label: cat.label,
+          license_type: fields.license_type,
+          license_confidence_score: fields.license_confidence_score,
+          license_reasoning: fields.license_reasoning,
+          error: "Failed to write license fields",
+        });
+        continue;
+      }
+      results.push({
+        category_id: cat.id,
+        label: cat.label,
+        license_type: fields.license_type,
+        license_confidence_score: fields.license_confidence_score,
+        license_reasoning: fields.license_reasoning,
+      });
+    } catch (err) {
+      console.error("suggest-category license backfill AI failed", cat.id, err);
+      const failReason = err instanceof Error ? err.message : "AI suggestion failed";
+      const fields = {
+        license_type: GENERIC_LICENSE,
+        license_confidence_score: 0,
+        license_reasoning: `Classification failed: ${failReason}`.slice(0, 500),
+        license_review_status: "pending_review" as const,
+      };
+      const { error: updateError } = await supabase
+        .from("categories")
+        .update(fields)
+        .eq("id", cat.id)
+        .is("license_review_status", null);
+      results.push({
+        category_id: cat.id,
+        label: cat.label,
+        license_type: fields.license_type,
+        license_confidence_score: fields.license_confidence_score,
+        license_reasoning: fields.license_reasoning,
+        error: updateError ? "Failed to write license fields" : failReason,
+      });
+    }
+  }
+
+  return { results, remaining };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -439,6 +661,47 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    if (body.backfill_licenses === true) {
+      const isAdmin = await callerIsAdmin(req, supabaseUrl, serviceRoleKey);
+      if (!isAdmin) {
+        return jsonResponse({ success: false, error: "unauthorized" }, 403);
+      }
+      const { threshold, model } = await loadConfig(supabase);
+      const { data: categories, error: catError } = await supabase
+        .from("categories")
+        .select("id, label, emoji, service_mode")
+        .eq("is_active", true)
+        .or("status.eq.active,status.is.null")
+        .order("sort_order", { ascending: true });
+      if (catError) {
+        console.error("suggest-category categories load failed", catError);
+        return jsonResponse({ success: false, error: "Database error" }, 500);
+      }
+      const activeCategories = (categories ?? []) as CategoryRow[];
+      try {
+        const { results, remaining } = await runLicenseBackfill(
+          supabase,
+          activeCategories,
+          model,
+          threshold,
+          body.category_id?.trim() || undefined,
+        );
+        return jsonResponse({
+          success: true,
+          outcome: "license_backfill",
+          auto_approved: false,
+          results,
+          remaining,
+        });
+      } catch (err) {
+        console.error("suggest-category license backfill failed", err);
+        return jsonResponse({
+          success: false,
+          error: err instanceof Error ? err.message : "Backfill failed",
+        }, 500);
+      }
+    }
 
     const deviceId = body.device_id?.trim() || undefined;
     const ipAddress = clientIp(req);
@@ -628,6 +891,8 @@ serve(async (req) => {
       reasoning: suggestion.reasoning,
       emoji: suggestion.emoji,
       pending_review: created.outcome === "new_pending",
+      license_type: suggestion.license_type,
+      license_review_status: "pending_review",
     });
   } catch (err) {
     console.error("suggest-category failed", err);

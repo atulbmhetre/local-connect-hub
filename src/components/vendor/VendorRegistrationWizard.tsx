@@ -79,12 +79,19 @@ import {
 } from "@/lib/vendorRegistration";
 import type { ServiceRadiusKm } from "@/lib/serviceRadius";
 import { decodeUpiPayeeIdFromImageFile } from "@/lib/upiQrDecode";
+import {
+  licenseFieldHasValue,
+  wizardLicenseFields,
+  type LicenseType,
+} from "@/lib/vendorLicenses";
 
 type RegCategoryRow = {
   id: string;
   label: string;
   emoji: string;
   service_mode: string;
+  license_type?: string | null;
+  license_review_status?: string | null;
 };
 
 type Props = {
@@ -113,6 +120,34 @@ function categoryServiceModeChipLabel(
       return s.category_chip_mode_appointment;
     default:
       return mode;
+  }
+}
+
+function licenseTypeLabel(
+  type: string,
+  s: {
+    reg_license_type_fssai: string;
+    reg_license_type_drug_license: string;
+    reg_license_type_medical_registration: string;
+    reg_license_type_shop_establishment: string;
+    reg_license_type_trade_license: string;
+  },
+  displayName?: string,
+): string {
+  if (displayName?.trim()) return displayName.trim();
+  switch (type as LicenseType) {
+    case "fssai":
+      return s.reg_license_type_fssai;
+    case "drug_license":
+      return s.reg_license_type_drug_license;
+    case "medical_registration":
+      return s.reg_license_type_medical_registration;
+    case "shop_establishment":
+      return s.reg_license_type_shop_establishment;
+    case "trade_license":
+      return s.reg_license_type_trade_license;
+    default:
+      return type;
   }
 }
 
@@ -209,8 +244,13 @@ export function VendorRegistrationWizard({
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
 
-  const [regPage, setRegPage] = useState<1 | 2>(1);
+  const [regPage, setRegPage] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
+  const [licenseDrafts, setLicenseDrafts] = useState<
+    Record<string, { number: string; file: File | null; preview: string | null }>
+  >({});
+  const licensePhotoInputRef = useRef<HTMLInputElement>(null);
+  const licensePhotoTargetRef = useRef<string | null>(null);
 
   const [baseType, setBaseType] = useState<BaseTypeValue>("");
   const [name, setName] = useState("");
@@ -286,7 +326,7 @@ export function VendorRegistrationWizard({
     setRegCategoriesLoading(true);
     void supabase
       .from("categories")
-      .select("id, label, emoji, service_mode")
+      .select("id, label, emoji, service_mode, license_type, license_review_status")
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .then(({ data, error }) => {
@@ -306,7 +346,7 @@ export function VendorRegistrationWizard({
 
   const allRegCategories = useMemo(() => {
     const map = new Map<string, RegCategoryRow>();
-    for (const c of [...regCategories, ...extraRegCategories]) {
+    for (const c of [...extraRegCategories, ...regCategories]) {
       map.set(c.id, c);
     }
     return [...map.values()];
@@ -318,6 +358,31 @@ export function VendorRegistrationWizard({
       : null;
   const effectiveCategory =
     primaryCategory?.label ?? pendingNewCategoryCreate?.category_name ?? "";
+
+  const licenseSourceCategories = useMemo(() => {
+    const selected = selectedCategoryIds
+      .map((id) => allRegCategories.find((c) => c.id === id))
+      .filter((c): c is RegCategoryRow => c != null);
+    if (selected.length > 0) return selected;
+    if (pendingNewCategoryCreate) {
+      return [
+        {
+          id: "pending",
+          label: pendingNewCategoryCreate.category_name,
+          emoji: "",
+          service_mode: pendingNewCategoryCreate.service_mode,
+        },
+      ];
+    }
+    return [];
+  }, [selectedCategoryIds, allRegCategories, pendingNewCategoryCreate]);
+
+  const licenseFields = useMemo(
+    () => wizardLicenseFields(licenseSourceCategories),
+    [licenseSourceCategories],
+  );
+  const needsLicenseStep = licenseFields.length > 0;
+  const wizardTotalSteps = needsLicenseStep ? 3 : 2;
 
   const nameOk = name.trim().length > 1 && !looksLikeGibberish(name);
   const shopOk = shopName.trim().length > 1 && !looksLikeGibberish(shopName);
@@ -453,6 +518,65 @@ export function VendorRegistrationWizard({
       return;
     }
     setRegPage(2);
+  };
+
+  const tryStepBNext = () => {
+    if (!categoryOk) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_categories);
+      return;
+    }
+    if (baseType === "") {
+      showRegistrationGuidanceToast(s.reg_toast_missing_base_type);
+      return;
+    }
+    if (!gpsOk) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_gps);
+      return;
+    }
+    if (!upiFmtOk) {
+      showRegistrationGuidanceToast(s.vendor_upi_id_format_invalid);
+      return;
+    }
+    if (reachChoice === "") {
+      showRegistrationGuidanceToast(s.reg_toast_missing_reach);
+      return;
+    }
+    if (!radiusOk) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_radius);
+      return;
+    }
+    if (!modesOk) {
+      showRegistrationGuidanceToast(s.reg_toast_missing_availability);
+      return;
+    }
+    if (!shopPhotoCaptured) {
+      showRegistrationGuidanceToast(s.business_photo_verify);
+      return;
+    }
+    setRegPage(3);
+  };
+
+  const updateLicenseDraft = (
+    fieldKey: string,
+    patch: Partial<{ number: string; file: File | null; preview: string | null }>,
+  ) => {
+    setLicenseDrafts((prev) => ({
+      ...prev,
+      [fieldKey]: {
+        number: prev[fieldKey]?.number ?? "",
+        file: prev[fieldKey]?.file ?? null,
+        preview: prev[fieldKey]?.preview ?? null,
+        ...patch,
+      },
+    }));
+  };
+
+  const handleLicensePhotoPicked = (file: File | undefined) => {
+    const key = licensePhotoTargetRef.current;
+    licensePhotoTargetRef.current = null;
+    if (!key || !file) return;
+    const preview = URL.createObjectURL(file);
+    updateLicenseDraft(key, { file, preview });
   };
 
   const selectCategoryFromSuggestion = (
@@ -669,8 +793,8 @@ export function VendorRegistrationWizard({
     });
   };
 
-  const register = async (e: FormEvent) => {
-    e.preventDefault();
+  const register = async (e?: FormEvent) => {
+    e?.preventDefault();
     if (!categoryOk) {
       showRegistrationGuidanceToast(s.reg_toast_missing_categories);
       return;
@@ -1158,6 +1282,67 @@ export function VendorRegistrationWizard({
       }
     }
 
+    try {
+      const filledLicenses: Array<{
+        category_id: string;
+        license_type: string;
+        license_number: string | null;
+        photo_url: string | null;
+      }> = [];
+      for (const field of licenseFields) {
+        const draft = licenseDrafts[field.fieldKey];
+        const number = String(draft?.number ?? "").trim();
+        const catId =
+          field.categoryId === "pending" ? resolvedCategoryId : field.categoryId;
+        if (!catId) continue;
+        let photoUrl: string | null = null;
+        if (draft?.file) {
+          const path = `license-docs/${newVendorId}/${catId}/${field.licenseType}_${Date.now()}.jpg`;
+          const { error: upErr } = await supabase.storage.from("vendor-docs").upload(
+            path,
+            draft.file,
+            { contentType: draft.file.type || "image/jpeg", upsert: true },
+          );
+          if (upErr) {
+            captureError(upErr, {
+              scope: "vendorRegistrationWizard.licensePhotoUpload",
+              vendorId: newVendorId,
+            });
+          } else {
+            photoUrl = supabase.storage.from("vendor-docs").getPublicUrl(path).data.publicUrl;
+          }
+        }
+        if (
+          licenseFieldHasValue({ license_number: number, photo_url: photoUrl })
+        ) {
+          filledLicenses.push({
+            category_id: catId,
+            license_type: field.licenseType,
+            license_number: number || null,
+            photo_url: photoUrl,
+          });
+        }
+      }
+      if (filledLicenses.length > 0) {
+        const { error: licErr } = await supabase.rpc("vendor_upsert_licenses", {
+          p_vendor_id: newVendorId,
+          p_vendor_phone: phone.trim(),
+          p_licenses: filledLicenses,
+        });
+        if (licErr) {
+          captureError(licErr, {
+            scope: "vendorRegistrationWizard.upsertLicenses",
+            vendorId: newVendorId,
+          });
+        }
+      }
+    } catch (licCatch) {
+      captureError(licCatch, {
+        scope: "vendorRegistrationWizard.upsertLicenses",
+        vendorId: newVendorId,
+      });
+    }
+
     void invokeNotifyAdmin(
       s.vendor_admin_notify_title,
       `${name.trim()} — ${resolvedCategoryLabel} (${resolvedPrimaryServiceMode})`,
@@ -1230,10 +1415,14 @@ export function VendorRegistrationWizard({
       data-testid="vendor-registration-wizard"
     >
       <p className="text-xs text-center text-muted-foreground uppercase tracking-wider">
-        {s.reg_wizard_step(regPage, 2)}
+        {s.reg_wizard_step(regPage, wizardTotalSteps)}
       </p>
       <p className="text-sm text-center font-semibold text-foreground">
-        {regPage === 1 ? s.reg_step_account : s.reg_step_business}
+        {regPage === 1
+          ? s.reg_step_account
+          : regPage === 2
+            ? s.reg_step_business
+            : s.reg_step_licenses}
       </p>
 
       {regPage === 1 && (
@@ -1761,9 +1950,113 @@ export function VendorRegistrationWizard({
               <ChevronLeft className="h-4 w-4" />
               {s.reg_wizard_back}
             </button>
+            {needsLicenseStep ? (
+              <button
+                type="button"
+                data-testid="reg-business-next"
+                disabled={!stepBReady || loading}
+                onClick={tryStepBNext}
+                className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold disabled:opacity-50"
+              >
+                {s.reg_wizard_next}
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!stepBReady || loading}
+                className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+                {s.vendor_register_btn}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {regPage === 3 && (
+        <>
+          <p
+            className="text-xs text-muted-foreground leading-relaxed text-center"
+            data-testid="reg-license-disclaimer"
+          >
+            {s.reg_license_disclaimer}
+          </p>
+          {licenseFields.map((field) => {
+            const draft = licenseDrafts[field.fieldKey];
+            return (
+              <div
+                key={field.fieldKey}
+                data-testid={`reg-license-field-${field.licenseType}`}
+                className="rounded-2xl border border-border p-3 space-y-2"
+              >
+                <p className="text-sm font-semibold text-foreground">
+                  {getLabel(field.categoryLabel)} · {licenseTypeLabel(field.licenseType, s, field.displayName)}
+                </p>
+                <RegField
+                  label={s.reg_license_number}
+                  value={draft?.number ?? ""}
+                  onChange={(v) => updateLicenseDraft(field.fieldKey, { number: v })}
+                  placeholder={s.reg_license_number}
+                />
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {s.reg_license_photo}
+                  </label>
+                  <button
+                    type="button"
+                    data-testid={`reg-license-photo-${field.licenseType}`}
+                    onClick={() => {
+                      licensePhotoTargetRef.current = field.fieldKey;
+                      licensePhotoInputRef.current?.click();
+                    }}
+                    className="mt-2 w-full rounded-xl border border-border py-3 text-sm font-semibold"
+                  >
+                    {draft?.preview ? s.reg_license_photo_replace : s.reg_license_photo_upload}
+                  </button>
+                  {draft?.preview && (
+                    <img
+                      src={draft.preview}
+                      alt=""
+                      className="mt-2 w-full max-h-40 object-contain rounded-xl border border-border"
+                    />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <input
+            ref={licensePhotoInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              handleLicensePhotoPicked(file);
+            }}
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setRegPage(2)}
+              className="flex-1 rounded-2xl border border-border py-4 font-semibold inline-flex items-center justify-center gap-1"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              {s.reg_wizard_back}
+            </button>
             <button
               type="submit"
-              disabled={!stepBReady || loading}
+              data-testid="reg-license-skip"
+              disabled={loading}
+              className="flex-1 rounded-2xl border border-border py-4 font-semibold disabled:opacity-50"
+            >
+              {s.reg_license_skip}
+            </button>
+            <button
+              type="submit"
+              data-testid="reg-license-submit"
+              disabled={loading}
               className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}

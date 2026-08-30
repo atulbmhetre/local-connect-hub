@@ -191,6 +191,7 @@ export async function deleteVendorRegistrationArtifacts(vendorId: string) {
 
   await Promise.all([
     supabaseAdmin.from('vendor_menu_items').delete().eq('vendor_id', vendorId),
+    supabaseAdmin.from('vendor_licenses').delete().eq('vendor_id', vendorId),
     supabaseAdmin.from('vendor_credits').delete().eq('vendor_id', vendorId),
     supabaseAdmin.from('feed_posts').delete().eq('vendor_id', vendorId),
     supabaseAdmin.from('vendor_categories').delete().eq('vendor_id', vendorId),
