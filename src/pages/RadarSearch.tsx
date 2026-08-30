@@ -56,13 +56,18 @@ import {
 } from "@/lib/networkToast";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import {
-  compareRadarResults,
   computeTrustLevelsByVendorCategory,
   vendorCategoryTrustKey,
   type TrustLevel,
   type VendorVerificationRow,
   type BusinessLocationRow,
 } from "@/lib/trustLevel";
+import {
+  bestMatchingMenuItem,
+  compareRadarResultsWithMenuMatch,
+  promoteMatchedMenuPreview,
+  shouldApplyRadarMenuRanking,
+} from "@/lib/radarMenuMatch";
 import {
   DEFAULT_SERVICE_RADIUS_KM,
   PAN_INDIA_RADIUS_KM,
@@ -110,10 +115,11 @@ export type RadarMenuItem = {
   price: number;
   unit: string | null;
   is_available: boolean;
+  image_url?: string | null;
 };
 
 const RADAR_VC_SELECT =
-  "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, is_manual_verified, shop_photo_url, verification_status, gps_match_distance, location_accuracy, photo_accuracy, latitude, longitude, upi_id, upi_qr_url, upi_qr_payee_id, service_mode, categories(label, emoji)";
+  "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, inspection_fee, is_manual_verified, shop_photo_url, verification_status, gps_match_distance, location_accuracy, photo_accuracy, latitude, longitude, upi_id, upi_qr_url, upi_qr_payee_id, service_mode, categories(label, emoji)";
 
 export type RadarVendorCategory = {
   label: string;
@@ -124,6 +130,7 @@ export type RadarVendorCategory = {
   serves_at_customer_place?: boolean | null;
   service_radius_km?: number | null;
   vendor_note?: string | null;
+  inspection_fee?: number | null;
   is_manual_verified?: boolean | null;
   shop_photo_url?: string | null;
   verification_status?: string | null;
@@ -143,6 +150,8 @@ export type RadarVendorResult = Vendor & {
   trustLevel: TrustLevel;
   /** First 5 available menu items, batch-fetched so cards render complete. */
   menuPreview: RadarMenuItem[];
+  /** Menu line that matched the more-specific search term (help/appointment only). */
+  matchedMenuName?: string | null;
   hasActiveOrder: boolean;
   hasFulfilledOrder: boolean;
   fulfilledRequestId: string | null;
@@ -309,6 +318,7 @@ function buildVendorCategoriesMap(
     serves_at_customer_place?: boolean | null;
     service_radius_km?: number | null;
     vendor_note?: string | null;
+    inspection_fee?: number | null;
     is_manual_verified?: boolean | null;
     shop_photo_url?: string | null;
     verification_status?: string | null;
@@ -343,6 +353,10 @@ function buildVendorCategoriesMap(
       serves_at_customer_place: row.serves_at_customer_place,
       service_radius_km: row.service_radius_km,
       vendor_note: row.vendor_note,
+      inspection_fee:
+        row.inspection_fee != null && Number(row.inspection_fee) > 0
+          ? Number(row.inspection_fee)
+          : null,
       is_manual_verified: row.is_manual_verified,
       shop_photo_url: row.shop_photo_url,
       verification_status: row.verification_status,
@@ -490,9 +504,13 @@ const RadarSearch = () => {
         return;
       }
       setCategories((data ?? []) as Category[]);
+      try {
+        await refreshCategorySearchTermsCache();
+      } catch {
+        /* seed fallback lives inside refreshCategorySearchTermsCache */
+      }
       setCategoriesLoaded(true);
       setCategoriesNetworkStatus(null);
-      void refreshCategorySearchTermsCache();
     } catch (err) {
       dismissNetworkRetryingToast();
       console.error("radar categories load", err);
@@ -658,6 +676,7 @@ const RadarSearch = () => {
       try {
         let vendorIdFilter: string[] | null = null;
         let matchedCategoryIdsByVendor: Map<string, Set<string>> | undefined;
+        let resolvedCategoryLabels: string[] = [];
         if (term) {
           setModeMismatchHint(null);
 
@@ -726,6 +745,9 @@ const RadarSearch = () => {
           if (forcedCategoryId && categoryIds.includes(forcedCategoryId) && isCurrent()) {
             setForcedCategoryId(null);
           }
+          resolvedCategoryLabels = categoryIds
+            .map((id) => categories.find((c) => c.id === id)?.label ?? "")
+            .filter((label) => label.length > 0);
           const { data: modeMatchRows, error: modeMatchError } = await withTimedRetry(
             async (signal) =>
               throwOnSupabaseNetworkError(
@@ -988,15 +1010,14 @@ const RadarSearch = () => {
             if (!row.category_id) continue;
             const key = radarResultKey(row.vendor_id, row.category_id);
             const list = menuByBusiness.get(key) ?? [];
-            if (list.length < 5) {
-              list.push({
-                name: row.name,
-                price: row.price,
-                unit: row.unit,
-                is_available: row.is_available,
-              });
-              menuByBusiness.set(key, list);
-            }
+            list.push({
+              name: row.name,
+              price: row.price,
+              unit: row.unit,
+              is_available: row.is_available,
+              image_url: row.image_url ?? null,
+            });
+            menuByBusiness.set(key, list);
           }
           activeOrderVendorIds = new Set((activeResult.data ?? []).map((r) => r.vendor_id));
           for (const row of fulfilledResult.data ?? []) {
@@ -1068,13 +1089,24 @@ const RadarSearch = () => {
             matchedId,
           );
           const stamped = stampVendorWithBusiness(v as unknown as Record<string, unknown>, matchedCat);
+          const allMenu = menuByBusiness.get(radarResultKey(v.id, matchedId)) ?? [];
+          const applyMenuRank = shouldApplyRadarMenuRanking({
+            radarMode: selectedMode,
+            searchTerm: term,
+            categoryLabels: resolvedCategoryLabels,
+          });
+          const matchedMenu = applyMenuRank
+            ? bestMatchingMenuItem(allMenu, term)
+            : null;
           return {
             vendor: {
               ...(stamped as unknown as Vendor),
               vendor_note: displayVendorNote,
+              inspection_fee: matchedCat.inspection_fee ?? null,
               categories: [matchedCat],
               trustLevel,
-              menuPreview: menuByBusiness.get(radarResultKey(v.id, matchedId)) ?? [],
+              menuPreview: promoteMatchedMenuPreview(allMenu, matchedMenu?.name ?? null, 5),
+              matchedMenuName: matchedMenu?.name ?? null,
               hasActiveOrder: activeOrderVendorIds.has(v.id),
               hasFulfilledOrder: fulfilledVendorIds.has(v.id),
               fulfilledRequestId: fulfilledRequestByVendor.get(v.id) ?? null,
@@ -1121,9 +1153,17 @@ const RadarSearch = () => {
             trackARanked.push(buildBusinessResult(v, matchedCat, { dist }));
           }
           trackARanked.sort((a, b) =>
-            compareRadarResults(
-              { dist: a.dist, trustLevel: a.vendor.trustLevel },
-              { dist: b.dist, trustLevel: b.vendor.trustLevel },
+            compareRadarResultsWithMenuMatch(
+              {
+                dist: a.dist,
+                trustLevel: a.vendor.trustLevel,
+                menuMatch: Boolean(a.vendor.matchedMenuName),
+              },
+              {
+                dist: b.dist,
+                trustLevel: b.vendor.trustLevel,
+                menuMatch: Boolean(b.vendor.matchedMenuName),
+              },
             ),
           );
         }
@@ -1139,9 +1179,17 @@ const RadarSearch = () => {
           trackBRanked.push(buildBusinessResult(v, matchedCat, { dist: null, isPanIndia: true }));
         }
         trackBRanked.sort((a, b) =>
-          compareRadarResults(
-            { dist: a.dist, trustLevel: a.vendor.trustLevel },
-            { dist: b.dist, trustLevel: b.vendor.trustLevel },
+          compareRadarResultsWithMenuMatch(
+            {
+              dist: a.dist,
+              trustLevel: a.vendor.trustLevel,
+              menuMatch: Boolean(a.vendor.matchedMenuName),
+            },
+            {
+              dist: b.dist,
+              trustLevel: b.vendor.trustLevel,
+              menuMatch: Boolean(b.vendor.matchedMenuName),
+            },
           ),
         );
 
@@ -1539,6 +1587,7 @@ const RadarSearch = () => {
                     categories={vendor.categories}
                     trustLevel={vendor.trustLevel}
                     menuItems={vendor.menuPreview}
+                    matchedMenuName={vendor.matchedMenuName}
                     isSaved={savedByVendorId[vendor.id] ?? false}
                     hasOrdered={vendor.hasActiveOrder}
                     hasFulfilledOrder={vendor.hasFulfilledOrder}

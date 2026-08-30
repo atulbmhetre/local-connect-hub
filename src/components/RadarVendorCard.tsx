@@ -44,6 +44,7 @@ import {
   formatRadarReachLabels,
 } from "@/lib/categoryScopedVendor";
 import { radarResultKey } from "@/lib/radarBusinessCards";
+import { formatVisitFeeAmount } from "@/lib/visitFee";
 
 const RESOLUTION_SESSION_PREFIX = "aaspaas:resolution:";
 const VENDOR_SELF_STORAGE_KEY = "aaspaas:vendor_id";
@@ -264,6 +265,8 @@ type Props = {
   fulfilledRequestId?: string | null;
   /** Menu preview (first 5 available items), batch-fetched by the parent. */
   menuItems: { name: string; price: number; unit: string | null; is_available: boolean; image_url?: string | null }[];
+  /** When set, this preview line matched the more-specific Radar search term. */
+  matchedMenuName?: string | null;
   categories: {
     label: string;
     emoji: string;
@@ -272,6 +275,7 @@ type Props = {
     serves_at_vendor_place?: boolean | null;
     serves_at_customer_place?: boolean | null;
     service_radius_km?: number | null;
+    inspection_fee?: number | null;
     is_manual_verified?: boolean | null;
     shop_photo_url?: string | null;
     verification_status?: string | null;
@@ -305,6 +309,7 @@ export function RadarVendorCard({
   hasFulfilledOrder,
   fulfilledRequestId = null,
   menuItems,
+  matchedMenuName = null,
   categories,
   trustLevel,
   dist,
@@ -833,6 +838,7 @@ export function RadarVendorCard({
       data-testid="radar-vendor-card"
       data-vendor-id={vendor.id}
       data-category-id={matchedCategoryId ?? undefined}
+      data-menu-match={matchedMenuName ? "true" : undefined}
       className={cn(
         "relative mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-fade-up",
         accentRing,
@@ -902,6 +908,23 @@ export function RadarVendorCard({
           {showPanIndiaBadge && (
             <span className="mt-1 inline-flex text-[10px] rounded-full px-2 py-0.5 bg-brand/20 text-brand font-medium w-fit">
               {s.radar_pan_india_badge}
+            </span>
+          )}
+          {formatVisitFeeAmount(
+            matchedCategory?.inspection_fee ?? vendor.inspection_fee,
+          ) != null && (
+            <span
+              data-testid="radar-inspection-fee-chip"
+              className="mt-1 inline-flex text-[10px] rounded-full px-2 py-0.5 bg-muted text-foreground font-medium w-fit"
+            >
+              {s.radar_visit_fee_chip.replace(
+                "{amount}",
+                String(
+                  formatVisitFeeAmount(
+                    matchedCategory?.inspection_fee ?? vendor.inspection_fee,
+                  ),
+                ),
+              )}
             </span>
           )}
           <div className="flex flex-wrap items-center gap-1.5 mt-1 min-w-0">
@@ -974,8 +997,16 @@ export function RadarVendorCard({
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
             {s.menu_preview}
           </p>
-          {menuItems.slice(0, 3).map((item, i) => (
-            <div key={i} className="flex justify-between items-center gap-2">
+          {menuItems.slice(0, 3).map((item, i) => {
+            const isMatch =
+              Boolean(matchedMenuName) &&
+              item.name.trim().toLowerCase() === matchedMenuName!.trim().toLowerCase();
+            return (
+            <div
+              key={i}
+              data-testid={isMatch ? "radar-menu-match" : "radar-menu-preview-item"}
+              className="flex justify-between items-center gap-2"
+            >
               {item.image_url ? (
                 <img
                   src={item.image_url}
@@ -983,13 +1014,23 @@ export function RadarVendorCard({
                   className="h-9 w-9 rounded-md object-cover shrink-0 border border-surface-border"
                 />
               ) : null}
-              <span className="text-foreground text-sm flex-1 truncate">{item.name}</span>
+              <span
+                className={cn(
+                  "text-sm flex-1 truncate",
+                  isMatch
+                    ? "text-brand font-semibold"
+                    : "text-foreground",
+                )}
+              >
+                {item.name}
+              </span>
               <span className="text-sm shrink-0 text-muted-foreground">
                 ₹{item.price}
                 {item.unit ? `/${item.unit}` : ""}
               </span>
             </div>
-          ))}
+            );
+          })}
           {(serviceMode === "appointment" || serviceMode === "delivery") && menuItems.length > 3 && (
             <button
               type="button"

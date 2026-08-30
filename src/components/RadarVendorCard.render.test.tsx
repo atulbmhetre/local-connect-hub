@@ -184,6 +184,39 @@ describe("RadarVendorCard accent + i18n render", () => {
   });
 });
 
+describe("RadarVendorCard menu search highlight", () => {
+  it("marks the matching preview line", () => {
+    langMock.current = "en";
+    localStorage.clear();
+    render(
+      <RadarVendorCard
+        {...({
+          vendor: { ...vendorComplete, service_mode: "help" },
+          isSaved: false,
+          hasOrdered: false,
+          hasFulfilledOrder: false,
+          menuItems: [
+            { name: "Fan repair", price: 200, unit: null, is_available: true },
+            { name: "CCTV installation", price: 1500, unit: "job", is_available: true },
+          ],
+          matchedMenuName: "CCTV installation",
+          categories: [
+            { category_id: "cat-1", label: "Electrician", emoji: "💡" },
+          ],
+          trustLevel: "Unverified",
+          dist: 1,
+          index: 0,
+          userNeed: "CCTV installation",
+          radarServiceMode: "help",
+        } as unknown as Parameters<typeof RadarVendorCard>[0])}
+      />,
+    );
+    const hit = screen.getByTestId("radar-menu-match");
+    expect(hit).toHaveTextContent("CCTV installation");
+    expect(hit.querySelector("span")?.className).toContain("font-semibold");
+  });
+});
+
 describe("RadarVendorCard Help CTA semantics", () => {
   it("shows Call on connect and Send Order on help order button", () => {
     langMock.current = "en";
