@@ -340,25 +340,27 @@ serve(async (req) => {
       if (alias.term === categoryLabelNorm) continue;
       if (existingAliases.includes(alias.term)) continue;
 
-      const { error: insertErr } = await supabase.from("category_search_terms").insert({
-        category_id: categoryId,
-        term: alias.term,
-        language: "en",
-        source: "proactive_ai",
-        status: "pending_review",
-        confidence: alias.confidence,
-        ai_reasoning: alias.reasoning.slice(0, 500),
-        suggested_by_vendor_id: vendorId,
-      });
+      const { data: outcome, error: evidenceErr } = await supabase.rpc(
+        "record_search_alias_evidence",
+        {
+          p_category_id: categoryId,
+          p_term: alias.term,
+          p_source: "proactive_ai",
+          p_actor_key: vendorId,
+          p_confidence: alias.confidence,
+          p_ai_reasoning: alias.reasoning.slice(0, 500),
+          p_suggested_by_vendor_id: vendorId,
+        },
+      );
 
-      if (insertErr) {
-        if (insertErr.code !== "23505") {
-          console.error("suggest-category-aliases insert failed", insertErr);
-        }
+      if (evidenceErr) {
+        console.error("suggest-category-aliases evidence failed", evidenceErr);
         continue;
       }
-      inserted += 1;
-      existingAliases.push(alias.term);
+      if (outcome === "queued" || outcome === "recorded") {
+        inserted += 1;
+        existingAliases.push(alias.term);
+      }
     }
 
     return jsonResponse({

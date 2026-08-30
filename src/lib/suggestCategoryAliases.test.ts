@@ -15,9 +15,10 @@ describe("suggest-category-aliases Phase 4 prompt", () => {
     expect(src).toContain('"kirana" fits Grocery Store');
   });
 
-  it("inserts proactive_ai rows as pending_review only", () => {
-    expect(src).toContain('source: "proactive_ai"');
-    expect(src).toContain('status: "pending_review"');
+  it("records proactive_ai evidence instead of inserting pending_review directly", () => {
+    expect(src).toContain('p_source: "proactive_ai"');
+    expect(src).toContain("record_search_alias_evidence");
+    expect(src).not.toContain('status: "pending_review"');
   });
 
   it("stores confidence and ai_reasoning per alias", () => {

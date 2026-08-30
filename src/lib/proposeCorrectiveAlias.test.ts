@@ -8,9 +8,10 @@ describe("propose-corrective-alias Phase 5", () => {
     "utf8",
   );
 
-  it("inserts corrective_ai pending_review only", () => {
-    expect(src).toContain('source: "corrective_ai"');
-    expect(src).toContain('status: "pending_review"');
+  it("records corrective_ai evidence instead of inserting pending_review directly", () => {
+    expect(src).toContain('p_source: "corrective_ai"');
+    expect(src).toContain("record_search_alias_evidence");
+    expect(src).not.toMatch(/status:\s*"pending_review"/);
   });
 
   it("requires a best-guess category (gateway strips low-confidence candidates)", () => {

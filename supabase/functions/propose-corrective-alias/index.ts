@@ -164,28 +164,35 @@ serve(async (req) => {
       ? `Customer searched “${original}”, rephrased to “${term}”, exhausted suggestions; AI best-guess was ${categoryLabel}.`
       : `Customer searched “${term}”, exhausted suggestions; AI best-guess was ${categoryLabel}.`;
 
-    const { data: inserted, error: insertErr } = await supabase
-      .from("category_search_terms")
-      .insert({
-        category_id: categoryId,
-        term,
-        language: "en",
-        source: "corrective_ai",
-        status: "pending_review",
-        confidence,
-        ai_reasoning: reasoning.slice(0, 500),
-        suggested_by_vendor_id: null,
-      })
-      .select("id")
-      .maybeSingle();
+    const actorKey = deviceId || `ip:${ipAddress}`;
+    const { data: outcome, error: evidenceErr } = await supabase.rpc(
+      "record_search_alias_evidence",
+      {
+        p_category_id: categoryId,
+        p_term: term,
+        p_source: "corrective_ai",
+        p_actor_key: actorKey,
+        p_confidence: confidence,
+        p_ai_reasoning: reasoning.slice(0, 500),
+        p_suggested_by_vendor_id: null,
+      },
+    );
 
-    if (insertErr) {
-      if (insertErr.code === "23505") {
-        // Term already exists for this category — still mark unresolved resolved.
-      } else {
-        console.error("propose-corrective-alias insert failed", insertErr);
-        return jsonResponse({ success: false, error: "insert_failed" }, 500);
-      }
+    if (evidenceErr) {
+      console.error("propose-corrective-alias evidence failed", evidenceErr);
+      return jsonResponse({ success: false, error: "insert_failed" }, 500);
+    }
+
+    let queuedTermId: string | null = null;
+    if (outcome === "queued") {
+      const { data: pendingRow } = await supabase
+        .from("category_search_terms")
+        .select("id")
+        .eq("category_id", categoryId)
+        .eq("term", term)
+        .eq("status", "pending_review")
+        .maybeSingle();
+      queuedTermId = pendingRow?.id ?? null;
     }
 
     const unresolvedId = body.unresolved_id?.trim() || null;
@@ -214,8 +221,8 @@ serve(async (req) => {
 
     return jsonResponse({
       success: true,
-      outcome: inserted?.id ? "inserted" : "already_exists",
-      term_id: inserted?.id ?? null,
+      outcome: typeof outcome === "string" ? outcome : "recorded",
+      term_id: queuedTermId,
       category_id: categoryId,
       category_label: categoryLabel,
       term,

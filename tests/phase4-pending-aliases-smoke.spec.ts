@@ -101,6 +101,32 @@ async function invokeSuggestAliases(vendorId: string, categoryId: string) {
   return { status: resp.status, body };
 }
 
+async function promoteEvidenceToPending(
+  categoryId: string,
+  vendorId: string,
+  extraActors: [string, string],
+) {
+  const { data: rows } = await admin
+    .from("category_search_term_evidence")
+    .select("term, confidence, ai_reasoning")
+    .eq("category_id", categoryId)
+    .eq("source", "proactive_ai")
+    .eq("suggested_by_vendor_id", vendorId);
+  for (const row of rows ?? []) {
+    for (const actor of extraActors) {
+      await admin.rpc("record_search_alias_evidence", {
+        p_category_id: categoryId,
+        p_term: row.term,
+        p_source: "proactive_ai",
+        p_actor_key: actor,
+        p_confidence: row.confidence,
+        p_ai_reasoning: row.ai_reasoning,
+        p_suggested_by_vendor_id: vendorId,
+      });
+    }
+  }
+}
+
 async function waitForPendingAliases(
   vendorId: string,
   categoryId: string,
@@ -156,6 +182,14 @@ test.afterAll(async () => {
     .from("category_search_terms")
     .delete()
     .ilike("term", `%p4smoke%`);
+  await admin
+    .from("category_search_term_evidence")
+    .delete()
+    .ilike("term", `%p4smoke%`);
+  await admin
+    .from("category_search_term_evidence")
+    .delete()
+    .ilike("ai_reasoning", `%${SESSION}%`);
 
   for (const vid of createdVendorIds) {
     await admin.from("vendor_menu_items").delete().eq("vendor_id", vid);
@@ -225,6 +259,21 @@ test("Phase 4 live: dairy aliases UI approve/reject/search + milk-tea negative +
   );
   expect(dairyInvoke.status).toBe(200);
   expect(dairyInvoke.body?.success).toBe(true);
+
+  const { data: dairyEvidence } = await admin
+    .from("category_search_term_evidence")
+    .select("term")
+    .eq("category_id", dairy.id)
+    .eq("source", "proactive_ai")
+    .eq("suggested_by_vendor_id", dairyVendor.id);
+  expect(
+    (dairyEvidence ?? []).length,
+    "proactive evidence after first vendor",
+  ).toBeGreaterThanOrEqual(1);
+  await promoteEvidenceToPending(dairy.id, dairyVendor.id, [
+    `p4-a-${SESSION}`,
+    `p4-b-${SESSION}`,
+  ]);
 
   let dairyPending = await waitForPendingAliases(dairyVendor.id, dairy.id, 1);
   for (const row of dairyPending) createdTermIds.push(row.id);
@@ -481,6 +530,10 @@ test("Phase 4 live: dairy aliases UI approve/reject/search + milk-tea negative +
   );
   expect(menuInvoke.status).toBe(200);
   expect(menuInvoke.body?.success).toBe(true);
+  await promoteEvidenceToPending(dairy.id, dairyVendor.id, [
+    `p4-m-a-${SESSION}`,
+    `p4-m-b-${SESSION}`,
+  ]);
 
   // Poll for at least one NEW pending term (or confirm inserted>0)
   let foundNew = false;

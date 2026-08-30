@@ -37,6 +37,10 @@ test.afterAll(async () => {
     .from("unresolved_search_terms")
     .delete()
     .ilike("term", `%${SESSION}%`);
+  await admin
+    .from("category_search_term_evidence")
+    .delete()
+    .ilike("term", `%${SESSION}%`);
   console.log("P5_SMOKE_OBSERVATIONS\n" + observations.join("\n"));
 });
 
@@ -110,6 +114,43 @@ test("Phase 5: exhausted search lands corrective_ai in Pending Aliases", async (
   }
   expect(unresolved, "unresolved_search_terms row").toBeTruthy();
   observations.push(`unresolved row: ${JSON.stringify(unresolved)}`);
+
+  let evidence: { category_id: string; term: string; actor_key: string } | null = null;
+  for (let i = 0; i < 30; i++) {
+    const { data } = await admin
+      .from("category_search_term_evidence")
+      .select("category_id, term, actor_key")
+      .eq("source", "corrective_ai")
+      .eq("term", REPHRASE.toLowerCase())
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      evidence = data;
+      break;
+    }
+    await page.waitForTimeout(1000);
+  }
+  expect(evidence, "corrective evidence after one customer").toBeTruthy();
+
+  const { data: tooSoon } = await admin
+    .from("category_search_terms")
+    .select("id")
+    .eq("term", REPHRASE.toLowerCase())
+    .eq("status", "pending_review")
+    .maybeSingle();
+  expect(tooSoon, "single customer must not reach pending_review").toBeNull();
+
+  for (const actor of [`p5-a-${SESSION}`, `p5-b-${SESSION}`]) {
+    await admin.rpc("record_search_alias_evidence", {
+      p_category_id: evidence!.category_id,
+      p_term: evidence!.term,
+      p_source: "corrective_ai",
+      p_actor_key: actor,
+      p_confidence: 0.7,
+      p_ai_reasoning: "synthetic second/third customer for threshold",
+      p_suggested_by_vendor_id: null,
+    });
+  }
 
   let corrective: {
     id: string;
