@@ -69,7 +69,11 @@ import {
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
 import { captureError } from "@/lib/sentry";
-import { isMyOrdersOverlayBlockingAutoRating } from "@/lib/myOrdersAutoRating";
+import {
+  isMyOrdersOverlayBlockingAutoRating,
+  resolveAutoRatingAction,
+  shouldDeferAutoRatingForUnpaidPayNow,
+} from "@/lib/myOrdersAutoRating";
 import {
   canCustomerSelfDeclarePayment,
   isCustomerSelfDeclarePaymentEligible,
@@ -340,6 +344,7 @@ const MyOrders = () => {
   const [recurringActionId, setRecurringActionId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [billsByRequestId, setBillsByRequestId] = useState<Record<string, OrderBill>>({});
+  const [billsLoaded, setBillsLoaded] = useState(false);
   const [editedBillIds, setEditedBillIds] = useState<Set<string>>(() => new Set());
   const [historyBillId, setHistoryBillId] = useState<string | null>(null);
   const [myReviews, setMyReviews] = useState<
@@ -446,6 +451,15 @@ const MyOrders = () => {
   const mounted = useRef(true);
   const vendorLocationHistoryRef = useRef<Map<string, VendorLocationPoint[]>>(new Map());
   const pendingAutoRatingRef = useRef<RowWithShop | null>(null);
+  const openedPaymentOrderIdsRef = useRef<Set<string>>(new Set());
+  const autoShownReviewsRef = useRef(autoShownReviews);
+  autoShownReviewsRef.current = autoShownReviews;
+  const myReviewsRef = useRef(myReviews);
+  myReviewsRef.current = myReviews;
+  const billsByRequestIdRef = useRef(billsByRequestId);
+  billsByRequestIdRef.current = billsByRequestId;
+  const ratingOpenForIdRef = useRef<string | null>(null);
+  ratingOpenForIdRef.current = ratingSheetOpen ? ratingRequestId : null;
 
   const consumeAutoRatingForOrder = useCallback((orderId: string) => {
     if (!orderId) return;
@@ -506,6 +520,7 @@ const MyOrders = () => {
     if (!requestIds.length) {
       setBillsByRequestId({});
       setEditedBillIds(new Set());
+      setBillsLoaded(true);
       return;
     }
     // OTP-off: order_bills / order_items / bill_edit_audit direct reads are
@@ -522,6 +537,7 @@ const MyOrders = () => {
       captureError(error, { scope: "myOrders.loadBills" });
       // Deduped by id so a failing 30s poll doesn't stack toasts.
       toast.error(s.myOrders_billsLoadError, { id: "myorders-bills-load-error" });
+      setBillsLoaded(true);
       return;
     }
 
@@ -556,6 +572,7 @@ const MyOrders = () => {
     }
     setBillsByRequestId(billMap);
     setEditedBillIds(edited);
+    setBillsLoaded(true);
   };
 
   const loadMyReviews = async () => {
@@ -728,6 +745,7 @@ const MyOrders = () => {
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
       setLoading(true);
+      setBillsLoaded(false);
       setNetworkLoadStatus(null);
     }
     const device_id = getDeviceId();
@@ -837,6 +855,8 @@ const MyOrders = () => {
     };
   }, [load]);
 
+  const overlayBlocksRef = useRef(false);
+
   const overlayBlocksAutoRating = useCallback((): boolean => {
     return isMyOrdersOverlayBlockingAutoRating({
       ratingSheetOpen,
@@ -860,18 +880,29 @@ const MyOrders = () => {
     helpCallVendor,
     historyBillId,
   ]);
+  overlayBlocksRef.current = overlayBlocksAutoRating();
 
   const tryAutoTriggerRatingSheet = useCallback(
     (r: RowWithShop) => {
-      if (autoShownReviews.has(r.id) || myReviews[r.id]) {
+      const bill = billsByRequestIdRef.current[r.id];
+      const action = resolveAutoRatingAction({
+        alreadyShown: autoShownReviewsRef.current.has(r.id),
+        alreadyReviewed: Boolean(myReviewsRef.current[r.id]),
+        ratingSheetAlreadyOpenForOrder: ratingOpenForIdRef.current === r.id,
+        overlayBlocking: overlayBlocksRef.current || !khataAllowAutoRatingRef.current,
+        deferForUnpaidPayNow: shouldDeferAutoRatingForUnpaidPayNow({
+          unpaidCashOrUpiBill: billBlocksDismiss(bill),
+          customerOpenedPayment: openedPaymentOrderIdsRef.current.has(r.id),
+        }),
+      });
+      if (action === "skip") {
         pendingAutoRatingRef.current = null;
+        if (ratingOpenForIdRef.current === r.id) {
+          consumeAutoRatingForOrder(r.id);
+        }
         return;
       }
-      if (overlayBlocksAutoRating()) {
-        pendingAutoRatingRef.current = r;
-        return;
-      }
-      if (!khataAllowAutoRatingRef.current) {
+      if (action === "defer") {
         pendingAutoRatingRef.current = r;
         return;
       }
@@ -887,15 +918,16 @@ const MyOrders = () => {
       });
       setRatingSheetOpen(true);
     },
-    [autoShownReviews, myReviews, overlayBlocksAutoRating, s.myOrders_shopFallback],
+    [consumeAutoRatingForOrder, s.myOrders_shopFallback],
   );
 
   const tryAutoTriggerRatingSheetRef = useRef(tryAutoTriggerRatingSheet);
   tryAutoTriggerRatingSheetRef.current = tryAutoTriggerRatingSheet;
 
-  // Check for fulfilled orders that need auto-rating on mount/data refresh
+  // Check for fulfilled orders that need auto-rating on mount/data refresh.
+  // Wait for bills so unpaid Pay Now is visible before we decide to defer.
   useEffect(() => {
-    if (loading || rows.length === 0) return;
+    if (loading || !billsLoaded || rows.length === 0) return;
 
     const eligibleOrders = rows.filter(
       (r) =>
@@ -918,12 +950,21 @@ const MyOrders = () => {
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [loading, rows, myReviews, autoShownReviews, myKhata.length]);
+  }, [loading, billsLoaded, billsByRequestId, rows, myReviews, autoShownReviews, myKhata.length]);
 
-  // Retry deferred auto-rating once blocking overlays close.
+  // Retry deferred auto-rating once overlays close, payment is opened, or the bill is paid.
   useEffect(() => {
     const pending = pendingAutoRatingRef.current;
     if (!pending || overlayBlocksAutoRating() || !khataAllowAutoRatingRef.current) return;
+    const bill = billsByRequestId[pending.id];
+    if (
+      shouldDeferAutoRatingForUnpaidPayNow({
+        unpaidCashOrUpiBill: billBlocksDismiss(bill),
+        customerOpenedPayment: openedPaymentOrderIdsRef.current.has(pending.id),
+      })
+    ) {
+      return;
+    }
 
     const timer = window.setTimeout(() => {
       if (!mounted.current) return;
@@ -943,6 +984,8 @@ const MyOrders = () => {
     helpCallVendor,
     historyBillId,
     myKhata.length,
+    billsByRequestId,
+    billsLoaded,
   ]);
 
   useEffect(() => {
@@ -1690,6 +1733,7 @@ const MyOrders = () => {
       toast.error(s.payment_confirm_error);
       return;
     }
+    openedPaymentOrderIdsRef.current.add(r.id);
     setPaymentSheetOrder({
       id: r.id,
       status: r.status,

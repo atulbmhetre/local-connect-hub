@@ -82,8 +82,8 @@ describe('MyOrders Auto-Rating Comprehensive Flow', () => {
       // Prevents duplicate prompts
       duplicatePrevention: true,
       
-      // Works regardless of payment method (cash/UPI)
-      paymentAgnostic: true,
+      // Auto-rating waits until paid or until the customer opens payment (Pay Now).
+      unpaidDefersUntilPaidOrPaymentOpened: true,
       
       // Preserves existing skip behavior
       skipPreserved: true
