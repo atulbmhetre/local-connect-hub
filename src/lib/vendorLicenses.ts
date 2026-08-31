@@ -164,7 +164,7 @@ export function approvedSpecificLicenseType(row: {
   return type;
 }
 
-/** Wizard fields: approved sector-specific license (if any) plus hardcoded Shop & Establishment. */
+/** Wizard / Add Business fields: only approved, non-generic category licenses. */
 export function wizardLicenseFields(
   categories: CategoryLicenseRow[],
 ): ApplicableLicenseField[] {
@@ -172,32 +172,19 @@ export function wizardLicenseFields(
   const seen = new Set<string>();
   for (const cat of categories) {
     const specific = approvedSpecificLicenseType(cat);
-    if (specific) {
-      const slug = licenseTypeToSlug(specific);
-      if (slug !== SHOP_ESTABLISHMENT_LICENSE_TYPE && slug !== GENERIC_LICENSE_TYPE) {
-        const fieldKey = `${cat.id}:${slug}`;
-        if (!seen.has(fieldKey)) {
-          seen.add(fieldKey);
-          fields.push({
-            categoryId: cat.id,
-            categoryLabel: cat.label,
-            licenseType: slug,
-            displayName: specific,
-            fieldKey,
-          });
-        }
-      }
-    }
-    const seKey = `${cat.id}:${SHOP_ESTABLISHMENT_LICENSE_TYPE}`;
-    if (!seen.has(seKey)) {
-      seen.add(seKey);
-      fields.push({
-        categoryId: cat.id,
-        categoryLabel: cat.label,
-        licenseType: SHOP_ESTABLISHMENT_LICENSE_TYPE,
-        fieldKey: seKey,
-      });
-    }
+    if (!specific) continue;
+    const slug = licenseTypeToSlug(specific);
+    if (slug === GENERIC_LICENSE_TYPE) continue;
+    const fieldKey = `${cat.id}:${slug}`;
+    if (seen.has(fieldKey)) continue;
+    seen.add(fieldKey);
+    fields.push({
+      categoryId: cat.id,
+      categoryLabel: cat.label,
+      licenseType: slug,
+      displayName: specific,
+      fieldKey,
+    });
   }
   return fields;
 }

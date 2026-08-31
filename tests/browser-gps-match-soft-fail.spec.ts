@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { APP_URL, prepareAndCompleteOtp } from "./helpers/browser-setup";
 import { ensureRegAvailabilityReady } from "./helpers/regAvailability";
+import { submitWizardAfterBusinessStep } from "./helpers/wizardSubmit";
 import {
   supabaseAdmin,
   deleteVendorRegistrationArtifacts,
@@ -133,7 +134,7 @@ test.describe("GPS match soft-fail + failure logging", () => {
       { timeout: 10000 },
     );
 
-    await page.getByRole("button", { name: /Register me|मुझे रजिस्टर|नोंदणी करा/i }).click();
+    await submitWizardAfterBusinessStep(page);
     await expect(page.getByText("Welcome aboard!")).toBeVisible({ timeout: 60000 });
 
     const { data: vendor } = await supabaseAdmin

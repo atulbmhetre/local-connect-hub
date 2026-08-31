@@ -14,6 +14,13 @@ describe("vendor license capture wiring", () => {
     expect(wiz).not.toContain("LICENSE_FIELD_CATEGORIES_KEY");
   });
 
+  it("Add Business uses the same approved non-generic license gate", () => {
+    const sheet = readFileSync(resolve("src/components/vendor/BusinessSetupSheet.tsx"), "utf8");
+    expect(sheet).toContain("wizardLicenseFields");
+    expect(sheet).toContain("vendor_upsert_licenses");
+    expect(sheet).toContain("add-business-license-skip");
+  });
+
   it("migration creates vendor_licenses with menu-style owner RLS and license-docs storage", () => {
     const mig = readFileSync(
       resolve("supabase/migrations/20260830180001_add_vendor_licenses.sql"),

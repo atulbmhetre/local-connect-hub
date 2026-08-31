@@ -38,7 +38,7 @@ describe("vendor license field mapping", () => {
     expect(applyLicenseConfidenceGate("Drug License", 0.84, 0.85)).toBe("generic");
   });
 
-  it("wizard always includes Shop & Establishment and only approved specific licenses", () => {
+  it("wizard fields only for approved non-generic licenses — never Shop & Establishment", () => {
     const fields = wizardLicenseFields([
       {
         id: "p",
@@ -58,12 +58,13 @@ describe("vendor license field mapping", () => {
         license_type: "generic",
         license_review_status: "approved",
       },
+      {
+        id: "s",
+        label: "Salon",
+        license_type: "Shop & Establishment",
+        license_review_status: "approved",
+      },
     ]);
-    expect(fields.map((f) => f.fieldKey)).toEqual([
-      "p:shop_establishment",
-      "g:fssai",
-      "g:shop_establishment",
-      "e:shop_establishment",
-    ]);
+    expect(fields.map((f) => f.fieldKey)).toEqual(["g:fssai"]);
   });
 });

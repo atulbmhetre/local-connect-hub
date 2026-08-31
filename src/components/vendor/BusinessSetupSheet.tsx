@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Camera, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
@@ -45,6 +45,11 @@ import {
   initialModesForCatalog,
   resolveCatalogServiceMode,
 } from "@/lib/categoryAvailabilityModes";
+import {
+  licenseFieldHasValue,
+  wizardLicenseFields,
+  type LicenseType,
+} from "@/lib/vendorLicenses";
 
 export type BusinessSetupExistingSettings = {
   reachChoice: ReachChoiceValue;
@@ -54,7 +59,37 @@ export type BusinessSetupExistingSettings = {
 
 type RegCategoryRow = Pick<Category, "id" | "label" | "emoji"> & {
   service_mode: string;
+  license_type?: string | null;
+  license_review_status?: string | null;
 };
+
+function licenseTypeLabel(
+  type: string,
+  s: {
+    reg_license_type_fssai: string;
+    reg_license_type_drug_license: string;
+    reg_license_type_medical_registration: string;
+    reg_license_type_shop_establishment: string;
+    reg_license_type_trade_license: string;
+  },
+  displayName?: string,
+): string {
+  if (displayName?.trim()) return displayName.trim();
+  switch (type as LicenseType) {
+    case "fssai":
+      return s.reg_license_type_fssai;
+    case "drug_license":
+      return s.reg_license_type_drug_license;
+    case "medical_registration":
+      return s.reg_license_type_medical_registration;
+    case "shop_establishment":
+      return s.reg_license_type_shop_establishment;
+    case "trade_license":
+      return s.reg_license_type_trade_license;
+    default:
+      return type;
+  }
+}
 
 type Props = {
   open: boolean;
@@ -149,6 +184,12 @@ export function BusinessSetupSheet({
   const [categories, setCategories] = useState<RegCategoryRow[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [setupPage, setSetupPage] = useState<1 | 2>(1);
+  const [licenseDrafts, setLicenseDrafts] = useState<
+    Record<string, { number: string; file: File | null; preview: string | null }>
+  >({});
+  const licensePhotoInputRef = useRef<HTMLInputElement>(null);
+  const licensePhotoTargetRef = useRef<string | null>(null);
   const [baseType, setBaseType] = useState<BaseTypeValue>("");
   const [upi, setUpi] = useState("");
   const [upiBlurred, setUpiBlurred] = useState(false);
@@ -182,6 +223,8 @@ export function BusinessSetupSheet({
   useEffect(() => {
     if (!open) return;
     setSelectedCategoryId(null);
+    setSetupPage(1);
+    setLicenseDrafts({});
     setBaseType("");
     setUpi("");
     setUpiBlurred(false);
@@ -209,7 +252,7 @@ export function BusinessSetupSheet({
     setCategoriesLoading(true);
     void supabase
       .from("categories")
-      .select("id, label, emoji, service_mode")
+      .select("id, label, emoji, service_mode, license_type, license_review_status")
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
       .then(({ data, error }) => {
@@ -224,6 +267,12 @@ export function BusinessSetupSheet({
   }, [open]);
 
   const available = categories.filter((c) => !existingCategoryIds.includes(c.id));
+  const selectedCategory = categories.find((c) => c.id === selectedCategoryId) ?? null;
+  const licenseFields = useMemo(
+    () => (selectedCategory ? wizardLicenseFields([selectedCategory]) : []),
+    [selectedCategory],
+  );
+  const needsLicenseStep = licenseFields.length > 0;
   const liveCount = approvedCount ?? existingCategoryIds.length;
   const needsAdminReview = liveCount >= VENDOR_BUSINESS_SOFT_CAP;
   const reachFlags = reachChoice ? reachFlagsFromChoice(reachChoice) : null;
@@ -242,6 +291,32 @@ export function BusinessSetupSheet({
     available.length > 0;
   const upiFormatError =
     upiBlurred && upi.trim().length > 0 && !upiFmtOk ? s.vendor_upi_id_format_invalid : undefined;
+
+  useEffect(() => {
+    if (!needsLicenseStep && setupPage === 2) setSetupPage(1);
+  }, [needsLicenseStep, setupPage]);
+
+  const updateLicenseDraft = (
+    fieldKey: string,
+    patch: Partial<{ number: string; file: File | null; preview: string | null }>,
+  ) => {
+    setLicenseDrafts((prev) => ({
+      ...prev,
+      [fieldKey]: {
+        number: prev[fieldKey]?.number ?? "",
+        file: prev[fieldKey]?.file ?? null,
+        preview: prev[fieldKey]?.preview ?? null,
+        ...patch,
+      },
+    }));
+  };
+
+  const handleLicensePhotoPicked = (file: File | undefined | null) => {
+    const key = licensePhotoTargetRef.current;
+    licensePhotoTargetRef.current = null;
+    if (!key || !file) return;
+    updateLicenseDraft(key, { file, preview: URL.createObjectURL(file) });
+  };
 
   const acceptShopPhoto = (
     shot: CapturedShot,
@@ -447,6 +522,46 @@ export function BusinessSetupSheet({
     if (!ready || !selectedCategoryId || !reachFlags) return;
     if (!shopPhotoBlob && !inheritFromCategoryId) return;
 
+    const persistLicenses = async () => {
+      if (licenseFields.length === 0) return;
+      const filledLicenses: Array<{
+        category_id: string;
+        license_type: string;
+        license_number: string | null;
+        photo_url: string | null;
+      }> = [];
+      for (const field of licenseFields) {
+        const draft = licenseDrafts[field.fieldKey];
+        const number = String(draft?.number ?? "").trim();
+        let photoUrl: string | null = null;
+        if (draft?.file) {
+          const path = `license-docs/${vendor.id}/${selectedCategoryId}/${field.licenseType}_${Date.now()}.jpg`;
+          const { error: upErr } = await supabase.storage.from("vendor-docs").upload(
+            path,
+            draft.file,
+            { contentType: draft.file.type || "image/jpeg", upsert: true },
+          );
+          if (!upErr) {
+            photoUrl = supabase.storage.from("vendor-docs").getPublicUrl(path).data.publicUrl;
+          }
+        }
+        if (licenseFieldHasValue({ license_number: number, photo_url: photoUrl })) {
+          filledLicenses.push({
+            category_id: selectedCategoryId,
+            license_type: field.licenseType,
+            license_number: number || null,
+            photo_url: photoUrl,
+          });
+        }
+      }
+      if (filledLicenses.length === 0) return;
+      await supabase.rpc("vendor_upsert_licenses", {
+        p_vendor_id: vendor.id,
+        p_vendor_phone: vendorPhone,
+        p_licenses: filledLicenses,
+      });
+    };
+
     const modesById: Record<string, AvailabilityMode[]> = {};
     for (const id of existingCategoryIds) {
       const modes = normalizeAvailabilityModes(existingSettings[id]?.availability_modes);
@@ -550,6 +665,7 @@ export function BusinessSetupSheet({
         vendorId: vendor.id,
         categoryId: selectedCategoryId,
       });
+      await persistLicenses();
       setSubmitting(false);
       toast.success(needsAdminReview ? s.my_business_pending_review_toast : s.my_business_saved);
       onOpenChange(false);
@@ -601,6 +717,8 @@ export function BusinessSetupSheet({
       return;
     }
 
+    await persistLicenses();
+
     void checkAndNotifyAdminCategoryGreenReady(vendor.id, selectedCategoryId, {
       shopName: vendor.shop_name,
       vendorPhone,
@@ -637,6 +755,8 @@ export function BusinessSetupSheet({
               </p>
             ) : (
               <>
+                {setupPage === 1 && (
+              <>
                 <div>
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     {s.vendor_categories_label} *
@@ -666,6 +786,7 @@ export function BusinessSetupSheet({
                                 } else {
                                   setAvailabilityModes([]);
                                 }
+                                setSetupPage(1);
                                 return next;
                               });
                             }}
@@ -957,16 +1078,136 @@ export function BusinessSetupSheet({
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  data-testid="add-business-submit"
-                  disabled={!ready || submitting}
-                  onClick={() => void submit()}
-                  className="w-full rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                >
-                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {s.my_business_add_business}
-                </button>
+                {needsLicenseStep ? (
+                  <button
+                    type="button"
+                    data-testid="add-business-next"
+                    disabled={!ready || submitting}
+                    onClick={() => setSetupPage(2)}
+                    className="w-full rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50"
+                  >
+                    {s.reg_wizard_next}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="add-business-submit"
+                    disabled={!ready || submitting}
+                    onClick={() => void submit()}
+                    className="w-full rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                  >
+                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {s.my_business_add_business}
+                  </button>
+                )}
+              </>
+                )}
+                {setupPage === 2 && (
+                  <div className="space-y-3" data-testid="add-business-license-step">
+                    <p className="text-sm font-semibold text-foreground text-center">
+                      {s.reg_step_licenses}
+                    </p>
+                    <p
+                      className="text-xs text-muted-foreground leading-relaxed text-center"
+                      data-testid="add-business-license-disclaimer"
+                    >
+                      {s.reg_license_disclaimer}
+                    </p>
+                    {licenseFields.map((field) => {
+                      const draft = licenseDrafts[field.fieldKey];
+                      return (
+                        <div
+                          key={field.fieldKey}
+                          data-testid={`add-business-license-field-${field.licenseType}`}
+                          className="rounded-2xl border border-border p-3 space-y-2"
+                        >
+                          <p className="text-sm font-semibold text-foreground">
+                            {getLabel(field.categoryLabel)} ·{" "}
+                            {licenseTypeLabel(field.licenseType, s, field.displayName)}
+                          </p>
+                          <div>
+                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                              {s.reg_license_number}
+                            </label>
+                            <input
+                              type="text"
+                              value={draft?.number ?? ""}
+                              onChange={(e) =>
+                                updateLicenseDraft(field.fieldKey, { number: e.target.value })
+                              }
+                              placeholder={s.reg_license_number}
+                              className="mt-1 w-full bg-card border border-border rounded-xl px-4 py-2.5 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                              {s.reg_license_photo}
+                            </label>
+                            <button
+                              type="button"
+                              data-testid={`add-business-license-photo-${field.licenseType}`}
+                              onClick={() => {
+                                licensePhotoTargetRef.current = field.fieldKey;
+                                licensePhotoInputRef.current?.click();
+                              }}
+                              className="mt-2 w-full rounded-xl border border-border py-3 text-sm font-semibold"
+                            >
+                              {draft?.preview
+                                ? s.reg_license_photo_replace
+                                : s.reg_license_photo_upload}
+                            </button>
+                            {draft?.preview && (
+                              <img
+                                src={draft.preview}
+                                alt=""
+                                className="mt-2 w-full max-h-40 object-contain rounded-xl border border-border"
+                              />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <input
+                      ref={licensePhotoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        handleLicensePhotoPicked(file);
+                      }}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSetupPage(1)}
+                        className="flex-1 rounded-2xl border border-border py-3.5 text-sm font-semibold"
+                      >
+                        {s.reg_wizard_back}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="add-business-license-skip"
+                        disabled={submitting}
+                        onClick={() => void submit()}
+                        className="flex-1 rounded-2xl border border-border py-3.5 text-sm font-semibold disabled:opacity-50"
+                      >
+                        {s.reg_license_skip}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="add-business-submit"
+                        disabled={submitting}
+                        onClick={() => void submit()}
+                        className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                      >
+                        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        {s.my_business_add_business}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>

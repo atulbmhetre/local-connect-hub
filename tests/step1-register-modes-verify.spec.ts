@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
 import { setRegAvailabilityModes } from './helpers/regAvailability';
+import { submitWizardAfterBusinessStep } from './helpers/wizardSubmit';
 import { supabaseAdmin, getActiveCategoryByLabel } from './helpers/setup';
 
 const LAT = 18.5204;
@@ -74,7 +75,7 @@ test('STEP1: UI register writes vendor_category_modes + radar match', async ({ p
   await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
     timeout: 15000,
   });
-  await page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी करा/i }).click();
+  await submitWizardAfterBusinessStep(page);
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 30000 });
 
   const { data: vendor, error: vErr } = await supabaseAdmin

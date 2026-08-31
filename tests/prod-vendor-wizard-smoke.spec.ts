@@ -7,6 +7,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { supabaseAdmin } from './helpers/setup';
 import { setRegAvailabilityModes } from './helpers/regAvailability';
+import { submitWizardAfterBusinessStep } from './helpers/wizardSubmit';
 
 const APP = 'http://127.0.0.1:4173';
 const PROD_CATEGORY = 'Cook';
@@ -114,10 +115,7 @@ async function completeWizardStepB(
   await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
   });
-  await expect(page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी/i })).toBeEnabled({
-    timeout: 10000,
-  });
-  await page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी/i }).click();
+  await submitWizardAfterBusinessStep(page);
   await expect(page.getByText('Welcome aboard!')).toBeVisible({ timeout: 25000 });
 }
 

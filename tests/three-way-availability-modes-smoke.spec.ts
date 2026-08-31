@@ -12,6 +12,7 @@ import {
   supabaseAdmin,
 } from "./helpers/setup";
 import { setRegAvailabilityModes } from "./helpers/regAvailability";
+import { submitWizardAfterBusinessStep } from "./helpers/wizardSubmit";
 import { loadTestEnv } from "./helpers/testEnv";
 
 loadTestEnv();
@@ -98,7 +99,7 @@ async function registerMechanicWithModes(
   await expect(page.getByTestId("reg-shop-photo-capture")).toContainText(/Re-shoot/i, {
     timeout: 15_000,
   });
-  await page.getByRole("button", { name: /Register me/i }).click();
+  await submitWizardAfterBusinessStep(page);
   await expect(page.getByText("Welcome aboard!")).toBeVisible({ timeout: 25_000 });
 
   const { data: vendor } = await supabaseAdmin

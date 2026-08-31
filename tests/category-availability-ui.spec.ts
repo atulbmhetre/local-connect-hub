@@ -6,6 +6,7 @@ import {
   getActiveCategoryByLabel,
 } from "./helpers/setup";
 import { setRegAvailabilityModes } from "./helpers/regAvailability";
+import { submitWizardAfterBusinessStep } from "./helpers/wizardSubmit";
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -56,7 +57,7 @@ async function completeWizardStepB(
   await expect(page.getByTestId("reg-shop-photo-capture")).toContainText(/Re-shoot|फिर|पुन्हा/i, {
     timeout: 15000,
   });
-  await page.getByRole("button", { name: /Register me|मुझे रजिस्टर|नोंदणी/i }).click();
+  await submitWizardAfterBusinessStep(page);
 }
 
 test.describe("Category availability plain-language UI", () => {
@@ -102,7 +103,7 @@ test.describe("Category availability plain-language UI", () => {
     await expect(page.getByTestId("reg-shop-photo-capture")).toContainText(/Re-shoot|फिर/i, {
       timeout: 15000,
     });
-    await page.getByRole("button", { name: /Register me|मुझे रजिस्टर|नोंदणी/i }).click();
+    await submitWizardAfterBusinessStep(page);
     await expect(page.getByText("Welcome aboard!")).toBeVisible({ timeout: 20000 });
 
     const { data: vendor } = await supabaseAdmin
@@ -154,7 +155,7 @@ test.describe("Category availability plain-language UI", () => {
     await page.getByTestId("reg-avail-deliver-yes").click();
 
     await page.getByTestId("reg-shop-photo-capture").click();
-    await page.getByRole("button", { name: /Register me|मुझे रजिस्टर|नोंदणी/i }).click();
+    await submitWizardAfterBusinessStep(page);
     await expect(page.getByText("Welcome aboard!")).toBeVisible({ timeout: 20000 });
 
     const { data: vendor } = await supabaseAdmin
@@ -198,7 +199,7 @@ test.describe("Category availability plain-language UI", () => {
     await page.getByTestId("reg-avail-choice-scheduled").click();
 
     await page.getByTestId("reg-shop-photo-capture").click();
-    await page.getByRole("button", { name: /Register me|मुझे रजिस्टर|नोंदणी/i }).click();
+    await submitWizardAfterBusinessStep(page);
     await expect(page.getByText("Welcome aboard!")).toBeVisible({ timeout: 20000 });
 
     const { data: vendor } = await supabaseAdmin

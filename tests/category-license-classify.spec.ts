@@ -50,7 +50,7 @@ test("LIC-01 — pending license is listed, unused until approve, category stays
       license_review_status: "pending_review",
     },
   ]);
-  expect(unused.map((f) => f.licenseType)).toEqual(["shop_establishment"]);
+  expect(unused.map((f) => f.licenseType)).toEqual([]);
 
   await loginAsAdminViaSession(page, `lic_admin_${T}`);
   await expect(page.getByTestId("admin-panel")).toBeVisible({ timeout: 15000 });
@@ -84,5 +84,5 @@ test("LIC-01 — pending license is listed, unused until approve, category stays
       license_review_status: after!.license_review_status,
     },
   ]);
-  expect(used.map((f) => f.licenseType)).toEqual(["drug_license", "shop_establishment"]);
+  expect(used.map((f) => f.licenseType)).toEqual(["drug_license"]);
 });

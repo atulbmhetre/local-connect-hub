@@ -384,6 +384,10 @@ export function VendorRegistrationWizard({
   const needsLicenseStep = licenseFields.length > 0;
   const wizardTotalSteps = needsLicenseStep ? 3 : 2;
 
+  useEffect(() => {
+    if (!needsLicenseStep && regPage === 3) setRegPage(2);
+  }, [needsLicenseStep, regPage]);
+
   const nameOk = name.trim().length > 1 && !looksLikeGibberish(name);
   const shopOk = shopName.trim().length > 1 && !looksLikeGibberish(shopName);
   const homeShopInvalid =

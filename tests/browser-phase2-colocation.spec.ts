@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { APP_URL, prepareAndCompleteOtp } from './helpers/browser-setup';
 import { ensureRegAvailabilityReady, setRegAvailabilityModes } from './helpers/regAvailability';
+import { submitAddBusinessAfterForm, submitWizardAfterBusinessStep } from './helpers/wizardSubmit';
 import {
   supabaseAdmin,
   deleteVendorRegistrationArtifacts,
@@ -62,7 +63,7 @@ async function completeWizardStepB(
   await expect(page.getByTestId('reg-shop-photo-capture')).toContainText(/Re-shoot|Reshoot|फिर|पुन्हा/i, {
     timeout: 15000,
   });
-  await page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी करा/i }).click();
+  await submitWizardAfterBusinessStep(page);
 }
 
 test.describe.configure({ timeout: 180_000 });
@@ -127,7 +128,7 @@ test.describe('Phase 2 colocation write path', () => {
     await page.getByTestId('add-business-shop-photo').click();
     await expect(page.getByTestId('add-business-same-shop')).toBeVisible({ timeout: 15000 });
     await page.getByTestId('add-business-reuse-photo').click();
-    await page.getByTestId('add-business-submit').click();
+    await submitAddBusinessAfterForm(page);
 
     await expect(page.getByText('Business details saved.')).toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId('my-business-add-business')).toBeVisible({ timeout: 20000 });
@@ -235,7 +236,7 @@ test.describe('Phase 2 colocation write path', () => {
       /Re-shoot|Reshoot|Retake|फिर|पुन्हा/i,
       { timeout: 15000 },
     );
-    await page.getByTestId('add-business-submit').click();
+    await submitAddBusinessAfterForm(page);
     await expect(page.getByTestId('my-business-add-business')).toBeVisible({ timeout: 20000 });
 
     await expect

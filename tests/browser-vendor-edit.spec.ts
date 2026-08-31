@@ -12,6 +12,7 @@ import {
   TEST_SESSION,
 } from './helpers/setup';
 import { setRegAvailabilityModes } from './helpers/regAvailability';
+import { submitAddBusinessAfterForm } from './helpers/wizardSubmit';
 
 const TEST_DEVICE_ID = `device_edit_${TEST_SESSION}`;
 const RADAR_CUSTOMER_DEVICE = `device_mcv_remove_${TEST_SESSION}`;
@@ -232,8 +233,7 @@ test('VE-02: vendor can add a second category via Add Business sheet', async ({ 
   await page.getByRole('button', { name: /At my place|मेरे पास/ }).click();
   await setRegAvailabilityModes(page, ['help'], 'add-business-avail');
   await completeAddBusinessShopPhoto(page);
-  await expect(page.getByTestId('add-business-submit')).toBeEnabled({ timeout: 15000 });
-  await page.getByTestId('add-business-submit').click();
+  await submitAddBusinessAfterForm(page);
   await expect(page.getByText(/Business details saved|saved/i)).toBeVisible({ timeout: 30000 });
 
   const { data: vcRows } = await supabaseAdmin

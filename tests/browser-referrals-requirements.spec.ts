@@ -9,6 +9,7 @@ import {
 } from './helpers/setup';
 import { uniqueBrowserPhone } from './helpers/session38';
 import { setRegAvailabilityModes } from './helpers/regAvailability';
+import { submitWizardAfterBusinessStep } from './helpers/wizardSubmit';
 /** Stable vendor referral code: AASP + last 4 phone digits (matches src/lib/referral.ts). */
 function referralCodeFromPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
@@ -529,7 +530,7 @@ test('RF-REQ-10 — Duplicate vendor referral blocked gracefully', async ({ page
     (r) => r.url().includes('/rpc/register_vendor') && r.request().method() === 'POST',
     { timeout: 30000 },
   );
-  await page.getByRole('button', { name: /Register me|मुझे रजिस्टर|नोंदणी करा/i }).click();
+  await submitWizardAfterBusinessStep(page);
   const registerResp = await registerPromise;
   const newVendorId = (await registerResp.json()) as string;
   createdVendorIds.push(newVendorId);
