@@ -273,18 +273,63 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
     );
     await waitFor(() => {
       expect(screen.getByTestId("test-panel-payment-details-updated")).toHaveTextContent(
-        strings.en.payment_details_updated,
+        strings.en.payment_details_updated_qr,
       );
     });
     expect(screen.getByTestId("test-panel-upi-id")).toHaveTextContent("new@upi");
     fireEvent.click(screen.getByText(strings.en.payment_tab_mobile));
     expect(screen.getByTestId("test-panel-mobile")).toHaveTextContent("9000000002");
     fireEvent.click(screen.getByText(strings.en.payment_tab_qr));
+    expect(screen.queryByTestId("test-panel-qr-image")).not.toBeInTheDocument();
+    expect(screen.getByText(strings.en.payment_pay_now)).toBeInTheDocument();
+    expect(screen.getAllByTestId("test-panel-payment-details-updated")).toHaveLength(1);
+  });
+
+  it("hides the raw QR image when a payee ID exists even if a URL is set", async () => {
+    render(
+      <UpiPaymentPanel
+        idPrefix="test-panel"
+        orderId="req-1"
+        paymentStatus="unpaid"
+        amountRupees={250}
+        vendorId="vendor-1"
+        shopName="Test Shop"
+        upiId="shop@upi"
+        vendorPhone="9000000000"
+        qrUrl="https://example.com/decoy-qr.png"
+        qrPayeeId="fixture-vendor@okhdfcbank"
+      />,
+    );
+    await waitFor(() => expect(mockFrom).toHaveBeenCalled());
+    fireEvent.click(screen.getByText(strings.en.payment_tab_qr));
+    expect(screen.queryByTestId("test-panel-qr-image")).not.toBeInTheDocument();
+    expect(screen.getByText(strings.en.payment_pay_now)).toBeInTheDocument();
+    expect(screen.queryByText(strings.en.payment_scan_instruction)).not.toBeInTheDocument();
+  });
+
+  it("still shows the static QR image when there is a URL but no payee ID", async () => {
+    render(
+      <UpiPaymentPanel
+        idPrefix="test-panel"
+        orderId="req-1"
+        paymentStatus="unpaid"
+        amountRupees={250}
+        vendorId="vendor-1"
+        shopName="Test Shop"
+        upiId="shop@upi"
+        vendorPhone="9000000000"
+        qrUrl="https://cdn.example/static-qr.png"
+        qrPayeeId={null}
+      />,
+    );
+    await waitFor(() => expect(mockFrom).toHaveBeenCalled());
+    fireEvent.click(screen.getByText(strings.en.payment_tab_qr));
     expect(screen.getByTestId("test-panel-qr-image")).toHaveAttribute(
       "src",
-      "https://cdn.example/new.png",
+      "https://cdn.example/static-qr.png",
     );
-    expect(screen.getAllByTestId("test-panel-payment-details-updated")).toHaveLength(1);
+    expect(screen.getByText(strings.en.payment_scan_instruction)).toBeInTheDocument();
+    expect(screen.queryByText(strings.en.payment_pay_now)).not.toBeInTheDocument();
   });
 
   it("does not show the notice when live destinations match the bill freeze", async () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   foldPaymentPhone,
   paymentDestinationsChanged,
+  paymentQrUrlChanged,
   type BilledPaymentDestination,
 } from "@/lib/paymentDestinationChanged";
 
@@ -61,5 +62,16 @@ describe("paymentDestinationsChanged", () => {
   it("folds Indian phones to last 10 digits", () => {
     expect(foldPaymentPhone("+91 99000 11111")).toBe("9900011111");
     expect(foldPaymentPhone("09900011111")).toBe("9900011111");
+  });
+
+  it("detects QR image URL change separately from other destination fields", () => {
+    expect(paymentQrUrlChanged(billed, liveMatch)).toBe(false);
+    expect(
+      paymentQrUrlChanged(billed, { ...liveMatch, qrUrl: "https://cdn.example/qr-new.png" }),
+    ).toBe(true);
+    expect(paymentQrUrlChanged(billed, { ...liveMatch, upiId: "new@upi" })).toBe(false);
+    expect(
+      paymentQrUrlChanged({ ...billed, billed_payment_snapshot_at: null }, liveMatch),
+    ).toBe(false);
   });
 });

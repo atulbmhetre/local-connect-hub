@@ -169,7 +169,7 @@ test("PAY-DEST-01 — change UPI, QR, and mobile after bill; Pay shows update + 
 
   await expect(sheet.getByTestId("payment-sheet-payment-details-updated")).toBeVisible();
   await expect(sheet.getByTestId("payment-sheet-payment-details-updated")).toHaveText(
-    "Payment details were updated by the vendor",
+    "Payment details were updated by the vendor. The QR code has also changed.",
   );
   await expect(sheet.getByTestId("payment-sheet-upi-id")).toHaveText(NEW_UPI);
 
@@ -177,7 +177,8 @@ test("PAY-DEST-01 — change UPI, QR, and mobile after bill; Pay shows update + 
   await expect(sheet.getByTestId("payment-sheet-mobile")).toHaveText(NEW_PHONE);
 
   await sheet.getByRole("button", { name: "QR Code" }).click();
-  await expect(sheet.getByTestId("payment-sheet-qr-image")).toHaveAttribute("src", NEW_QR);
+  await expect(sheet.getByTestId("payment-sheet-qr-image")).toHaveCount(0);
+  await expect(sheet.getByRole("button", { name: "Pay Now" })).toBeVisible();
 
   await expect(sheet.getByTestId("payment-sheet-payment-details-updated")).toHaveCount(1);
 });

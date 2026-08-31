@@ -15,6 +15,7 @@ import { MIN_PAYMENT_AWAY_MS } from "@/lib/paymentResume";
 import { uploadPaymentProof } from "@/lib/paymentProofUpload";
 import {
   paymentDestinationsChanged,
+  paymentQrUrlChanged,
   type BilledPaymentDestination,
 } from "@/lib/paymentDestinationChanged";
 
@@ -313,12 +314,15 @@ export function UpiPaymentPanel({
     shopName,
   ]);
 
-  const showUpdatedNotice = paymentDestinationsChanged(billedDestination, {
+  const liveDestination = {
     upiId,
     qrUrl: vendorQrUrl || null,
     qrPayeeId: vendorQrPayeeId || null,
     paymentPhone: vendorPhone,
-  });
+  };
+  const showUpdatedNotice = paymentDestinationsChanged(billedDestination, liveDestination);
+  const qrUrlChanged = paymentQrUrlChanged(billedDestination, liveDestination);
+  const showStaticQrImage = !!vendorQrUrl && !vendorQrPayeeId;
 
   const tabs: { id: PaymentTab; label: string }[] = [
     { id: "upi", label: s.payment_tab_upi },
@@ -459,7 +463,7 @@ export function UpiPaymentPanel({
           data-testid={`${idPrefix}-payment-details-updated`}
           className="text-xs text-muted-foreground leading-snug rounded-xl border border-surface-border bg-muted/40 px-3 py-2"
         >
-          {s.payment_details_updated}
+          {qrUrlChanged ? s.payment_details_updated_qr : s.payment_details_updated}
         </p>
       ) : null}
       <div className="flex border-b border-surface-border">
@@ -532,7 +536,7 @@ export function UpiPaymentPanel({
             <p className="text-xs text-muted-foreground">{s.payment_qr_missing}</p>
           ) : (
             <div className="space-y-3">
-              {vendorQrUrl ? (
+              {showStaticQrImage ? (
                 <img
                   data-testid={`${idPrefix}-qr-image`}
                   src={vendorQrUrl}

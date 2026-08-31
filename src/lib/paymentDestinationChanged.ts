@@ -44,3 +44,12 @@ export function paymentDestinationsChanged(
   }
   return false;
 }
+
+/** True when the billed QR image URL differs from the live Pay-screen URL. */
+export function paymentQrUrlChanged(
+  billed: BilledPaymentDestination | null | undefined,
+  live: LivePaymentDestination,
+): boolean {
+  if (!billed?.billed_payment_snapshot_at) return false;
+  return foldPaymentText(billed.billed_upi_qr_url) !== foldPaymentText(live.qrUrl);
+}
