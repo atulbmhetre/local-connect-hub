@@ -69,6 +69,7 @@ import {
 import { BusinessSetupSheet } from "@/components/vendor/BusinessSetupSheet";
 import { triggerCategoryModeConfidenceCheck } from "@/lib/categoryModeConfidence";
 import { parseInspectionFeeInput } from "@/lib/visitFee";
+import { parseMinDeliveryOrderInput } from "@/lib/deliveryMinOrder";
 import { getUserPhone } from "@/lib/userIdentity";
 import { DeliveryFulfillmentSettings } from "@/components/vendor/DeliveryFulfillmentSettings";
 import { VendorMyBusinessOperations } from "@/components/settings/VendorMyBusinessOperations";
@@ -98,6 +99,7 @@ type CategoryEditSettings = {
   vendor_note: string;
   is_paused: boolean;
   inspection_fee: string;
+  min_delivery_order_amount: string;
   shop_photo_url: string | null;
   gps_match_distance: number | null;
   verification_status: string | null;
@@ -146,6 +148,7 @@ function settingsFromAccount(account: {
     vendor_note: "",
     is_paused: false,
     inspection_fee: "",
+    min_delivery_order_amount: "",
     shop_photo_url: null,
     gps_match_distance: null,
     verification_status: null,
@@ -173,6 +176,7 @@ function settingsFromCategoryRow(
     vendor_note?: string | null;
     is_paused?: boolean | null;
     inspection_fee?: number | string | null;
+    min_delivery_order_amount?: number | string | null;
     shop_photo_url?: string | null;
     gps_match_distance?: number | null;
     verification_status?: string | null;
@@ -205,6 +209,10 @@ function settingsFromCategoryRow(
     inspection_fee:
       row.inspection_fee != null && Number(row.inspection_fee) > 0
         ? String(Math.round(Number(row.inspection_fee)))
+        : "",
+    min_delivery_order_amount:
+      row.min_delivery_order_amount != null && Number(row.min_delivery_order_amount) > 0
+        ? String(Math.round(Number(row.min_delivery_order_amount)))
         : "",
     shop_photo_url: row.shop_photo_url ?? null,
     gps_match_distance:
@@ -347,6 +355,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const [categorySettingsById, setCategorySettingsById] = useState<
     Record<string, CategoryEditSettings>
   >({});
+  const [pricedMenuCategoryIds, setPricedMenuCategoryIds] = useState<Set<string>>(new Set());
   const [shopPhotoCategoryId, setShopPhotoCategoryId] = useState<string | null>(null);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
   const [identityExpanded, setIdentityExpanded] = useState(false);
@@ -387,7 +396,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     const loadSeq = ++loadSeqRef.current;
     setCategoriesLoading(true);
     void (async () => {
-      const [availResult, vcResult] = await Promise.all([
+      const [availResult, vcResult, menuResult] = await Promise.all([
         supabase
           .from("categories")
           .select("id, label, emoji, service_mode")
@@ -396,11 +405,15 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         supabase
           .from("vendor_categories")
           .select(
-            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, is_paused, inspection_fee, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, delivery_fulfillment_method, delivery_payment_timing, upi_id, upi_qr_url, upi_qr_payee_id, base_type, status, review_reason, categories(id, label, emoji, service_mode)",
+            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, is_paused, inspection_fee, min_delivery_order_amount, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, delivery_fulfillment_method, delivery_payment_timing, upi_id, upi_qr_url, upi_qr_payee_id, base_type, status, review_reason, categories(id, label, emoji, service_mode)",
           )
           .eq("vendor_id", vendor.id)
           .in("status", ["approved", "pending_review", "rejected"])
           .order("is_primary", { ascending: false }),
+        supabase
+          .from("vendor_menu_items")
+          .select("category_id, price")
+          .eq("vendor_id", vendor.id),
       ]);
 
       if (loadSeq !== loadSeqRef.current) return;
@@ -417,6 +430,19 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           vendorId: vendor.id,
         });
       }
+      if (menuResult.error) {
+        captureError(menuResult.error, {
+          scope: "vendorMyBusiness.loadMenuItems",
+          vendorId: vendor.id,
+        });
+      }
+      const priced = new Set<string>();
+      for (const row of menuResult.data ?? []) {
+        const catId = (row as { category_id?: string | null }).category_id;
+        const price = Number((row as { price?: number | null }).price);
+        if (catId && Number.isFinite(price) && price > 0) priced.add(catId);
+      }
+      setPricedMenuCategoryIds(priced);
 
       const available = (availResult.data ?? []) as RegCategoryRow[];
       setAvailableCategories(available);
@@ -657,6 +683,27 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         return;
       }
       toast.error(s.vendor_inspection_fee_save_failed);
+    }
+  };
+
+  const saveMinDeliveryOrder = async (categoryId: string) => {
+    const raw = categorySettingsById[categoryId]?.min_delivery_order_amount ?? "";
+    const parsed = parseMinDeliveryOrderInput(raw);
+    try {
+      await patchCategoryProfile(categoryId, { min_delivery_order_amount: parsed });
+      updateCategorySettings(categoryId, {
+        min_delivery_order_amount: parsed != null ? String(parsed) : "",
+      });
+      toast.success(s.vendor_min_delivery_saved);
+    } catch (err) {
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void saveMinDeliveryOrder(categoryId), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+        return;
+      }
+      toast.error(s.vendor_min_delivery_save_failed);
     }
   };
 
@@ -1571,6 +1618,49 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                         </button>
                       </div>
                     </div>
+
+                    {categoryHasDeliveryMode(cfg.availability_modes) && (
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {s.vendor_min_delivery_label}
+                      </label>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 mb-1.5">
+                        {s.vendor_min_delivery_hint}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          data-testid={`my-business-min-delivery-${cat.id}`}
+                          value={cfg.min_delivery_order_amount ?? ""}
+                          onChange={(e) =>
+                            updateCategorySettings(cat.id, {
+                              min_delivery_order_amount: e.target.value.replace(/[^\d]/g, "").slice(0, 5),
+                            })
+                          }
+                          placeholder={s.vendor_min_delivery_placeholder}
+                          className="flex-1 bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <button
+                          type="button"
+                          data-testid={`my-business-min-delivery-save-${cat.id}`}
+                          onClick={() => void saveMinDeliveryOrder(cat.id)}
+                          className="text-xs font-semibold text-brand hover:underline shrink-0"
+                        >
+                          {s.vendor_save_note}
+                        </button>
+                      </div>
+                      {parseMinDeliveryOrderInput(cfg.min_delivery_order_amount) != null &&
+                        !pricedMenuCategoryIds.has(cat.id) && (
+                          <p
+                            data-testid={`my-business-min-delivery-no-menu-warning-${cat.id}`}
+                            className="mt-1.5 text-[11px] text-amber-600 leading-snug"
+                          >
+                            {s.vendor_min_delivery_no_menu_warning}
+                          </p>
+                        )}
+                    </div>
+                    )}
 
                     <div>
                       <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

@@ -43,6 +43,8 @@ export default defineConfig({
     '**/prod-vendor-wizard-smoke.spec.ts',
     '**/prod-full-connect.spec.ts',
     '**/prod-payment-hygiene-spotcheck.spec.ts',
+    '**/prod-device-ux-fixes.spec.ts',
+    '**/prod-settings-feed-phone.spec.ts',
   ],
   use: {
     baseURL: process.env.PW_APP_URL || defaultBaseURL,

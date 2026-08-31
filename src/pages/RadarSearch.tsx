@@ -119,7 +119,7 @@ export type RadarMenuItem = {
 };
 
 const RADAR_VC_SELECT =
-  "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, inspection_fee, is_manual_verified, shop_photo_url, verification_status, gps_match_distance, location_accuracy, photo_accuracy, latitude, longitude, upi_id, upi_qr_url, upi_qr_payee_id, service_mode, categories(label, emoji)";
+  "vendor_id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, inspection_fee, min_delivery_order_amount, is_manual_verified, shop_photo_url, verification_status, gps_match_distance, location_accuracy, photo_accuracy, latitude, longitude, upi_id, upi_qr_url, upi_qr_payee_id, service_mode, categories(label, emoji)";
 
 export type RadarVendorCategory = {
   label: string;
@@ -131,6 +131,7 @@ export type RadarVendorCategory = {
   service_radius_km?: number | null;
   vendor_note?: string | null;
   inspection_fee?: number | null;
+  min_delivery_order_amount?: number | null;
   is_manual_verified?: boolean | null;
   shop_photo_url?: string | null;
   verification_status?: string | null;
@@ -319,6 +320,7 @@ function buildVendorCategoriesMap(
     service_radius_km?: number | null;
     vendor_note?: string | null;
     inspection_fee?: number | null;
+    min_delivery_order_amount?: number | null;
     is_manual_verified?: boolean | null;
     shop_photo_url?: string | null;
     verification_status?: string | null;
@@ -356,6 +358,10 @@ function buildVendorCategoriesMap(
       inspection_fee:
         row.inspection_fee != null && Number(row.inspection_fee) > 0
           ? Number(row.inspection_fee)
+          : null,
+      min_delivery_order_amount:
+        row.min_delivery_order_amount != null && Number(row.min_delivery_order_amount) > 0
+          ? Number(row.min_delivery_order_amount)
           : null,
       is_manual_verified: row.is_manual_verified,
       shop_photo_url: row.shop_photo_url,
@@ -1103,6 +1109,7 @@ const RadarSearch = () => {
               ...(stamped as unknown as Vendor),
               vendor_note: displayVendorNote,
               inspection_fee: matchedCat.inspection_fee ?? null,
+              min_delivery_order_amount: matchedCat.min_delivery_order_amount ?? null,
               categories: [matchedCat],
               trustLevel,
               menuPreview: promoteMatchedMenuPreview(allMenu, matchedMenu?.name ?? null, 5),

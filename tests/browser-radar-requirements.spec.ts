@@ -386,13 +386,13 @@ test('RAD-06a — Search "ambulance" shows 108 gov panel and matching vendor car
   page,
 }) => {
   const ambulanceVendor = await createNearbyVendor('help', 'Ambulance', 'ambulance-match');
-  await createNearbyVendor('help', 'Mechanic', 'ambulance-noise');
+  const noiseVendor = await createNearbyVendor('help', 'Mechanic', 'ambulance-noise');
   await gotoRadar(page, { q: 'ambulance' });
   await waitForVendorCard(page, ambulanceVendor.shop_name);
   await expect(page.getByText(/Tap to open.*108/i)).toBeVisible({ timeout: 15000 });
   await page.getByText(/Tap to open/i).click();
   await expect(page.getByText(L.govAmbulance)).toBeVisible();
-  await expect(page.getByTestId('radar-vendor-card').filter({ hasText: 'Mechanic' })).not.toBeVisible();
+  await expect(vendorCard(page, noiseVendor.shop_name)).not.toBeVisible();
   await expect(page.getByRole('button', { name: /Within 15 km/i })).toBeVisible();
   await page.getByRole('button', { name: /Within 50 km/i }).click();
   await waitForScanComplete(page);
@@ -439,9 +439,14 @@ test('RAD-RADIUS-02 — Vendor with wide radius (50km) visible to customer 8km a
   await loginAsCustomer(page, TEST_CUSTOMER_PHONE, TEST_DEVICE_ID);
   await page.context().grantPermissions(['geolocation']);
   await page.context().setGeolocation({ latitude: 18.585, longitude: 73.8567 });
-  await gotoRadarDelivery(page);
+  // Category q + data-vendor-id: empty Delivery browse is Track-A capped and crowded on TEST.
+  // Do not switch to Pan-India — that track is 9999-only and would hide a 50km vendor.
+  await gotoRadar(page, { q: vendor.category, mode: 'delivery' });
   await waitForScanComplete(page);
-  await waitForVendorCard(page, vendor.shop_name);
+  const card = page.locator(
+    `[data-testid="radar-vendor-card"][data-vendor-id="${vendor.id}"]`,
+  );
+  await expect(card).toBeVisible({ timeout: 25000 });
 });
 
 test('RAD-RADIUS-03 — AI search respects vendor service radius', async ({ page }) => {

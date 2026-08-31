@@ -41,6 +41,11 @@ import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone, isPhoneKnown, migrateUserPhone } from "@/lib/userIdentity";
 import { filterMenuItemsByCategoryContext, resolveCategoryVendorNote } from "@/lib/categoryScopedVendor";
 import { formatVisitFeeAmount } from "@/lib/visitFee";
+import {
+  deliveryCartSubtotal,
+  formatMinDeliveryOrderAmount,
+  meetsMinDeliveryOrder,
+} from "@/lib/deliveryMinOrder";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
@@ -84,6 +89,27 @@ type VendorWithQr = Vendor & {
 
 const menuItemLabel = (item: VendorMenuItem) =>
   item.name?.trim() || item.description?.trim() || "Item";
+
+function buildStructuredItemsFrom(
+  selected: Record<string, number>,
+  catalog: VendorMenuItem[],
+) {
+  const items = Object.entries(selected)
+    .filter(([, qty]) => qty > 0)
+    .map(([id, qty]) => {
+      const item = catalog.find((m) => m.id === id);
+      if (!item) return null;
+      return {
+        item_id: item.id,
+        name: menuItemLabel(item),
+        quantity: qty,
+        unit_price: item.price,
+        unit: item.unit || null,
+      };
+    })
+    .filter(Boolean);
+  return items.length > 0 ? items : null;
+}
 
 type Props = {
   vendor: Vendor | null;
@@ -196,10 +222,15 @@ export function ParchiSheet({
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
   const [menuItems, setMenuItems] = useState<VendorMenuItem[]>([]);
   const [selectedMenuItems, setSelectedMenuItems] = useState<Record<string, number>>({});
+  const selectedMenuItemsRef = useRef(selectedMenuItems);
+  const menuItemsRef = useRef<VendorMenuItem[]>([]);
+  selectedMenuItemsRef.current = selectedMenuItems;
+  menuItemsRef.current = menuItems;
   const [menuExpanded, setMenuExpanded] = useState(true);
   const [businessGpsVerified, setBusinessGpsVerified] = useState<boolean | null>(null);
   const [categoryVendorNote, setCategoryVendorNote] = useState<string | null>(null);
   const [inspectionFee, setInspectionFee] = useState<number | null>(null);
+  const [minDeliveryOrderAmount, setMinDeliveryOrderAmount] = useState<number | null>(null);
   const [businessUpi, setBusinessUpi] = useState<{
     upi_id: string;
     upi_qr_url: string | null;
@@ -259,6 +290,7 @@ export function ParchiSheet({
       setBusinessGpsVerified(null);
       setCategoryVendorNote(null);
       setInspectionFee(null);
+      setMinDeliveryOrderAmount(null);
       setBusinessUpi(null);
       return;
     }
@@ -267,7 +299,7 @@ export function ParchiSheet({
       try {
         const { data, error } = await supabase
           .from("vendor_categories")
-          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status, vendor_note, inspection_fee, upi_id, upi_qr_url, upi_qr_payee_id")
+          .select("gps_match_distance, location_accuracy, photo_accuracy, verification_status, vendor_note, inspection_fee, min_delivery_order_amount, upi_id, upi_qr_url, upi_qr_payee_id")
           .eq("vendor_id", resolvedVendorId)
           .eq("category_id", orderCategoryId)
           .single();
@@ -276,6 +308,7 @@ export function ParchiSheet({
           setBusinessGpsVerified(null);
           setCategoryVendorNote(null);
           setInspectionFee(null);
+          setMinDeliveryOrderAmount(null);
           setBusinessUpi(null);
           return;
         }
@@ -283,6 +316,7 @@ export function ParchiSheet({
         const note = String(data.vendor_note ?? "").trim();
         setCategoryVendorNote(note || null);
         setInspectionFee(formatVisitFeeAmount(data.inspection_fee));
+        setMinDeliveryOrderAmount(formatMinDeliveryOrderAmount(data.min_delivery_order_amount));
         setBusinessUpi({
           upi_id: String(data.upi_id ?? "").trim(),
           upi_qr_url: data.upi_qr_url ?? null,
@@ -492,38 +526,14 @@ export function ParchiSheet({
       .join("\n");
   };
 
-  const buildStructuredItems = () => {
-    const items = Object.entries(selectedMenuItems)
-      .filter(([, qty]) => qty > 0)
-      .map(([id, qty]) => {
-        const item = menuItems.find((m) => m.id === id);
-        if (!item) return null;
-        return {
-          item_id: item.id,
-          name: menuItemLabel(item),
-          quantity: qty,
-          unit_price: item.price,
-          unit: item.unit || null,
-        };
-      })
-      .filter(Boolean);
-    
-    return items.length > 0 ? items : null;
-  };
-
   const addMenuToOrder = () => {
     const result = buildMenuMessage();
     if (!result) return;
     setMessage((prev) => (prev.trim() ? `${prev.trim()}\n${result}` : result));
     setMenuExpanded(false);
-    setSelectedMenuItems({});
   };
 
   const selectedMenuCount = Object.values(selectedMenuItems).filter((q) => q > 0).length;
-
-  useEffect(() => {
-    console.log("selectedMenuCount", selectedMenuCount);
-  }, [selectedMenuCount]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -772,8 +782,27 @@ export function ParchiSheet({
           : null;
 
       const device_id = getDeviceId();
-      // Capture structured items before submission (for auto-bill generation)
-      const structuredItems = buildStructuredItems();
+      const structuredItems = buildStructuredItemsFrom(
+        selectedMenuItemsRef.current,
+        menuItemsRef.current,
+      );
+      if (isDeliveryMode) {
+        const min = formatMinDeliveryOrderAmount(
+          minDeliveryOrderAmount ?? v.min_delivery_order_amount,
+        );
+        const subtotal = deliveryCartSubtotal(
+          selectedMenuItemsRef.current,
+          menuItemsRef.current,
+        );
+        if (!meetsMinDeliveryOrder(subtotal, min)) {
+          toast.error(
+            s.parchi_min_delivery_need
+              .replace("{min}", String(min ?? 0))
+              .replace("{short}", String(Math.max(0, Math.ceil((min ?? 0) - subtotal)))),
+          );
+          return;
+        }
+      }
       const wantsRecurring = showRecurrence && recurrenceKind !== "one_time";
       const customDays = Number.parseInt(recurrenceCustomDays, 10);
       if (wantsRecurring && recurrenceKind === "custom") {
@@ -834,6 +863,8 @@ export function ParchiSheet({
           const msg = error.message ?? "";
           if (msg.includes("vendor_not_live_for_asap") || msg.includes("vendor_not_live_for_instant")) {
             toast.error(s.parchi_errVendorNotLiveAsap);
+          } else if (msg.includes("below_min_delivery_order")) {
+            toast.error(s.parchi_errBelowMinDelivery);
           } else if (msg.includes("customer_banned")) {
             setTrustBlock("banned");
           } else if (msg.includes("customer_payment_block")) {
@@ -870,6 +901,7 @@ export function ParchiSheet({
           /* ignore */
         }
         setMessage("");
+        setSelectedMenuItems({});
         setPendingPhone(null);
         onOrderSent?.();
         onClose();
@@ -913,6 +945,10 @@ export function ParchiSheet({
       showRecurrence,
       recurrenceKind,
       recurrenceCustomDays,
+      selectedMenuItems,
+      menuItems,
+      minDeliveryOrderAmount,
+      orderCategoryId,
       config.maxOrderMessageChars,
       s,
       fetchPaymentBlockStatus,
@@ -927,6 +963,20 @@ export function ParchiSheet({
       if (!text) {
         toast.error(s.parchi_errNoOrder);
         return;
+      }
+      if (isDeliveryMode) {
+        const min = formatMinDeliveryOrderAmount(
+          minDeliveryOrderAmount ?? effectiveVendor.min_delivery_order_amount,
+        );
+        const subtotal = deliveryCartSubtotal(selectedMenuItems, menuItems);
+        if (!meetsMinDeliveryOrder(subtotal, min)) {
+          toast.error(
+            s.parchi_min_delivery_need
+              .replace("{min}", String(min ?? 0))
+              .replace("{short}", String(Math.max(0, Math.ceil((min ?? 0) - subtotal)))),
+          );
+          return;
+        }
       }
       const needsAddress =
         resolvedServiceMode === "delivery" ||
@@ -1046,6 +1096,10 @@ export function ParchiSheet({
       appointmentTiming,
       isAppointmentMode,
       resolvedServiceMode,
+      isDeliveryMode,
+      selectedMenuItems,
+      menuItems,
+      minDeliveryOrderAmount,
       s,
       fetchPaymentBlockStatus,
     ],
@@ -1077,6 +1131,14 @@ export function ParchiSheet({
   );
   const displayInspectionFee =
     inspectionFee ?? formatVisitFeeAmount(effectiveVendor.inspection_fee);
+  const displayMinDelivery =
+    isDeliveryMode
+      ? formatMinDeliveryOrderAmount(
+          minDeliveryOrderAmount ?? effectiveVendor.min_delivery_order_amount,
+        )
+      : null;
+  const cartSubtotal = deliveryCartSubtotal(selectedMenuItems, menuItems);
+  const deliveryBelowMin = !meetsMinDeliveryOrder(cartSubtotal, displayMinDelivery);
 
   const getAvailableSlots = () => {
     const now = new Date();
@@ -1761,6 +1823,29 @@ export function ParchiSheet({
                   {s.parchi_inspection_fee.replace("{amount}", String(displayInspectionFee))}
                 </p>
               )}
+              {displayMinDelivery != null && (
+                <>
+                  <p
+                    data-testid="parchi-min-delivery-subtotal"
+                    className="text-sm font-semibold text-center text-foreground"
+                  >
+                    {s.parchi_min_delivery_subtotal.replace("{amount}", String(Math.round(cartSubtotal)))}
+                  </p>
+                  {deliveryBelowMin && (
+                    <p
+                      data-testid="parchi-min-delivery-need"
+                      className="text-xs text-center text-amber-400"
+                    >
+                      {s.parchi_min_delivery_need
+                        .replace("{min}", String(displayMinDelivery))
+                        .replace(
+                          "{short}",
+                          String(Math.max(0, Math.ceil(displayMinDelivery - cartSubtotal))),
+                        )}
+                    </p>
+                  )}
+                </>
+              )}
               {resolvedServiceMode === "appointment" ? (
                 <p className="text-[11px] text-muted-foreground text-center">
                   {s.parchi_cancellationAppt}
@@ -1773,7 +1858,7 @@ export function ParchiSheet({
               <button
                 type="button"
                 data-testid="parchi-submit-btn"
-                disabled={sending}
+                disabled={sending || deliveryBelowMin}
                 onClick={() => void send()}
                 className="w-full min-h-11 bg-brand text-white font-bold py-4 rounded-2xl text-base active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
               >

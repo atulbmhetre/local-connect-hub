@@ -497,6 +497,8 @@ export type Vendor = {
   vendor_note?: string | null;
   /** Optional per-business visit/inspection fee in rupees. */
   inspection_fee?: number | null;
+  /** Optional per-business minimum delivery order amount in rupees. */
+  min_delivery_order_amount?: number | null;
   cancel_reason_1: string | null;
   cancel_reason_2: string | null;
   cancel_reason_3: string | null;
