@@ -25,6 +25,8 @@ export interface AppConfig extends VendorSubscriptionAppConfig {
   aiCategoryConfidenceThreshold: number;
   /** When true (after Exotel KYC), masked Secure Call is offered to clients. */
   exotelSecureCallingEnabled: boolean;
+  /** When true (after DigiLocker go-live), vendor can start the consent URL. */
+  aadhaarVerificationEnabled: boolean;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -53,6 +55,7 @@ const DEFAULT_CONFIG: AppConfig = {
   helpAcceptTimeoutHours: 2,
   aiCategoryConfidenceThreshold: 0.85,
   exotelSecureCallingEnabled: false,
+  aadhaarVerificationEnabled: false,
 };
 
 const BOOLEAN_KEYS = new Set<keyof AppConfig>([
@@ -61,6 +64,7 @@ const BOOLEAN_KEYS = new Set<keyof AppConfig>([
   "langHindiEnabled",
   "langMarathiEnabled",
   "exotelSecureCallingEnabled",
+  "aadhaarVerificationEnabled",
 ]);
 
 const STRING_KEYS = new Set<keyof AppConfig>([
@@ -95,6 +99,7 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   payments_enabled: "payments_enabled",
   razorpay_key_id: "razorpay_key_id",
   exotel_secure_calling_enabled: "exotelSecureCallingEnabled",
+  aadhaar_verification_enabled: "aadhaarVerificationEnabled",
 };
 
 for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {

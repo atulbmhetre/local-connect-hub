@@ -495,6 +495,7 @@ const ADMIN_CONFIG_WHITELIST = [
   "lang_hindi_enabled",
   "lang_marathi_enabled",
   "exotel_secure_calling_enabled",
+  "aadhaar_verification_enabled",
   // AI
   "ai_category_confidence_threshold",
   // App
@@ -542,6 +543,7 @@ const ADMIN_CONFIG_FALLBACK_DEFAULTS: Record<AdminConfigKey, string> = {
   lang_hindi_enabled: "true",
   lang_marathi_enabled: "true",
   exotel_secure_calling_enabled: "false",
+  aadhaar_verification_enabled: "false",
   ai_category_confidence_threshold: "0.85",
   feed_notification_radius_km: "5",
   app_base_url: "https://aaspaas.in",
@@ -561,6 +563,7 @@ const ADMIN_CONFIG_TYPES: Partial<Record<AdminConfigKey, AdminConfigValueType>> 
   lang_hindi_enabled: "boolean",
   lang_marathi_enabled: "boolean",
   exotel_secure_calling_enabled: "boolean",
+  aadhaar_verification_enabled: "boolean",
   payments_enabled: "boolean",
   help_accept_timeout_hours: "number",
   help_accept_timeout_minutes: "number",
@@ -629,6 +632,7 @@ const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
   lang_hindi_enabled: "Hindi Language Enabled",
   lang_marathi_enabled: "Marathi Language Enabled",
   exotel_secure_calling_enabled: "Exotel Secure Calling Enabled",
+  aadhaar_verification_enabled: "Aadhaar / DigiLocker Verification Enabled",
   ai_category_confidence_threshold: "AI Category Confidence Threshold (0–1)",
   feed_notification_radius_km: "Feed Notification Radius (km)",
   app_base_url: "App Base URL",

@@ -435,3 +435,9 @@ verify_jwt = true
 
 [functions.exotel-call-status]
 verify_jwt = false
+
+[functions.aadhaar-digilocker-initiate]
+verify_jwt = true
+
+[functions.aadhaar-digilocker-complete]
+verify_jwt = true

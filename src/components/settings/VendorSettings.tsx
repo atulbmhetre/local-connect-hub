@@ -46,6 +46,7 @@ import {
 import { formatTimeAgo } from "@/lib/orders";
 import { ledgerCycleStartInputValue } from "@/lib/khataDisplay";
 import { referralCodeFromPhone } from "@/lib/referral";
+import { requestAadhaarDigilockerConsent } from "@/lib/aadhaarDigilocker";
 import { getUserPhone } from "@/lib/userIdentity";
 import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
 import { withOptionalFeedImageUpload } from "@/lib/imageUpload";
@@ -375,6 +376,28 @@ export function VendorSettings({
     document.body.appendChild(script);
   }, [appConfig, vendor, s]);
 
+  const handleAadhaarVerify = useCallback(async () => {
+    const enabled = appConfig.aadhaarVerificationEnabled === true;
+    if (!enabled) {
+      toast.info(s.aadhaar_verify_coming_soon);
+      return;
+    }
+    const phone = vendorPhone?.trim();
+    if (!phone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
+    const result = await requestAadhaarDigilockerConsent({
+      enabled: true,
+      vendorPhone: phone,
+    });
+    if (result.ok === false) {
+      toast.info(s.aadhaar_verify_coming_soon);
+      return;
+    }
+    window.location.assign(result.authorizationUrl);
+  }, [appConfig.aadhaarVerificationEnabled, vendorPhone, s]);
+
   const handleCancelSubscription = () => {
     const adminPhone =
       (appConfig as unknown as { admin_phone?: string } | null)?.admin_phone ??
@@ -703,6 +726,21 @@ export function VendorSettings({
               </button>
             </>
           )}
+        </div>
+      </SettingsCard>
+
+      <SettingsCard className="mx-0 mb-2 border-surface-border">
+        <div className="px-4 py-3.5 space-y-2">
+          <p className="text-sm font-semibold text-foreground">{s.aadhaar_verify_title}</p>
+          <p className="text-xs text-muted-foreground">{s.aadhaar_verify_body}</p>
+          <button
+            type="button"
+            data-testid="aadhaar-digilocker-verify-btn"
+            onClick={() => void handleAadhaarVerify()}
+            className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+          >
+            {s.aadhaar_verify_cta}
+          </button>
         </div>
       </SettingsCard>
 

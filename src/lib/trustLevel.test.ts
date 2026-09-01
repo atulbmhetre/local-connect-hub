@@ -94,4 +94,14 @@ describe("statusForBusinessCheck", () => {
       statusForBusinessCheck("upi_format", vendorId, carpenterId, accountBronze, businesses),
     ).toBe("passed");
   });
+
+  it("shows coming_soon for dormant aadhaar_digilocker, not a live flow", () => {
+    const rows: VendorVerificationRow[] = [
+      ...accountBronze,
+      { vendor_id: vendorId, check_type: "aadhaar_digilocker", status: "dormant", is_latest: true },
+    ];
+    expect(
+      statusForBusinessCheck("aadhaar_digilocker", vendorId, cobblerId, rows, [cobbler]),
+    ).toBe("coming_soon");
+  });
 });

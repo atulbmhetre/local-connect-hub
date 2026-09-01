@@ -24,7 +24,7 @@ const DEVICE_ID = `device_set_${T}`;
 const VENDOR_DEVICE_ID = `device_set_vendor_${T}`;
 
 /** Whitelist length in Settings.tsx ADMIN_CONFIG_WHITELIST (incl. 7 ops keys). */
-const ADMIN_CONFIG_ROW_COUNT = 36;
+const ADMIN_CONFIG_ROW_COUNT = 37;
 
 const L = {
   myAccount: 'My Account',
@@ -516,6 +516,13 @@ test('SET-REQ-16b — Admin App Config shows defaults for 7 ops keys (never blan
     );
     await expect(row.locator('input')).toHaveValue(/.+/);
   }
+
+  const aadhaarRow = panel
+    .locator('div.rounded-2xl.border.border-border.p-3')
+    .filter({ hasText: 'Aadhaar / DigiLocker Verification Enabled' });
+  await expect(aadhaarRow.getByTestId('admin-config-default-aadhaar_verification_enabled')).toHaveText(
+    /Default:\s*false/i,
+  );
 });
 
 test('SET-REQ-17 — Admin config UPSERT — non-whitelisted probe key is rejected', async ({
