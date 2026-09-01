@@ -263,7 +263,7 @@ export const LiveCamera = ({
               <button
                 type="button"
                 onClick={() => void App.openUrl({ url: "app-settings:" })}
-                className="w-full rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold"
+                className="w-full rounded-xl bg-primary text-primary-foreground px-4 h-10 text-sm font-semibold"
               >
                 {s.camera_go_to_settings}
               </button>
@@ -271,7 +271,7 @@ export const LiveCamera = ({
             <button
               type="button"
               onClick={onClose}
-              className="w-full rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold"
+              className="w-full rounded-xl border border-white/20 px-4 h-10 text-sm font-semibold"
             >
               {s.camera_cancel}
             </button>
@@ -304,7 +304,7 @@ export const LiveCamera = ({
             data-testid="live-camera-web-shutter"
             disabled={!webReady}
             onClick={() => void captureWebFrame()}
-            className="w-full rounded-xl bg-primary text-primary-foreground px-4 py-3 text-sm font-semibold disabled:opacity-50"
+            className="w-full rounded-xl bg-primary text-primary-foreground px-4 h-12 text-sm font-semibold disabled:opacity-50"
           >
             {facing === "front" ? s.vendor_selfie_capture : s.camera_take_photo}
           </button>
@@ -314,7 +314,7 @@ export const LiveCamera = ({
               stopWebStream();
               onClose();
             }}
-            className="w-full rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold text-white"
+            className="w-full rounded-xl border border-white/20 px-4 h-10 text-sm font-semibold text-white"
           >
             {s.camera_cancel}
           </button>

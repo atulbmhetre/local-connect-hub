@@ -56,7 +56,7 @@ export function KhataTxSourceChipView({
       data-chip-kind={chip.kind}
       data-category-label={chip.kind === "business" ? chip.label : undefined}
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] shrink-0",
+        "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs shrink-0",
         "border border-surface-border bg-surface text-muted-foreground font-medium",
         chip.kind === "business" && "border-brand/40 bg-brand/10 text-foreground",
         className,

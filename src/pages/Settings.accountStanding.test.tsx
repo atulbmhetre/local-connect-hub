@@ -32,7 +32,7 @@ function AccountStandingCollapsibleHarness() {
         nested
         testId="settings-account-standing-toggle"
       >
-        <div className="px-4 py-3.5" data-testid="account-standing-row">
+        <div className="px-4 py-3" data-testid="account-standing-row">
           <span>{s.trust_status_good}</span>
         </div>
       </SettingsCollapsible>

@@ -153,7 +153,7 @@ function ChoiceCard({
       <p className="text-base font-display font-bold text-foreground leading-tight">
         {emoji} {title}
       </p>
-      <p className="mt-1 text-[10px] text-muted-foreground leading-snug">{desc}</p>
+      <p className="mt-1 text-xs text-muted-foreground leading-snug">{desc}</p>
     </button>
   );
 }
@@ -798,7 +798,7 @@ export function BusinessSetupSheet({
                             )}
                           >
                             {cat.emoji} {getLabel(cat.label)}
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-xs text-muted-foreground">
                               {categoryServiceModeChipLabel(cat.service_mode, s)}
                             </span>
                           </button>
@@ -879,7 +879,7 @@ export function BusinessSetupSheet({
                     data-testid="add-business-upi-qr"
                     disabled={upiQrUploading}
                     onClick={() => upiQrInputRef.current?.click()}
-                    className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
+                    className="mt-1 w-full rounded-xl border border-border h-10 text-sm"
                   >
                     {upiQrUploading ? s.vendor_uploading : s.vendor_upi_qr_hint}
                   </button>
@@ -921,7 +921,7 @@ export function BusinessSetupSheet({
                         )}
                       >
                         <p className="text-sm font-semibold text-foreground">{opt.label}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">{opt.desc}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{opt.desc}</p>
                       </button>
                     ))}
                   </div>
@@ -1017,7 +1017,7 @@ export function BusinessSetupSheet({
                           type="button"
                           data-testid="add-business-reuse-photo"
                           onClick={confirmReuseColocated}
-                          className="w-full rounded-xl bg-primary text-primary-foreground py-2.5 text-sm font-semibold"
+                          className="w-full rounded-xl bg-primary text-primary-foreground h-10 text-sm font-semibold"
                         >
                           {s.my_business_reuse_photo}
                         </button>
@@ -1025,7 +1025,7 @@ export function BusinessSetupSheet({
                           type="button"
                           data-testid="add-business-capture-new-photo"
                           onClick={captureNewDespiteColocated}
-                          className="w-full rounded-xl border border-border py-2.5 text-sm font-semibold"
+                          className="w-full rounded-xl border border-border h-10 text-sm font-semibold"
                         >
                           {s.my_business_capture_new_photo}
                         </button>
@@ -1038,7 +1038,7 @@ export function BusinessSetupSheet({
                     disabled={colocatedChecking}
                     onClick={() => void beginShopPhotoFlow()}
                     className={cn(
-                      "mt-2 w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold disabled:opacity-50",
+                      "mt-2 w-full rounded-xl border-2 h-12 flex items-center justify-center gap-2 font-semibold disabled:opacity-50",
                       photoReady
                         ? "border-secondary text-secondary bg-secondary/5"
                         : "border-border",
@@ -1064,7 +1064,7 @@ export function BusinessSetupSheet({
                         type="button"
                         data-testid="add-business-gps-submit-for-review"
                         onClick={submitShopPhotoForLocationReview}
-                        className="mt-2 w-full rounded-xl border border-amber-500/50 bg-amber-500/10 py-3 text-sm font-semibold text-amber-800"
+                        className="mt-2 w-full rounded-xl border border-amber-500/50 bg-amber-500/10 h-10 text-sm font-semibold text-amber-800"
                       >
                         {s.vendor_gps_submit_for_review}
                       </button>
@@ -1084,7 +1084,7 @@ export function BusinessSetupSheet({
                     data-testid="add-business-next"
                     disabled={!ready || submitting}
                     onClick={() => setSetupPage(2)}
-                    className="w-full rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50"
+                    className="w-full rounded-2xl bg-primary text-primary-foreground h-12 text-sm font-semibold disabled:opacity-50"
                   >
                     {s.reg_wizard_next}
                   </button>
@@ -1094,7 +1094,7 @@ export function BusinessSetupSheet({
                     data-testid="add-business-submit"
                     disabled={!ready || submitting}
                     onClick={() => void submit()}
-                    className="w-full rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                    className="w-full rounded-2xl bg-primary text-primary-foreground h-12 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
                   >
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                     {s.my_business_add_business}
@@ -1150,7 +1150,7 @@ export function BusinessSetupSheet({
                                 licensePhotoTargetRef.current = field.fieldKey;
                                 licensePhotoInputRef.current?.click();
                               }}
-                              className="mt-2 w-full rounded-xl border border-border py-3 text-sm font-semibold"
+                              className="mt-2 w-full rounded-xl border border-border h-10 text-sm font-semibold"
                             >
                               {draft?.preview
                                 ? s.reg_license_photo_replace
@@ -1182,7 +1182,7 @@ export function BusinessSetupSheet({
                       <button
                         type="button"
                         onClick={() => setSetupPage(1)}
-                        className="flex-1 rounded-2xl border border-border py-3.5 text-sm font-semibold"
+                        className="flex-1 rounded-2xl border border-border h-10 text-sm font-semibold"
                       >
                         {s.reg_wizard_back}
                       </button>
@@ -1191,7 +1191,7 @@ export function BusinessSetupSheet({
                         data-testid="add-business-license-skip"
                         disabled={submitting}
                         onClick={() => void submit()}
-                        className="flex-1 rounded-2xl border border-border py-3.5 text-sm font-semibold disabled:opacity-50"
+                        className="flex-1 rounded-2xl border border-border h-10 text-sm font-semibold disabled:opacity-50"
                       >
                         {s.reg_license_skip}
                       </button>
@@ -1200,7 +1200,7 @@ export function BusinessSetupSheet({
                         data-testid="add-business-submit"
                         disabled={submitting}
                         onClick={() => void submit()}
-                        className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                        className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
                       >
                         {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                         {s.my_business_add_business}

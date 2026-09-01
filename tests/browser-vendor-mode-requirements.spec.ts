@@ -231,7 +231,7 @@ function vendorShopCategorySection(page: Page) {
 
 /** Go-live card on /vendor — vendor-status-badge + vendor-golive-btn live here. */
 function vendorGoLiveSection(page: Page) {
-  return page.locator('div.mx-4.rounded-2xl.border').filter({
+  return page.locator('div.rounded-2xl.border').filter({
     has: page.getByTestId('vendor-golive-btn'),
   });
 }

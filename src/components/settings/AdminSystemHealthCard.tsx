@@ -175,7 +175,7 @@ export function AdminSystemHealthCard() {
     <SettingsCard className="border-brand/20" data-testid="admin-system-health">
       <div className="px-4 py-3 border-b border-surface-border">
         <p className="text-sm font-medium text-foreground">System Health</p>
-        <p className="text-xs text-muted-foreground mt-0.5">Edge function status</p>
+        <p className="text-xs text-muted-foreground mt-1">Edge function status</p>
       </div>
       <div className="px-4 py-2">
         {MONITORED_FUNCTIONS.map(({ key, label }) => {
@@ -193,7 +193,7 @@ export function AdminSystemHealthCard() {
               />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground">{label}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-xs text-muted-foreground mt-1">
                   {alert
                     ? `${alert.error_type} · failed ${formatRelativeTime(alert.first_failed_at)}`
                     : "Healthy"}
@@ -206,7 +206,7 @@ export function AdminSystemHealthCard() {
 
       <div className="px-4 py-3 border-t border-surface-border" data-testid="admin-fcm-health">
         <p className="text-sm font-medium text-foreground">FCM delivery (24h)</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <p className="text-xs text-muted-foreground mt-1">
           Push failures from fcm_delivery_log
         </p>
         <div className="flex items-start gap-2.5 py-2.5">
@@ -242,7 +242,7 @@ export function AdminSystemHealthCard() {
 
       <div className="px-4 py-3 border-t border-surface-border" data-testid="admin-radar-health">
         <p className="text-sm font-medium text-foreground">Radar search (24h)</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <p className="text-xs text-muted-foreground mt-1">
           Zero-result rate from logged searches + active categories
         </p>
         <div className="flex items-start gap-2.5 py-2.5">
@@ -263,7 +263,7 @@ export function AdminSystemHealthCard() {
                     : "Radar categories OK"}
             </p>
             {!radarLoadError && radarHealth && (
-              <p className="text-xs text-muted-foreground mt-0.5" data-testid="admin-radar-health-detail">
+              <p className="text-xs text-muted-foreground mt-1" data-testid="admin-radar-health-detail">
                 {radarHealth.total_searches} searches · {radarHealth.zero_result_searches} zero results ·{" "}
                 {radarHealth.active_categories_count} active categories
               </p>
@@ -274,7 +274,7 @@ export function AdminSystemHealthCard() {
 
       <div className="px-4 py-3 border-t border-surface-border" data-testid="admin-restore-health">
         <p className="text-sm font-medium text-foreground">Account restore (24h)</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <p className="text-xs text-muted-foreground mt-1">
           FirstOpen restore attempts, successes, and denial reasons
         </p>
         <div className="flex items-start gap-2.5 py-2.5">
@@ -297,7 +297,7 @@ export function AdminSystemHealthCard() {
             </p>
             {!restoreLoadError && restoreHealth && restoreAttempts > 0 && (
               <p
-                className="text-xs text-muted-foreground mt-0.5"
+                className="text-xs text-muted-foreground mt-1"
                 data-testid="admin-restore-health-detail"
               >
                 {restoreDenied} denied (banned {restoreHealth.denied_banned} · deleted{" "}
@@ -315,7 +315,7 @@ export function AdminSystemHealthCard() {
         data-testid="admin-green-pending-health"
       >
         <p className="text-sm font-medium text-foreground">Verification queue</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
+        <p className="text-xs text-muted-foreground mt-1">
           Vendors at green_pending awaiting admin review
         </p>
         <div className="flex items-start gap-2.5 py-2.5">
@@ -338,7 +338,7 @@ export function AdminSystemHealthCard() {
             </p>
             {!greenPendingLoadError && greenPending && greenVendorsReady > 0 && (
               <p
-                className="text-xs text-muted-foreground mt-0.5"
+                className="text-xs text-muted-foreground mt-1"
                 data-testid="admin-green-pending-detail"
               >
                 account-level {greenPending.account_pending} · business-level{" "}

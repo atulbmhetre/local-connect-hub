@@ -53,7 +53,7 @@ export const CategoryPicker = ({ open, onClose, onPick, onMic, categories }: Pro
             <p className="text-xs uppercase tracking-widest text-muted-foreground">
               {s.category_picker_quick_help}
             </p>
-            <h2 id="category-picker-title" className="font-display text-2xl font-bold">
+            <h2 id="category-picker-title" className="font-display text-xl font-bold">
               {s.category_picker_title}
             </h2>
           </div>
@@ -97,7 +97,7 @@ export const CategoryPicker = ({ open, onClose, onPick, onMic, categories }: Pro
 
         <button
           onClick={onMic}
-          className="mt-4 w-full rounded-2xl bg-gradient-sos text-primary-foreground py-4 flex items-center justify-center gap-2 font-semibold shadow-sos active:scale-[0.98]"
+          className="mt-4 w-full rounded-2xl bg-gradient-sos text-primary-foreground h-12 flex items-center justify-center gap-2 font-semibold shadow-sos active:scale-[0.98]"
         >
           <Mic className="h-5 w-5" />
           {s.category_picker_speak_else}

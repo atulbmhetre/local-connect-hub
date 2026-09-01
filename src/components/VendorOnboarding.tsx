@@ -137,7 +137,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
             />
           ))}
         </div>
-        <p className="text-[11px] text-gray-500 mt-3 tabular-nums" data-testid="vendor-onboarding-step">
+        <p className="text-xs text-gray-500 mt-3 tabular-nums" data-testid="vendor-onboarding-step">
           {step} / {TOTAL_STEPS}
         </p>
       </div>
@@ -146,7 +146,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
         <span className="text-6xl mb-6" aria-hidden>
           {current.icon}
         </span>
-        <h2 className="font-display text-2xl font-bold mb-3">{current.title}</h2>
+        <h2 className="font-display text-xl font-bold mb-3">{current.title}</h2>
         <p className="text-sm text-gray-400 leading-relaxed max-w-sm">{current.body}</p>
       </div>
 
@@ -156,7 +156,7 @@ export function VendorOnboarding({ onComplete }: VendorOnboardingProps) {
           disabled={busy}
           data-testid="vendor-onboarding-action"
           onClick={() => void current.onAction()}
-          className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-60"
+          className="w-full rounded-xl bg-brand text-page-bg h-12 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-60"
         >
           {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : current.action}
         </button>

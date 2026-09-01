@@ -218,7 +218,7 @@ function ChoiceCard({
       <p className="text-base font-display font-bold text-foreground leading-tight">
         {emoji} {title}
       </p>
-      <p className="mt-1 text-[10px] text-muted-foreground leading-snug">{desc}</p>
+      <p className="mt-1 text-xs text-muted-foreground leading-snug">{desc}</p>
     </button>
   );
 }
@@ -1460,7 +1460,7 @@ export function VendorRegistrationWizard({
               data-testid="reg-selfie-capture"
               onClick={() => setSelfieCameraOpen(true)}
               className={cn(
-                "mt-2 w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold",
+                "mt-2 w-full rounded-xl border-2 h-12 flex items-center justify-center gap-2 font-semibold",
                 selfieCaptured
                   ? "border-secondary text-secondary bg-secondary/5"
                   : "border-border",
@@ -1491,7 +1491,7 @@ export function VendorRegistrationWizard({
             type="button"
             onClick={tryStepANext}
             className={cn(
-              "w-full rounded-2xl bg-primary text-primary-foreground py-4 font-semibold",
+              "w-full rounded-2xl bg-primary text-primary-foreground h-12 font-semibold",
               !stepAReady && "opacity-50",
             )}
           >
@@ -1543,7 +1543,7 @@ export function VendorRegistrationWizard({
               type="button"
               onClick={() => void handleFindCategory()}
               disabled={categorySuggesting || businessDescription.trim().length < 3}
-              className="mt-2 w-full rounded-xl bg-brand px-3 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              className="mt-2 w-full rounded-xl bg-brand px-3 h-10 text-sm font-semibold text-brand-foreground disabled:opacity-50 inline-flex items-center justify-center gap-2"
             >
               {categorySuggesting ? (
                 <>
@@ -1637,7 +1637,7 @@ export function VendorRegistrationWizard({
                         )}
                       >
                         {cat.emoji} {getLabel(cat.label)}
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           {categoryServiceModeChipLabel(cat.service_mode, s)}
                         </span>
                       </button>
@@ -1698,14 +1698,14 @@ export function VendorRegistrationWizard({
 
           {baseType !== "" && baseType !== "none" && (
             <>
-              <p className="text-[11px] text-muted-foreground text-center px-2">
+              <p className="text-xs text-muted-foreground text-center px-2">
                 {baseType === "shop" ? s.reg_gps_public_hint : s.reg_gps_private_hint}
               </p>
               <button
                 type="button"
                 onClick={() => void detectLocation()}
                 className={cn(
-                  "w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold",
+                  "w-full rounded-xl border-2 h-12 flex items-center justify-center gap-2 font-semibold",
                   coords ? "border-secondary text-secondary bg-secondary/5" : "border-border",
                 )}
               >
@@ -1736,7 +1736,7 @@ export function VendorRegistrationWizard({
             </>
           )}
           {baseType === "none" && (
-            <p className="text-[11px] text-muted-foreground text-center px-2">
+            <p className="text-xs text-muted-foreground text-center px-2">
               {locating ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1775,7 +1775,7 @@ export function VendorRegistrationWizard({
               type="button"
               disabled={upiQrUploading}
               onClick={() => upiQrInputRef.current?.click()}
-              className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-border h-10 text-sm"
             >
               {upiQrUploading ? s.vendor_uploading : s.vendor_upi_qr_hint}
             </button>
@@ -1907,7 +1907,7 @@ export function VendorRegistrationWizard({
                 setShopCameraOpen(true);
               }}
               className={cn(
-                "mt-2 w-full rounded-xl border-2 py-3.5 flex items-center justify-center gap-2 font-semibold",
+                "mt-2 w-full rounded-xl border-2 h-12 flex items-center justify-center gap-2 font-semibold",
                 shopPhotoCaptured
                   ? "border-secondary text-secondary bg-secondary/5"
                   : "border-border",
@@ -1923,7 +1923,7 @@ export function VendorRegistrationWizard({
                   type="button"
                   data-testid="reg-gps-submit-for-review"
                   onClick={submitShopPhotoForLocationReview}
-                  className="mt-2 w-full rounded-xl border border-amber-500/50 bg-amber-500/10 py-3 text-sm font-semibold text-amber-800"
+                  className="mt-2 w-full rounded-xl border border-amber-500/50 bg-amber-500/10 h-10 text-sm font-semibold text-amber-800"
                 >
                   {s.vendor_gps_submit_for_review}
                 </button>
@@ -1949,7 +1949,7 @@ export function VendorRegistrationWizard({
             <button
               type="button"
               onClick={() => setRegPage(1)}
-              className="flex-1 rounded-2xl border border-border py-4 font-semibold inline-flex items-center justify-center gap-1"
+              className="flex-1 rounded-2xl border border-border h-10 font-semibold inline-flex items-center justify-center gap-1"
             >
               <ChevronLeft className="h-4 w-4" />
               {s.reg_wizard_back}
@@ -1960,7 +1960,7 @@ export function VendorRegistrationWizard({
                 data-testid="reg-business-next"
                 disabled={!stepBReady || loading}
                 onClick={tryStepBNext}
-                className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold disabled:opacity-50"
+                className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 font-semibold disabled:opacity-50"
               >
                 {s.reg_wizard_next}
               </button>
@@ -1968,7 +1968,7 @@ export function VendorRegistrationWizard({
               <button
                 type="submit"
                 disabled={!stepBReady || loading}
-                className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
               >
                 {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
                 {s.vendor_register_btn}
@@ -2014,7 +2014,7 @@ export function VendorRegistrationWizard({
                       licensePhotoTargetRef.current = field.fieldKey;
                       licensePhotoInputRef.current?.click();
                     }}
-                    className="mt-2 w-full rounded-xl border border-border py-3 text-sm font-semibold"
+                    className="mt-2 w-full rounded-xl border border-border h-10 text-sm font-semibold"
                   >
                     {draft?.preview ? s.reg_license_photo_replace : s.reg_license_photo_upload}
                   </button>
@@ -2044,7 +2044,7 @@ export function VendorRegistrationWizard({
             <button
               type="button"
               onClick={() => setRegPage(2)}
-              className="flex-1 rounded-2xl border border-border py-4 font-semibold inline-flex items-center justify-center gap-1"
+              className="flex-1 rounded-2xl border border-border h-10 font-semibold inline-flex items-center justify-center gap-1"
             >
               <ChevronLeft className="h-4 w-4" />
               {s.reg_wizard_back}
@@ -2053,7 +2053,7 @@ export function VendorRegistrationWizard({
               type="submit"
               data-testid="reg-license-skip"
               disabled={loading}
-              className="flex-1 rounded-2xl border border-border py-4 font-semibold disabled:opacity-50"
+              className="flex-1 rounded-2xl border border-border h-10 font-semibold disabled:opacity-50"
             >
               {s.reg_license_skip}
             </button>
@@ -2061,7 +2061,7 @@ export function VendorRegistrationWizard({
               type="submit"
               data-testid="reg-license-submit"
               disabled={loading}
-              className="flex-[2] rounded-2xl bg-primary text-primary-foreground py-4 font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
               {s.vendor_register_btn}

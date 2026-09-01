@@ -6,6 +6,7 @@ import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 import { BusinessVerificationBadge } from "@/components/VerificationBadge";
 import { SettingsCard } from "@/components/settings/SettingsSection";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
   supabase,
   type Vendor,
@@ -271,7 +272,7 @@ function Field({
       <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </label>
-      <input
+      <Input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -279,8 +280,8 @@ function Field({
         required={required}
         data-testid={testId}
         className={cn(
-          "mt-1 w-full bg-card border rounded-xl px-4 py-3.5 text-base focus:outline-none focus:ring-2",
-          error ? "border-destructive focus:ring-destructive" : "border-border focus:ring-primary",
+          "mt-1 bg-card",
+          error ? "border-destructive focus-visible:ring-destructive" : "border-border",
         )}
       />
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
@@ -310,7 +311,7 @@ function VerifyRow({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="px-4 py-3.5 border-t border-surface-border space-y-2">
+    <div className="px-4 py-3 border-t border-surface-border space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1410,7 +1411,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
               aria-expanded={identityExpanded}
               onClick={() => setIdentityExpanded((prev) => !prev)}
               className={cn(
-                "w-full flex items-center justify-between gap-3 px-4 py-4 text-left active:opacity-90",
+                "w-full flex items-center justify-between gap-3 px-4 py-3 text-left active:opacity-90",
                 identityExpanded && "border-b border-surface-border",
               )}
             >
@@ -1418,7 +1419,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                 <p className="text-sm font-semibold text-foreground truncate">
                   {s.settings_myBusiness}
                 </p>
-                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                <p className="text-xs text-muted-foreground truncate mt-1">
                   {identitySubtitle || s.my_business_hint}
                 </p>
               </div>
@@ -1508,7 +1509,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                   aria-expanded={expanded}
                   onClick={() => toggleAccordion(cat.id)}
                   className={cn(
-                    "w-full flex items-center justify-between gap-3 px-4 py-4 text-left active:opacity-90",
+                    "w-full flex items-center justify-between gap-3 px-4 py-3 text-left active:opacity-90",
                     expanded && "border-b border-surface-border",
                   )}
                 >
@@ -1516,10 +1517,10 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                     <p className="text-sm font-semibold text-foreground truncate">
                       {cat.emoji} {getLabel(cat.label)}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">{displayBrand}</p>
+                    <p className="text-xs text-muted-foreground truncate mt-1">{displayBrand}</p>
                     {cfg.review_status === "pending_review" && (
                       <p
-                        className="text-[10px] text-amber-600 font-medium mt-0.5"
+                        className="text-xs text-amber-600 font-medium mt-1"
                         data-testid={`my-business-pending-review-${cat.id}`}
                       >
                         {s.my_business_pending_review}
@@ -1527,7 +1528,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                     )}
                     {cfg.review_status === "rejected" && (
                       <p
-                        className="text-[10px] text-destructive font-medium mt-0.5"
+                        className="text-xs text-destructive font-medium mt-1"
                         data-testid={`my-business-rejected-${cat.id}`}
                       >
                         {s.my_business_rejected}
@@ -1537,7 +1538,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                       </p>
                     )}
                     {cfg.is_paused && cfg.review_status === "approved" && (
-                      <p className="text-[10px] text-amber-600 font-medium mt-0.5">
+                      <p className="text-xs text-amber-600 font-medium mt-1">
                         {s.vendor_pause_business}
                       </p>
                     )}
@@ -1574,7 +1575,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                         <p className="text-sm font-medium text-foreground">
                           {s.vendor_pause_business}
                         </p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+                        <p className="text-xs text-muted-foreground mt-1 leading-snug">
                           {s.vendor_pause_business_hint}
                         </p>
                       </div>
@@ -1591,7 +1592,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                       <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         {s.vendor_inspection_fee_label}
                       </label>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 mb-1.5">
+                      <p className="text-xs text-muted-foreground mt-1 mb-1.5">
                         {s.vendor_inspection_fee_hint}
                       </p>
                       <div className="flex items-center gap-2">
@@ -1624,7 +1625,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                       <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         {s.vendor_min_delivery_label}
                       </label>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 mb-1.5">
+                      <p className="text-xs text-muted-foreground mt-1 mb-1.5">
                         {s.vendor_min_delivery_hint}
                       </p>
                       <div className="flex items-center gap-2">
@@ -1654,7 +1655,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                         !pricedMenuCategoryIds.has(cat.id) && (
                           <p
                             data-testid={`my-business-min-delivery-no-menu-warning-${cat.id}`}
-                            className="mt-1.5 text-[11px] text-amber-600 leading-snug"
+                            className="mt-1.5 text-xs text-amber-600 leading-snug"
                           >
                             {s.vendor_min_delivery_no_menu_warning}
                           </p>
@@ -1710,7 +1711,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                             <p className="text-base font-display font-bold text-foreground leading-tight">
                               {opt.emoji} {opt.title}
                             </p>
-                            <p className="mt-1 text-[10px] text-muted-foreground leading-snug">
+                            <p className="mt-1 text-xs text-muted-foreground leading-snug">
                               {opt.desc}
                             </p>
                           </button>
@@ -1768,12 +1769,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                           setUpiQrTargetId(cat.id);
                           upiQrInputRef.current?.click();
                         }}
-                        className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm"
+                        className="mt-1 w-full rounded-xl border border-border h-10 text-sm"
                       >
                         {upiQrUploadingFor === cat.id ? s.vendor_uploading : s.vendor_upi_qr_hint}
                       </button>
                       {cfg.upi_qr_url ? (
-                        <p className="mt-1 text-[11px] text-muted-foreground truncate">
+                        <p className="mt-1 text-xs text-muted-foreground truncate">
                           {cfg.upi_qr_url}
                         </p>
                       ) : null}
@@ -1840,7 +1841,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                             )}
                           >
                             <p className="text-sm font-semibold text-foreground">{opt.label}</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">{opt.desc}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{opt.desc}</p>
                           </button>
                         ))}
                       </div>
@@ -1935,7 +1936,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                                 pendingLocationReview: true,
                               })
                             }
-                            className="w-full rounded-xl border border-amber-500/50 bg-amber-500/10 py-2.5 text-xs font-semibold text-amber-800"
+                            className="w-full rounded-xl border border-amber-500/50 bg-amber-500/10 h-10 text-xs font-semibold text-amber-800"
                           >
                             {s.vendor_gps_submit_for_review}
                           </button>
@@ -1984,7 +1985,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                         type="button"
                         data-testid={`my-business-remove-cat-${cat.id}`}
                         onClick={() => toggleCategory(cat.id)}
-                        className="w-full rounded-xl border border-destructive/40 text-destructive py-2.5 text-xs font-semibold"
+                        className="w-full rounded-xl border border-destructive/40 text-destructive h-10 text-xs font-semibold"
                       >
                         Remove {getLabel(cat.label)}
                       </button>
@@ -2002,7 +2003,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           type="button"
           data-testid="my-business-add-business"
           onClick={() => setAddBusinessOpen(true)}
-          className="w-full rounded-2xl border border-dashed border-primary/50 bg-primary/5 py-3.5 text-sm font-semibold text-primary disabled:opacity-50"
+          className="w-full rounded-2xl border border-dashed border-primary/50 bg-primary/5 h-12 text-sm font-semibold text-primary disabled:opacity-50"
         >
           {s.my_business_add_business}
         </button>
@@ -2018,7 +2019,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           data-testid="my-business-save"
           onClick={() => void saveProfile()}
           disabled={!saveReady || saving}
-          className="w-full rounded-2xl bg-primary text-primary-foreground py-3.5 text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+          className="w-full rounded-2xl bg-primary text-primary-foreground h-12 text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {s.menu_save}

@@ -249,9 +249,19 @@ describe("NotificationBell", () => {
         "105",
       );
     });
-    expect(screen.getByTestId("notification-bell-badge")).toHaveTextContent("9+");
+    expect(screen.getByTestId("notification-bell-badge")).toHaveTextContent("99+");
 
     const trayCalls = mockRpc.mock.calls.filter((c) => c[0] === "get_user_notifications");
     expect(trayCalls.length).toBe(0);
+  });
+
+  it("hides the header icon at lg so the desktop sidebar owns notifications", () => {
+    render(<NotificationBell />);
+    expect(screen.getByTestId("notification-bell-btn").className).toContain("lg:hidden");
+  });
+
+  it("does not hide the sidebar Notifications row at lg", () => {
+    render(<NotificationBell layout="nav" navLabel="Notifications" />);
+    expect(screen.getByTestId("desktop-nav-notifications").className).not.toContain("lg:hidden");
   });
 });

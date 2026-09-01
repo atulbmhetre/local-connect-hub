@@ -38,16 +38,24 @@ export type UserNotification = {
 };
 
 function formatBadgeCount(n: number): string {
-  return n > 9 ? "9+" : String(n);
+  return n > 99 ? "99+" : String(n);
 }
 
 type Props = {
   className?: string;
   /** Added to DB unread count for badge (e.g. pending orders on vendor dashboard). */
   extraCount?: number;
+  /** `nav` is the labeled desktop-sidebar row; default is the header icon button. */
+  layout?: "icon" | "nav";
+  navLabel?: string;
 };
 
-export function NotificationBell({ className, extraCount = 0 }: Props) {
+export function NotificationBell({
+  className,
+  extraCount = 0,
+  layout = "icon",
+  navLabel,
+}: Props) {
   const { s } = useLanguage();
   const navigate = useNavigate();
   const [phone, setPhone] = useState(() => getUserPhone());
@@ -337,50 +345,97 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
   const pendingOrderCount = Math.max(0, extraCount);
   const vendorDualBadges = pendingOrderCount > 0;
 
+  const isNav = layout === "nav";
+
   return (
     <>
       <button
         type="button"
-        data-testid="notification-bell-btn"
+        data-testid={isNav ? "desktop-nav-notifications" : "notification-bell-btn"}
         onClick={() => handleOpenChange(true)}
         className={cn(
-          "relative h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-border bg-card text-foreground active:opacity-90",
+          isNav
+            ? "relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium active:opacity-90"
+            : "relative h-10 w-10 shrink-0 grid place-items-center rounded-full border border-border bg-card text-foreground active:opacity-90",
           className,
+          !isNav && "lg:hidden",
         )}
         aria-label={s.notif_bell_aria_label}
         data-unread-count={unreadCount}
       >
-        <Bell className="h-5 w-5" />
-        {vendorDualBadges ? (
+        {isNav ? (
           <>
-            {unreadCount > 0 && (
-              <span
-                className="absolute -top-1 -left-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-[10px] font-bold tabular-nums"
-                aria-hidden
-                data-testid="notification-bell-badge"
-              >
-                {formatBadgeCount(unreadCount)}
-              </span>
-            )}
-            {pendingOrderCount > 0 && (
-              <span
-                className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-amber-500 text-amber-950 text-[10px] font-bold tabular-nums"
-                aria-hidden
-              >
-                {formatBadgeCount(pendingOrderCount)}
-              </span>
-            )}
+            <span className="relative shrink-0">
+              <Bell className="h-5 w-5" />
+              {vendorDualBadges ? (
+                <>
+                  {unreadCount > 0 && (
+                    <span
+                      className="absolute -top-1 -left-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-xs font-bold tabular-nums"
+                      aria-hidden
+                      data-testid="notification-bell-badge"
+                    >
+                      {formatBadgeCount(unreadCount)}
+                    </span>
+                  )}
+                  {pendingOrderCount > 0 && (
+                    <span
+                      className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-amber-500 text-amber-950 text-xs font-bold tabular-nums"
+                      aria-hidden
+                    >
+                      {formatBadgeCount(pendingOrderCount)}
+                    </span>
+                  )}
+                </>
+              ) : (
+                unreadCount > 0 && (
+                  <span
+                    className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-xs font-bold tabular-nums"
+                    aria-hidden
+                    data-testid="notification-bell-badge"
+                  >
+                    {formatBadgeCount(unreadCount)}
+                  </span>
+                )
+              )}
+            </span>
+            <span className="min-w-0 flex-1 text-left">{navLabel ?? s.notif_bell_title}</span>
           </>
         ) : (
-          unreadCount > 0 && (
-            <span
-              className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-[10px] font-bold tabular-nums"
-              aria-hidden
-              data-testid="notification-bell-badge"
-            >
-              {formatBadgeCount(unreadCount)}
-            </span>
-          )
+          <>
+            <Bell className="h-5 w-5" />
+            {vendorDualBadges ? (
+              <>
+                {unreadCount > 0 && (
+                  <span
+                    className="absolute -top-1 -left-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-xs font-bold tabular-nums"
+                    aria-hidden
+                    data-testid="notification-bell-badge"
+                  >
+                    {formatBadgeCount(unreadCount)}
+                  </span>
+                )}
+                {pendingOrderCount > 0 && (
+                  <span
+                    className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-amber-500 text-amber-950 text-xs font-bold tabular-nums"
+                    aria-hidden
+                  >
+                    {formatBadgeCount(pendingOrderCount)}
+                  </span>
+                )}
+              </>
+            ) : (
+              unreadCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 grid place-items-center rounded-full bg-brand text-[#0b1f14] text-xs font-bold tabular-nums"
+                  aria-hidden
+                  data-testid="notification-bell-badge"
+                >
+                  {formatBadgeCount(unreadCount)}
+                </span>
+              )
+            )}
+          </>
         )}
       </button>
 
@@ -459,7 +514,7 @@ export function NotificationBell({ className, extraCount = 0 }: Props) {
                         <p className="text-sm font-semibold text-foreground leading-snug min-w-0 flex-1">
                           {n.title}
                         </p>
-                        <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
                           {formatTimeAgo(n.created_at)}
                         </span>
                       </div>

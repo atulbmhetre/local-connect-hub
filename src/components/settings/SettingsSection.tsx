@@ -12,17 +12,17 @@ export function SettingsPageHeader({
   onTitleClick?: () => void;
 }) {
   return (
-    <div className="px-4 pt-6 pb-2">
+    <div className="pt-6 pb-2">
       <h1
         onClick={onTitleClick}
         className={cn(
-          "text-2xl font-bold text-foreground",
+          "text-xl font-bold text-foreground",
           onTitleClick && "select-none cursor-default",
         )}
       >
         {title}
       </h1>
-      <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+      <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
     </div>
   );
 }
@@ -37,7 +37,7 @@ export function SettingsSectionLabel({
   return (
     <div
       className={cn(
-        "px-4 pt-6 pb-2 text-xs font-bold uppercase tracking-widest text-brand",
+        "pt-6 pb-2 text-xs font-bold uppercase tracking-widest text-brand",
         className,
       )}
     >
@@ -57,7 +57,7 @@ export function SettingsCard({
   return (
     <div
       className={cn(
-        "mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden mb-3",
+        "rounded-2xl border border-surface-border bg-surface overflow-hidden mb-3",
         className,
       )}
       {...rest}
@@ -81,14 +81,14 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-3 px-4 py-3.5 border-b border-surface-border last:border-0",
+        "flex items-center justify-between gap-3 px-4 py-3 border-b border-surface-border last:border-0",
         className,
       )}
     >
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground">{label}</p>
         {sublabel != null && sublabel !== false && (
-          <p className="text-xs text-muted-foreground mt-0.5">{sublabel}</p>
+          <p className="text-xs text-muted-foreground mt-1">{sublabel}</p>
         )}
       </div>
       {children != null ? <div className="shrink-0">{children}</div> : null}
@@ -111,14 +111,14 @@ export function SettingsParentCollapsible({
   testId?: string;
 }) {
   return (
-    <div className="mx-4 mb-4 rounded-2xl border-2 border-brand/25 bg-surface shadow-sm overflow-hidden">
+    <div className="mb-4 rounded-2xl border-2 border-brand/25 bg-surface shadow-sm overflow-hidden">
       <button
         type="button"
         data-testid={testId}
         onClick={onToggle}
         aria-expanded={open}
         className={cn(
-          "w-full flex items-center justify-between gap-3 px-4 py-4 text-left active:opacity-90",
+          "w-full flex items-center justify-between gap-3 px-4 py-3 text-left active:opacity-90",
           open && "border-b-2 border-brand/20",
         )}
       >
@@ -171,7 +171,7 @@ export function SettingsCollapsible({
         aria-expanded={open}
         className={cn(
           "relative z-10 w-full flex items-center justify-between gap-2 text-left active:opacity-90",
-          nested ? "px-3 py-2.5" : "px-4 py-3",
+          nested ? "px-3 py-3" : "px-4 py-3",
           headerClassName,
         )}
       >

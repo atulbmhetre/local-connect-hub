@@ -7,4 +7,8 @@ describe("app column contract", () => {
     expect(APP_COLUMN_CLASS).toContain("mx-auto");
     expect(APP_COLUMN_CLASS).toContain("max-w-md");
   });
+
+  it("does not change the below-lg phone column when desktop width classes are added", () => {
+    expect(APP_COLUMN_WIDTH_CLASS).toBe("max-w-md");
+  });
 });

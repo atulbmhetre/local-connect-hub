@@ -1317,14 +1317,15 @@ const VendorMode = () => {
           <button
             type="button"
             onClick={() => navigate("/")}
-            className="h-10 w-10 shrink-0 grid place-items-center rounded-xl bg-card border border-border"
+            className="h-10 w-10 shrink-0 grid place-items-center rounded-full bg-card border border-border lg:hidden"
             aria-label={s.vendor_back_home}
+            data-testid="vendor-back-home"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">{s.vendor_mode_title}</p>
-            <h1 className="font-display text-3xl font-bold mt-1">{s.vendor_tagline}</h1>
+            <h1 className="font-display text-xl font-bold mt-1">{s.vendor_tagline}</h1>
           </div>
         </div>
         <NotificationBell extraCount={unreadCount} className="shrink-0 ml-3" />
@@ -1343,7 +1344,7 @@ const VendorMode = () => {
 
       {error && !networkLoadStatus && (
         <div className="mb-4 rounded-2xl bg-destructive/10 border border-destructive/30 p-4 flex gap-3">
-          <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-1" />
           <p className="text-sm text-destructive break-words">{error}</p>
         </div>
       )}
@@ -1405,7 +1406,7 @@ const VendorMode = () => {
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {s.vendor_lookup_phone_label}
             </label>
-            <div className="mt-1 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+            <div className="mt-1 flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3">
               <span className="text-sm text-muted-foreground font-medium">+91</span>
               <input
                 type="tel"
@@ -1418,7 +1419,7 @@ const VendorMode = () => {
                   setLookupPhone(e.target.value.replace(/\D/g, "").slice(0, 10));
                   setLookupError(null);
                 }}
-                className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground/50"
+                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
                 autoComplete="tel-national"
               />
             </div>
@@ -1433,7 +1434,7 @@ const VendorMode = () => {
             type="submit"
             disabled={lookupLoading}
             data-testid="vendor-phone-lookup-submit"
-            className="w-full rounded-2xl bg-primary text-primary-foreground py-3.5 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full rounded-2xl bg-primary text-primary-foreground h-12 font-semibold shadow-card active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {lookupLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
             {s.vendor_find_btn}
@@ -1484,7 +1485,7 @@ const VendorMode = () => {
           {/* Go Live card */}
           <div
             className={cn(
-              "mx-4 rounded-2xl border p-6 text-center",
+              "rounded-2xl border p-6 text-center",
               vendor.is_active
                 ? "bg-gradient-to-r from-brand/20 to-brand/5 border-brand/30"
                 : "bg-surface border-surface-border",
@@ -1561,7 +1562,7 @@ const VendorMode = () => {
               service_mode: vendor.service_mode,
               availability_modes: availabilityModes,
             }) && (
-              <p className="mt-2 text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1">
+              <p className="mt-2 text-xs text-muted-foreground inline-flex items-center justify-center gap-1">
                 <Truck className="h-3 w-3 text-brand" />
                 {Capacitor.isNativePlatform()
                   ? s.vendor_mobile_gps
@@ -1572,7 +1573,7 @@ const VendorMode = () => {
           </div>
 
           {goLivePromptVisible && (
-            <div className="mx-4 rounded-2xl border border-brand/45 bg-brand-muted p-4 text-sm relative">
+            <div className="rounded-2xl border border-brand/45 bg-brand-muted p-4 text-sm relative">
               <button
                 type="button"
                 onClick={() => {
@@ -1614,7 +1615,7 @@ const VendorMode = () => {
           <button
             type="button"
             onClick={() => navigate("/ledger")}
-            className="block mx-4 w-[calc(100%-2rem)] text-left active:scale-[0.99] transition-transform"
+            className="block text-left active:scale-[0.99] transition-transform"
           >
             <div className="rounded-2xl border border-border bg-card px-4 py-3 flex items-center justify-between">
               <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -1625,7 +1626,7 @@ const VendorMode = () => {
             </div>
           </button>
 
-          <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4">
+          <section className="rounded-2xl border border-surface-border bg-surface p-4">
             <button
               type="button"
               onClick={() => setAnalyticsOpen((o) => !o)}

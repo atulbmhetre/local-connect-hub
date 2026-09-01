@@ -139,7 +139,7 @@ const VendorReputationLine = ({
     if (n <= 0) return null;
     return (
       <div
-        className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90"
+        className="mt-3 flex items-center gap-1.5 text-xs leading-snug text-muted-foreground/90"
         data-testid="radar-reputation-helped"
         data-count={n}
       >
@@ -163,7 +163,7 @@ const VendorReputationLine = ({
     const pct = typeof raw === "number" && Number.isFinite(raw) ? Math.round(raw) : null;
     return (
       <div
-        className="mt-3 flex items-center gap-1.5 text-[11px] leading-snug text-muted-foreground/90"
+        className="mt-3 flex items-center gap-1.5 text-xs leading-snug text-muted-foreground/90"
         data-testid="radar-reputation-delivered"
         data-count={d}
         data-on-time={pct ?? undefined}
@@ -221,7 +221,7 @@ const VendorCategoryChips = ({
         <span
           key={`${cat.label}-${index}`}
           className={cn(
-            "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] shrink-0",
+            "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs shrink-0",
             "border border-surface-border bg-surface text-muted-foreground",
             index === 0 && "font-semibold text-foreground border-brand/40 bg-brand/10",
           )}
@@ -249,7 +249,7 @@ const CategoryReachLabel = ({
   });
   if (labels.length === 0) return null;
   return (
-    <p className="text-[11px] text-muted-foreground mt-0.5" data-testid="radar-reach-label">
+    <p className="text-xs text-muted-foreground mt-1" data-testid="radar-reach-label">
       {labels.join(" · ")}
     </p>
   );
@@ -840,7 +840,7 @@ export function RadarVendorCard({
       data-category-id={matchedCategoryId ?? undefined}
       data-menu-match={matchedMenuName ? "true" : undefined}
       className={cn(
-        "relative mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-fade-up",
+        "relative mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-fade-up",
         accentRing,
       )}
       style={{ animationDelay: `${Math.min(index * 70, 420)}ms` }}
@@ -883,13 +883,13 @@ export function RadarVendorCard({
                   />
                 )}
                 {vendor.is_active === false && (
-                  <span className="inline-flex text-[10px] rounded-full px-2 py-0.5 bg-amber-500/20 text-amber-600 font-medium shrink-0">
+                  <span className="inline-flex text-xs rounded-full px-2 py-0.5 bg-amber-500/20 text-amber-600 font-medium shrink-0">
                     {s.vendor_offline_badge}
                   </span>
                 )}
               </h3>
               {readIsOwnVendorCard(vendor.id, vendor.phone) && (
-                <span className="text-[10px] font-medium text-muted-foreground">
+                <span className="text-xs font-medium text-muted-foreground">
                   {s.radar_own_vendor_label}
                 </span>
               )}
@@ -906,7 +906,7 @@ export function RadarVendorCard({
           </div>
           <CategoryReachLabel reach={categoryReach} dist={dist} />
           {showPanIndiaBadge && (
-            <span className="mt-1 inline-flex text-[10px] rounded-full px-2 py-0.5 bg-brand/20 text-brand font-medium w-fit">
+            <span className="mt-1 inline-flex text-xs rounded-full px-2 py-0.5 bg-brand/20 text-brand font-medium w-fit">
               {s.radar_pan_india_badge}
             </span>
           )}
@@ -915,7 +915,7 @@ export function RadarVendorCard({
           ) != null && (
             <span
               data-testid="radar-inspection-fee-chip"
-              className="mt-1 inline-flex text-[10px] rounded-full px-2 py-0.5 bg-muted text-foreground font-medium w-fit"
+              className="mt-1 inline-flex text-xs rounded-full px-2 py-0.5 bg-muted text-foreground font-medium w-fit"
             >
               {s.radar_visit_fee_chip.replace(
                 "{amount}",
@@ -961,7 +961,7 @@ export function RadarVendorCard({
             ) : null}
           </div>
           {serviceMode === "help" && dist != null && (
-            <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-brand-muted ring-1 ring-brand/30 px-2 py-0.5 text-[11px] font-semibold text-green-700 dark:text-brand">
+            <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-brand-muted ring-1 ring-brand/30 px-2 py-0.5 text-xs font-semibold text-green-700 dark:text-brand">
               <span className="inline-flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 <span>{s.radar_eta_label}</span>
@@ -994,7 +994,7 @@ export function RadarVendorCard({
 
       {menuItems.length > 0 && (
         <div className="mt-3 pt-3 border-t border-surface-border space-y-1">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">
             {s.menu_preview}
           </p>
           {menuItems.slice(0, 3).map((item, i) => {
@@ -1035,13 +1035,13 @@ export function RadarVendorCard({
             <button
               type="button"
               onClick={() => void openRateCard()}
-              className="text-[11px] text-muted-foreground hover:text-foreground text-left pt-1"
+              className="text-xs text-muted-foreground hover:text-foreground text-left pt-1"
             >
               {serviceMode === "delivery" ? s.radar_viewFullMenu : s.radar_viewFullRateCard}
             </button>
           )}
           {menuItems.length > 3 && (
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               +{menuItems.length - 3} {s.menu_moreItems}
             </p>
           )}
@@ -1102,7 +1102,7 @@ export function RadarVendorCard({
               setRateCardOpen(false);
               void openParchi();
             }}
-            className="mt-5 w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98] transition-transform"
+            className="mt-5 w-full rounded-xl bg-brand text-[#0b1f14] h-12 font-semibold active:scale-[0.98] transition-transform"
           >
             {serviceMode === "appointment"
               ? s.radar_cta_book
@@ -1117,7 +1117,7 @@ export function RadarVendorCard({
           <button
             type="button"
             onClick={() => void handleConnect()}
-            className="mt-3 w-full rounded-xl bg-brand text-white py-2.5 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
+            className="mt-3 w-full rounded-xl bg-brand text-white h-10 flex items-center justify-center gap-2 font-semibold active:scale-[0.98] transition-transform"
           >
             <Phone className="h-4 w-4" />
             {s.radar_cta_call}
@@ -1138,7 +1138,7 @@ export function RadarVendorCard({
         (deliveryOrderSent ? (
           <div
             className={cn(
-              "mt-2 w-full rounded-xl border px-3 py-2.5 text-sm",
+              "mt-2 w-full rounded-xl border px-3 h-10 text-sm",
               "border-brand/50 bg-brand/5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1",
             )}
           >
@@ -1163,7 +1163,7 @@ export function RadarVendorCard({
             type="button"
             data-testid="radar-vendor-card-order-btn"
             onClick={() => void openParchi()}
-            className="mt-2 w-full rounded-xl bg-brand text-white py-2.5 px-3 text-sm font-semibold active:scale-[0.99] transition-transform"
+            className="mt-2 w-full rounded-xl bg-brand text-white h-10 px-3 text-sm font-semibold active:scale-[0.99] transition-transform"
           >
             {serviceMode === "appointment" ? s.radar_cta_book : serviceMode === "delivery" ? s.radar_cta_order : s.radar_send_order}
           </button>
@@ -1175,7 +1175,7 @@ export function RadarVendorCard({
           onClick={handleResolution}
           disabled={resolutionMarked || resolutionBusy}
           className={cn(
-            "mt-2 w-full rounded-xl border py-2.5 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
+            "mt-2 w-full rounded-xl border h-10 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
             "border-brand/70 text-brand bg-transparent",
             "hover:bg-brand-muted",
             (resolutionMarked || resolutionBusy) && "opacity-60 cursor-not-allowed hover:bg-transparent",
@@ -1196,7 +1196,7 @@ export function RadarVendorCard({
           type="button"
           onClick={() => beginSaveVendor()}
           className={cn(
-            "mt-2 w-full rounded-xl border py-2.5 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
+            "mt-2 w-full rounded-xl border h-10 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
             "border-border text-foreground bg-muted/40 hover:bg-muted/60",
           )}
         >
@@ -1208,7 +1208,7 @@ export function RadarVendorCard({
           type="button"
           onClick={() => void handleUnsaveVendor()}
           className={cn(
-            "mt-2 w-full rounded-xl border py-2.5 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
+            "mt-2 w-full rounded-xl border h-10 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
             "border-border text-muted-foreground bg-muted/30 hover:bg-muted/50",
           )}
         >
@@ -1270,14 +1270,14 @@ export function RadarVendorCard({
             <button
               type="button"
               data-testid="radar-save-nickname-confirm"
-              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold active:scale-[0.98]"
+              className="w-full rounded-xl bg-brand text-[#0b1f14] h-12 font-semibold active:scale-[0.98]"
               onClick={() => void handleSaveVendor(saveNicknameDraft)}
             >
               {s.neighbours_nickname_save}
             </button>
             <button
               type="button"
-              className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
+              className="w-full rounded-xl border border-border h-10 text-sm font-semibold text-muted-foreground"
               onClick={() => setSaveNicknameSheetOpen(false)}
             >
               {s.cancel}

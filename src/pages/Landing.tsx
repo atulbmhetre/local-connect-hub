@@ -1,5 +1,6 @@
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
+import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 const Landing = () => {
@@ -42,7 +43,7 @@ const Landing = () => {
     <div className="min-h-screen bg-page-bg text-white flex flex-col">
       <main className="flex-1 w-full max-w-lg mx-auto px-5 py-10 flex flex-col">
         <header className="text-center mb-10">
-          <h1 className="font-display text-3xl font-bold text-brand">{s.appName}</h1>
+          <h1 className="font-display text-xl font-bold text-brand">{s.appName}</h1>
           <p className="mt-3 text-lg text-gray-300">{s.tagline}</p>
         </header>
 
@@ -62,13 +63,14 @@ const Landing = () => {
         </div>
 
         <div className="mt-10 space-y-4 text-center">
-          <button
+          <Button
             type="button"
+            size="lg"
             onClick={() => void handleDownload()}
-            className="block w-full rounded-2xl bg-brand text-[#0b1f14] py-4 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_20px_rgba(34,197,94,0.35)]"
+            className="w-full rounded-2xl bg-brand text-[#0b1f14] font-bold shadow-[0_0_20px_rgba(34,197,94,0.35)]"
           >
             {s.landing_downloadApp}
-          </button>
+          </Button>
           <p className="text-sm text-gray-400">{s.landing_vendorRegister}</p>
         </div>
       </main>

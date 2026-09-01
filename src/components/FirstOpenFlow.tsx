@@ -447,7 +447,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             type="button"
             data-testid="firstopen-im-new"
             onClick={() => pushStep("new_options")}
-            className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+            className="w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold active:scale-[0.98] transition-transform"
           >
             {s.welcome_im_new}
           </button>
@@ -459,7 +459,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
               setPhoneValue("");
               pushStep("restore");
             }}
-            className="w-full rounded-xl border border-border py-3.5 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
+            className="w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
           >
             {s.welcome_returning}
           </button>
@@ -468,7 +468,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
       {step === "new_options" && (
         <div className="flex flex-1 flex-col justify-center px-6 py-10 max-w-md mx-auto w-full gap-3">
-          <h1 className="font-display text-2xl font-bold text-foreground leading-tight mb-2">
+          <h1 className="font-display text-xl font-bold text-foreground leading-tight mb-2">
             {s.welcome_new_options_title}
           </h1>
           <button
@@ -479,7 +479,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
               setPhoneValue("");
               pushStep("register_phone");
             }}
-            className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+            className="w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold active:scale-[0.98] transition-transform"
           >
             {s.welcome_register_business}
           </button>
@@ -491,7 +491,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
               setPhoneValue("");
               pushStep("register_phone");
             }}
-            className="w-full rounded-xl border border-border py-3.5 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
+            className="w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:scale-[0.98] transition-transform"
           >
             {s.welcome_use_as_customer}
           </button>
@@ -508,13 +508,13 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
       {step === "register_phone" && (
         <div className="flex flex-1 flex-col px-6 py-10 max-w-md mx-auto w-full">
-          <h1 className="font-display text-2xl font-bold text-foreground leading-tight">
+          <h1 className="font-display text-xl font-bold text-foreground leading-tight">
             {s.firstopen_register_phone_title}
           </h1>
           <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
             {s.firstopen_register_phone_body}
           </p>
-          <div className="mt-6 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+          <div className="mt-6 flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3">
             <span className="text-sm text-muted-foreground font-medium">+91</span>
             <input
               type="tel"
@@ -527,7 +527,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
                 setPhoneValue(e.target.value.replace(/\D/g, "").slice(0, 10));
                 setInlineMessage(null);
               }}
-              className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground/50"
+              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
               autoFocus
             />
           </div>
@@ -538,7 +538,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             type="button"
             data-testid="firstopen-register-phone-continue"
             onClick={handleRegisterPhoneContinue}
-            className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+            className="mt-6 w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold active:scale-[0.98] transition-transform"
           >
             {s.phone_entry_continue}
           </button>
@@ -564,14 +564,14 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             </p>
           ) : (
             <>
-              <h1 className="font-display text-2xl font-bold text-foreground leading-tight">
+              <h1 className="font-display text-xl font-bold text-foreground leading-tight">
                 {s.firstopen_restore_title}
               </h1>
               <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
                 {s.firstopen_restore_body}
               </p>
 
-              <div className="mt-6 flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+              <div className="mt-6 flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3">
                 <span className="text-sm text-muted-foreground font-medium">+91</span>
                 <input
                   type="tel"
@@ -585,7 +585,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
                     setAwaitingNoAccountContinue(false);
                   }}
                   disabled={restoreLoading || awaitingNoAccountContinue}
-                  className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground/50"
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
                   autoFocus
                 />
               </div>
@@ -610,7 +610,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
                   type="button"
                   data-testid="firstopen-no-account-continue"
                   onClick={handleNoAccountContinue}
-                  className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+                  className="mt-6 w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold active:scale-[0.98] transition-transform"
                 >
                   {s.firstopen_no_account_continue}
                 </button>
@@ -620,7 +620,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
                   data-testid="firstopen-restore-cta"
                   disabled={restoreLoading}
                   onClick={() => void handleRestore()}
-                  className="mt-6 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
+                  className="mt-6 w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
                 >
                   {restoreLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -659,7 +659,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             type="button"
             data-testid="restore-verify-otp-btn"
             onClick={handleChooseVerifyOtp}
-            className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform"
+            className="w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold active:scale-[0.98] transition-transform"
           >
             {s.firstopen_restore_verify_cta}
           </button>
@@ -695,7 +695,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
           <p className="text-5xl mb-6" aria-hidden>
             🔔
           </p>
-          <h2 className="font-display text-2xl font-bold text-foreground leading-tight">
+          <h2 className="font-display text-xl font-bold text-foreground leading-tight">
             {s.firstopen_notif_title}
           </h2>
           <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
@@ -707,7 +707,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             data-testid="firstopen-notif-allow"
             disabled={notifLoading}
             onClick={() => void handleAllowNotifications()}
-            className="mt-8 w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
+            className="mt-8 w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
           >
             {notifLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

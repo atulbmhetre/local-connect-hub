@@ -1503,7 +1503,7 @@ export function ParchiSheet({
                   </label>
                 )}
                 {recurrenceKind !== "one_time" && (
-                  <p className="text-[11px] text-muted-foreground leading-snug">
+                  <p className="text-xs text-muted-foreground leading-snug">
                     {s.parchi_recurrence_hint}
                   </p>
                 )}
@@ -1658,7 +1658,7 @@ export function ParchiSheet({
                       <button
                         type="button"
                         onClick={addMenuToOrder}
-                        className="w-full rounded-xl bg-brand/20 border border-brand text-brand py-2.5 text-sm font-semibold active:scale-[0.98]"
+                        className="w-full rounded-xl bg-brand/20 border border-brand text-brand h-10 text-sm font-semibold active:scale-[0.98]"
                       >
                         Add to order
                       </button>
@@ -1847,11 +1847,11 @@ export function ParchiSheet({
                 </>
               )}
               {resolvedServiceMode === "appointment" ? (
-                <p className="text-[11px] text-muted-foreground text-center">
+                <p className="text-xs text-muted-foreground text-center">
                   {s.parchi_cancellationAppt}
                 </p>
               ) : (
-                <p className="text-[11px] text-muted-foreground text-center">
+                <p className="text-xs text-muted-foreground text-center">
                   {s.parchi_cancellationOrder}
                 </p>
               )}
@@ -1860,7 +1860,7 @@ export function ParchiSheet({
                 data-testid="parchi-submit-btn"
                 disabled={sending || deliveryBelowMin}
                 onClick={() => void send()}
-                className="w-full min-h-11 bg-brand text-white font-bold py-4 rounded-2xl text-base active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+                className="w-full h-12 bg-brand text-white font-bold rounded-2xl text-sm active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
               >
                 {sending
                   ? "..."
@@ -1907,7 +1907,7 @@ export function ParchiSheet({
                 data-testid="parchi-low-trust-checkbox"
                 checked={lowTrustConfirmed}
                 onChange={(e) => setLowTrustConfirmed(e.target.checked)}
-                className="mt-0.5 accent-brand"
+                className="mt-1 accent-brand"
               />
               {s.parchi_trust_low_confirmCheckbox}
             </label>
@@ -1916,7 +1916,7 @@ export function ParchiSheet({
               disabled={!lowTrustConfirmed || sending}
               data-testid="parchi-low-trust-confirm"
               onClick={confirmLowTrustOrder}
-              className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold disabled:opacity-50"
+              className="w-full rounded-xl bg-brand text-page-bg h-12 font-semibold disabled:opacity-50"
             >
               {sending ? "..." : s.parchi_trust_low_confirmBtn}
             </button>

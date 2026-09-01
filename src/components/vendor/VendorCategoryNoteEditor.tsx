@@ -111,7 +111,7 @@ export function VendorCategoryNoteEditor({
         className="w-full bg-card border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
       />
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] text-muted-foreground">{note.length}/100</p>
+        <p className="text-xs text-muted-foreground">{note.length}/100</p>
         <button
           type="button"
           onClick={() => void saveNote()}

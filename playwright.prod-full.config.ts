@@ -62,6 +62,7 @@ export default defineConfig({
   testIgnore: ['**/prod-vendor-wizard-smoke.spec.ts'],
   globalSetup: './tests/helpers/prodFullGlobalSetup.ts',
   use: {
+    viewport: { width: 390, height: 844 },
     baseURL,
     headless: true,
     screenshot: 'only-on-failure',

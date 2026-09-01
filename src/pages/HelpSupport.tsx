@@ -169,18 +169,18 @@ const HelpSupport = () => {
           <button
             type="button"
             onClick={() => navigate("/settings")}
-            className="ml-4 rounded-full border border-surface-border p-2 text-foreground active:scale-95"
+            className="h-10 w-10 shrink-0 grid place-items-center rounded-full border border-surface-border bg-surface active:scale-95"
             aria-label={s.help_support_back}
             data-testid="help-support-back"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="min-w-0 flex-1 pr-4">
+          <div className="min-w-0 flex-1">
             <SettingsPageHeader title={s.help_support_title} subtitle={s.help_support_subtitle} />
           </div>
         </div>
 
-        <section className="px-4 space-y-2" data-testid="help-faq-section">
+        <section className="space-y-2" data-testid="help-faq-section">
           <h2 className="text-xs font-bold uppercase tracking-widest text-brand px-1">
             {s.help_faq_heading}
           </h2>
@@ -206,7 +206,7 @@ const HelpSupport = () => {
           </SettingsCard>
         </section>
 
-        <section className="px-4 space-y-2" data-testid="help-feedback-section">
+        <section className="space-y-2" data-testid="help-feedback-section">
           <h2 className="text-xs font-bold uppercase tracking-widest text-brand px-1">
             {s.help_feedback_heading}
           </h2>
@@ -257,7 +257,7 @@ const HelpSupport = () => {
                 data-testid="help-feedback-submit"
                 disabled={feedbackSending}
                 onClick={() => void submitFeedback()}
-                className="w-full rounded-xl bg-brand text-page-bg py-3 text-sm font-semibold active:scale-[0.99] disabled:opacity-50"
+                className="w-full rounded-xl bg-brand text-page-bg h-12 text-sm font-semibold active:scale-[0.99] disabled:opacity-50"
               >
                 {feedbackSending ? s.help_feedback_sending : s.help_feedback_submit}
               </button>
@@ -265,7 +265,7 @@ const HelpSupport = () => {
           </SettingsCard>
         </section>
 
-        <section className="px-4 space-y-2" data-testid="help-contact-section">
+        <section className="space-y-2" data-testid="help-contact-section">
           <h2 className="text-xs font-bold uppercase tracking-widest text-brand px-1">
             {s.help_contact_heading}
           </h2>
@@ -327,7 +327,7 @@ const HelpSupport = () => {
                 data-testid="help-contact-submit"
                 disabled={contactSending}
                 onClick={() => void submitContact()}
-                className="w-full rounded-xl bg-brand text-page-bg py-3 text-sm font-semibold active:scale-[0.99] disabled:opacity-50"
+                className="w-full rounded-xl bg-brand text-page-bg h-12 text-sm font-semibold active:scale-[0.99] disabled:opacity-50"
               >
                 {contactSending ? s.help_contact_sending : s.help_contact_submit}
               </button>

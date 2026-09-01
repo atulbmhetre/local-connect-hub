@@ -27,7 +27,7 @@ export function NetworkErrorBanner({
         )}
         role="status"
       >
-        <Loader2 className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5 animate-spin" aria-hidden />
+        <Loader2 className="h-5 w-5 text-muted-foreground shrink-0 mt-1 animate-spin" aria-hidden />
         <p className="text-sm text-muted-foreground">{s.network_retrying}</p>
       </div>
     );
@@ -46,7 +46,7 @@ export function NetworkErrorBanner({
       role="alert"
       data-network-status={status}
     >
-      <WifiOff className="h-5 w-5 text-destructive shrink-0 mt-0.5" aria-hidden />
+      <WifiOff className="h-5 w-5 text-destructive shrink-0 mt-1" aria-hidden />
       <div className="min-w-0 flex-1 space-y-3">
         <p className="text-sm text-destructive">{body}</p>
         {onRetry && (

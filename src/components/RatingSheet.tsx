@@ -426,7 +426,7 @@ export function RatingSheet({
             data-testid="rating-submit-btn"
             disabled={busy || stars === 0}
             onClick={() => void handleRate()}
-            className="w-full rounded-2xl bg-brand text-white py-4 font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
+            className="w-full rounded-2xl bg-brand text-white h-12 font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
           >
             {loading === "rate" ? <Loader2 className="h-5 w-5 animate-spin shrink-0" /> : null}
             {submitLabel}
@@ -449,7 +449,7 @@ export function RatingSheet({
             {loading === "issue" ? <Loader2 className="h-4 w-4 animate-spin inline shrink-0" /> : null}{" "}
             {s.rating_btnIssue}
           </button>
-          <p className="text-[11px] text-muted-foreground text-center pt-1">
+          <p className="text-xs text-muted-foreground text-center pt-1">
             {s.rating_helperText}
           </p>
 

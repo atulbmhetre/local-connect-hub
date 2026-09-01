@@ -3,6 +3,7 @@ import { type ClassifySearchCandidate, useCategoryLabel } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { Search, X } from "lucide-react";
 import { APP_COLUMN_CLASS } from "@/lib/appColumn";
+import { Input } from "@/components/ui/input";
 
 /** Tier 1 shows the top candidates; "None of these" reveals the rest (≤10 total). */
 export const SUGGEST_TIER1_COUNT = 5;
@@ -89,19 +90,19 @@ export const SearchSuggestSheet = ({
             >
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <input
+                <Input
                   data-testid="search-suggest-rephrase-input"
                   value={rephraseText}
                   onChange={(e) => setRephraseText(e.target.value)}
                   placeholder={s.home_suggest_rephrase_placeholder}
                   autoFocus
-                  className="w-full bg-muted/50 border border-border rounded-xl pl-10 pr-3 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+                  className="bg-muted/50 border-border pl-10 pr-3"
                 />
               </div>
               <button
                 type="submit"
                 data-testid="search-suggest-rephrase-submit"
-                className="mt-3 w-full rounded-2xl bg-gradient-sos text-primary-foreground py-4 flex items-center justify-center gap-2 font-semibold shadow-sos active:scale-[0.98]"
+                className="mt-3 w-full rounded-2xl bg-gradient-sos text-primary-foreground h-12 flex items-center justify-center gap-2 font-semibold shadow-sos active:scale-[0.98]"
               >
                 <Search className="h-5 w-5" />
                 {s.home_suggest_rephrase_submit}
@@ -131,7 +132,7 @@ export const SearchSuggestSheet = ({
             <button
               data-testid="search-suggest-none"
               onClick={onNone}
-              className="mt-4 w-full rounded-2xl bg-muted border border-border text-foreground py-4 font-semibold active:scale-[0.98]"
+              className="mt-4 w-full rounded-2xl bg-muted border border-border text-foreground h-12 font-semibold active:scale-[0.98]"
             >
               {s.home_suggest_none}
             </button>

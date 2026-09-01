@@ -35,6 +35,7 @@ import {
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import {
   Collapsible,
   CollapsibleTrigger,
@@ -296,7 +297,7 @@ function RadarModeSelector({
             <span className="text-xs font-semibold leading-tight">{s[mode.label] as string}</span>
             <span
               className={cn(
-                "text-[10px] leading-tight text-center",
+                "text-xs leading-tight text-center",
                 selected ? "text-white/80" : "text-muted-foreground",
               )}
             >
@@ -416,7 +417,7 @@ type LocationHighlightState = { highlightVendorId?: string };
 function RadarVendorCardSkeleton() {
   return (
     <div
-      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-pulse"
+      className="mb-3 rounded-2xl border border-surface-border bg-surface p-4 animate-pulse"
       aria-hidden
     >
       <div className="flex items-start gap-3">
@@ -1320,7 +1321,7 @@ const RadarSearch = () => {
             <h2 className="text-brand text-sm font-bold tracking-widest uppercase mb-2">
               {s.radar_scanning_area}
             </h2>
-            <p className="text-2xl font-semibold italic capitalize text-foreground">
+            <p className="text-xl font-semibold italic capitalize text-foreground">
               {s.radar_finding_nearby}{getCategoryLabel(headline)}…
             </p>
           </div>
@@ -1353,12 +1354,12 @@ const RadarSearch = () => {
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div className="text-center">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-brand">
+              <p className="text-xs uppercase tracking-[0.3em] text-brand">
                 {s.radar_live}
               </p>
-              <h1 className="font-display text-lg font-bold capitalize">{term ? getCategoryLabel(term) : headline}</h1>
+              <h1 className="font-display text-xl font-bold capitalize">{term ? getCategoryLabel(term) : headline}</h1>
               {!term && (
-                <p className="text-[11px] text-muted-foreground mt-1 px-2 leading-snug">
+                <p className="text-xs text-muted-foreground mt-1 px-2 leading-snug">
                   {s.radar_sos_subtitle}
                 </p>
               )}
@@ -1366,22 +1367,22 @@ const RadarSearch = () => {
             <NotificationBell />
           </header>
 
-          <div className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-3 space-y-3">
+          <div className="mb-3 rounded-2xl border border-surface-border bg-surface p-3 space-y-3">
             <RadarModeSelector selectedMode={selectedMode} onModeChange={handleModeChange} />
             <form onSubmit={handleSearchSubmit} className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              <input
+              <Input
                 data-testid="radar-search-input"
                 value={searchDraft}
                 onChange={(e) => setSearchDraft(e.target.value)}
                 placeholder={s.searchPlaceholder}
-                className="w-full bg-muted/50 border border-surface-border rounded-xl pl-10 pr-3 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+                className="bg-muted/50 border-surface-border pl-10 pr-3"
               />
             </form>
           </div>
 
           {modeMismatchHint && (
-            <div className="mx-4 mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-2">
+            <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-2">
               <p className="text-sm text-amber-600 leading-relaxed">
                 {s.radar_suggest_mode_mismatch(
                   radarModeDisplayLabel(modeMismatchHint.suggestedMode, s),
@@ -1390,7 +1391,7 @@ const RadarSearch = () => {
               <button
                 type="button"
                 onClick={handleSwitchToSuggestedMode}
-                className="w-full rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-600 text-sm font-semibold py-2.5 active:scale-[0.99]"
+                className="w-full rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-600 text-sm font-semibold h-10 active:scale-[0.99]"
               >
                 {s.radar_suggest_mode_switch}
               </button>
@@ -1456,7 +1457,7 @@ const RadarSearch = () => {
           <p className="text-4xl" aria-hidden>
             📍
           </p>
-          <p className="font-display text-lg font-semibold text-white">
+          <p className="font-display text-xl font-semibold text-white">
             {s.radar_location_required_title}
           </p>
           <p className="text-sm text-muted-foreground leading-relaxed">
@@ -1466,7 +1467,7 @@ const RadarSearch = () => {
             <button
               type="button"
               onClick={openLocationSettings}
-              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+              className="w-full rounded-xl bg-brand text-[#0b1f14] h-12 font-semibold active:scale-[0.98]"
             >
               {s.radar_open_settings}
             </button>
@@ -1474,7 +1475,7 @@ const RadarSearch = () => {
             <button
               type="button"
               onClick={requestLocation}
-              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+              className="w-full rounded-xl bg-brand text-[#0b1f14] h-12 font-semibold active:scale-[0.98]"
             >
               {s.radar_retry_location}
             </button>
@@ -1508,10 +1509,10 @@ const RadarSearch = () => {
 
       {!locationBlocked && error && (
         <div className="rounded-2xl bg-destructive/10 border border-destructive/30 p-4 flex gap-3 mt-2">
-          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-1" />
           <div>
             <p className="font-semibold text-destructive">{s.radar_connection_error}</p>
-            <p className="text-sm text-muted-foreground mt-0.5 break-words">{error}</p>
+            <p className="text-sm text-muted-foreground mt-1 break-words">{error}</p>
           </div>
         </div>
       )}
@@ -1562,7 +1563,7 @@ const RadarSearch = () => {
       {/* Results */}
       {!scanning && !error && results.length > 0 && (
         <section className="mt-2 pb-4">
-          <p className="text-center text-[11px] text-muted-foreground px-4 mb-3">
+          <p className="text-center text-xs text-muted-foreground px-4 mb-3">
             {s.radar_delivery_disclaimer}
           </p>
           {(() => {
@@ -1664,7 +1665,7 @@ const RadarSearch = () => {
           })()}
           {resultsTruncated && (
             <p
-              className="mx-4 mt-3 text-center text-xs text-muted-foreground leading-relaxed"
+              className="mt-3 text-center text-xs text-muted-foreground leading-relaxed"
               data-testid="radar-results-truncated"
             >
               {s.radar_results_truncated}
@@ -1673,7 +1674,7 @@ const RadarSearch = () => {
           {isPharmacyMedicalSearch(term) && (
             <a
               href="tel:104"
-              className="mx-4 mt-3 flex items-center justify-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-4 py-3 text-sm text-brand font-medium active:scale-[0.99] transition-transform"
+              className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-brand/30 bg-brand/10 px-4 py-3 text-sm text-brand font-medium active:scale-[0.99] transition-transform"
             >
               <PhoneCall className="h-4 w-4 shrink-0" />
               {s.radar_medical_helpline}
@@ -1696,8 +1697,8 @@ const RadarSearch = () => {
             <EmptyStateFailsafe term={term} />
           </div>
         ) : (
-          <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4 mx-4">
-            <p className="text-center font-display text-lg font-semibold text-white">
+          <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4">
+            <p className="text-center font-display text-xl font-semibold text-white">
               {isPanIndiaBracket
                 ? s.radar_no_helpers_area
                 : s.radar_no_helpers.replace("{radius}", String(searchRadiusKm))}
@@ -1733,7 +1734,7 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
   return (
     <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4">
       <div className="text-center">
-        <p className="font-display text-lg font-semibold text-white">
+        <p className="font-display text-xl font-semibold text-white">
           {s.radar_no_private}
         </p>
         <p className="text-sm text-gray-400 mt-1">
@@ -1827,7 +1828,7 @@ export const GovEmergencyServices = ({
           <div className="flex items-center gap-2 min-w-0">
             <Siren className="h-4 w-4 text-destructive shrink-0" />
             <div className="text-left min-w-0">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-destructive font-bold">
+              <p className="text-xs uppercase tracking-[0.3em] text-destructive font-bold">
                 {s.radar_govt_help}
               </p>
               <p className="text-xs text-gray-400 break-words leading-snug">
@@ -1849,7 +1850,7 @@ export const GovEmergencyServices = ({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white break-words leading-snug">{l.label}</p>
-                <p className="text-[11px] text-gray-400 break-words leading-snug">{l.tagline}</p>
+                <p className="text-xs text-gray-400 break-words leading-snug">{l.tagline}</p>
               </div>
               <span className="text-sm font-bold text-destructive shrink-0 pt-0.5">{l.number}</span>
             </a>
@@ -1864,7 +1865,7 @@ export const GovEmergencyServices = ({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white break-words leading-snug">{s.radar_local_police}</p>
-                <p className="text-[11px] text-gray-400 break-words leading-snug">
+                <p className="text-xs text-gray-400 break-words leading-snug">
                   {s.radar_police_tagline}
                 </p>
               </div>

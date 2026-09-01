@@ -575,7 +575,7 @@ export function VendorMyBusinessOperations({
         label={s.menu_title}
         badge={
           menuLoadFailed ? null : (
-            <span className="text-[10px] font-semibold text-muted-foreground normal-case tracking-normal">
+            <span className="text-xs font-semibold text-muted-foreground normal-case tracking-normal">
               {scopedMenuItems.length} items
             </span>
           )
@@ -601,7 +601,7 @@ export function VendorMyBusinessOperations({
             (isListeningMenu ? (
               <div className="flex items-center gap-2 rounded-lg border border-red-500/50 bg-red-500/10 px-2.5 py-1.5 shrink-0">
                 <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-                <span className="text-[10px] font-semibold text-red-500 whitespace-nowrap">
+                <span className="text-xs font-semibold text-red-500 whitespace-nowrap">
                   {s.settings_listeningSpeak}
                 </span>
               </div>
@@ -619,11 +619,11 @@ export function VendorMyBusinessOperations({
         </div>
 
         {menuLoading && (
-          <p className="text-xs text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
+          <p className="text-xs text-muted-foreground px-4 py-3">{s.settings_loading}</p>
         )}
 
         {!menuLoading && menuLoadFailed && (
-          <div className="px-4 py-3.5 space-y-2">
+          <div className="px-4 py-3 space-y-2">
             <p className="text-xs text-destructive">{s.menu_items_unavailable}</p>
             <button
               type="button"
@@ -636,7 +636,7 @@ export function VendorMyBusinessOperations({
         )}
 
         {!menuLoading && !menuLoadFailed && scopedMenuItems.length === 0 && (
-          <p className="text-xs text-muted-foreground px-4 py-3.5">{s.menu_empty}</p>
+          <p className="text-xs text-muted-foreground px-4 py-3">{s.menu_empty}</p>
         )}
 
         {scopedMenuItems.map((item) => (
@@ -783,7 +783,7 @@ export function VendorMyBusinessOperations({
           type="button"
           onClick={() => setAddingItem(true)}
           disabled={!activeCategoryId}
-          className="w-full mx-4 mb-3 mt-1 rounded-xl border border-brand/30 bg-brand/5 py-3 text-sm font-semibold text-brand active:scale-[0.99] disabled:opacity-50"
+          className="w-full mb-3 mt-1 rounded-xl border border-brand/30 bg-brand/5 h-10 text-sm font-semibold text-brand active:scale-[0.99] disabled:opacity-50"
         >
           + {s.menu_addItem}
         </button>

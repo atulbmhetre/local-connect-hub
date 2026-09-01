@@ -77,7 +77,7 @@ export function VendorAnalytics({
     );
     if (hideHeader) return err;
     return (
-      <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4">
+      <section className="rounded-2xl border border-surface-border bg-surface p-4">
         <div className="flex items-center gap-3 mb-3">
           <BarChart2 className="h-5 w-5 text-secondary" />
           <p className="font-display font-bold">{s.settings_myAnalytics}</p>
@@ -161,7 +161,7 @@ export function VendorAnalytics({
   if (hideHeader) return grid;
 
   return (
-    <section className="mx-4 rounded-2xl border border-surface-border bg-surface p-4">
+    <section className="rounded-2xl border border-surface-border bg-surface p-4">
       <div className="flex items-center gap-3 mb-3">
         <BarChart2 className="h-5 w-5 text-secondary" />
         <p className="font-display font-bold">{s.settings_myAnalytics}</p>

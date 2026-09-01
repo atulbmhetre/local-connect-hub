@@ -45,9 +45,21 @@ describe("desktop column chrome", () => {
     expect(sheetVariants({ side: "bottom" })).toContain("mx-auto");
   });
 
+  it("hides BottomNav at lg on web so the desktop sidebar can replace it", () => {
+    render(
+      <MemoryRouter>
+        <BottomNav />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("bottom-nav-chrome").closest("nav")?.className).toContain(
+      "lg:hidden",
+    );
+  });
+
   it("leaves Live Tracking full-viewport (no AppShell column)", () => {
     const src = readFileSync(resolve("src/pages/LiveTracking.tsx"), "utf8");
     expect(src).not.toMatch(/AppShell/);
     expect(src).not.toMatch(/max-w-md/);
+    expect(src).not.toMatch(/DesktopSidebar/);
   });
 });

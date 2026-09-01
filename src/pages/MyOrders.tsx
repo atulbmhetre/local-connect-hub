@@ -37,6 +37,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import {
   SettingsPageHeader,
   SettingsSectionLabel,
@@ -67,6 +68,7 @@ import {
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
+import { CUSTOMER_KHATA_HASH } from "@/lib/desktopShell";
 import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
 import { captureError } from "@/lib/sentry";
 import {
@@ -515,6 +517,13 @@ const MyOrders = () => {
     const t = window.setTimeout(() => setFlashOrderId(null), 2000);
     return () => window.clearTimeout(t);
   }, [highlightOrderId, loading, rows.length]);
+
+  useEffect(() => {
+    if (location.hash !== `#${CUSTOMER_KHATA_HASH}`) return;
+    const el = document.getElementById(CUSTOMER_KHATA_HASH);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [location.hash, myKhata.length]);
 
   const loadBills = async (requestIds: string[]) => {
     if (!requestIds.length) {
@@ -1760,12 +1769,13 @@ const MyOrders = () => {
   return (
     <AppShell theme="dark">
       <div className="space-y-3 pb-24" data-testid="my-orders-screen">
-      <div className="flex items-start gap-3 pr-4">
+      <div className="flex items-start gap-3">
         <button
           type="button"
           onClick={() => navigate("/")}
-          className="h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-surface-border bg-surface ml-4"
+          className="h-10 w-10 shrink-0 grid place-items-center rounded-full border border-surface-border bg-surface lg:hidden"
           aria-label={s.myOrders_backToHome}
+          data-testid="my-orders-back-home"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -1775,14 +1785,14 @@ const MyOrders = () => {
         <NotificationBell className="mt-6 shrink-0" />
       </div>
 
-      <div className="relative mx-4">
+      <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <input
+        <Input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={s.search_ordersPlaceholder}
-          className="w-full bg-surface border border-surface-border rounded-2xl pl-9 pr-10 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand"
+          className="bg-surface border-surface-border rounded-2xl pl-9 pr-10"
         />
         {searchQuery && (
           <button
@@ -1811,7 +1821,7 @@ const MyOrders = () => {
                   key={ro.id}
                   data-testid={`recurring-order-card-${ro.id}`}
                   className={cn(
-                    "px-4 py-3.5 space-y-2",
+                    "px-4 py-3 space-y-2",
                     idx < recurringOrders.length - 1 && "border-b border-surface-border",
                   )}
                 >
@@ -1820,7 +1830,7 @@ const MyOrders = () => {
                       <p className="text-sm font-bold text-foreground truncate">
                         {ro.shop_name ?? s.myOrders_shopFallback}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="text-xs text-muted-foreground mt-1">
                         {intervalLabel}
                         {ro.category_label ? ` · ${ro.category_label}` : ""}
                         {ro.status === "paused" ? ` · ${s.myOrders_recurringPaused}` : ""}
@@ -1866,6 +1876,7 @@ const MyOrders = () => {
         </>
       )}
 
+      <div id={CUSTOMER_KHATA_HASH} data-testid="my-orders-khata" />
       {myKhata.length > 0 && (
         <>
           <SettingsSectionLabel>📒 {s.khata_myTabs}</SettingsSectionLabel>
@@ -1876,7 +1887,7 @@ const MyOrders = () => {
                 type="button"
                 onClick={() => void openKhataDetail(k)}
                 className={cn(
-                  "w-full flex justify-between gap-3 px-4 py-3.5 text-left active:opacity-80",
+                  "w-full flex justify-between gap-3 px-4 py-3 text-left active:opacity-80",
                   idx < myKhata.length - 1 && "border-b border-surface-border",
                 )}
               >
@@ -1916,7 +1927,7 @@ const MyOrders = () => {
           <button
             type="button"
             onClick={() => navigate("/")}
-            className="w-full rounded-xl bg-brand text-[#0b1f14] py-3.5 font-semibold active:scale-[0.98]"
+            className="w-full rounded-xl bg-brand text-[#0b1f14] h-12 font-semibold active:scale-[0.98]"
           >
             {s.myOrders_findVendors}
           </button>
@@ -1935,7 +1946,7 @@ const MyOrders = () => {
               id={`order-card-${r.id}`}
               data-testid="order-card"
               className={cn(
-                "mx-4 rounded-2xl border border-surface-border bg-surface p-4 space-y-2 mb-3",
+                "rounded-2xl border border-surface-border bg-surface p-4 space-y-2 mb-3",
                 r.status === "cancelled" && "border-red-500/30 bg-red-500/5",
                 r.status === "expired" && "border-amber-500/30 bg-amber-500/5",
                 flashOrderId === r.id &&
@@ -1958,7 +1969,7 @@ const MyOrders = () => {
                       <Pencil className="h-4 w-4" />
                     </button>
                   )}
-                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                  <span className="text-xs text-muted-foreground tabular-nums">
                     {formatTimeAgo(r.created_at)}
                   </span>
                 </div>
@@ -1966,7 +1977,7 @@ const MyOrders = () => {
               <span
                 data-testid="order-status-badge"
                 className={cn(
-                  "inline-flex rounded-full text-[11px] font-semibold px-2.5 py-1 border",
+                  "inline-flex rounded-full text-xs font-semibold px-2.5 py-1 border",
                   orderStatusPillClass(r),
                 )}
               >
@@ -1974,10 +1985,10 @@ const MyOrders = () => {
               </span>
               {isDeliveryAcceptedOverdue(r) && (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
-                  <p className="text-[11px] text-amber-400 text-center leading-snug font-semibold">
+                  <p className="text-xs text-amber-400 text-center leading-snug font-semibold">
                     {s.delivery_accepted_overdue_title}
                   </p>
-                  <p className="text-[11px] text-amber-400 text-center leading-snug">
+                  <p className="text-xs text-amber-400 text-center leading-snug">
                     {s.delivery_accepted_overdue_body}
                   </p>
                   {canShowCustomerCancelOrder(r) ? (
@@ -1986,7 +1997,7 @@ const MyOrders = () => {
                       data-testid="order-cancel-btn"
                       disabled={markingId === r.id}
                       onClick={() => void handleRemoveOrder(r)}
-                      className="w-full rounded-xl border border-destructive/40 text-destructive text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full rounded-xl border border-destructive/40 text-destructive text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
                     >
                       {markingId === r.id ? s.myOrders_saving : s.myOrders_cancelOrder}
                     </button>
@@ -1996,13 +2007,13 @@ const MyOrders = () => {
                         type="button"
                         data-testid="order-dismiss-btn"
                         disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 opacity-50 cursor-not-allowed"
+                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
                       >
                         {s.myOrders_dismiss}
                       </button>
                       <p
                         data-testid="order-dismiss-blocked-unpaid"
-                        className="text-[10px] text-muted-foreground text-center leading-snug"
+                        className="text-xs text-muted-foreground text-center leading-snug"
                       >
                         {s.myOrders_dismissBlockedUnpaid}
                       </p>
@@ -2013,7 +2024,7 @@ const MyOrders = () => {
                       data-testid="order-dismiss-btn"
                       disabled={markingId === r.id}
                       onClick={() => void markDone(r)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
                     >
                       {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
                     </button>
@@ -2022,10 +2033,10 @@ const MyOrders = () => {
               )}
               {isBookingConfirmedOverdue(r) && (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
-                  <p className="text-[11px] text-amber-400 text-center leading-snug font-semibold">
+                  <p className="text-xs text-amber-400 text-center leading-snug font-semibold">
                     {s.booking_confirmed_overdue_title}
                   </p>
-                  <p className="text-[11px] text-amber-400 text-center leading-snug">
+                  <p className="text-xs text-amber-400 text-center leading-snug">
                     {s.booking_confirmed_overdue_body}
                   </p>
                   {billBlocksDismiss(billsByRequestId[r.id]) ? (
@@ -2034,13 +2045,13 @@ const MyOrders = () => {
                         type="button"
                         data-testid="order-dismiss-btn"
                         disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 opacity-50 cursor-not-allowed"
+                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
                       >
                         {s.myOrders_dismiss}
                       </button>
                       <p
                         data-testid="order-dismiss-blocked-unpaid"
-                        className="text-[10px] text-muted-foreground text-center leading-snug"
+                        className="text-xs text-muted-foreground text-center leading-snug"
                       >
                         {s.myOrders_dismissBlockedUnpaid}
                       </p>
@@ -2051,7 +2062,7 @@ const MyOrders = () => {
                       data-testid="order-dismiss-btn"
                       disabled={markingId === r.id}
                       onClick={() => void markDone(r)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
                     >
                       {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
                     </button>
@@ -2073,7 +2084,7 @@ const MyOrders = () => {
                             type="button"
                             data-testid="my-orders-bill-edited-badge"
                             onClick={() => setHistoryBillId(bill.id)}
-                            className="text-[10px] font-semibold text-brand underline shrink-0"
+                            className="text-xs font-semibold text-brand underline shrink-0"
                           >
                             {s.bill_editedBadge}
                           </button>
@@ -2105,7 +2116,7 @@ const MyOrders = () => {
                             data-testid="my-orders-payment-hygiene-warning"
                             className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2"
                           >
-                            <p className="text-[11px] text-amber-400 text-center leading-snug">
+                            <p className="text-xs text-amber-400 text-center leading-snug">
                               {s.payment_hygiene_unpaid_warning}
                             </p>
                           </div>
@@ -2233,10 +2244,10 @@ const MyOrders = () => {
                       )}
                       {review.vendor_response && (
                         <div className="rounded-lg bg-brand/5 border border-brand-border px-2 py-1.5">
-                          <p className="text-[10px] text-brand font-semibold">{s.review_vendorSays}</p>
+                          <p className="text-xs text-brand font-semibold">{s.review_vendorSays}</p>
                           <p className="text-xs text-foreground">{review.vendor_response}</p>
                           {review.vendor_responded_at && (
-                            <p className="text-[10px] text-muted-foreground mt-1">
+                            <p className="text-xs text-muted-foreground mt-1">
                               {formatTimeAgo(review.vendor_responded_at)}
                             </p>
                           )}
@@ -2271,23 +2282,23 @@ const MyOrders = () => {
                   return (
                     <>
                       {live && distM != null && (
-                        <p className="text-[11px] text-brand">
+                        <p className="text-xs text-brand">
                           📍 Vendor is {formatVendorDistance(distM)} · {s.vendor_last_updated}{" "}
                           {formatTimeAgo(live.lastUpdated)}
                         </p>
                       )}
                       {!live && (
-                        <p className="text-[11px] text-muted-foreground">📍 {s.vendor_distance}</p>
+                        <p className="text-xs text-muted-foreground">📍 {s.vendor_distance}</p>
                       )}
                       {live && distM == null && (
-                        <p className="text-[11px] text-brand">
+                        <p className="text-xs text-brand">
                           📍 {s.vendor_distance} · {s.vendor_last_updated}{" "}
                           {formatTimeAgo(live.lastUpdated)}
                         </p>
                       )}
                       {vendorStoppedByOrderId[r.id] && (
                         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
-                          <p className="text-[11px] text-amber-400 text-center leading-snug">
+                          <p className="text-xs text-amber-400 text-center leading-snug">
                             {s.vendor_stopped_warning}
                           </p>
                           {r.vendors?.phone && (
@@ -2304,7 +2315,7 @@ const MyOrders = () => {
                       {isHelpOrder &&
                         isHelpAcceptDelayedRow(r, config.helpAcceptTimeoutHours) && (
                         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
-                          <p className="text-[11px] text-amber-400 text-center leading-snug">
+                          <p className="text-xs text-amber-400 text-center leading-snug">
                             {formatHelpDelayedWarning(
                               s.order_help_delayed_warning,
                               config.helpAcceptTimeoutHours,
@@ -2336,7 +2347,7 @@ const MyOrders = () => {
                 const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
                 if (!slot) return null;
                 return (
-                  <div className="mt-1 rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-[11px]">
+                  <div className="mt-1 rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-xs">
                     {s.myOrders_deliverySlotPrefix}<span className="text-green-700 dark:text-brand font-semibold">{slot}</span>
                   </div>
                 );
@@ -2367,7 +2378,7 @@ const MyOrders = () => {
                       ? s.myOrders_locationVisitShop
                       : s.myOrders_locationTbd;
                   return (
-                    <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] space-y-0.5 ${borderColor}`}>
+                    <div className={`mt-2 rounded-lg border px-3 py-2 text-xs space-y-0.5 ${borderColor}`}>
                       <div className={`font-semibold ${labelColor}`}>{locationLabel}</div>
                       <div>
                         {s.myOrders_apptAround}
@@ -2453,7 +2464,7 @@ const MyOrders = () => {
                   if (!calledVendor[r.id]) {
                     return (
                       <div className="space-y-2">
-                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400 text-center">
+                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400 text-center">
                           {s.myOrders_sameDayWarning}
                         </div>
                         <button
@@ -2472,7 +2483,7 @@ const MyOrders = () => {
 
                   return (
                     <div className="space-y-2">
-                      <p className="text-[11px] text-gray-400 text-center">
+                      <p className="text-xs text-gray-400 text-center">
                         {s.myOrders_callDone}
                       </p>
                       {/* One-tap cancel after the call, without an extra confirmation
@@ -2522,13 +2533,13 @@ const MyOrders = () => {
                         type="button"
                         data-testid="order-dismiss-btn"
                         disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 opacity-50 cursor-not-allowed"
+                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
                       >
                         {s.myOrders_dismiss}
                       </button>
                       <p
                         data-testid="order-dismiss-blocked-unpaid"
-                        className="text-[10px] text-muted-foreground text-center leading-snug"
+                        className="text-xs text-muted-foreground text-center leading-snug"
                       >
                         {s.myOrders_dismissBlockedUnpaid}
                       </p>
@@ -2539,7 +2550,7 @@ const MyOrders = () => {
                       data-testid="order-dismiss-btn"
                       disabled={markingId === r.id}
                       onClick={() => void markDone(r)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
                     >
                       {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
                     </button>
@@ -2552,13 +2563,13 @@ const MyOrders = () => {
                         type="button"
                         data-testid="order-dismiss-btn"
                         disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 opacity-50 cursor-not-allowed"
+                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
                       >
                         {s.myOrders_dismiss}
                       </button>
                       <p
                         data-testid="order-dismiss-blocked-unpaid"
-                        className="text-[10px] text-muted-foreground text-center leading-snug"
+                        className="text-xs text-muted-foreground text-center leading-snug"
                       >
                         {s.myOrders_dismissBlockedUnpaid}
                       </p>
@@ -2569,7 +2580,7 @@ const MyOrders = () => {
                       data-testid="order-dismiss-btn"
                       disabled={markingId === r.id}
                       onClick={() => void markDone(r)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
                     >
                       {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
                     </button>
@@ -2579,7 +2590,7 @@ const MyOrders = () => {
                       data-testid="order-rate-btn"
                       disabled={markingId === r.id}
                       onClick={() => handleFulfilledDismiss(r)}
-                      className="w-full rounded-2xl bg-brand text-page-bg text-sm font-semibold py-3 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full rounded-2xl bg-brand text-page-bg text-sm font-semibold h-12 active:scale-[0.99] disabled:opacity-50"
                     >
                       {markingId === r.id
                         ? s.myOrders_saving
@@ -2627,7 +2638,7 @@ const MyOrders = () => {
                   ) : r.status === "seen" &&
                     !canShowPreAcceptCancel(r) &&
                     orderCreatedWithinLast24h(r.created_at) ? (
-                    <p className="text-[11px] text-muted-foreground text-center px-1">
+                    <p className="text-xs text-muted-foreground text-center px-1">
                       {s.myOrders_cannotCancel}
                     </p>
                   ) : null)}
@@ -2644,7 +2655,7 @@ const MyOrders = () => {
             <SheetTitle>{s.editOrder}</SheetTitle>
           </SheetHeader>
           {editOrder?.status === "seen" && (
-            <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400">
+            <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
               {s.vendorSeenWarning}
             </p>
           )}
@@ -2682,7 +2693,7 @@ const MyOrders = () => {
               </button>
             )}
           </div>
-          <p className="text-[10px] text-muted-foreground text-right mt-1">
+          <p className="text-xs text-muted-foreground text-right mt-1">
             {editMessage.length}/{MAX_LEN}
           </p>
           {editOrder?.delivery_address?.trim() && (
@@ -2716,7 +2727,7 @@ const MyOrders = () => {
             deliverySlotLabel(editOrder?.delivery_slot, slotLabels) ||
             (editOrder?.appointment_time &&
               String(editOrder.appointment_time).trim() !== "")) && (
-            <p className="mt-2 text-[11px] text-muted-foreground leading-snug">
+            <p className="mt-2 text-xs text-muted-foreground leading-snug">
               {s.edit_address_hint}
             </p>
           )}
@@ -2730,7 +2741,7 @@ const MyOrders = () => {
             }
             onClick={() => void saveOrderEdit()}
             className={cn(
-              "mt-4 w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold disabled:opacity-50",
+              "mt-4 w-full rounded-xl bg-brand text-[#0b1f14] h-12 font-semibold disabled:opacity-50",
             )}
           >
             {savingEdit ? s.myOrders_saving : s.saveChanges}
@@ -2795,7 +2806,7 @@ const MyOrders = () => {
                     toast.error(s.rating_errCouldNotSave);
                   }
                 }}
-                className="w-full rounded-xl bg-brand text-page-bg py-3 font-semibold"
+                className="w-full rounded-xl bg-brand text-page-bg h-12 font-semibold"
               >
                 {s.review_saveEdit}
               </button>
@@ -2894,7 +2905,7 @@ const MyOrders = () => {
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <KhataTxSourceChip tx={tx} />
-                        <Badge variant="outline" className="text-[10px] font-semibold">
+                        <Badge variant="outline" className="text-xs font-semibold">
                           {khataPaymentModeLabel(tx.payment_mode, s)}
                         </Badge>
                       </div>

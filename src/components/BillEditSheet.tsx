@@ -444,7 +444,7 @@ export function BillEditSheet({
                   <button
                     type="button"
                     onClick={addItem}
-                    className="w-full rounded-xl border border-dashed border-brand/30 text-brand text-sm font-semibold py-2.5 active:bg-brand/5 transition-colors mb-3"
+                    className="w-full rounded-xl border border-dashed border-brand/30 text-brand text-sm font-semibold h-10 active:bg-brand/5 transition-colors mb-3"
                   >
                     {s.bill_addItem}
                   </button>
@@ -490,7 +490,7 @@ export function BillEditSheet({
                     data-testid="bill-edit-save-btn"
                     disabled={saving || validItems.length === 0}
                     onClick={handleSave}
-                    className="w-full mt-4 rounded-2xl bg-brand text-white py-4 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:pointer-events-none"
+                    className="w-full mt-4 rounded-2xl bg-brand text-white h-12 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:pointer-events-none"
                   >
                     {saving ? s.incoming_saving : s.bill_editSave}
                   </button>

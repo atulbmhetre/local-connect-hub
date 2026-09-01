@@ -33,6 +33,7 @@ import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/
 import { NotificationBell } from "@/components/NotificationBell";
 import { FirstOpenFlow } from "@/components/FirstOpenFlow";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import { captureError } from "@/lib/sentry";
 import { customerOrderShowsLiveLocation } from "@/lib/vendorTrackingPolicy";
 import { savedNeighbourDisplayName } from "@/lib/savedVendors";
@@ -695,13 +696,13 @@ const Index = () => {
         <div className="min-w-0 flex-1">
           <SettingsPageHeader title={s.appName} subtitle={s.taglineSub} />
         </div>
-        <NotificationBell className="mt-6 mr-4" />
+        <NotificationBell className="mt-6" />
       </div>
 
       {removalNotices.length > 0 && (
         <div
           data-testid="home-saved-vendor-removal-banner"
-          className="mx-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm relative"
+          className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm relative"
           role="status"
         >
           <button
@@ -745,7 +746,7 @@ const Index = () => {
         <p
           data-testid="home-help-banner-error"
           role="status"
-          className="mx-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+          className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
         >
           {s.home_help_banner_load_error}
         </p>
@@ -763,7 +764,7 @@ const Index = () => {
               type="button"
               onClick={() => navigate("/my-orders")}
               className={cn(
-                "mx-4 w-[calc(100%-2rem)] rounded-xl border bg-surface px-4 py-3 text-left active:scale-[0.99] transition-transform",
+                "rounded-xl border bg-surface px-4 py-3 text-left active:scale-[0.99] transition-transform",
                 stopped
                   ? "border-l-4 border-l-amber-500 border-amber-500/30 bg-amber-500/5"
                   : "border-l-4 border-l-brand border-brand/30 bg-brand/5",
@@ -781,28 +782,28 @@ const Index = () => {
                 {stopped ? s.home_help_vendor_stopped : s.home_help_ontheway}
               </p>
               {!stopped && (
-                <p className="mt-0.5 text-xs text-muted-foreground truncate">{helpOrderBanner.shopName}</p>
+                <p className="mt-1 text-xs text-muted-foreground truncate">{helpOrderBanner.shopName}</p>
               )}
             </button>
           );
         })()}
 
       <div>
-        <form onSubmit={handleSubmit} className="relative mx-4">
+        <form onSubmit={handleSubmit} className="relative">
           <div className="absolute -top-2.5 left-4 z-10 px-2 bg-background">
-            <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-brand inline-flex items-center gap-1">
+            <span className="text-xs uppercase tracking-[0.2em] font-semibold text-brand inline-flex items-center gap-1">
               <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulse" />
               {s.aiSearch}
             </span>
           </div>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-          <input
+          <Input
             ref={searchInputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             disabled={classifying}
             placeholder={s.searchPlaceholder}
-            className="w-full bg-surface border border-surface-border rounded-2xl pl-12 pr-12 py-4 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-brand disabled:opacity-70"
+            className="rounded-2xl bg-surface border-surface-border pl-12 pr-12"
           />
           {Capacitor.isNativePlatform() && (
             <button
@@ -811,7 +812,7 @@ const Index = () => {
               disabled={classifying}
               aria-label={s.home_voice_search_aria}
               className={cn(
-                "absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl grid place-items-center transition-colors disabled:opacity-50",
+                "absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full grid place-items-center transition-colors disabled:opacity-50",
                 listening ? "bg-brand text-page-bg animate-pulse" : "bg-surface border border-surface-border text-muted-foreground",
               )}
             >
@@ -835,7 +836,7 @@ const Index = () => {
         <p
           data-testid="home-saved-neighbours-error"
           role="status"
-          className="mx-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+          className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
         >
           {s.home_saved_neighbours_load_error}
         </p>
@@ -918,7 +919,7 @@ const Index = () => {
                       />
                     )}
                   </p>
-                  <p className="text-[11px] text-muted-foreground truncate">
+                  <p className="text-xs text-muted-foreground truncate">
                     {getCategoryLabel(category)}
                   </p>
                 </div>
@@ -1024,7 +1025,7 @@ const Index = () => {
           <p
             data-testid="home-categories-error"
             role="status"
-            className="mx-4 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+            className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
           >
             {s.home_categories_load_error}
           </p>
@@ -1042,7 +1043,7 @@ const Index = () => {
                       className="flex-shrink-0 w-20 rounded-2xl bg-surface active:scale-95 transition-all flex flex-col items-center justify-center gap-1.5 border border-surface-border py-3 px-2"
                     >
                       <span className="text-3xl">{cat.emoji}</span>
-                      <span className="font-semibold text-[10px] text-center leading-tight">
+                      <span className="font-semibold text-xs text-center leading-tight">
                         {getCategoryLabel(cat.label)}
                       </span>
                     </button>

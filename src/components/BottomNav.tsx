@@ -2,6 +2,8 @@ import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Home, Store, Settings, Newspaper, ShoppingBag } from "lucide-react";
 import { APP_COLUMN_CLASS } from "@/lib/appColumn";
+import { isWebDesktopShell } from "@/lib/desktopShell";
+import { cn } from "@/lib/utils";
 import {
   readHasVendorId,
   readIsVendorActive,
@@ -54,8 +56,15 @@ export const BottomNav = () => {
     };
   }, []);
 
+  const hideOnDesktop = isWebDesktopShell();
+
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 pointer-events-none">
+    <nav
+      className={cn(
+        "fixed bottom-0 inset-x-0 z-40 pointer-events-none",
+        hideOnDesktop && "lg:hidden",
+      )}
+    >
       <div
         data-testid="bottom-nav-chrome"
         className={`${APP_COLUMN_CLASS} pointer-events-auto bg-card/90 backdrop-blur-xl border-t border-border`}

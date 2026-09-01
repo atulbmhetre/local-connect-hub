@@ -189,7 +189,7 @@ export function VendorSettingsReferEarn({
   return (
     <>
       {referralCode != null ? (
-        <div className="px-4 py-3.5 space-y-3">
+        <div className="px-4 py-3 space-y-3">
           <button
             type="button"
             onClick={() => void copyReferralCode()}
@@ -207,7 +207,7 @@ export function VendorSettingsReferEarn({
             type="button"
             onClick={() => void shareReferLink()}
             disabled={!referLink}
-            className="w-full rounded-2xl bg-secondary text-secondary-foreground px-4 py-3 text-sm font-semibold transition-colors active:scale-[0.99] disabled:opacity-50"
+            className="w-full rounded-2xl bg-secondary text-secondary-foreground px-4 h-12 text-sm font-semibold transition-colors active:scale-[0.99] disabled:opacity-50"
           >
             {s.vendor_referShare}
           </button>
@@ -233,7 +233,7 @@ export function VendorSettingsReferEarn({
           )}
         </div>
       ) : null}
-      <div className="px-4 pb-3.5">
+      <div className="px-4 pb-3">
         <p className="text-xs text-muted-foreground">
           {s.vendor_referVendorCredit(config.referralVendorCreditTotal)}
         </p>
@@ -623,7 +623,7 @@ export function VendorSettings({
   return (
     <>
       {vendor.profile_status === "draft" && (
-        <div className="mx-4 mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-2">
+        <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-2">
           <p className="text-sm font-semibold text-amber-400">{s.vendor_draft_banner_title}</p>
           <p className="text-xs text-muted-foreground leading-relaxed">
             {s.vendor_draft_banner_body}
@@ -647,7 +647,7 @@ export function VendorSettings({
       onToggle={() => onShopOpenChange(!shopOpen)}
     >
       <SettingsCard className="mx-0 mb-2 border-surface-border">
-        <div className="px-4 py-3.5 space-y-2">
+        <div className="px-4 py-3 space-y-2">
           {subscriptionStatus === "trial" && (
             <>
               <p className="text-sm font-semibold text-foreground">🎁 {s.vendor_sub_trial}</p>
@@ -672,7 +672,7 @@ export function VendorSettings({
               <button
                 type="button"
                 onClick={handleCancelSubscription}
-                className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+                className="mt-1 w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:scale-[0.99]"
               >
                 {s.vendor_sub_cancel}
               </button>
@@ -692,7 +692,7 @@ export function VendorSettings({
               <button
                 type="button"
                 onClick={handleRazorpayCheckout}
-                className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+                className="mt-1 w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:scale-[0.99]"
               >
                 {s.vendor_sub_pay_now}
               </button>
@@ -706,7 +706,7 @@ export function VendorSettings({
               <button
                 type="button"
                 onClick={handleRazorpayCheckout}
-                className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+                className="mt-1 w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:scale-[0.99]"
               >
                 {s.vendor_sub_renew}
               </button>
@@ -720,7 +720,7 @@ export function VendorSettings({
               <button
                 type="button"
                 onClick={handleRazorpayCheckout}
-                className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+                className="mt-1 w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:scale-[0.99]"
               >
                 {s.vendor_sub_renew}
               </button>
@@ -730,14 +730,14 @@ export function VendorSettings({
       </SettingsCard>
 
       <SettingsCard className="mx-0 mb-2 border-surface-border">
-        <div className="px-4 py-3.5 space-y-2">
+        <div className="px-4 py-3 space-y-2">
           <p className="text-sm font-semibold text-foreground">{s.aadhaar_verify_title}</p>
           <p className="text-xs text-muted-foreground">{s.aadhaar_verify_body}</p>
           <button
             type="button"
             data-testid="aadhaar-digilocker-verify-btn"
             onClick={() => void handleAadhaarVerify()}
-            className="mt-1 w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:scale-[0.99]"
+            className="mt-1 w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:scale-[0.99]"
           >
             {s.aadhaar_verify_cta}
           </button>
@@ -750,7 +750,7 @@ export function VendorSettings({
         onToggle={() => setLedgerOpen((o) => !o)}
         nested
       >
-        <div className="px-4 py-3.5 space-y-2">
+        <div className="px-4 py-3 space-y-2">
           <p className="text-xs text-muted-foreground">
             {s.vendor_ledgerCycleStartHint}
           </p>
@@ -775,7 +775,7 @@ export function VendorSettings({
         onToggle={() => setKhataCreditOpen((o) => !o)}
         nested
       >
-        <div className="px-4 py-3.5 space-y-3">
+        <div className="px-4 py-3 space-y-3">
           <SettingsRow label={s.khata_enableKhata}>
             <Switch
               className="data-[state=checked]:bg-brand"
@@ -906,10 +906,10 @@ export function VendorSettings({
         nested
       >
         {reviewsLoading && (
-          <p className="text-xs text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
+          <p className="text-xs text-muted-foreground px-4 py-3">{s.settings_loading}</p>
         )}
         {!reviewsLoading && reviewsFailed && (
-          <div className="px-4 py-3.5 space-y-2">
+          <div className="px-4 py-3 space-y-2">
             <p className="text-xs text-destructive">{s.review_unavailable}</p>
             <button
               type="button"
@@ -921,7 +921,7 @@ export function VendorSettings({
           </div>
         )}
         {!reviewsLoading && !reviewsFailed && reviews.length === 0 && (
-          <p className="text-xs text-muted-foreground px-4 py-3.5">{s.review_noReviews}</p>
+          <p className="text-xs text-muted-foreground px-4 py-3">{s.review_noReviews}</p>
         )}
         <div className="px-4 pb-3 space-y-2">
           {reviews.map((r) => (
@@ -943,7 +943,7 @@ export function VendorSettings({
                   <p className="text-xs text-muted-foreground mt-1">
                     — {s.review_anonymous}
                   </p>
-                  <p className="text-[10px] text-muted-foreground mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     {formatTimeAgo(r.created_at)}
                   </p>
                 </div>
@@ -964,12 +964,12 @@ export function VendorSettings({
               </div>
               {r.vendor_response?.trim() ? (
                 <div className="mt-2 pt-2 border-t border-surface-border">
-                  <p className="text-[10px] font-semibold text-muted-foreground">
+                  <p className="text-xs font-semibold text-muted-foreground">
                     {s.review_your_reply}
                   </p>
-                  <p className="text-xs text-foreground mt-0.5 leading-relaxed">{r.vendor_response}</p>
+                  <p className="text-xs text-foreground mt-1 leading-relaxed">{r.vendor_response}</p>
                   {r.vendor_responded_at && (
-                    <p className="text-[10px] text-muted-foreground mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {formatTimeAgo(r.vendor_responded_at)}
                     </p>
                   )}

@@ -84,7 +84,7 @@ export function BillMenuCatalogPicker({ vendorId, isOpen, onPick }: Props) {
                   {item.name}
                 </p>
                 {priceLabel ? (
-                  <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
+                  <p className="text-xs text-muted-foreground mt-1 tabular-nums">
                     {priceLabel}
                   </p>
                 ) : null}

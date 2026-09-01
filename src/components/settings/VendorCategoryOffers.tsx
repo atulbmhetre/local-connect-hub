@@ -257,7 +257,7 @@ export function VendorCategoryOffers({
       nested
     >
       {activeOffer ? (
-        <div className="px-4 py-3.5 space-y-3">
+        <div className="px-4 py-3 space-y-3">
           <p className="text-sm text-foreground">{activeOffer.content}</p>
           <p className="text-xs text-muted-foreground">
             {s.vendor_offer_expires_label}{" "}
@@ -267,13 +267,13 @@ export function VendorCategoryOffers({
             type="button"
             onClick={() => void removeOffer()}
             disabled={offerLoading}
-            className="w-full rounded-xl border border-destructive/40 text-destructive py-2.5 text-sm font-semibold disabled:opacity-50"
+            className="w-full rounded-xl border border-destructive/40 text-destructive h-10 text-sm font-semibold disabled:opacity-50"
           >
             {s.vendor_offer_remove_btn}
           </button>
         </div>
       ) : (
-        <div className="px-4 py-3.5 space-y-3">
+        <div className="px-4 py-3 space-y-3">
           <input
             type="text"
             maxLength={100}
@@ -429,7 +429,7 @@ export function VendorCategoryOffers({
                             <span>
                               {cat.emoji} {getLabel(cat.label)}
                             </span>
-                            <span className="text-[10px] font-normal text-muted-foreground">
+                            <span className="text-xs font-normal text-muted-foreground">
                               {offerCategoryModeChipLabel(cat.service_mode, s)}
                             </span>
                           </button>
@@ -445,7 +445,7 @@ export function VendorCategoryOffers({
             type="button"
             onClick={() => void postOffer()}
             disabled={offerLoading || offerText.trim().length === 0}
-            className="w-full rounded-xl bg-brand text-page-bg py-3 text-sm font-bold disabled:opacity-50 active:scale-[0.99]"
+            className="w-full rounded-xl bg-brand text-page-bg h-12 text-sm font-bold disabled:opacity-50 active:scale-[0.99]"
           >
             {s.settings_postOffer}
           </button>

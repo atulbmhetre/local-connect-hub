@@ -47,6 +47,9 @@ export default defineConfig({
     '**/prod-settings-feed-phone.spec.ts',
   ],
   use: {
+    // Default to a phone viewport so existing bottom-nav tests stay on the
+    // mobile chrome. Desktop shell coverage lives in desktop-layout.spec.ts.
+    viewport: { width: 390, height: 844 },
     baseURL: process.env.PW_APP_URL || defaultBaseURL,
     headless: true,
     screenshot: 'only-on-failure',

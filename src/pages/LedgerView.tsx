@@ -631,12 +631,12 @@ const LedgerView = () => {
         <button
           type="button"
           onClick={() => navigate("/vendor")}
-          className="ml-4 rounded-full border border-surface-border p-2 text-foreground active:scale-95"
+          className="h-10 w-10 shrink-0 grid place-items-center rounded-full border border-surface-border bg-surface active:scale-95"
           aria-label={s.khata_back}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="min-w-0 flex-1 pr-4">
+        <div className="min-w-0 flex-1">
           <SettingsPageHeader title={`📒 ${s.khata_book}`} subtitle={shopName || " "} />
         </div>
       </div>
@@ -664,7 +664,7 @@ const LedgerView = () => {
       ) : (
         <div className="space-y-2">
           {visibleEntries.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8 mx-4">{s.khata_empty}</p>
+            <p className="text-sm text-muted-foreground text-center py-8">{s.khata_empty}</p>
           ) : (
             <SettingsCard>
               {visibleEntries.map((entry, idx) => (
@@ -673,7 +673,7 @@ const LedgerView = () => {
                   type="button"
                   onClick={() => openCustomer(entry.user_phone)}
                   className={cn(
-                    "w-full flex items-center justify-between px-4 py-3.5 text-left active:scale-[0.99]",
+                    "w-full flex items-center justify-between px-4 py-3 text-left active:scale-[0.99]",
                     idx < visibleEntries.length - 1 && "border-b border-surface-border",
                   )}
                 >
@@ -805,7 +805,7 @@ const LedgerView = () => {
                   type="button"
                   disabled={callLoading || !vendorPhone}
                   onClick={() => void initiateCustomerCall()}
-                  className="w-full rounded-xl border border-brand/40 bg-brand/10 text-brand text-sm font-semibold py-2.5 active:scale-[0.99] disabled:opacity-50"
+                  className="w-full rounded-xl border border-brand/40 bg-brand/10 text-brand text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
                 >
                   {callLoading ? (
                     <span className="inline-flex items-center justify-center gap-2">
@@ -816,7 +816,7 @@ const LedgerView = () => {
                     s.khata_callCustomer
                   )}
                 </button>
-                <p className="text-[11px] text-muted-foreground text-center mt-1.5">
+                <p className="text-xs text-muted-foreground text-center mt-1.5">
                   {s.khata_callHint}
                 </p>
               </div>
@@ -856,7 +856,7 @@ const LedgerView = () => {
                         <p className="text-xs text-muted-foreground">{formatKhataDate(tx.created_at)}</p>
                         <p
                           className={cn(
-                            "text-sm font-medium leading-snug mt-0.5 whitespace-pre-wrap break-words",
+                            "text-sm font-medium leading-snug mt-1 whitespace-pre-wrap break-words",
                             tx.note?.trim() ? "text-foreground" : "text-muted-foreground italic",
                           )}
                         >
@@ -869,7 +869,7 @@ const LedgerView = () => {
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <KhataTxSourceChip tx={tx} />
-                      <Badge variant="outline" className="text-[10px] font-semibold border-surface-border">
+                      <Badge variant="outline" className="text-xs font-semibold border-surface-border">
                         {khataPaymentModeLabel(tx.payment_mode, s)}
                       </Badge>
                     </div>
@@ -937,7 +937,7 @@ const LedgerView = () => {
                             </p>
                             <p
                               className={cn(
-                                "text-sm font-medium leading-snug mt-0.5 whitespace-pre-wrap break-words",
+                                "text-sm font-medium leading-snug mt-1 whitespace-pre-wrap break-words",
                                 tx.note?.trim() ? "text-foreground" : "text-muted-foreground italic",
                               )}
                             >
@@ -950,7 +950,7 @@ const LedgerView = () => {
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5">
                           <KhataTxSourceChip tx={tx} />
-                          <Badge variant="outline" className="text-[10px] font-semibold border-surface-border">
+                          <Badge variant="outline" className="text-xs font-semibold border-surface-border">
                             {khataPaymentModeLabel(tx.payment_mode, s)}
                           </Badge>
                         </div>
@@ -967,7 +967,7 @@ const LedgerView = () => {
                   type="button"
                   data-testid="ledger-mark-paid-btn"
                   onClick={openPaymentSheet}
-                  className="w-full rounded-2xl bg-brand text-page-bg py-4 font-bold active:scale-[0.99]"
+                  className="w-full rounded-2xl bg-brand text-page-bg h-12 font-bold active:scale-[0.99]"
                 >
                   {s.khata_markPaid}
                 </button>
@@ -980,7 +980,7 @@ const LedgerView = () => {
                   type="button"
                   data-testid="ledger-record-refund-btn"
                   onClick={openRefundSheet}
-                  className="w-full rounded-2xl bg-brand text-page-bg py-4 font-bold active:scale-[0.99]"
+                  className="w-full rounded-2xl bg-brand text-page-bg h-12 font-bold active:scale-[0.99]"
                 >
                   {s.khata_recordRefund}
                 </button>
@@ -1042,7 +1042,7 @@ const LedgerView = () => {
               onClick={() =>
                 void (amountSheetMode === "refund" ? saveRefund() : savePayment())
               }
-              className="w-full rounded-xl bg-brand text-[#0b1f14] py-3 font-semibold disabled:opacity-50"
+              className="w-full rounded-xl bg-brand text-[#0b1f14] h-12 font-semibold disabled:opacity-50"
             >
               {savingAmount
                 ? s.incoming_saving

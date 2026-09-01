@@ -381,14 +381,14 @@ export function AiBridgeSheet({
           <TrustWarningBanner tier={bannerTier} context="bridge" />
 
           {displayVendorNote && (
-            <div className="rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-[11px] text-green-700 dark:text-brand">
+            <div className="rounded-xl border border-brand-border bg-brand/5 px-3 py-2 text-xs text-green-700 dark:text-brand">
               📌 {displayVendorNote}
             </div>
           )}
 
           {(categoryFulfilled != null && categoryFulfilled > 0) ||
           (categoryOnTimeRate != null && Number.isFinite(categoryOnTimeRate)) ? (
-            <div className="flex flex-wrap gap-3 text-[11px] text-gray-400">
+            <div className="flex flex-wrap gap-3 text-xs text-gray-400">
               {categoryFulfilled != null && categoryFulfilled > 0 && (
                 <span>
                   {s.radar_helped}
@@ -409,7 +409,7 @@ export function AiBridgeSheet({
             </div>
           ) : null}
 
-          <p className="text-[11px] text-amber-400/90 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+          <p className="text-xs text-amber-400/90 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
             {callLimitedLabel}
           </p>
 
@@ -435,7 +435,7 @@ export function AiBridgeSheet({
               type="button"
               disabled={briefLoading || !secureCallingLive}
               onClick={() => void handleCallNow()}
-              className="w-full rounded-xl bg-brand text-page-bg py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
+              className="w-full rounded-xl bg-brand text-page-bg h-12 font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
             >
               {!secureCallingLive ? s.secure_call_coming_soon : s.ai_bridge_call_now}
             </button>

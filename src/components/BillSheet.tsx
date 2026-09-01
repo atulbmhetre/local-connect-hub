@@ -711,7 +711,7 @@ export function BillSheet({
             </div>
           </div>
 
-          <p className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5 text-[11px] leading-snug text-warning mb-3">
+          <p className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs leading-snug text-warning mb-3">
             {s.bill_editWarning}
           </p>
 
@@ -823,7 +823,7 @@ export function BillSheet({
           <button
             type="button"
             onClick={addItem}
-            className="w-full rounded-xl border border-dashed border-brand/30 text-brand text-sm font-semibold py-2.5 active:bg-brand/5 transition-colors mb-3"
+            className="w-full rounded-xl border border-dashed border-brand/30 text-brand text-sm font-semibold h-10 active:bg-brand/5 transition-colors mb-3"
           >
             {s.bill_addItem}
           </button>
@@ -879,7 +879,7 @@ export function BillSheet({
 
           {requestServiceMode === "delivery" && (
             <div className="mt-3 space-y-2" data-testid="bill-delivery-fulfillment">
-              <p className="text-[11px] font-semibold text-muted-foreground">
+              <p className="text-xs font-semibold text-muted-foreground">
                 {s.delivery_fulfillment_order_override}
               </p>
               <DeliveryFulfillmentSettings
@@ -899,28 +899,28 @@ export function BillSheet({
           )}
 
           {paymentMode === "khata" && (
-            <p className="text-[11px] text-muted-foreground text-center">
+            <p className="text-xs text-muted-foreground text-center">
               {s.bill_khataHint}
             </p>
           )}
 
           {showKhataRedWarning && (
-            <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-[11px] leading-snug text-red-600 dark:text-red-400">
+            <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-xs leading-snug text-red-600 dark:text-red-400">
               {s.khata_billWillExceedRed}
             </p>
           )}
           {showKhataAmberWarning && (
-            <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+            <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs leading-snug text-amber-600 dark:text-amber-400">
               {s.khata_billWillExceedAmber}
             </p>
           )}
           {paymentMode === "khata" && khataAmberLimit > 0 && userPhone && loadingOutstanding && (
-            <p className="text-[11px] text-muted-foreground text-center">
+            <p className="text-xs text-muted-foreground text-center">
               {s.incoming_saving}
             </p>
           )}
           {paymentMode === "khata" && outstandingError && !loadingOutstanding && (
-            <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+            <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs leading-snug text-amber-600 dark:text-amber-400">
               {s.bill_khataOutstandingError}
             </p>
           )}
@@ -938,7 +938,7 @@ export function BillSheet({
             data-testid="bill-submit-btn"
             disabled={sending || validItems.length === 0}
             onClick={() => void sendBill()}
-            className="w-full rounded-2xl bg-brand text-white py-4 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:pointer-events-none"
+            className="w-full rounded-2xl bg-brand text-white h-12 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:pointer-events-none"
           >
             {sending ? s.incoming_saving : s.bill_send}
           </button>

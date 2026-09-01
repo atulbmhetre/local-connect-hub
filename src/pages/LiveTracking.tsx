@@ -498,13 +498,13 @@ const LiveTracking = () => {
       <div className="min-h-screen bg-page-bg text-white p-6 flex flex-col gap-4">
         <button
           onClick={() => navigate(-1)}
-          className="h-10 w-10 grid place-items-center rounded-xl bg-surface border border-white/10"
+          className="h-10 w-10 grid place-items-center rounded-full bg-surface border border-white/10"
           aria-label={s.aria_back}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="rounded-2xl bg-destructive/10 border border-destructive/40 p-4 flex gap-3">
-          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-1" />
           <div className="space-y-3">
             <p className="text-sm">{s.network_failed}</p>
             <button
@@ -525,13 +525,13 @@ const LiveTracking = () => {
       <div className="min-h-screen bg-page-bg text-white p-6 flex flex-col gap-4">
         <button
           onClick={() => navigate(-1)}
-          className="h-10 w-10 grid place-items-center rounded-xl bg-surface border border-white/10"
+          className="h-10 w-10 grid place-items-center rounded-full bg-surface border border-white/10"
           aria-label={s.aria_back}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="rounded-2xl bg-destructive/10 border border-destructive/40 p-4 flex gap-3">
-          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-1" />
           <p className="text-sm">{error ?? s.liveTracking_responderUnavailable}</p>
         </div>
       </div>
@@ -562,13 +562,13 @@ const LiveTracking = () => {
       <header className="px-4 pt-4 pb-3 flex items-center gap-3">
         <button
           onClick={() => navigate(-1)}
-          className="h-10 w-10 grid place-items-center rounded-xl bg-surface border border-white/10"
+          className="h-10 w-10 grid place-items-center rounded-full bg-surface border border-white/10"
           aria-label={s.aria_back}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex-1">
-          <p className="text-[10px] uppercase tracking-[0.3em] text-brand font-bold">
+          <p className="text-xs uppercase tracking-[0.3em] text-brand font-bold">
             {s.liveTracking_header}
           </p>
           <h1 className="font-display text-base font-bold leading-tight">
@@ -641,12 +641,12 @@ const LiveTracking = () => {
       {/* Stalled alert */}
       {stalled && (
         <div className="mx-4 mt-3 rounded-2xl bg-orange-500/10 border-2 border-orange-500/50 p-3 flex items-start gap-3 shadow-[0_0_24px_rgba(249,115,22,0.25)] animate-fade-up">
-          <ShieldAlert className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
+          <ShieldAlert className="h-5 w-5 text-orange-500 shrink-0 mt-1" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-orange-500">
               {s.liveTracking_stalledTitle}
             </p>
-            <p className="text-[11px] text-gray-400 mt-0.5">
+            <p className="text-xs text-gray-400 mt-1">
               {s.liveTracking_stalledBody(String(Math.max(2, minutesSinceMove)))}
             </p>
           </div>
@@ -695,7 +695,7 @@ const LiveTracking = () => {
           <p className="text-xs text-gray-400 truncate">
             {businessBrand || vendor.shop_name} · {getLabel(vendor.category)}
           </p>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-brand mt-0.5 font-bold">
+          <p className="text-xs uppercase tracking-[0.2em] text-brand mt-1 font-bold">
             {s.liveTracking_readyToHelp}
           </p>
         </div>
@@ -707,7 +707,7 @@ const LiveTracking = () => {
           type="button"
           onClick={() => void handleSecureCall()}
           disabled={callPhase !== "idle" || !secureCallingLive}
-          className="w-full rounded-2xl bg-brand text-black py-4 flex items-center justify-center gap-2 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_28px_rgba(34,197,94,0.45)] disabled:opacity-60 disabled:active:scale-100"
+          className="w-full rounded-2xl bg-brand text-black h-12 flex items-center justify-center gap-2 font-bold text-base active:scale-[0.98] transition-transform shadow-[0_0_28px_rgba(34,197,94,0.45)] disabled:opacity-60 disabled:active:scale-100"
         >
           {callPhase !== "idle" ? (
             <>
@@ -726,7 +726,7 @@ const LiveTracking = () => {
             </>
           )}
         </button>
-        <p className="text-[10px] text-center text-gray-500 mt-2 flex items-center justify-center gap-1">
+        <p className="text-xs text-center text-gray-500 mt-2 flex items-center justify-center gap-1">
           <Lock className="h-3 w-3" />
           {secureCallingLive
             ? s.secure_call_masked_hint
@@ -739,7 +739,7 @@ const LiveTracking = () => {
         <button
           onClick={handleFlashSignal}
           className={cn(
-            "rounded-2xl border py-3.5 flex flex-col items-center justify-center gap-1 transition-colors active:scale-[0.98]",
+            "rounded-2xl border py-3 flex flex-col items-center justify-center gap-1 transition-colors active:scale-[0.98]",
             flashing
               ? "bg-brand/15 border-brand text-green-700 dark:text-brand shadow-[0_0_20px_rgba(34,197,94,0.35)]"
               : "bg-surface border-white/10 text-white hover:border-brand/40",
@@ -749,15 +749,15 @@ const LiveTracking = () => {
           <span className="text-xs font-semibold">
             {flashing ? s.liveTracking_flashStopBtn : s.liveTracking_flashBtn}
           </span>
-          <span className="text-[10px] text-gray-500">{s.liveTracking_flashHint}</span>
+          <span className="text-xs text-gray-500">{s.liveTracking_flashHint}</span>
         </button>
         <button
           onClick={handleShareStatus}
-          className="rounded-2xl bg-surface border border-white/10 py-3.5 flex flex-col items-center justify-center gap-1 active:scale-[0.98] hover:border-brand/40 transition-colors"
+          className="rounded-2xl bg-surface border border-white/10 py-3 flex flex-col items-center justify-center gap-1 active:scale-[0.98] hover:border-brand/40 transition-colors"
         >
           <Share2 className="h-5 w-5 text-brand" />
           <span className="text-xs font-semibold">{s.liveTracking_shareBtn}</span>
-          <span className="text-[10px] text-gray-500">{s.liveTracking_shareHint}</span>
+          <span className="text-xs text-gray-500">{s.liveTracking_shareHint}</span>
         </button>
       </div>
 

@@ -475,7 +475,7 @@ export function NeighbourSheet({
               })}
               <button
                 type="button"
-                className="w-full rounded-xl border border-border py-3 text-sm font-semibold text-muted-foreground"
+                className="w-full rounded-xl border border-border h-10 text-sm font-semibold text-muted-foreground"
                 onClick={onClose}
               >
                 {s.cancel}

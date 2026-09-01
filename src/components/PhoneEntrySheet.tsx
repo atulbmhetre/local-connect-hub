@@ -335,7 +335,7 @@ export function PhoneEntrySheet({
                 data-testid="phone-entry-existing-restore"
                 disabled={isRestoring}
                 onClick={() => void handleRestoreExisting()}
-                className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
+                className="w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 flex items-center justify-center gap-2"
               >
                 {isRestoring ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -370,7 +370,7 @@ export function PhoneEntrySheet({
             <div className="mt-5 space-y-3">
               <p className="text-sm text-foreground leading-relaxed px-1">{contextLine}</p>
 
-              <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3">
+              <div className="flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-3">
                 <span className="text-sm text-muted-foreground font-medium">+91</span>
                 <input
                   type="tel"
@@ -382,7 +382,7 @@ export function PhoneEntrySheet({
                     setValue(e.target.value.replace(/\D/g, "").slice(0, 10));
                     setError("");
                   }}
-                  className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground/50"
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
                   autoFocus
                   disabled={isChecking}
                 />
@@ -396,7 +396,7 @@ export function PhoneEntrySheet({
                 type="button"
                 onClick={() => void handleConfirm()}
                 disabled={isChecking}
-                className="w-full rounded-xl bg-primary text-primary-foreground py-3.5 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 disabled:active:scale-100 flex items-center justify-center gap-2"
+                className="w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold active:scale-[0.98] transition-transform disabled:opacity-70 disabled:active:scale-100 flex items-center justify-center gap-2"
               >
                 {isChecking ? (
                   <>

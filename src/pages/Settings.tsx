@@ -106,6 +106,7 @@ import { VendorMyBusiness } from "@/components/settings/VendorMyBusiness";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import {
   SettingsPageHeader,
   SettingsCard,
@@ -299,7 +300,7 @@ function AdminTrustLevelBadge({ level }: { level: TrustLevel }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none whitespace-nowrap shrink-0",
+        "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none whitespace-nowrap shrink-0",
         TRUST_BADGE_CLASS[level],
       )}
     >
@@ -356,7 +357,7 @@ function AdminVendorCategoryChips({
         <span
           key={`${cat.label}-${index}`}
           className={cn(
-            "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] shrink-0",
+            "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs shrink-0",
             "border border-surface-border bg-surface text-muted-foreground",
             index === 0 && "font-semibold text-foreground border-brand/40 bg-brand/10",
           )}
@@ -373,12 +374,12 @@ function AdminVendorTypeLabel({ vendorType }: { vendorType: Vendor["vendor_type"
   const { s } = useLanguage();
   if (vendorType === "home") {
     return (
-      <p className="text-[11px] text-muted-foreground mt-0.5">{s.radar_vendor_home_based}</p>
+      <p className="text-xs text-muted-foreground mt-1">{s.radar_vendor_home_based}</p>
     );
   }
   if (vendorType === "visiting") {
     return (
-      <p className="text-[11px] text-muted-foreground mt-0.5">{s.radar_vendor_visits_you}</p>
+      <p className="text-xs text-muted-foreground mt-1">{s.radar_vendor_visits_you}</p>
     );
   }
   return null;
@@ -1079,7 +1080,7 @@ const Settings = () => {
   const permissionRevokeHint = (status: NativePermissionStatuses[NativePermissionKind]) =>
     isPermissionGranted(status) ? (
       <span
-        className="block mt-1 text-[11px] leading-snug text-muted-foreground"
+        className="block mt-1 text-xs leading-snug text-muted-foreground"
         data-testid="settings-permission-revoke-hint"
       >
         {s.settings_permission_revoke_hint}
@@ -3459,7 +3460,7 @@ const Settings = () => {
             data-testid="settings-tab-settings"
             onClick={() => setActiveTab("settings")}
             className={cn(
-              "flex-1 rounded-xl border py-2.5 text-sm font-bold transition-colors active:scale-[0.98]",
+              "flex-1 rounded-xl border h-10 text-sm font-bold transition-colors active:scale-[0.98]",
               activeTab === "settings"
                 ? "border-brand bg-brand/15 text-brand"
                 : "border-surface-border bg-surface text-muted-foreground",
@@ -3472,7 +3473,7 @@ const Settings = () => {
             data-testid="settings-tab-admin"
             onClick={() => setActiveTab("admin")}
             className={cn(
-              "flex-1 rounded-xl border py-2.5 text-sm font-bold transition-colors active:scale-[0.98]",
+              "flex-1 rounded-xl border h-10 text-sm font-bold transition-colors active:scale-[0.98]",
               activeTab === "admin"
                 ? "border-brand bg-brand/15 text-brand"
                 : "border-surface-border bg-surface text-muted-foreground",
@@ -3501,7 +3502,7 @@ const Settings = () => {
           <button
             type="button"
             onClick={() => navigate("/vendor")}
-            className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:opacity-90"
+            className="w-full flex items-center gap-3 px-4 py-3 text-left active:opacity-90"
           >
             <span className="h-10 w-10 shrink-0 rounded-xl bg-brand/10 border border-brand/30 grid place-items-center">
               <Store className="h-5 w-5 text-brand" />
@@ -3525,7 +3526,7 @@ const Settings = () => {
           nested
           testId="settings-identity-toggle"
         >
-          <div className="px-4 py-3.5">
+          <div className="px-4 py-3">
             {!vendorId ? (
               (userPhone ?? "").trim() ? (
                 <div>
@@ -3551,7 +3552,7 @@ const Settings = () => {
                     type="button"
                     data-testid="settings-add-phone"
                     onClick={() => setPhoneEntryOpen(true)}
-                    className="mt-3 w-full rounded-xl border border-brand/40 bg-brand/10 py-2.5 text-sm font-semibold text-brand active:opacity-90"
+                    className="mt-3 w-full rounded-xl border border-brand/40 bg-brand/10 h-10 text-sm font-semibold text-brand active:opacity-90"
                   >
                     {s.settings_addPhone}
                   </button>
@@ -3571,7 +3572,7 @@ const Settings = () => {
                 <p className="text-xs text-muted-foreground mt-1">{s.settings_noPhoneHint}</p>
               </div>
             )}
-            <p className="text-[10px] text-muted-foreground/70 mt-3 tabular-nums">
+            <p className="text-xs text-muted-foreground/70 mt-3 tabular-nums">
               {s.settings_devicePrefix}
               {deviceId.slice(0, 8)}
               {s.settings_deviceEllipsis}
@@ -3586,7 +3587,7 @@ const Settings = () => {
           nested
           testId="settings-account-standing-toggle"
         >
-          <div className="px-4 py-3.5" data-testid="account-standing-row">
+          <div className="px-4 py-3" data-testid="account-standing-row">
             <span
               className={cn(
                 "inline-block rounded-full border px-3 py-1.5 text-xs font-semibold leading-snug",
@@ -3618,9 +3619,9 @@ const Settings = () => {
           nested
         >
         {addressesLoading ? (
-          <p className="text-sm text-muted-foreground px-4 py-3.5">{s.settings_loading}</p>
+          <p className="text-sm text-muted-foreground px-4 py-3">{s.settings_loading}</p>
         ) : addressesFailed ? (
-          <div className="px-4 py-3.5 space-y-2">
+          <div className="px-4 py-3 space-y-2">
             <p className="text-sm text-destructive">{s.settings_addressesUnavailable}</p>
             <button
               type="button"
@@ -3631,24 +3632,24 @@ const Settings = () => {
             </button>
           </div>
         ) : addresses.length === 0 ? (
-          <p className="text-sm text-muted-foreground px-4 py-3.5">{s.settings_noAddresses}</p>
+          <p className="text-sm text-muted-foreground px-4 py-3">{s.settings_noAddresses}</p>
         ) : (
           <ul>
             {addresses.map((addr, idx) => (
               <li
                 key={addr.id}
                 className={cn(
-                  "px-4 py-3.5",
+                  "px-4 py-3",
                   idx < addresses.length - 1 && "border-b border-surface-border",
                 )}
               >
                 {editingAddressId === addr.id ? (
                   <div className="space-y-2">
-                    <input
+                    <Input
                       type="text"
                       value={editAddressValue}
                       onChange={(e) => setEditAddressValue(e.target.value)}
-                      className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:border-brand"
+                      className="bg-surface border-surface-border"
                       autoFocus
                     />
                     <div className="flex items-center justify-end gap-2">
@@ -3716,7 +3717,7 @@ const Settings = () => {
             type="button"
             data-testid="theme-toggle"
             onClick={toggleTheme}
-            className="h-10 w-10 shrink-0 grid place-items-center rounded-xl border border-surface-border bg-surface text-brand active:opacity-90"
+            className="h-10 w-10 shrink-0 grid place-items-center rounded-full border border-surface-border bg-surface text-brand active:opacity-90"
             aria-label={s.theme}
           >
             {theme === "dark" ? (
@@ -3726,14 +3727,14 @@ const Settings = () => {
             )}
           </button>
         </SettingsRow>
-        <div className="px-4 pb-3.5 border-t border-surface-border pt-3">
+        <div className="px-4 pb-3 border-t border-surface-border pt-3">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
             {s.settings_language}
           </p>
           <Select value={lang} onValueChange={(value) => setLang(value as Language)}>
             <SelectTrigger
               data-testid="language-select"
-              className="w-full rounded-xl border-surface-border bg-surface h-auto px-3 py-2.5 font-medium text-sm"
+              className="w-full rounded-xl border-surface-border bg-surface h-10 px-3 font-medium text-sm"
             >
               <SelectValue />
             </SelectTrigger>
@@ -3746,9 +3747,9 @@ const Settings = () => {
             </SelectContent>
           </Select>
         </div>
-        <div className="px-4 py-3.5 border-t border-surface-border">
+        <div className="px-4 py-3 border-t border-surface-border">
           <p className="text-sm font-medium text-foreground">{s.settings_voiceInputLang}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-1">
             Language used when speaking to the app
           </p>
         </div>
@@ -3762,7 +3763,7 @@ const Settings = () => {
                 setVoiceInputLang(code);
               }}
               className={cn(
-                "flex-1 rounded-xl border py-2.5 text-sm font-bold transition-colors active:scale-[0.98]",
+                "flex-1 rounded-xl border h-10 text-sm font-bold transition-colors active:scale-[0.98]",
                 voiceInputLang === code
                   ? "border-brand bg-brand/15 text-brand"
                   : "border-surface-border bg-surface text-muted-foreground",
@@ -3772,7 +3773,7 @@ const Settings = () => {
             </button>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground px-4 pb-3.5 border-b border-surface-border">
+        <p className="text-xs text-muted-foreground px-4 pb-3 border-b border-surface-border">
           {s.settings_voiceAutoDetect}
         </p>
         <SettingsRow label={s.settings_largeText} sublabel={s.settings_largeTextHint}>
@@ -3805,7 +3806,7 @@ const Settings = () => {
               label={s.settings_feedDiscoveryRadius}
               sublabel={s.settings_feedDiscoveryRadiusHint}
             />
-            <div className="px-4 pb-3.5">
+            <div className="px-4 pb-3">
               <FeedReachChips
                 mode="reader"
                 value={feedDiscoveryRadiusKm}
@@ -4042,14 +4043,14 @@ const Settings = () => {
           type="button"
           data-testid="settings-privacy-policy-link"
           onClick={() => navigate("/privacy", { state: { returnTo: "/settings" } })}
-          className="w-full flex items-center justify-between gap-3 px-4 py-3.5 border-b border-surface-border text-left active:opacity-90"
+          className="w-full flex items-center justify-between gap-3 px-4 py-3 border-b border-surface-border text-left active:opacity-90"
         >
           <span className="text-sm font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-2">
             {s.privacy_policy_title}
           </span>
           <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
         </button>
-        <div className="px-4 pb-3.5">
+        <div className="px-4 pb-3">
           <p className="text-xs text-brand font-medium">{s.settings_dbConnected}</p>
         </div>
       </SettingsParentCollapsible>
@@ -4058,7 +4059,7 @@ const Settings = () => {
         type="button"
         data-testid="settings-help-support-link"
         onClick={() => navigate("/settings/help")}
-        className="mx-4 mt-2 w-[calc(100%-2rem)] flex items-center justify-between gap-3 rounded-xl border border-surface-border bg-card px-4 py-3.5 text-left active:opacity-90"
+        className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-surface-border bg-card px-4 py-3 text-left active:opacity-90"
       >
         <span className="text-sm font-medium text-foreground">{s.help_support_title}</span>
         <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
@@ -4068,13 +4069,13 @@ const Settings = () => {
       <button
         type="button"
         onClick={() => setClearDataOpen(true)}
-        className="mx-4 w-[calc(100%-2rem)] rounded-xl border border-destructive/40 text-destructive bg-transparent py-2.5 text-sm font-medium flex items-center justify-center gap-2 active:opacity-90"
+        className="w-full rounded-xl border border-destructive/40 text-destructive bg-transparent h-10 text-sm font-medium flex items-center justify-center gap-2 active:opacity-90"
       >
         <Trash2 className="h-4 w-4" /> {s.settings_clearMyData}
       </button>
 
       {userPhone && (
-        <section className="mx-4 mt-4 space-y-3">
+        <section className="mt-4 space-y-3">
           <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold px-1">
             {s.delete_account_title}
           </p>
@@ -4093,7 +4094,7 @@ const Settings = () => {
               <button
                 type="button"
                 onClick={() => void cancelAccountDeletion()}
-                className="w-full rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground active:opacity-90"
+                className="w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:opacity-90"
               >
                 {s.delete_account_cancel}
               </button>
@@ -4102,7 +4103,7 @@ const Settings = () => {
             <button
               type="button"
               onClick={() => void openDeleteAccountConfirm()}
-              className="w-full rounded-xl bg-destructive text-destructive-foreground py-2.5 text-sm font-semibold active:opacity-90"
+              className="w-full rounded-xl bg-destructive text-destructive-foreground h-10 text-sm font-semibold active:opacity-90"
             >
               {s.delete_account_title}
             </button>
@@ -4127,10 +4128,10 @@ const Settings = () => {
       )}
 
       {adminTabRevealed && activeTab === "admin" && adminAuthChecked && !isAdmin && (
-        <SettingsCard className="mx-4 border-brand/20" data-testid="admin-login-gate">
+        <SettingsCard className="border-brand/20" data-testid="admin-login-gate">
           <div className="px-4 py-3 border-b border-surface-border">
             <p className="text-sm font-medium text-foreground">Admin sign in</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-1">
               Sign in with your admin account to access moderation tools.
             </p>
           </div>
@@ -4139,26 +4140,26 @@ const Settings = () => {
               <label className="text-xs font-semibold text-muted-foreground" htmlFor="admin-login-email">
                 Email
               </label>
-              <input
+              <Input
                 id="admin-login-email"
                 type="email"
                 autoComplete="username"
                 value={adminLoginEmail}
                 onChange={(e) => setAdminLoginEmail(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                className="bg-background"
               />
             </div>
             <div className="space-y-1">
               <label className="text-xs font-semibold text-muted-foreground" htmlFor="admin-login-password">
                 Password
               </label>
-              <input
+              <Input
                 id="admin-login-password"
                 type="password"
                 autoComplete="current-password"
                 value={adminLoginPassword}
                 onChange={(e) => setAdminLoginPassword(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                className="bg-background"
               />
             </div>
             {adminLoginError && (
@@ -4169,7 +4170,7 @@ const Settings = () => {
             <button
               type="submit"
               disabled={adminLoginSubmitting || !adminLoginEmail.trim() || !adminLoginPassword}
-              className="w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground disabled:opacity-50"
+              className="w-full rounded-xl bg-brand px-4 h-12 text-sm font-bold text-brand-foreground disabled:opacity-50"
             >
               {adminLoginSubmitting ? "Signing in…" : "Sign in"}
             </button>
@@ -4190,7 +4191,7 @@ const Settings = () => {
             </button>
           </div>
           <section
-            className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 mb-5 mx-4"
+            className="rounded-3xl bg-card border-2 border-dashed border-destructive/40 p-5 mb-5"
             data-testid="admin-dev-phone-override"
           >
             <div className="flex items-center gap-2 mb-3">
@@ -4204,12 +4205,12 @@ const Settings = () => {
                 Set phone number (dev)
               </label>
               <div className="flex gap-2">
-                <input
+                <Input
                   id="dev-phone-number"
                   data-testid="admin-dev-phone-input"
                   value={devPhone}
                   onChange={(e) => setDevPhone(e.target.value)}
-                  className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                  className="min-w-0 flex-1 bg-background"
                 />
                 <button
                   type="button"
@@ -4228,7 +4229,7 @@ const Settings = () => {
           <SettingsCard className="border-brand/20">
             <div className="px-4 py-3 border-b border-surface-border">
               <p className="text-sm font-medium text-foreground">{s.settings_adminHealth}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{s.settings_adminOnly}</p>
+              <p className="text-xs text-muted-foreground mt-1">{s.settings_adminOnly}</p>
             </div>
             <div className="px-4 py-3">
 
@@ -4236,15 +4237,15 @@ const Settings = () => {
             <div className="grid grid-cols-3 gap-2 mb-4">
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.totalOrders}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_allTime}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_allTime}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.ordersThisWeek}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_thisWeek}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_thisWeek}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.ordersToday}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_today}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_today}</p>
               </div>
             </div>
 
@@ -4252,23 +4253,23 @@ const Settings = () => {
             <div className="grid grid-cols-2 gap-2 mb-2">
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.totalVendors}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_total}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_total}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.totalCustomers}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_total_customers}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.admin_stat_total_customers}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">{adminStats.activeVendorsToday}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_activeToday}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_activeToday}</p>
               </div>
               <div className="rounded-2xl bg-green-500/10 p-3 text-center">
                 <p className="text-xl font-bold text-green-500">{adminStats.newVendorsThisWeek}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_newThisWeek}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_newThisWeek}</p>
               </div>
               <div className="rounded-2xl bg-destructive/10 p-3 text-center">
                 <p className="text-xl font-bold text-destructive">{adminStats.unverifiedVendors}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.settings_unverified}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.settings_unverified}</p>
               </div>
               <div
                 className="rounded-2xl bg-amber-500/10 p-3 text-center"
@@ -4277,7 +4278,7 @@ const Settings = () => {
                 <p className="text-xl font-bold text-amber-600">
                   {adminStats.greenPendingVendors}
                 </p>
-                <p className="text-[10px] text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {s.admin_stat_green_pending}
                 </p>
               </div>
@@ -4289,21 +4290,21 @@ const Settings = () => {
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-2xl bg-amber-500/10 p-3 text-center">
                 <p className="text-xl font-bold text-amber-600">{adminStats.stuckOrders}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_stuck_orders}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.admin_stat_stuck_orders}</p>
               </div>
               <div className="rounded-2xl bg-secondary/10 p-3 text-center">
                 <p className="text-xl font-bold text-secondary">
                   {adminStats.avgVendorRating > 0 ? adminStats.avgVendorRating : "—"}
                 </p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_avg_rating}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.admin_stat_avg_rating}</p>
               </div>
               <div className="rounded-2xl bg-destructive/10 p-3 text-center">
                 <p className="text-xl font-bold text-destructive">{adminStats.riskyUsers}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_risky_users}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.admin_stat_risky_users}</p>
               </div>
               <div className="rounded-2xl bg-brand/10 p-3 text-center">
                 <p className="text-xl font-bold text-brand">{adminStats.totalReferrals}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_stat_total_referrals}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.admin_stat_total_referrals}</p>
               </div>
             </div>
             </div>
@@ -4317,7 +4318,7 @@ const Settings = () => {
             onToggle={() => setVendorModerationOpen((o) => !o)}
             badge={
               flaggedUsers.length > 0 ? (
-                <span className="bg-destructive/20 text-destructive text-[10px] font-bold px-2 py-0.5 rounded-full">
+                <span className="bg-destructive/20 text-destructive text-xs font-bold px-2 py-0.5 rounded-full">
                   {flaggedUsers.length}
                 </span>
               ) : undefined
@@ -4325,7 +4326,7 @@ const Settings = () => {
           >
             <div className="px-4 py-3 border-b border-surface-border">
               <p className="text-sm font-medium text-foreground">{s.settings_vendorVerification}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
+              <p className="text-xs text-muted-foreground mt-1">
                 {vendorListFilter === "all"
                   ? s.admin_show_all_vendors
                   : vendorListFilter === "green_ready"
@@ -4336,7 +4337,7 @@ const Settings = () => {
             <div className="px-4 py-3">
               <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 mb-3">
                 <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-                <input
+                <Input
                   type="text"
                   placeholder={s.settings_searchPlaceholder}
                   value={vendorSearch}
@@ -4391,13 +4392,13 @@ const Settings = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-semibold truncate">{v.shop_name}</p>
                         {v.is_active && (
-                          <span className="text-[10px] text-green-500 font-semibold">
+                          <span className="text-xs text-green-500 font-semibold">
                             {s.settings_live}
                           </span>
                         )}
                         <AdminTrustLevelBadge level={v.trustLevel} />
                         {v.is_banned && (
-                          <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-bold px-2 py-0.5 border border-destructive/30">
+                          <span className="rounded-full bg-destructive/10 text-destructive text-xs font-bold px-2 py-0.5 border border-destructive/30">
                             BANNED
                           </span>
                         )}
@@ -4414,7 +4415,7 @@ const Settings = () => {
                     <div className="shrink-0 flex flex-col items-end gap-1.5">
                       {v.categories.some((c) => !c.is_manual_verified) &&
                         hasVerifyInProgress(v.id) && (
-                        <span className="rounded-full bg-amber-500/10 text-amber-600 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
+                        <span className="rounded-full bg-amber-500/10 text-amber-600 text-xs font-semibold px-2 py-0.5 border border-amber-500/30">
                           In progress
                         </span>
                       )}
@@ -4435,7 +4436,7 @@ const Settings = () => {
                                   : openVerifySheet(v, cat)
                               }
                               disabled={busy || (!cat.category_id && !cat.is_manual_verified)}
-                              className={`flex items-center gap-1 rounded-xl px-2 py-1 text-[10px] font-semibold transition-colors ${
+                              className={`flex items-center gap-1 rounded-xl px-2 py-1 text-xs font-semibold transition-colors ${
                                 cat.is_manual_verified
                                   ? "bg-green-500/10 text-green-500 border border-green-500/30"
                                   : "bg-destructive/10 text-destructive border border-destructive/30"
@@ -4502,7 +4503,7 @@ const Settings = () => {
                   type="button"
                   disabled={vendorListLoading}
                   onClick={() => void loadVendorList({ append: true })}
-                  className="mt-4 w-full rounded-xl border border-border py-2.5 text-xs font-semibold text-foreground disabled:opacity-50 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
+                  className="mt-4 w-full rounded-xl border border-border h-10 text-xs font-semibold text-foreground disabled:opacity-50 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
                 >
                   {vendorListLoading ? (
                     <>
@@ -4516,7 +4517,7 @@ const Settings = () => {
               )}
             </div>
 
-            <div className="mx-4 border-t border-surface-border" />
+            <div className="border-t border-surface-border" />
 
             <div className="px-4 py-3 border-b border-surface-border">
               <p className="text-sm font-medium text-foreground">
@@ -4543,18 +4544,18 @@ const Settings = () => {
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-sm font-semibold">{user.phone}</p>
                           {warnCount > 0 && (
-                            <span className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
+                            <span className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-semibold px-2 py-0.5 border border-amber-500/30">
                               ⚠️ {warnCount} warns
                             </span>
                           )}
                           {user.is_banned && (
-                            <span className="rounded-full bg-destructive/10 text-destructive text-[10px] font-bold px-2 py-0.5 border border-destructive/30">
+                            <span className="rounded-full bg-destructive/10 text-destructive text-xs font-bold px-2 py-0.5 border border-destructive/30">
                               BANNED
                             </span>
                           )}
                         </div>
                         {highWarns && (
-                          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
                             {s.admin_consider_banning}
                           </p>
                         )}
@@ -4568,7 +4569,7 @@ const Settings = () => {
                           {user.noshow_count} no-shows, {user.fake_count} fakes
                         </p>
                         {user.is_banned && user.ban_reason && (
-                          <p className="text-[11px] text-destructive/80">{user.ban_reason}</p>
+                          <p className="text-xs text-destructive/80">{user.ban_reason}</p>
                         )}
                         <div className="flex gap-2">
                           <button
@@ -4630,12 +4631,12 @@ const Settings = () => {
                         {cat.emoji}
                       </span>
                       <p className="text-sm font-semibold">{cat.label}</p>
-                      <span className="rounded-full bg-secondary/10 text-secondary text-[10px] font-semibold px-2 py-0.5 border border-secondary/30">
+                      <span className="rounded-full bg-secondary/10 text-secondary text-xs font-semibold px-2 py-0.5 border border-secondary/30">
                         {getServiceModeLabel(cat.service_mode)}
                       </span>
                       {cat.ai_confidence && (
                         <span
-                          className={`rounded-full text-[10px] font-semibold px-2 py-0.5 ${confidenceBadgeClass(cat.ai_confidence, cat.ai_confidence_score)}`}
+                          className={`rounded-full text-xs font-semibold px-2 py-0.5 ${confidenceBadgeClass(cat.ai_confidence, cat.ai_confidence_score)}`}
                         >
                           {cat.ai_confidence_score != null
                             ? `${Math.round(cat.ai_confidence_score * 100)}%`
@@ -4643,7 +4644,7 @@ const Settings = () => {
                         </span>
                       )}
                       {cat.suggestion_count > 0 && (
-                        <span className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border">
+                        <span className="rounded-full bg-muted text-muted-foreground text-xs font-semibold px-2 py-0.5 border border-border">
                           {s.admin_suggestion_count_label}: {cat.suggestion_count}
                         </span>
                       )}
@@ -4697,11 +4698,11 @@ const Settings = () => {
                       </p>
                     )}
                     {cat.suggested_vendor_name && (
-                      <p className="text-[10px] text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         Suggested by {cat.suggested_vendor_name}
                       </p>
                     )}
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {s.admin_approve_as_new_hint}
                     </p>
                     <div className="flex flex-col gap-2 sm:flex-row">
@@ -4765,13 +4766,13 @@ const Settings = () => {
                         {row.emoji}
                       </span>
                       <p className="text-sm font-semibold">{row.label}</p>
-                      <span className="rounded-full bg-secondary/10 text-secondary text-[10px] font-semibold px-2 py-0.5 border border-secondary/30">
+                      <span className="rounded-full bg-secondary/10 text-secondary text-xs font-semibold px-2 py-0.5 border border-secondary/30">
                         {row.license_type ?? s.admin_generic_license}
                       </span>
                       {row.license_confidence_score != null &&
                         Number.isFinite(row.license_confidence_score) && (
                           <span
-                            className={`rounded-full text-[10px] font-semibold px-2 py-0.5 ${confidenceBadgeClass(null, row.license_confidence_score)}`}
+                            className={`rounded-full text-xs font-semibold px-2 py-0.5 ${confidenceBadgeClass(null, row.license_confidence_score)}`}
                           >
                             {Math.round(row.license_confidence_score * 100)}%
                           </span>
@@ -4782,7 +4783,7 @@ const Settings = () => {
                         {row.license_reasoning}
                       </p>
                     )}
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {s.admin_license_approve_hint}
                     </p>
                     <div className="flex flex-col gap-2 sm:flex-row">
@@ -4835,13 +4836,13 @@ const Settings = () => {
                       </span>
                       {row.confidence != null && Number.isFinite(row.confidence) && (
                         <span
-                          className={`rounded-full text-[10px] font-semibold px-2 py-0.5 ${confidenceBadgeClass(null, row.confidence)}`}
+                          className={`rounded-full text-xs font-semibold px-2 py-0.5 ${confidenceBadgeClass(null, row.confidence)}`}
                         >
                           {Math.round(row.confidence * 100)}%
                         </span>
                       )}
                       <span
-                        className={`rounded-full text-[10px] font-semibold px-2 py-0.5 border ${
+                        className={`rounded-full text-xs font-semibold px-2 py-0.5 border ${
                           row.source === "corrective_ai"
                             ? "bg-amber-500/10 text-amber-800 border-amber-500/30 dark:text-amber-400"
                             : row.source === "proactive_ai"
@@ -4864,11 +4865,11 @@ const Settings = () => {
                       </p>
                     )}
                     {row.suggested_vendor_name && (
-                      <p className="text-[10px] text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         {s.admin_pending_alias_source}: {row.suggested_vendor_name}
                       </p>
                     )}
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {row.source === "corrective_ai"
                         ? s.admin_pending_alias_corrective_hint
                         : s.admin_pending_alias_approve_hint}
@@ -4917,7 +4918,7 @@ const Settings = () => {
                         {row.shop_name ?? row.vendor_name ?? "Vendor"}
                       </p>
                       {row.vendor_phone && (
-                        <span className="text-[10px] text-muted-foreground">{row.vendor_phone}</span>
+                        <span className="text-xs text-muted-foreground">{row.vendor_phone}</span>
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -4940,7 +4941,7 @@ const Settings = () => {
                             )
                             .join(" · ")}
                     </p>
-                    <p className="text-[10px] text-muted-foreground">{s.admin_pending_business_hint}</p>
+                    <p className="text-xs text-muted-foreground">{s.admin_pending_business_hint}</p>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <button
                         type="button"
@@ -5016,7 +5017,7 @@ const Settings = () => {
                           {row.proposed_mode_vendor_count}
                         </span>
                       </p>
-                      <p className="text-[10px] text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         {s.admin_modeConfidence_hint}
                       </p>
                       <div className="flex flex-col gap-2 sm:flex-row">
@@ -5080,7 +5081,7 @@ const Settings = () => {
                                     <button
                                       type="button"
                                       onClick={() => openVendorInAdminList(v.phone)}
-                                      className="shrink-0 rounded-lg border border-border px-2 py-1 text-[10px] font-semibold"
+                                      className="shrink-0 rounded-lg border border-border px-2 py-1 text-xs font-semibold"
                                     >
                                       {s.admin_modeConfidence_openInList}
                                     </button>
@@ -5161,17 +5162,17 @@ const Settings = () => {
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         {isLead && isContacted && (
-                          <span className="inline-flex items-center rounded-full bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 px-2 py-0.5 text-[10px] font-semibold">
+                          <span className="inline-flex items-center rounded-full bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 px-2 py-0.5 text-xs font-semibold">
                             ✓ {s.admin_rec_contacted}
                           </span>
                         )}
                         {isLead && showRemovedRecs && isDismissed && (
-                          <span className="inline-flex items-center rounded-full bg-destructive/10 text-destructive border border-destructive/30 px-2 py-0.5 text-[10px] font-semibold">
+                          <span className="inline-flex items-center rounded-full bg-destructive/10 text-destructive border border-destructive/30 px-2 py-0.5 text-xs font-semibold">
                             {s.admin_rec_removed_label}
                           </span>
                         )}
                         {isLead && showRemovedRecs && !isDismissed && rec.vendor_onboarded && (
-                          <span className="inline-flex items-center rounded-full bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 text-[10px] font-semibold">
+                          <span className="inline-flex items-center rounded-full bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 text-xs font-semibold">
                             {s.admin_rec_onboarded_label}
                           </span>
                         )}
@@ -5264,7 +5265,7 @@ const Settings = () => {
                             ? `"${review.review_text.trim()}"`
                             : s.admin_lowRatings_noComment}
                         </p>
-                        <p className="text-[10px] text-muted-foreground tabular-nums">
+                        <p className="text-xs text-muted-foreground tabular-nums">
                           {review.user_phone?.trim()
                             ? maskPhoneLast4(review.user_phone.trim())
                             : "—"}
@@ -5330,7 +5331,7 @@ const Settings = () => {
                   const phoneLabel = v.phone ? maskPhoneLast4(v.phone) : "—";
                   const status = v.subscription_status;
                   let badgeClass =
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold border";
+                    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold border";
                   if (status === "grace") {
                     badgeClass +=
                       " bg-amber-500/10 text-amber-700 border-amber-500/30";
@@ -5367,7 +5368,7 @@ const Settings = () => {
                       </div>
                       <p className="text-xs text-muted-foreground">{whenLabel}</p>
                       {refDate && (
-                        <p className="text-[10px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {daysAgo(refDate)}
                         </p>
                       )}
@@ -5379,31 +5380,31 @@ const Settings = () => {
                 <p className="text-xs font-semibold text-muted-foreground">
                   Set Waive-off (per vendor)
                 </p>
-                <input
+                <Input
                   type="tel"
                   placeholder="Vendor phone"
                   value={waivePhone}
                   onChange={(e) => setWaivePhone(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                  className="bg-background"
                 />
                 <div className="flex gap-2">
-                  <input
+                  <Input
                     type="number"
                     min={1}
                     max={100}
                     placeholder="%"
                     value={waivePercent}
                     onChange={(e) => setWaivePercent(e.target.value)}
-                    className="w-1/2 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                    className="w-1/2 bg-background"
                   />
-                  <input
+                  <Input
                     type="number"
                     min={1}
                     max={12}
                     placeholder="Months"
                     value={waiveMonths}
                     onChange={(e) => setWaiveMonths(e.target.value)}
-                    className="w-1/2 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                    className="w-1/2 bg-background"
                   />
                 </div>
                 <button
@@ -5442,7 +5443,7 @@ const Settings = () => {
                       months,
                     });
                   }}
-                  className="w-full rounded-xl bg-brand text-brand-foreground py-2.5 text-sm font-semibold active:scale-[0.99] disabled:opacity-50"
+                  className="w-full rounded-xl bg-brand text-brand-foreground h-12 text-sm font-semibold active:scale-[0.99] disabled:opacity-50"
                 >
                   {waiveSubmitting ? "Applying…" : "Apply Waive-off"}
                 </button>
@@ -5468,7 +5469,7 @@ const Settings = () => {
                       {ADMIN_CONFIG_LABELS[key]}
                     </p>
                     <p
-                      className="text-[11px] text-muted-foreground"
+                      className="text-xs text-muted-foreground"
                       data-testid={`admin-config-default-${key}`}
                     >
                       {s.admin_config_default(
@@ -5493,7 +5494,7 @@ const Settings = () => {
                     ) : (
                       <div className="space-y-1">
                         <div className="flex gap-2">
-                          <input
+                          <Input
                             type={configType === "number" ? "number" : "text"}
                             value={value}
                             onChange={(e) => {
@@ -5506,7 +5507,7 @@ const Settings = () => {
                                 });
                               }
                             }}
-                            className="flex-1 min-w-0 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                            className="flex-1 min-w-0 bg-background"
                           />
                           <button
                             type="button"
@@ -5579,12 +5580,12 @@ const Settings = () => {
                   Enter a reason for the ban. The vendor will be notified immediately.
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <input
+              <Input
                 type="text"
                 value={vendorBanReason}
                 onChange={(e) => setVendorBanReason(e.target.value.slice(0, 200))}
                 placeholder="Ban reason"
-                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="bg-background"
               />
               <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
                 <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
@@ -5619,13 +5620,13 @@ const Settings = () => {
                   required for the audit log.
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <input
+              <Input
                 type="text"
                 data-testid="admin-force-clear-deletion-reason"
                 value={vendorClearDeletionReason}
                 onChange={(e) => setVendorClearDeletionReason(e.target.value.slice(0, 200))}
                 placeholder="Reason (required)"
-                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="bg-background"
               />
               <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
                 <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
@@ -5659,12 +5660,12 @@ const Settings = () => {
                   Enter a reason for the ban. The user will be notified on their next order attempt.
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <input
+              <Input
                 type="text"
                 value={banReason}
                 onChange={(e) => setBanReason(e.target.value.slice(0, 200))}
                 placeholder="Ban reason"
-                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="bg-background"
               />
               <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
                 <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
@@ -5757,7 +5758,7 @@ const Settings = () => {
                   {s.admin_pending_business_reject_body}
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <input
+              <Input
                 type="text"
                 data-testid="pending-business-reject-reason"
                 value={rejectBusinessDialog.reason}
@@ -5768,7 +5769,7 @@ const Settings = () => {
                   }))
                 }
                 placeholder={s.admin_pending_business_reject_reason}
-                className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="bg-background"
               />
               <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
                 <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
@@ -6058,14 +6059,14 @@ const Settings = () => {
                     data-open-category-id={openCategoryId ?? undefined}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         {tierLabel}
                       </p>
                       <span
                         className={
                           reached
-                            ? "text-[10px] font-semibold text-green-700 dark:text-green-400"
-                            : "text-[10px] font-semibold text-muted-foreground"
+                            ? "text-xs font-semibold text-green-700 dark:text-green-400"
+                            : "text-xs font-semibold text-muted-foreground"
                         }
                       >
                         {reached ? s.trust_tier_reached : s.trust_tier_not_reached}
@@ -6098,7 +6099,7 @@ const Settings = () => {
                           </div>
                           <span
                             className={cn(
-                              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize",
+                              "shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold capitalize",
                               verificationStatusChipClass(status),
                             )}
                           >
@@ -6127,7 +6128,7 @@ const Settings = () => {
                 return (
                   <>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
                   Shop photo
                 </p>
                 {payee.shopPhotoUrl ? (
@@ -6143,7 +6144,7 @@ const Settings = () => {
                 )}
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   GPS
                 </p>
                 {payee.latitude != null && payee.longitude != null ? (
@@ -6165,7 +6166,7 @@ const Settings = () => {
                 )}
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   GPS match
                 </p>
                 {(() => {
@@ -6178,7 +6179,7 @@ const Settings = () => {
                 })()}
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   UPI ID
                 </p>
                 {payee.upiId ? (
@@ -6186,13 +6187,13 @@ const Settings = () => {
                 ) : (
                   <p className="text-xs text-muted-foreground">No UPI added</p>
                 )}
-                <p className="text-[10px] text-muted-foreground mt-1">{s.admin_upi_manual_note}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.admin_upi_manual_note}</p>
               </div>
                   </>
                 );
               })()}
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   Registered
                 </p>
                 <p className="text-xs text-foreground">
@@ -6200,7 +6201,7 @@ const Settings = () => {
                 </p>
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   {s.referral_referred_by}
                 </p>
                 <p className="text-xs text-foreground">
@@ -6247,12 +6248,12 @@ const Settings = () => {
                       return updated;
                     });
                   }}
-                  className="mt-0.5 h-4 w-4 accent-green-500 shrink-0"
+                  className="mt-1 h-4 w-4 accent-green-500 shrink-0"
                 />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm text-foreground leading-snug">{item.label}</span>
                   {verifyAutoTicked.has(item.id) && verifyChecks[item.id] && (
-                    <p className="text-[10px] text-green-600/80 mt-0.5">
+                    <p className="text-xs text-green-600/80 mt-1">
                       ✅ Auto-verified by app
                     </p>
                   )}
@@ -6270,7 +6271,7 @@ const Settings = () => {
                     ? `${verifySheet.vendor.id}:${verifySheet.category.category_id}`
                     : verifySheet.vendor.id)
               }
-              className={`w-full rounded-2xl py-4 font-bold text-sm transition-colors mt-4 ${
+              className={`w-full rounded-2xl h-12 font-bold text-sm transition-colors mt-4 ${
                 allChecked ? "bg-green-500 text-white" : "bg-muted text-muted-foreground cursor-not-allowed"
               }`}
             >

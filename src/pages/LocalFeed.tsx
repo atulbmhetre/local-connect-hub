@@ -946,10 +946,10 @@ export default function LocalFeed() {
   return (
     <AppShell>
       <div className="space-y-3 pb-24" data-testid="feed-screen">
-      <header className="flex items-start justify-between gap-3 px-4 pt-2">
+      <header className="flex items-start justify-between gap-3 pt-2">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{s.nav_feed}</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">{s.feed_nearYou}</p>
+          <h1 className="text-xl font-bold text-foreground">{s.nav_feed}</h1>
+          <p className="text-xs text-muted-foreground mt-1">{s.feed_nearYou}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <NotificationBell />
@@ -966,7 +966,7 @@ export default function LocalFeed() {
       </header>
 
       {categories.length > 0 && (
-        <div className="px-4 space-y-2">
+        <div className="space-y-2">
           <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
             {categories.map((c) => {
               const isSelected = selectedCategory === c.id;
@@ -1058,13 +1058,13 @@ export default function LocalFeed() {
           ))}
         </ul>
         {truncatedRemaining > 0 && (
-          <div className="px-4 pb-2" data-testid="feed-truncated">
+          <div className="pb-2" data-testid="feed-truncated">
             <button
               type="button"
               data-testid="feed-load-more"
               disabled={loadingMore}
               onClick={() => void loadMoreFeed()}
-              className="w-full rounded-xl border border-border bg-muted/40 py-2.5 text-sm font-semibold text-foreground disabled:opacity-50"
+              className="w-full rounded-xl border border-border bg-muted/40 h-10 text-sm font-semibold text-foreground disabled:opacity-50"
             >
               {loadingMore
                 ? s.feed_loadingMore
@@ -1085,7 +1085,7 @@ export default function LocalFeed() {
           />
           <div className="relative z-10 mx-auto w-full max-w-md rounded-t-2xl border border-border bg-card p-5 pb-8 shadow-lg max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display font-semibold text-lg">{s.feed_composeTitle}</h2>
+              <h2 className="font-display font-semibold text-xl">{s.feed_composeTitle}</h2>
               <button
                 type="button"
                 onClick={closeCompose}
@@ -1112,7 +1112,7 @@ export default function LocalFeed() {
               />
             </div>
 
-            <SettingsCard className="mx-4">
+            <SettingsCard>
               <Textarea
                 value={composeContent}
                 onChange={(e) => setComposeContent(e.target.value.slice(0, MAX_CONTENT))}
@@ -1125,7 +1125,7 @@ export default function LocalFeed() {
                 maxLength={MAX_CONTENT}
               />
             </SettingsCard>
-            <p className="text-[11px] text-muted-foreground text-right mb-4">
+            <p className="text-xs text-muted-foreground text-right mb-4">
               {composeContent.length}/{MAX_CONTENT}
             </p>
 
@@ -1193,7 +1193,7 @@ export default function LocalFeed() {
                   type="button"
                   onClick={toggleManualVendor}
                   className={cn(
-                    "w-full rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors",
+                    "w-full rounded-xl border px-3 h-10 text-sm font-semibold transition-colors",
                     showManualVendor
                       ? "border-brand bg-brand/10 text-brand"
                       : "border-surface-border text-muted-foreground",
@@ -1357,18 +1357,18 @@ function OfferCard({
   return (
     <article
       data-testid="feed-post-card"
-      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4"
+      className="mb-3 rounded-2xl border border-surface-border bg-surface p-4"
     >
       <span className="inline-block text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 px-2 py-0.5 mb-2">
         {s.feed_typeOffer}
       </span>
-      <p className="text-[10px] text-muted-foreground font-medium mb-2">
+      <p className="text-xs text-muted-foreground font-medium mb-2">
         {postedAt}
         {postedAt ? " · " : ""}
         {feedAuthorLabel(post.user_phone, viewerPhone)}
       </p>
       <div className="flex items-start gap-2 mb-2">
-        <Tag className="h-4 w-4 text-brand shrink-0 mt-0.5" />
+        <Tag className="h-4 w-4 text-brand shrink-0 mt-1" />
         <p className="font-semibold text-foreground">
           {post.vendors?.shop_name ?? s.feed_localVendor}
         </p>
@@ -1386,7 +1386,7 @@ function OfferCard({
         />
       )}
       {expiry && (
-        <span className="inline-block mt-3 text-[11px] font-medium rounded-full bg-brand/10 text-brand px-2.5 py-0.5">
+        <span className="inline-block mt-3 text-xs font-medium rounded-full bg-brand/10 text-brand px-2.5 py-0.5">
           {expiry}
         </span>
       )}
@@ -1452,12 +1452,12 @@ function AnnouncementCard({
   return (
     <article
       data-testid="feed-post-card"
-      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative"
+      className="mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative"
     >
       <span className="inline-block text-xs font-semibold rounded-full bg-blue-500/20 text-blue-400 px-2 py-0.5 mb-2">
         {s.feed_typeAnnouncement}
       </span>
-      <p className="text-[10px] text-muted-foreground font-medium mb-2">
+      <p className="text-xs text-muted-foreground font-medium mb-2">
         {postedAt}
         {postedAt ? " · " : ""}
         {feedAuthorLabel(post.user_phone, viewerPhone)}
@@ -1475,7 +1475,7 @@ function AnnouncementCard({
         />
       )}
       {expiry && (
-        <span className="inline-block mt-3 text-[11px] font-medium rounded-full bg-brand/10 text-brand px-2.5 py-0.5">
+        <span className="inline-block mt-3 text-xs font-medium rounded-full bg-brand/10 text-brand px-2.5 py-0.5">
           {expiry}
         </span>
       )}
@@ -1549,12 +1549,12 @@ function RecommendationCard({
   return (
     <article
       data-testid="feed-post-card"
-      className="mx-4 mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative"
+      className="mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative"
     >
       <span className="inline-block text-xs font-semibold rounded-full bg-purple-500/20 text-purple-400 px-2 py-0.5 mb-2">
         {s.feed_typeRecommendation}
       </span>
-      <p className="text-[10px] text-muted-foreground font-medium mb-2">
+      <p className="text-xs text-muted-foreground font-medium mb-2">
         {postedAt}
         {postedAt ? " · " : ""}
         {feedAuthorLabel(post.user_phone, viewerPhone)}
@@ -1578,7 +1578,7 @@ function RecommendationCard({
           <span className="text-sm font-medium text-foreground">
             {post.recommended_vendor_name}
           </span>
-          <span className="inline-block text-[10px] font-semibold rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+          <span className="inline-block text-xs font-semibold rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
             {s.feed_notOnAaspaas}
           </span>
         </div>
@@ -1610,7 +1610,7 @@ function RecommendationCard({
                   key={r.id}
                   className="rounded-xl bg-muted/60 px-3 py-2 text-sm"
                 >
-                  <p className="text-[10px] text-muted-foreground font-medium mb-0.5">
+                  <p className="text-xs text-muted-foreground font-medium mb-0.5">
                     {feedAuthorLabel(r.user_phone, viewerPhone)}
                   </p>
                   <p className="text-foreground">{maskPhoneNumbers(r.content)}</p>

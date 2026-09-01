@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/language";
 import { requestPhoneOtp, verifyPhoneOtp } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 type Props = {
   phone: string;
@@ -110,16 +111,17 @@ export function PhoneOtpVerification({
 
       {otpError && <p className="text-sm text-destructive text-center">{otpError}</p>}
 
-      <button
+      <Button
         type="button"
+        size="lg"
         data-testid="otp-verify-btn"
         onClick={() => void handleVerify()}
         disabled={otpLoading || otpValue.length !== 6}
-        className="w-full py-3 rounded-xl bg-brand text-white font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+        className="w-full bg-brand text-white"
       >
         {otpLoading && <Loader2 className="animate-spin w-4 h-4" />}
         {s.firstopen_otp_verify}
-      </button>
+      </Button>
 
       {requestError && (
         <button

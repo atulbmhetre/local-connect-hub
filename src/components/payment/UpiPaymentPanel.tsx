@@ -350,7 +350,7 @@ export function UpiPaymentPanel({
             setShowReturnPrompt(false);
             setUserConfirmedPaid(true);
           }}
-          className="rounded-xl bg-brand text-white text-sm font-semibold py-2.5 active:scale-[0.98]"
+          className="rounded-xl bg-brand text-white text-sm font-semibold h-10 active:scale-[0.98]"
         >
           {s.payment_yesPaid}
         </button>
@@ -363,7 +363,7 @@ export function UpiPaymentPanel({
             setUtr("");
             payTappedAtRef.current = null;
           }}
-          className="rounded-xl border border-surface-border text-sm font-semibold py-2.5 active:scale-[0.98]"
+          className="rounded-xl border border-surface-border text-sm font-semibold h-10 active:scale-[0.98]"
         >
           {s.payment_noPaid}
         </button>
@@ -378,7 +378,7 @@ export function UpiPaymentPanel({
         <label
           htmlFor={`${idPrefix}-screenshot`}
           className={cn(
-            "flex items-center justify-center gap-2 w-full min-h-11 rounded-xl border border-dashed border-surface-border text-sm font-semibold py-2.5 cursor-pointer",
+            "flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-dashed border-surface-border text-sm font-semibold  cursor-pointer",
             screenshotUrl && "border-brand/50 text-brand",
           )}
         >
@@ -403,7 +403,7 @@ export function UpiPaymentPanel({
           onChange={(e) => void handleScreenshotPick(e)}
         />
         {screenshotUrl ? (
-          <p className="text-[11px] text-green-600 dark:text-green-400">{s.payment_screenshot_label}</p>
+          <p className="text-xs text-green-600 dark:text-green-400">{s.payment_screenshot_label}</p>
         ) : null}
       </div>
     ) : null;
@@ -445,7 +445,7 @@ export function UpiPaymentPanel({
             setScreenshotUrl(null);
             payTappedAtRef.current = null;
           }}
-          className="w-full min-h-11 rounded-2xl border border-surface-border text-sm font-semibold text-foreground py-3 active:scale-[0.98] transition-transform"
+          className="w-full h-10 rounded-2xl border border-surface-border text-sm font-semibold text-foreground  active:scale-[0.98] transition-transform"
         >
           {s.payment_resubmit_utr}
         </button>
@@ -498,7 +498,7 @@ export function UpiPaymentPanel({
             <button
               type="button"
               onClick={handlePayNowUpi}
-              className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
+              className="w-full h-12 bg-brand text-white font-bold  rounded-2xl text-sm active:scale-[0.98] transition-transform"
             >
               {s.payment_pay_now}
             </button>
@@ -521,7 +521,7 @@ export function UpiPaymentPanel({
             <button
               type="button"
               onClick={handlePayNowMobile}
-              className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
+              className="w-full h-12 bg-brand text-white font-bold  rounded-2xl text-sm active:scale-[0.98] transition-transform"
             >
               {s.payment_pay_now}
             </button>
@@ -550,7 +550,7 @@ export function UpiPaymentPanel({
                     <button
                       type="button"
                       onClick={handlePayNowQr}
-                      className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform"
+                      className="w-full h-12 bg-brand text-white font-bold  rounded-2xl text-sm active:scale-[0.98] transition-transform"
                     >
                       {s.payment_pay_now}
                     </button>
@@ -597,7 +597,7 @@ export function UpiPaymentPanel({
             data-testid={`${idPrefix}-submit-utr`}
             disabled={submitting || screenshotUploading}
             onClick={() => void handleSubmitUtr()}
-            className="w-full min-h-11 bg-brand text-white font-bold py-3 rounded-2xl text-sm active:scale-[0.98] transition-transform disabled:opacity-60"
+            className="w-full h-12 bg-brand text-white font-bold  rounded-2xl text-sm active:scale-[0.98] transition-transform disabled:opacity-60"
           >
             {submitting ? (
               <Loader2 className="h-4 w-4 animate-spin mx-auto" />

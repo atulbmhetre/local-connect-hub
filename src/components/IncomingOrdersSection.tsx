@@ -12,6 +12,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import { openGoogleMaps, resolveVendorNavigateToCustomerUrl } from "@/lib/mapsDeepLink";
 import { BillSheet } from "@/components/BillSheet";
 import { BillEditSheet } from "@/components/BillEditSheet";
@@ -2010,7 +2011,7 @@ export function IncomingOrdersSection({
       return (
         <span
           data-testid="incoming-order-status"
-          className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-bold px-2 py-0.5 border border-brand/40"
+          className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-xs font-bold px-2 py-0.5 border border-brand/40"
         >
           {s.incoming_statusNew}
         </span>
@@ -2019,7 +2020,7 @@ export function IncomingOrdersSection({
       return (
         <span
           data-testid="incoming-order-status"
-          className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border"
+          className="rounded-full bg-muted text-muted-foreground text-xs font-semibold px-2 py-0.5 border border-border"
         >
           {s.incoming_statusSeen}
         </span>
@@ -2028,7 +2029,7 @@ export function IncomingOrdersSection({
       return (
         <span
           data-testid="incoming-order-status"
-          className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40"
+          className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-xs font-semibold px-2 py-0.5 border border-brand/40"
         >
           {acceptedStatusLabel(r)}
         </span>
@@ -2037,7 +2038,7 @@ export function IncomingOrdersSection({
       return (
         <span
           data-testid="incoming-order-status"
-          className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-brand-border text-brand"
+          className="rounded-full text-xs font-semibold px-2 py-0.5 border border-brand-border text-brand"
         >
           {s.incoming_statusDone}
         </span>
@@ -2046,7 +2047,7 @@ export function IncomingOrdersSection({
       return (
         <span
           data-testid="incoming-order-status"
-          className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5 border border-border"
+          className="rounded-full bg-muted text-muted-foreground text-xs font-semibold px-2 py-0.5 border border-border"
         >
           {s.orderCancelled}
         </span>
@@ -2054,7 +2055,7 @@ export function IncomingOrdersSection({
     return (
       <span
         data-testid="incoming-order-status"
-        className="rounded-full text-[10px] font-semibold px-2 py-0.5 border border-brand-border text-brand"
+        className="rounded-full text-xs font-semibold px-2 py-0.5 border border-brand-border text-brand"
       >
         {s.incoming_statusDone}
       </span>
@@ -2071,7 +2072,7 @@ export function IncomingOrdersSection({
 
   return (
     <div
-      className="mx-4 rounded-2xl border border-surface-border bg-surface overflow-hidden"
+      className="rounded-2xl border border-surface-border bg-surface overflow-hidden"
       data-testid="incoming-orders-section"
       data-loading={String(loading)}
     >
@@ -2090,12 +2091,12 @@ export function IncomingOrdersSection({
       {rows.length > 0 && (
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
+          <Input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={s.search_ordersPlaceholder}
-            className="w-full bg-surface border border-surface-border rounded-xl pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+            className="bg-surface border-surface-border pl-9 pr-4"
           />
           {searchQuery && (
             <button
@@ -2149,7 +2150,7 @@ export function IncomingOrdersSection({
               onClick={() => void clearOrderEditedFlag(r.id)}
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="text-[11px] text-muted-foreground tabular-nums">
+                <span className="text-xs text-muted-foreground tabular-nums">
                   {formatTimeAgo(r.created_at)}
                 </span>
                 {shouldShowStatusBadge(r) && badge(r)}
@@ -2160,7 +2161,7 @@ export function IncomingOrdersSection({
                 return (
                   <span
                     data-testid="incoming-order-category"
-                    className="inline-flex items-center gap-0.5 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-foreground w-fit"
+                    className="inline-flex items-center gap-0.5 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-xs font-semibold text-foreground w-fit"
                   >
                     {cat.emoji ? <span aria-hidden>{cat.emoji}</span> : null}
                     <span>{getLabel(cat.label)}</span>
@@ -2172,7 +2173,7 @@ export function IncomingOrdersSection({
                   {stripLocationTag(r.message)}
                 </p>
                 {r.is_edited && (
-                  <span className="shrink-0 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5 border border-amber-500/30">
+                  <span className="shrink-0 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-xs font-semibold px-2 py-0.5 border border-amber-500/30">
                     {s.order_edited_badge}
                   </span>
                 )}
@@ -2197,7 +2198,7 @@ export function IncomingOrdersSection({
                       return (
                         <span
                           className={cn(
-                            "inline-flex rounded-full text-[10px] font-semibold px-2 py-0.5 border",
+                            "inline-flex rounded-full text-xs font-semibold px-2 py-0.5 border",
                             creditBadge.className,
                           )}
                         >
@@ -2220,12 +2221,12 @@ export function IncomingOrdersSection({
                 </div>
               )}
               {r.status === "cancelled" && r.cancel_reason && (
-                <span className="inline-flex rounded-full bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 border border-border">
+                <span className="inline-flex rounded-full bg-muted text-muted-foreground text-xs font-medium px-2 py-0.5 border border-border">
                   {r.cancel_reason}
                 </span>
               )}
               {r.delivery_address && (
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
                   {s.incoming_addressPrefix}<span className="text-foreground font-medium">{r.delivery_address}</span>
                 </div>
               )}
@@ -2249,7 +2250,7 @@ export function IncomingOrdersSection({
                 const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
                 if (!slot) return null;
                 return (
-                  <div className="rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-[11px]">
+                  <div className="rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-xs">
                     {s.incoming_slotPrefix}<span className="text-green-700 dark:text-brand font-semibold">{slot}</span>
                   </div>
                 );
@@ -2271,7 +2272,7 @@ export function IncomingOrdersSection({
                       ? s.incoming_locationVisitShop
                       : s.incoming_locationTbd;
                   return (
-                    <div className={`rounded-lg border px-3 py-2 text-[11px] space-y-0.5 ${colorClass}`}>
+                    <div className={`rounded-lg border px-3 py-2 text-xs space-y-0.5 ${colorClass}`}>
                       <div className="font-semibold">{locationLabel}</div>
                       <div>
                         {s.incoming_apptAround}
@@ -2332,7 +2333,7 @@ export function IncomingOrdersSection({
                   {r.status !== "fulfilled" && r.status !== "done" && (
                     <span
                       data-testid="incoming-order-status"
-                      className="inline-flex rounded-full bg-brand/20 text-green-700 dark:text-brand text-[10px] font-semibold px-2 py-0.5 border border-brand/40"
+                      className="inline-flex rounded-full bg-brand/20 text-green-700 dark:text-brand text-xs font-semibold px-2 py-0.5 border border-brand/40"
                     >
                       {s.incoming_bookingConfirmed}
                     </span>
@@ -2396,7 +2397,7 @@ export function IncomingOrdersSection({
               )}
 
               {r.appointment_time && r.appointment_status === "declined" && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] text-destructive font-semibold text-center">
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive font-semibold text-center">
                   {s.incoming_bannerDeclined}
                 </div>
               )}
@@ -2499,7 +2500,7 @@ export function IncomingOrdersSection({
                       <button
                         type="button"
                         onClick={() => openFlagSheet(r)}
-                        className="w-full text-left text-[11px] text-muted-foreground/80 hover:text-muted-foreground py-1"
+                        className="w-full text-left text-xs text-muted-foreground/80 hover:text-muted-foreground py-1"
                       >
                         {s.incoming_flag_report_btn}
                       </button>
@@ -2525,7 +2526,7 @@ export function IncomingOrdersSection({
                           setBillRequestId(r.id);
                           setBillUserPhone(r.user_phone);
                         }}
-                        className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold py-2.5 active:scale-[0.99]"
+                        className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold h-10 active:scale-[0.99]"
                       >
                         {existingBill ? s.bill_view_title : s.bill_title}
                       </button>
@@ -2547,13 +2548,13 @@ export function IncomingOrdersSection({
                               type="button"
                               data-testid="incoming-bill-edited-badge"
                               onClick={() => setHistoryBillId(billsByRequestId[r.id].id)}
-                              className="text-[10px] font-semibold text-brand underline shrink-0"
+                              className="text-xs font-semibold text-brand underline shrink-0"
                             >
                               {s.bill_editedBadge}
                             </button>
                           )}
                         </div>
-                        <span className="text-[10px] text-muted-foreground shrink-0">
+                        <span className="text-xs text-muted-foreground shrink-0">
                           {billsByRequestId[r.id].payment_mode === "cash"
                             ? s.bill_cash
                             : billsByRequestId[r.id].payment_mode === "upi"
@@ -2605,7 +2606,7 @@ export function IncomingOrdersSection({
                           {billsByRequestId[r.id].last_vendor_reminder_at && (
                             <p
                               data-testid="incoming-last-reminded"
-                              className="text-[10px] text-muted-foreground text-center"
+                              className="text-xs text-muted-foreground text-center"
                             >
                               {s.bill_remind_customer_last.replace(
                                 "{when}",
@@ -2696,13 +2697,13 @@ export function IncomingOrdersSection({
                         {dismissBlockedByUnpaidBill && (
                           <p
                             data-testid="incoming-dismiss-blocked-unpaid"
-                            className="text-[10px] text-muted-foreground text-center mt-1"
+                            className="text-xs text-muted-foreground text-center mt-1"
                           >
                             {s.incoming_dismissBlockedUnpaid}
                           </p>
                         )}
                         {!dismissBlockedByUnpaidBill && dismissBlockedByKhata && (
-                          <p className="text-[10px] text-muted-foreground text-center mt-1">
+                          <p className="text-xs text-muted-foreground text-center mt-1">
                             {s.khata_settleDuesFirst}
                           </p>
                         )}
@@ -2762,7 +2763,7 @@ export function IncomingOrdersSection({
             data-testid="incoming-orders-load-more"
             disabled={loadingMore}
             onClick={() => void loadMoreIncoming()}
-            className="w-full rounded-xl border border-border bg-muted/40 py-2.5 text-sm font-semibold text-foreground disabled:opacity-50"
+            className="w-full rounded-xl border border-border bg-muted/40 h-10 text-sm font-semibold text-foreground disabled:opacity-50"
           >
             {loadingMore
               ? s.incoming_loadingMore
@@ -2788,7 +2789,7 @@ export function IncomingOrdersSection({
                   <RadioGroupItem
                     value={opt.value}
                     id={`flag-${opt.value}`}
-                    className="mt-0.5"
+                    className="mt-1"
                   />
                   <label
                     htmlFor={`flag-${opt.value}`}
@@ -2821,7 +2822,7 @@ export function IncomingOrdersSection({
               data-testid="incoming-flag-submit"
               disabled={flagSubmitting || !selectedFlagType}
               onClick={() => void submitFlagReport()}
-              className="w-full rounded-xl bg-primary text-primary-foreground py-3 font-semibold disabled:opacity-50"
+              className="w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold disabled:opacity-50"
             >
               {flagSubmitting ? s.incoming_saving : s.incoming_flag_submit}
             </button>
@@ -2884,7 +2885,7 @@ export function IncomingOrdersSection({
               (selectedReason === "Other" && !otherReasonText.trim())
             }
             onClick={() => void confirmCancelOrder()}
-            className="mt-4 w-full rounded-xl bg-destructive text-destructive-foreground py-3 font-semibold disabled:opacity-50"
+            className="mt-4 w-full rounded-xl bg-destructive text-destructive-foreground h-12 font-semibold disabled:opacity-50"
           >
             {cancelling ? s.incoming_saving : s.confirmCancel}
           </button>
@@ -2966,7 +2967,7 @@ export function IncomingOrdersSection({
               data-testid="ledger-submit-btn"
               disabled={ledgerSubmitting || !ledgerAmount.trim()}
               onClick={() => void confirmLedgerEntry()}
-              className="w-full rounded-xl bg-primary text-primary-foreground py-3 font-semibold disabled:opacity-50"
+              className="w-full rounded-xl bg-primary text-primary-foreground h-12 font-semibold disabled:opacity-50"
             >
               {ledgerSubmitting ? s.incoming_saving : s.khata_addToLedgerSubmit}
             </button>
@@ -3034,7 +3035,7 @@ export function IncomingOrdersSection({
               (selectedReason === "Other" && !otherReasonText.trim())
             }
             onClick={() => void confirmDeclineBooking()}
-            className="mt-4 w-full rounded-xl bg-destructive text-destructive-foreground py-3 font-semibold disabled:opacity-50"
+            className="mt-4 w-full rounded-xl bg-destructive text-destructive-foreground h-12 font-semibold disabled:opacity-50"
           >
             {declining ? s.incoming_saving : s.incoming_confirm_decline}
           </button>

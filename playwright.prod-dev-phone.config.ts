@@ -20,6 +20,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   use: {
+    viewport: { width: 390, height: 844 },
     baseURL: previewUrl,
     headless: true,
   },

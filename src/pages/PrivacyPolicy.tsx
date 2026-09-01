@@ -19,7 +19,7 @@ const PrivacyPolicy = () => {
       <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 text-center space-y-5">
         <ShieldCheck className="mx-auto h-10 w-10 text-primary" aria-hidden />
         <div className="space-y-2">
-          <h1 className="font-display text-2xl font-bold">{s.privacy_policy_title}</h1>
+          <h1 className="font-display text-xl font-bold">{s.privacy_policy_title}</h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
             {s.privacy_policy_canonical_note}
           </p>
@@ -27,7 +27,7 @@ const PrivacyPolicy = () => {
         <a
           href={CANONICAL_PRIVACY_POLICY_URL}
           data-testid="privacy-policy-canonical-link"
-          className="w-full rounded-xl bg-brand text-brand-foreground px-4 py-3 font-semibold flex items-center justify-center gap-2"
+          className="w-full rounded-xl bg-brand text-brand-foreground px-4 h-12 font-semibold flex items-center justify-center gap-2"
         >
           {s.privacy_policy_open}
           <ExternalLink className="h-4 w-4" aria-hidden />

@@ -64,7 +64,7 @@ export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps
               header={
                 <div>
                   <p className="text-sm font-semibold text-foreground">{s.payment_pay_now}</p>
-                  <p className="text-sm text-muted-foreground mt-0.5">{vendor.shop_name}</p>
+                  <p className="text-sm text-muted-foreground mt-1">{vendor.shop_name}</p>
                   <p className="text-xl font-bold text-foreground mt-2">
                     ₹{order.amountRupees.toFixed(2)}
                   </p>
