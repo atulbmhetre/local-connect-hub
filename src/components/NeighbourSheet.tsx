@@ -297,7 +297,7 @@ export function NeighbourSheet({
     >
       <SheetContent
         side="bottom"
-        className="bg-card border-t border-border rounded-t-2xl max-h-[85vh] overflow-y-auto"
+        className="bg-card border-t border-border rounded-t-2xl max-h-[85vh] overflow-y-auto px-4"
       >
         {vendor && (
           <>

@@ -227,7 +227,9 @@ const VendorCategoryChips = ({
           )}
         >
           <span aria-hidden>{cat.emoji}</span>
-          <span className="truncate max-w-[8rem]">{getLabel(cat.label)}</span>
+          <span className="truncate max-w-[8rem]" title={getLabel(cat.label)}>
+            {getLabel(cat.label)}
+          </span>
         </span>
       ))}
     </div>
@@ -1049,7 +1051,7 @@ export function RadarVendorCard({
       )}
 
       <Sheet open={rateCardOpen} onOpenChange={setRateCardOpen}>
-        <SheetContent side="bottom" className="rounded-t-2xl max-h-[80vh] overflow-y-auto">
+        <SheetContent side="bottom" className="rounded-t-2xl max-h-[80vh] overflow-y-auto px-4">
           <SheetHeader className="text-left">
             <SheetTitle>
               {serviceMode === "delivery"
@@ -1247,7 +1249,7 @@ export function RadarVendorCard({
       >
         <SheetContent
           side="bottom"
-          className="bg-card border-t border-border rounded-t-2xl"
+          className="bg-card border-t border-border rounded-t-2xl px-4"
         >
           <SheetHeader className="text-left pr-8">
             <SheetTitle>

@@ -32,6 +32,7 @@ import { useAppConfig } from "@/hooks/useAppConfig";
 import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/SettingsSection";
 import { NotificationBell } from "@/components/NotificationBell";
 import { FirstOpenFlow } from "@/components/FirstOpenFlow";
+import { isWebDesktopShell } from "@/lib/desktopShell";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { captureError } from "@/lib/sentry";
@@ -696,7 +697,7 @@ const Index = () => {
         <div className="min-w-0 flex-1">
           <SettingsPageHeader title={s.appName} subtitle={s.taglineSub} />
         </div>
-        <NotificationBell className="mt-6" />
+        <NotificationBell className={cn("mt-6", isWebDesktopShell() && "lg:mt-0")} />
       </div>
 
       {removalNotices.length > 0 && (
@@ -790,7 +791,7 @@ const Index = () => {
 
       <div>
         <form onSubmit={handleSubmit} className="relative">
-          <div className="absolute -top-2.5 left-4 z-10 px-2 bg-background">
+          <div className="absolute -top-2 left-4 z-10 px-2 bg-background">
             <span className="text-xs uppercase tracking-[0.2em] font-semibold text-brand inline-flex items-center gap-1">
               <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulse" />
               {s.aiSearch}
@@ -870,7 +871,7 @@ const Index = () => {
                     e.stopPropagation();
                     void unsaveSavedNeighbour(vendor.id);
                   }}
-                  className="absolute -top-1.5 -right-1.5 z-10 h-7 w-7 rounded-full border border-surface-border bg-surface text-muted-foreground shadow-sm grid place-items-center active:scale-95 disabled:opacity-50"
+                  className="absolute -top-2 -right-2 z-10 h-8 w-8 rounded-full border border-surface-border bg-surface text-muted-foreground shadow-sm grid place-items-center active:scale-95 disabled:opacity-50"
                 >
                   <X className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
                 </button>
@@ -909,7 +910,10 @@ const Index = () => {
                 </div>
                 <div className="min-w-0 flex-1 py-0.5">
                   <p className="font-semibold text-sm truncate inline-flex items-center gap-1.5 max-w-full">
-                    <span className="truncate">
+                    <span
+                      className="truncate"
+                      title={savedNeighbourDisplayName(nickname, vendor.shop_name)}
+                    >
                       {savedNeighbourDisplayName(nickname, vendor.shop_name)}
                     </span>
                     {vendor.is_active === true && (
@@ -919,7 +923,10 @@ const Index = () => {
                       />
                     )}
                   </p>
-                  <p className="text-xs text-muted-foreground truncate">
+                  <p
+                    className="text-xs text-muted-foreground truncate"
+                    title={getCategoryLabel(category)}
+                  >
                     {getCategoryLabel(category)}
                   </p>
                 </div>

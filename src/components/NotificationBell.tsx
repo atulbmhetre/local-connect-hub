@@ -23,6 +23,12 @@ import { navigateFromNotification } from "@/lib/notificationNavigation";
 /** Poll interval matching Home help-banner OTP-off Realtime fallback. */
 export const NOTIFICATION_BELL_POLL_MS = 60_000;
 
+const NOTIF_BODY_EXPAND_CHARS = 90;
+
+function notificationBodyNeedsExpand(body: string): boolean {
+  return body.trim().length > NOTIF_BODY_EXPAND_CHARS || body.split("\n").length > 2;
+}
+
 export type UserNotification = {
   id: string;
   user_phone: string;
@@ -64,6 +70,7 @@ export function NotificationBell({
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const loadIdRef = useRef(0);
   const openRef = useRef(open);
 
@@ -355,7 +362,7 @@ export function NotificationBell({
         onClick={() => handleOpenChange(true)}
         className={cn(
           isNav
-            ? "relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium active:opacity-90"
+            ? "relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium active:opacity-90"
             : "relative h-10 w-10 shrink-0 grid place-items-center rounded-full border border-border bg-card text-foreground active:opacity-90",
           className,
           !isNav && "lg:hidden",
@@ -505,23 +512,50 @@ export function NotificationBell({
                       n.is_read ? "bg-muted/60" : "bg-background shadow-sm",
                     )}
                   >
-                    <button
-                      type="button"
-                      onClick={() => void handleNotificationTap(n)}
-                      className="flex-1 min-w-0 text-left px-3 py-3 active:opacity-90"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-foreground leading-snug min-w-0 flex-1">
-                          {n.title}
-                        </p>
-                        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-                          {formatTimeAgo(n.created_at)}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
-                        {n.body}
-                      </p>
-                    </button>
+                    <div className="flex-1 min-w-0 px-3 py-3">
+                      <button
+                        type="button"
+                        onClick={() => void handleNotificationTap(n)}
+                        className="w-full text-left active:opacity-90"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-semibold text-foreground leading-snug min-w-0 flex-1">
+                            {n.title}
+                          </p>
+                          <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                            {formatTimeAgo(n.created_at)}
+                          </span>
+                        </div>
+                      </button>
+                      {n.body ? (
+                        <>
+                          <p
+                            className={cn(
+                              "text-xs text-muted-foreground mt-1 leading-relaxed",
+                              !expandedIds.has(n.id) && "line-clamp-2",
+                            )}
+                          >
+                            {n.body}
+                          </p>
+                          {notificationBodyNeedsExpand(n.body) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExpandedIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(n.id)) next.delete(n.id);
+                                  else next.add(n.id);
+                                  return next;
+                                });
+                              }}
+                              className="mt-1 text-xs font-semibold text-brand"
+                            >
+                              {expandedIds.has(n.id) ? s.notif_show_less : s.notif_read_more}
+                            </button>
+                          )}
+                        </>
+                      ) : null}
+                    </div>
                     <button
                       type="button"
                       aria-label={s.notif_bell_dismiss_aria}
@@ -546,7 +580,7 @@ export function NotificationBell({
                 setOpen(false);
                 navigate("/vendor");
               }}
-              className="shrink-0 mx-4 mb-4 mt-1 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-left text-xs text-foreground leading-relaxed active:opacity-90"
+              className="shrink-0 mx-4 mb-4 mt-1 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-left text-xs text-foreground leading-relaxed active:opacity-90"
             >
               {s.notifications_pending_orders_note.replace("{count}", String(pendingOrderCount))}
             </button>

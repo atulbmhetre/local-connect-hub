@@ -34,6 +34,7 @@ import {
 } from "@/components/RadarVendorCard";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
+import { isWebDesktopShell, useLgUp } from "@/lib/desktopShell";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import {
@@ -434,6 +435,7 @@ function RadarVendorCardSkeleton() {
 }
 
 const RadarSearch = () => {
+  const lgUp = useLgUp();
   const { s } = useLanguage();
   const { config } = useAppConfig();
   const getCategoryLabel = useCategoryLabel();
@@ -539,6 +541,7 @@ const RadarSearch = () => {
 
   const isPanIndiaBracket = searchRadiusKm === PAN_INDIA_RADIUS_KM;
   const locating = !coordsTried;
+  const locatingFullBleed = locating && isWebDesktopShell() && lgUp;
   const locationBlocked = coordsTried && coords == null && !isPanIndiaBracket;
 
   useEffect(() => {
@@ -1301,16 +1304,22 @@ const RadarSearch = () => {
     return () => window.clearTimeout(t);
   }, [highlightVendorId, scanning, results]);
 
-  return (
-    <AppShell theme="dark">
-      <div data-scanning={String(scanning)}>
-      {locating ? (
-        <div className="min-h-[80vh] bg-page-bg flex flex-col items-center justify-center p-6 text-white relative animate-fade-in">
+  const locatingView = (
+        <div
+          data-testid="radar-locating"
+          className={cn(
+            "bg-page-bg flex flex-col items-center justify-center p-6 text-white relative animate-fade-in",
+            locatingFullBleed ? "min-h-screen" : "min-h-[80vh]",
+          )}
+        >
           {/* Back */}
           <button
             type="button"
             onClick={() => navigate("/")}
-            className="absolute top-4 left-0 h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted border border-border shadow-sm grid place-items-center"
+            className={cn(
+              "absolute top-4 h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted border border-border shadow-sm grid place-items-center",
+              locatingFullBleed ? "left-4" : "left-0",
+            )}
             aria-label={s.radar_back_home}
           >
             <ArrowLeft className="h-5 w-5" />
@@ -1321,7 +1330,7 @@ const RadarSearch = () => {
             <h2 className="text-brand text-sm font-bold tracking-widest uppercase mb-2">
               {s.radar_scanning_area}
             </h2>
-            <p className="text-xl font-semibold italic capitalize text-foreground">
+            <p className="text-lg font-semibold italic capitalize text-foreground">
               {s.radar_finding_nearby}{getCategoryLabel(headline)}…
             </p>
           </div>
@@ -1337,11 +1346,28 @@ const RadarSearch = () => {
           </div>
 
           {/* Trust Indicator */}
-          <div className="absolute bottom-24 flex items-center gap-2 text-gray-400 text-sm text-center px-6">
+          <div
+            data-testid="radar-locating-status"
+            className={cn(
+              "absolute flex items-center gap-2 text-gray-400 text-sm text-center px-6",
+              locatingFullBleed ? "bottom-8" : "bottom-24",
+            )}
+          >
             <Loader2 className="w-4 h-4 animate-spin text-brand shrink-0" />
             <span>{bracketLabel}</span>
           </div>
         </div>
+  );
+
+  if (locatingFullBleed) {
+    return locatingView;
+  }
+
+  return (
+    <AppShell theme="dark">
+      <div data-scanning={String(scanning)}>
+      {locating ? (
+        locatingView
       ) : (
         <>
           <header className="flex items-center justify-between mb-4 animate-fade-up">
@@ -1357,7 +1383,7 @@ const RadarSearch = () => {
               <p className="text-xs uppercase tracking-[0.3em] text-brand">
                 {s.radar_live}
               </p>
-              <h1 className="font-display text-xl font-bold capitalize">{term ? getCategoryLabel(term) : headline}</h1>
+              <h1 className="font-display text-lg font-bold capitalize">{term ? getCategoryLabel(term) : headline}</h1>
               {!term && (
                 <p className="text-xs text-muted-foreground mt-1 px-2 leading-snug">
                   {s.radar_sos_subtitle}

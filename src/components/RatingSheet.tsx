@@ -356,7 +356,7 @@ export function RatingSheet({
       <SheetContent
         data-testid="rating-sheet"
         side="bottom"
-        className="bg-page-bg border-t border-surface-border rounded-t-2xl max-h-[85vh] overflow-y-auto"
+        className="bg-page-bg border-t border-surface-border rounded-t-2xl max-h-[85vh] overflow-y-auto px-4"
         style={{ transform: "translateZ(0)", WebkitOverflowScrolling: "touch" }}
       >
         <SheetHeader className="sr-only">

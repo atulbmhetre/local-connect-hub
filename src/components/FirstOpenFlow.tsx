@@ -442,7 +442,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       className="fixed inset-0 z-50 flex flex-col bg-background overflow-y-auto"
     >
       {step === "chooser" && (
-        <div className="flex flex-1 flex-col justify-center px-6 py-10 max-w-md mx-auto w-full gap-3">
+        <div className="flex flex-1 flex-col justify-center px-4 py-8 max-w-md mx-auto w-full gap-3">
           <button
             type="button"
             data-testid="firstopen-im-new"
@@ -467,7 +467,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       )}
 
       {step === "new_options" && (
-        <div className="flex flex-1 flex-col justify-center px-6 py-10 max-w-md mx-auto w-full gap-3">
+        <div className="flex flex-1 flex-col justify-center px-4 py-8 max-w-md mx-auto w-full gap-3">
           <h1 className="font-display text-xl font-bold text-foreground leading-tight mb-2">
             {s.welcome_new_options_title}
           </h1>
@@ -507,7 +507,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       )}
 
       {step === "register_phone" && (
-        <div className="flex flex-1 flex-col px-6 py-10 max-w-md mx-auto w-full">
+        <div className="flex flex-1 flex-col px-4 py-8 max-w-md mx-auto w-full">
           <h1 className="font-display text-xl font-bold text-foreground leading-tight">
             {s.firstopen_register_phone_title}
           </h1>
@@ -554,7 +554,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       )}
 
       {step === "restore" && (
-        <div className="flex flex-1 flex-col px-6 py-10 max-w-md mx-auto w-full">
+        <div className="flex flex-1 flex-col px-4 py-8 max-w-md mx-auto w-full">
           {inlineMessage === s.firstopen_restore_found ? (
             <p
               data-testid="firstopen-restore-message"
@@ -645,7 +645,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       )}
 
       {step === "restore_verify_choice" && (
-        <div className="flex flex-1 flex-col justify-center px-6 py-10 max-w-md mx-auto w-full gap-4">
+        <div className="flex flex-1 flex-col justify-center px-4 py-8 max-w-md mx-auto w-full gap-4">
           <p
             data-testid="firstopen-restore-message"
             className="text-sm leading-relaxed text-brand font-medium text-center"
@@ -675,7 +675,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       )}
 
       {OTP_ENABLED && step === "otp_pending" && (
-        <div className="flex flex-1 flex-col justify-center px-6 max-w-md mx-auto w-full">
+        <div className="flex flex-1 flex-col justify-center px-4 max-w-md mx-auto w-full">
           <PhoneOtpVerification
             phone={otpPhone}
             onVerified={() => {
@@ -691,7 +691,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
       )}
 
       {step === "notification_permission" && (
-        <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 max-w-md mx-auto w-full text-center">
+        <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 max-w-md mx-auto w-full text-center">
           <p className="text-5xl mb-6" aria-hidden>
             🔔
           </p>

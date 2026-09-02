@@ -53,7 +53,7 @@ export function NetworkErrorBanner({
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-xl bg-card border border-border px-4 py-2 text-sm font-semibold active:scale-[0.98]"
+            className="rounded-xl bg-card border border-border px-4 h-10 text-sm font-semibold active:scale-[0.98]"
           >
             {s.network_retry_btn}
           </button>

@@ -5,6 +5,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { BottomNav } from "@/components/BottomNav";
 import { APP_COLUMN_WIDTH_CLASS } from "@/lib/appColumn";
+import { desktopBottomSheetClass } from "@/lib/desktopShell";
 import { sheetVariants } from "@/components/ui/sheet";
 
 vi.mock("@/lib/language", () => ({
@@ -43,6 +44,12 @@ describe("desktop column chrome", () => {
   it("constrains side=bottom sheets to the same max-w-md column", () => {
     expect(sheetVariants({ side: "bottom" })).toContain("max-w-md");
     expect(sheetVariants({ side: "bottom" })).toContain("mx-auto");
+  });
+
+  it("adds the desktop well offset on web without changing the below-lg column", () => {
+    expect(desktopBottomSheetClass()).toContain("lg:left-64");
+    expect(desktopBottomSheetClass()).toContain("lg:max-w-3xl");
+    expect(sheetVariants({ side: "bottom" })).not.toContain("lg:left-64");
   });
 
   it("hides BottomNav at lg on web so the desktop sidebar can replace it", () => {

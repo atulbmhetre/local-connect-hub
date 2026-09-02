@@ -41,8 +41,8 @@ const Landing = () => {
 
   return (
     <div className="min-h-screen bg-page-bg text-white flex flex-col">
-      <main className="flex-1 w-full max-w-lg mx-auto px-5 py-10 flex flex-col">
-        <header className="text-center mb-10">
+      <main className="flex-1 w-full max-w-lg mx-auto px-4 py-8 flex flex-col">
+        <header className="text-center mb-8">
           <h1 className="font-display text-xl font-bold text-brand">{s.appName}</h1>
           <p className="mt-3 text-lg text-gray-300">{s.tagline}</p>
         </header>
@@ -51,7 +51,7 @@ const Landing = () => {
           {valueProps.map((item) => (
             <div
               key={item.title}
-              className="rounded-2xl border border-surface-border bg-surface p-5"
+              className="rounded-2xl border border-surface-border bg-surface p-4"
             >
               <p className="text-2xl mb-2" aria-hidden>
                 {item.icon}

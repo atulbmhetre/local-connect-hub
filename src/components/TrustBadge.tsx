@@ -259,7 +259,7 @@ export function TrustBadge({
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent
           side="bottom"
-          className="rounded-t-2xl max-h-[80vh] overflow-y-auto"
+          className="rounded-t-2xl max-h-[80vh] overflow-y-auto px-4"
           data-testid="trust-detail-sheet"
           data-category-id={resolvedCategoryId ?? undefined}
           onClick={(e) => e.stopPropagation()}

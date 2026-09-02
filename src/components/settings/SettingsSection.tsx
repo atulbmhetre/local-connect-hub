@@ -1,5 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
+import { isWebDesktopShell } from "@/lib/desktopShell";
 import { cn } from "@/lib/utils";
 
 export function SettingsPageHeader({
@@ -12,7 +13,7 @@ export function SettingsPageHeader({
   onTitleClick?: () => void;
 }) {
   return (
-    <div className="pt-6 pb-2">
+    <div className={cn("pt-6 pb-2", isWebDesktopShell() && "lg:pt-0")}>
       <h1
         onClick={onTitleClick}
         className={cn(

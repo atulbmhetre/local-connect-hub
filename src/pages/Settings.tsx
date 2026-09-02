@@ -106,6 +106,7 @@ import { VendorMyBusiness } from "@/components/settings/VendorMyBusiness";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { desktopBottomSheetClass, desktopSheetOverlayClass, isWebDesktopShell } from "@/lib/desktopShell";
 import { Input } from "@/components/ui/input";
 import {
   SettingsPageHeader,
@@ -300,7 +301,7 @@ function AdminTrustLevelBadge({ level }: { level: TrustLevel }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none whitespace-nowrap shrink-0",
+        "inline-flex items-center rounded-full px-1.5 py-1 text-xs font-semibold leading-none whitespace-nowrap shrink-0",
         TRUST_BADGE_CLASS[level],
       )}
     >
@@ -357,13 +358,15 @@ function AdminVendorCategoryChips({
         <span
           key={`${cat.label}-${index}`}
           className={cn(
-            "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs shrink-0",
+            "inline-flex items-center gap-0.5 rounded-full px-2 py-1 text-xs shrink-0",
             "border border-surface-border bg-surface text-muted-foreground",
             index === 0 && "font-semibold text-foreground border-brand/40 bg-brand/10",
           )}
         >
           <span aria-hidden>{cat.emoji}</span>
-          <span className="truncate max-w-[8rem]">{getLabel(cat.label)}</span>
+          <span className="truncate max-w-[8rem]" title={getLabel(cat.label)}>
+            {getLabel(cat.label)}
+          </span>
         </span>
       ))}
     </div>
@@ -1117,7 +1120,7 @@ const Settings = () => {
         type="button"
         onClick={onRequest}
         data-testid="settings-permission-allow"
-        className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
+        className="shrink-0 rounded-lg border border-surface-border px-3 py-1 text-xs font-semibold text-foreground"
       >
         {s.settings_permission_request}
       </button>
@@ -3494,7 +3497,7 @@ const Settings = () => {
             onTitleClick={tapTitle}
           />
         </div>
-        <NotificationBell className="mt-6 mr-4 shrink-0" />
+        <NotificationBell className={cn("mt-6 mr-4 shrink-0", isWebDesktopShell() && "lg:mt-0")} />
       </div>
 
       {!vendorId && (
@@ -3590,7 +3593,7 @@ const Settings = () => {
           <div className="px-4 py-3" data-testid="account-standing-row">
             <span
               className={cn(
-                "inline-block rounded-full border px-3 py-1.5 text-xs font-semibold leading-snug",
+                "inline-block rounded-full border px-3 py-1 text-xs font-semibold leading-snug",
                 accountStanding.tone === "banned" &&
                   "bg-destructive/10 text-destructive border-destructive/30",
                 accountStanding.tone === "complaints" &&
@@ -3626,7 +3629,7 @@ const Settings = () => {
             <button
               type="button"
               onClick={() => void refreshAddresses()}
-              className="rounded-xl border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
+              className="rounded-xl border border-surface-border px-3 py-1 text-xs font-semibold text-foreground"
             >
               {s.network_retry_btn}
             </button>
@@ -3845,7 +3848,7 @@ const Settings = () => {
               <button
                 type="button"
                 onClick={() => void loadVendorOwn()}
-                className="rounded-xl border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
+                className="rounded-xl border border-surface-border px-3 py-1 text-xs font-semibold text-foreground"
               >
                 {s.network_retry_btn}
               </button>
@@ -3992,7 +3995,7 @@ const Settings = () => {
                   <button
                     type="button"
                     onClick={() => setPermissionHint(s.settings_permission_battery)}
-                    className="shrink-0 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-semibold text-foreground"
+                    className="shrink-0 rounded-lg border border-surface-border px-3 py-1 text-xs font-semibold text-foreground"
                   >
                     {s.onboard_open_settings}
                   </button>
@@ -4318,7 +4321,7 @@ const Settings = () => {
             onToggle={() => setVendorModerationOpen((o) => !o)}
             badge={
               flaggedUsers.length > 0 ? (
-                <span className="bg-destructive/20 text-destructive text-xs font-bold px-2 py-0.5 rounded-full">
+                <span className="bg-destructive/20 text-destructive text-xs font-bold px-2 py-1 rounded-full">
                   {flaggedUsers.length}
                 </span>
               ) : undefined
@@ -4398,7 +4401,7 @@ const Settings = () => {
                         )}
                         <AdminTrustLevelBadge level={v.trustLevel} />
                         {v.is_banned && (
-                          <span className="rounded-full bg-destructive/10 text-destructive text-xs font-bold px-2 py-0.5 border border-destructive/30">
+                          <span className="rounded-full bg-destructive/10 text-destructive text-xs font-bold px-2 py-1 border border-destructive/30">
                             BANNED
                           </span>
                         )}
@@ -4415,7 +4418,7 @@ const Settings = () => {
                     <div className="shrink-0 flex flex-col items-end gap-1.5">
                       {v.categories.some((c) => !c.is_manual_verified) &&
                         hasVerifyInProgress(v.id) && (
-                        <span className="rounded-full bg-amber-500/10 text-amber-600 text-xs font-semibold px-2 py-0.5 border border-amber-500/30">
+                        <span className="rounded-full bg-amber-500/10 text-amber-600 text-xs font-semibold px-2 py-1 border border-amber-500/30">
                           In progress
                         </span>
                       )}
@@ -4436,7 +4439,7 @@ const Settings = () => {
                                   : openVerifySheet(v, cat)
                               }
                               disabled={busy || (!cat.category_id && !cat.is_manual_verified)}
-                              className={`flex items-center gap-1 rounded-xl px-2 py-1 text-xs font-semibold transition-colors ${
+                              className={`flex items-center gap-1 rounded-xl px-3 py-1 text-xs font-semibold transition-colors ${
                                 cat.is_manual_verified
                                   ? "bg-green-500/10 text-green-500 border border-green-500/30"
                                   : "bg-destructive/10 text-destructive border border-destructive/30"
@@ -4465,7 +4468,7 @@ const Settings = () => {
                             setVendorBanDialog({ open: true, vendor: v });
                           }}
                           disabled={vendorBanAction === v.id}
-                          className="rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                          className="rounded-xl bg-destructive/10 text-destructive border border-destructive/30 px-3 py-1 text-xs font-semibold disabled:opacity-50"
                         >
                           Ban
                         </button>
@@ -4474,7 +4477,7 @@ const Settings = () => {
                           type="button"
                           onClick={() => void unbanVendor(v.id)}
                           disabled={vendorBanAction === v.id}
-                          className="rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                          className="rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-1 text-xs font-semibold disabled:opacity-50"
                         >
                           Unban
                         </button>
@@ -4488,7 +4491,7 @@ const Settings = () => {
                             setVendorClearDeletionDialog({ open: true, vendor: v });
                           }}
                           disabled={vendorBanAction === v.id}
-                          className="rounded-xl bg-amber-500/10 text-amber-700 border border-amber-500/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                          className="rounded-xl bg-amber-500/10 text-amber-700 border border-amber-500/30 px-3 py-1 text-xs font-semibold disabled:opacity-50"
                         >
                           Clear deletion
                         </button>
@@ -4544,12 +4547,12 @@ const Settings = () => {
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-sm font-semibold">{user.phone}</p>
                           {warnCount > 0 && (
-                            <span className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-semibold px-2 py-0.5 border border-amber-500/30">
+                            <span className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-semibold px-2 py-1 border border-amber-500/30">
                               ⚠️ {warnCount} warns
                             </span>
                           )}
                           {user.is_banned && (
-                            <span className="rounded-full bg-destructive/10 text-destructive text-xs font-bold px-2 py-0.5 border border-destructive/30">
+                            <span className="rounded-full bg-destructive/10 text-destructive text-xs font-bold px-2 py-1 border border-destructive/30">
                               BANNED
                             </span>
                           )}
@@ -4631,12 +4634,12 @@ const Settings = () => {
                         {cat.emoji}
                       </span>
                       <p className="text-sm font-semibold">{cat.label}</p>
-                      <span className="rounded-full bg-secondary/10 text-secondary text-xs font-semibold px-2 py-0.5 border border-secondary/30">
+                      <span className="rounded-full bg-secondary/10 text-secondary text-xs font-semibold px-2 py-1 border border-secondary/30">
                         {getServiceModeLabel(cat.service_mode)}
                       </span>
                       {cat.ai_confidence && (
                         <span
-                          className={`rounded-full text-xs font-semibold px-2 py-0.5 ${confidenceBadgeClass(cat.ai_confidence, cat.ai_confidence_score)}`}
+                          className={`rounded-full text-xs font-semibold px-2 py-1 ${confidenceBadgeClass(cat.ai_confidence, cat.ai_confidence_score)}`}
                         >
                           {cat.ai_confidence_score != null
                             ? `${Math.round(cat.ai_confidence_score * 100)}%`
@@ -4644,7 +4647,7 @@ const Settings = () => {
                         </span>
                       )}
                       {cat.suggestion_count > 0 && (
-                        <span className="rounded-full bg-muted text-muted-foreground text-xs font-semibold px-2 py-0.5 border border-border">
+                        <span className="rounded-full bg-muted text-muted-foreground text-xs font-semibold px-2 py-1 border border-border">
                           {s.admin_suggestion_count_label}: {cat.suggestion_count}
                         </span>
                       )}
@@ -4766,13 +4769,13 @@ const Settings = () => {
                         {row.emoji}
                       </span>
                       <p className="text-sm font-semibold">{row.label}</p>
-                      <span className="rounded-full bg-secondary/10 text-secondary text-xs font-semibold px-2 py-0.5 border border-secondary/30">
+                      <span className="rounded-full bg-secondary/10 text-secondary text-xs font-semibold px-2 py-1 border border-secondary/30">
                         {row.license_type ?? s.admin_generic_license}
                       </span>
                       {row.license_confidence_score != null &&
                         Number.isFinite(row.license_confidence_score) && (
                           <span
-                            className={`rounded-full text-xs font-semibold px-2 py-0.5 ${confidenceBadgeClass(null, row.license_confidence_score)}`}
+                            className={`rounded-full text-xs font-semibold px-2 py-1 ${confidenceBadgeClass(null, row.license_confidence_score)}`}
                           >
                             {Math.round(row.license_confidence_score * 100)}%
                           </span>
@@ -4836,13 +4839,13 @@ const Settings = () => {
                       </span>
                       {row.confidence != null && Number.isFinite(row.confidence) && (
                         <span
-                          className={`rounded-full text-xs font-semibold px-2 py-0.5 ${confidenceBadgeClass(null, row.confidence)}`}
+                          className={`rounded-full text-xs font-semibold px-2 py-1 ${confidenceBadgeClass(null, row.confidence)}`}
                         >
                           {Math.round(row.confidence * 100)}%
                         </span>
                       )}
                       <span
-                        className={`rounded-full text-xs font-semibold px-2 py-0.5 border ${
+                        className={`rounded-full text-xs font-semibold px-2 py-1 border ${
                           row.source === "corrective_ai"
                             ? "bg-amber-500/10 text-amber-800 border-amber-500/30 dark:text-amber-400"
                             : row.source === "proactive_ai"
@@ -5081,7 +5084,7 @@ const Settings = () => {
                                     <button
                                       type="button"
                                       onClick={() => openVendorInAdminList(v.phone)}
-                                      className="shrink-0 rounded-lg border border-border px-2 py-1 text-xs font-semibold"
+                                      className="shrink-0 rounded-lg border border-border px-3 py-1 text-xs font-semibold"
                                     >
                                       {s.admin_modeConfidence_openInList}
                                     </button>
@@ -5127,7 +5130,7 @@ const Settings = () => {
               <button
                 type="button"
                 onClick={() => setShowRemovedRecs((v) => !v)}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   showRemovedRecs
                     ? "bg-primary/10 text-primary border-primary/30"
                     : "bg-muted text-muted-foreground border-border"
@@ -5162,17 +5165,17 @@ const Settings = () => {
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         {isLead && isContacted && (
-                          <span className="inline-flex items-center rounded-full bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 px-2 py-0.5 text-xs font-semibold">
+                          <span className="inline-flex items-center rounded-full bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/30 px-2 py-1 text-xs font-semibold">
                             ✓ {s.admin_rec_contacted}
                           </span>
                         )}
                         {isLead && showRemovedRecs && isDismissed && (
-                          <span className="inline-flex items-center rounded-full bg-destructive/10 text-destructive border border-destructive/30 px-2 py-0.5 text-xs font-semibold">
+                          <span className="inline-flex items-center rounded-full bg-destructive/10 text-destructive border border-destructive/30 px-2 py-1 text-xs font-semibold">
                             {s.admin_rec_removed_label}
                           </span>
                         )}
                         {isLead && showRemovedRecs && !isDismissed && rec.vendor_onboarded && (
-                          <span className="inline-flex items-center rounded-full bg-primary/10 text-primary border border-primary/30 px-2 py-0.5 text-xs font-semibold">
+                          <span className="inline-flex items-center rounded-full bg-primary/10 text-primary border border-primary/30 px-2 py-1 text-xs font-semibold">
                             {s.admin_rec_onboarded_label}
                           </span>
                         )}
@@ -5331,7 +5334,7 @@ const Settings = () => {
                   const phoneLabel = v.phone ? maskPhoneLast4(v.phone) : "—";
                   const status = v.subscription_status;
                   let badgeClass =
-                    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold border";
+                    "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold border";
                   if (status === "grace") {
                     badgeClass +=
                       " bg-amber-500/10 text-amber-700 border-amber-500/30";
@@ -5932,14 +5935,22 @@ const Settings = () => {
       </AlertDialog>
 
       {verifyBusinessPicker.open && verifyBusinessPicker.vendor && (
-        <div className="fixed inset-0 z-50 flex items-end" data-testid="admin-verify-business-picker">
+        <div
+          className={cn("fixed inset-0 z-50 flex items-end", desktopSheetOverlayClass())}
+          data-testid="admin-verify-business-picker"
+        >
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() =>
               setVerifyBusinessPicker({ open: false, vendor: null, mode: "verify" })
             }
           />
-          <div className="relative w-full bg-card rounded-t-3xl p-5 shadow-xl">
+          <div
+            className={cn(
+              "relative w-full bg-card rounded-t-3xl p-5 shadow-xl",
+              desktopBottomSheetClass(),
+            )}
+          >
             <div className="w-10 h-1 bg-muted-foreground/30 rounded-full mx-auto mb-5" />
             <p className="font-display font-bold text-lg mb-3">{s.admin_verify_pick_business}</p>
             <div className="space-y-2">
@@ -5973,9 +5984,14 @@ const Settings = () => {
       )}
 
       {verifySheet.open && verifySheet.vendor && (
-        <div className="fixed inset-0 z-50 flex items-end">
+        <div className={cn("fixed inset-0 z-50 flex items-end", desktopSheetOverlayClass())}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeVerifySheet} />
-          <div className="relative w-full bg-card rounded-t-3xl p-5 max-h-[90vh] overflow-y-auto shadow-xl">
+          <div
+            className={cn(
+              "relative w-full bg-card rounded-t-3xl p-5 max-h-[90vh] overflow-y-auto shadow-xl",
+              desktopBottomSheetClass(),
+            )}
+          >
             <div className="w-10 h-1 bg-muted-foreground/30 rounded-full mx-auto mb-5" />
 
             <div className="flex items-center gap-3 mb-1">
@@ -6099,7 +6115,7 @@ const Settings = () => {
                           </div>
                           <span
                             className={cn(
-                              "shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold capitalize",
+                              "shrink-0 rounded-full border px-2 py-1 text-xs font-semibold capitalize",
                               verificationStatusChipClass(status),
                             )}
                           >

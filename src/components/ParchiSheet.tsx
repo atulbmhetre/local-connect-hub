@@ -1332,7 +1332,7 @@ export function ParchiSheet({
                     <button
                       type="button"
                       onClick={() => setAppointmentLocation("home")}
-                      className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
+                      className={`rounded-xl border py-3 px-2 text-xs font-semibold transition-colors ${
                         appointmentLocation === "home"
                           ? "border-blue-500 bg-blue-500/10 text-blue-400"
                           : "border-surface-border bg-surface text-gray-400"
@@ -1345,7 +1345,7 @@ export function ParchiSheet({
                     <button
                       type="button"
                       onClick={() => setAppointmentLocation("shop")}
-                      className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
+                      className={`rounded-xl border py-3 px-2 text-xs font-semibold transition-colors ${
                         appointmentLocation === "shop"
                           ? "border-purple-500 bg-purple-500/10 text-purple-400"
                           : "border-surface-border bg-surface text-gray-400"
@@ -1357,7 +1357,7 @@ export function ParchiSheet({
                     <button
                       type="button"
                       onClick={() => setAppointmentLocation("decide")}
-                      className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
+                      className={`rounded-xl border py-3 px-2 text-xs font-semibold transition-colors ${
                         appointmentLocation === "decide"
                           ? "border-gray-500 bg-gray-500/10 text-gray-300"
                           : "border-surface-border bg-surface text-gray-400"
@@ -1478,7 +1478,7 @@ export function ParchiSheet({
                       type="button"
                       data-testid={`parchi-recurrence-${kind}`}
                       onClick={() => setRecurrenceKind(kind)}
-                      className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
+                      className={`rounded-xl border py-3 px-2 text-xs font-semibold transition-colors ${
                         recurrenceKind === kind
                           ? "border-brand bg-brand/15 text-brand"
                           : "border-surface-border bg-surface text-gray-400"
@@ -1733,7 +1733,7 @@ export function ParchiSheet({
                     type="button"
                     data-testid="parchi-help-come-to-me"
                     onClick={() => setHelpLocation("home")}
-                    className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
+                    className={`rounded-xl border py-3 px-2 text-xs font-semibold transition-colors ${
                       helpLocation === "home"
                         ? "border-blue-500 bg-blue-500/10 text-blue-400"
                         : "border-surface-border bg-surface text-gray-400"
@@ -1745,7 +1745,7 @@ export function ParchiSheet({
                     type="button"
                     data-testid="parchi-help-visit-shop"
                     onClick={() => setHelpLocation("shop")}
-                    className={`rounded-xl border py-2.5 px-2 text-xs font-semibold transition-colors ${
+                    className={`rounded-xl border py-3 px-2 text-xs font-semibold transition-colors ${
                       helpLocation === "shop"
                         ? "border-purple-500 bg-purple-500/10 text-purple-400"
                         : "border-surface-border bg-surface text-gray-400"
@@ -1892,7 +1892,7 @@ export function ParchiSheet({
       >
         <SheetContent
           side="bottom"
-          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl"
+          className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl px-4"
         >
           <SheetHeader className="text-left">
             <SheetTitle className="text-white">{s.parchi_trust_low_title}</SheetTitle>

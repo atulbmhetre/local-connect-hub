@@ -510,7 +510,7 @@ const LiveTracking = () => {
             <button
               type="button"
               onClick={() => void fetchVendor()}
-              className="rounded-xl bg-card border border-white/10 px-4 py-2 text-sm font-semibold active:scale-[0.98]"
+              className="rounded-xl bg-card border border-white/10 px-4 h-10 text-sm font-semibold active:scale-[0.98]"
             >
               {s.network_retry_btn}
             </button>

@@ -20,6 +20,7 @@ import { getUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
+import { desktopBottomSheetClass, desktopSheetOverlayClass, isWebDesktopShell } from "@/lib/desktopShell";
 import { feedAuthorLabel } from "@/lib/khataDisplay";
 import { withOptionalFeedImageUpload } from "@/lib/imageUpload";
 import { FeedImagePicker } from "@/components/settings/FeedImagePicker";
@@ -946,7 +947,7 @@ export default function LocalFeed() {
   return (
     <AppShell>
       <div className="space-y-3 pb-24" data-testid="feed-screen">
-      <header className="flex items-start justify-between gap-3 pt-2">
+      <header className={cn("flex items-start justify-between gap-3 pt-6", isWebDesktopShell() && "lg:pt-0")}>
         <div>
           <h1 className="text-xl font-bold text-foreground">{s.nav_feed}</h1>
           <p className="text-xs text-muted-foreground mt-1">{s.feed_nearYou}</p>
@@ -976,7 +977,7 @@ export default function LocalFeed() {
                   type="button"
                   onClick={() => setSelectedCategory(isSelected ? null : c.id)}
                   className={cn(
-                    "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
+                    "shrink-0 rounded-full px-3 py-2 text-xs font-semibold border transition-colors",
                     isSelected
                       ? "bg-primary text-primary-foreground border-primary"
                       : "border-surface-border text-muted-foreground bg-muted",
@@ -1076,14 +1077,24 @@ export default function LocalFeed() {
       )}
 
       {showCompose && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+        <div
+          className={cn(
+            "fixed inset-0 z-50 flex flex-col justify-end",
+            desktopSheetOverlayClass(),
+          )}
+        >
           <button
             type="button"
             className="absolute inset-0 bg-black/50"
             aria-label={s.feed_closeAria}
             onClick={closeCompose}
           />
-          <div className="relative z-10 mx-auto w-full max-w-md rounded-t-2xl border border-border bg-card p-5 pb-8 shadow-lg max-h-[85vh] overflow-y-auto">
+          <div
+            className={cn(
+              "relative z-10 mx-auto w-full max-w-md rounded-t-2xl border border-border bg-card p-5 pb-8 shadow-lg max-h-[85vh] overflow-y-auto",
+              desktopBottomSheetClass(),
+            )}
+          >
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-display font-semibold text-xl">{s.feed_composeTitle}</h2>
               <button

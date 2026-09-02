@@ -99,7 +99,9 @@ export const BottomNav = () => {
                     />
                     {showLiveDot && <span className="live-dot" aria-hidden />}
                   </span>
-                  <span>{vendorLabel}</span>
+                  <span className="whitespace-nowrap leading-tight px-0.5 text-center text-[10px]">
+                    {vendorLabel}
+                  </span>
                 </>
               );
             }}

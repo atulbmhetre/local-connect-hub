@@ -5,6 +5,8 @@ import {
   useCategoryLabel,
 } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
+import { desktopBottomSheetClass, desktopSheetOverlayClass } from "@/lib/desktopShell";
+import { cn } from "@/lib/utils";
 import { Mic, X } from "lucide-react";
 
 type Props = {
@@ -45,9 +47,17 @@ export const CategoryPicker = ({ open, onClose, onPick, onMic, categories }: Pro
       role="dialog"
       aria-modal="true"
       aria-labelledby="category-picker-title"
-      className="fixed inset-0 z-50 bg-foreground/60 backdrop-blur-sm grid place-items-end sm:place-items-center animate-fade-in"
+      className={cn(
+        "fixed inset-0 z-50 bg-foreground/60 backdrop-blur-sm grid place-items-end sm:place-items-center animate-fade-in",
+        desktopSheetOverlayClass(),
+      )}
     >
-      <div className="w-full max-h-[90vh] overflow-y-auto sm:max-w-md bg-card rounded-t-3xl sm:rounded-3xl p-6 pb-8 shadow-card animate-fade-up">
+      <div
+        className={cn(
+          "w-full max-h-[90vh] overflow-y-auto sm:max-w-md bg-card rounded-t-3xl sm:rounded-3xl p-6 pb-8 shadow-card animate-fade-up",
+          desktopBottomSheetClass(),
+        )}
+      >
         <div className="flex items-center justify-between mb-6">
           <div>
             <p className="text-xs uppercase tracking-widest text-muted-foreground">

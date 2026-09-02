@@ -2773,7 +2773,7 @@ export function IncomingOrdersSection({
       )}
 
       <Sheet open={flagOrderId != null} onOpenChange={(open) => !open && closeFlagSheet()}>
-        <SheetContent side="bottom" className="rounded-t-2xl">
+        <SheetContent side="bottom" className="rounded-t-2xl px-4">
           <SheetHeader className="text-left">
             <SheetTitle>{s.incoming_flag_report_title}</SheetTitle>
           </SheetHeader>
@@ -2831,7 +2831,7 @@ export function IncomingOrdersSection({
       </Sheet>
 
       <Sheet open={cancelOrderId != null} onOpenChange={(open) => !open && closeCancelSheet()}>
-        <SheetContent side="bottom" className="rounded-t-2xl">
+        <SheetContent side="bottom" className="rounded-t-2xl px-4">
           <SheetHeader className="text-left">
             <SheetTitle>{s.cancelReason}</SheetTitle>
           </SheetHeader>
@@ -2895,7 +2895,7 @@ export function IncomingOrdersSection({
       <Sheet open={ledgerOrderId != null} onOpenChange={(open) => !open && closeLedgerSheet()}>
         <SheetContent
           side="bottom"
-          className="rounded-t-2xl max-h-[90vh] flex flex-col"
+          className="rounded-t-2xl max-h-[90vh] flex flex-col px-4"
           style={{
             transform: "translateZ(0)",
             WebkitOverflowScrolling: "touch",
@@ -2977,7 +2977,7 @@ export function IncomingOrdersSection({
       </Sheet>
 
       <Sheet open={declineOrderId != null} onOpenChange={(open) => !open && closeDeclineSheet()}>
-        <SheetContent side="bottom" className="rounded-t-2xl">
+        <SheetContent side="bottom" className="rounded-t-2xl px-4">
           <SheetHeader className="text-left">
             <SheetTitle>{s.incoming_decline_booking_title}</SheetTitle>
             <p className="text-sm text-muted-foreground mt-1">

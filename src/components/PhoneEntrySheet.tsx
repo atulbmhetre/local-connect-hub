@@ -300,7 +300,7 @@ export function PhoneEntrySheet({
     <Sheet open={isOpen} onOpenChange={handleSheetOpenChange}>
       <SheetContent
         side="bottom"
-        className="bg-card border-t border-border rounded-t-2xl"
+        className="bg-card border-t border-border rounded-t-2xl px-4"
       >
         {step === "otp" && pending ? (
           <PhoneOtpVerification

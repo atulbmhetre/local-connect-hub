@@ -2,7 +2,9 @@ import { useState } from "react";
 import { type ClassifySearchCandidate, useCategoryLabel } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
 import { Search, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { APP_COLUMN_CLASS } from "@/lib/appColumn";
+import { desktopBottomSheetClass, desktopSheetOverlayClass } from "@/lib/desktopShell";
 import { Input } from "@/components/ui/input";
 
 /** Tier 1 shows the top candidates; "None of these" reveals the rest (≤10 total). */
@@ -53,9 +55,18 @@ export const SearchSuggestSheet = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="search-suggest-title"
-      className="fixed inset-0 z-50 bg-foreground/60 backdrop-blur-sm grid place-items-end sm:place-items-center animate-fade-in"
+      className={cn(
+        "fixed inset-0 z-50 bg-foreground/60 backdrop-blur-sm grid place-items-end sm:place-items-center animate-fade-in",
+        desktopSheetOverlayClass(),
+      )}
     >
-      <div className={`${APP_COLUMN_CLASS} max-h-[90vh] overflow-y-auto bg-card rounded-t-3xl sm:rounded-3xl p-6 pb-8 shadow-card animate-fade-up`}>
+      <div
+        className={cn(
+          APP_COLUMN_CLASS,
+          desktopBottomSheetClass(),
+          "max-h-[90vh] overflow-y-auto bg-card rounded-t-3xl sm:rounded-3xl p-6 pb-8 shadow-card animate-fade-up",
+        )}
+      >
         <div className="flex items-center justify-between mb-4">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-widest text-muted-foreground">

@@ -705,7 +705,7 @@ const LedgerView = () => {
       <Sheet open={selectedPhone != null} onOpenChange={(open) => !open && closeSheet()}>
         <SheetContent
           side="bottom"
-          className="rounded-t-2xl max-h-[85vh] flex flex-col"
+          className="rounded-t-2xl max-h-[85vh] flex flex-col px-4"
           style={{
             transform: "translateZ(0)",
             WebkitOverflowScrolling: "touch",
@@ -994,7 +994,7 @@ const LedgerView = () => {
       <Sheet open={amountSheetMode != null} onOpenChange={(open) => !open && closeAmountSheet()}>
         <SheetContent
           side="bottom"
-          className="rounded-t-2xl"
+          className="rounded-t-2xl px-4"
           style={{ transform: "translateZ(0)", WebkitOverflowScrolling: "touch" }}
         >
           <SheetHeader className="text-left">

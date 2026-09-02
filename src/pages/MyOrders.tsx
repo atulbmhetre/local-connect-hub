@@ -37,6 +37,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { isWebDesktopShell } from "@/lib/desktopShell";
 import { Input } from "@/components/ui/input";
 import {
   SettingsPageHeader,
@@ -1782,7 +1783,7 @@ const MyOrders = () => {
         <div className="min-w-0 flex-1">
           <SettingsPageHeader title={s.myOrders_heading} subtitle={s.myOrders_appName} />
         </div>
-        <NotificationBell className="mt-6 shrink-0" />
+        <NotificationBell className={cn("mt-6 shrink-0", isWebDesktopShell() && "lg:mt-0")} />
       </div>
 
       <div className="relative">
@@ -1827,7 +1828,10 @@ const MyOrders = () => {
                 >
                   <div className="flex justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-bold text-foreground truncate">
+                      <p
+                        className="text-sm font-bold text-foreground truncate"
+                        title={ro.shop_name ?? s.myOrders_shopFallback}
+                      >
                         {ro.shop_name ?? s.myOrders_shopFallback}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
@@ -1954,7 +1958,10 @@ const MyOrders = () => {
               )}
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="font-semibold text-foreground truncate min-w-0">
+                <p
+                  className="font-semibold text-foreground truncate min-w-0"
+                  title={r.vendors?.shop_name ?? s.myOrders_shopFallback}
+                >
                   {r.vendors?.shop_name ?? s.myOrders_shopFallback}
                 </p>
                 <div className="flex items-center gap-1 shrink-0">
@@ -1977,7 +1984,7 @@ const MyOrders = () => {
               <span
                 data-testid="order-status-badge"
                 className={cn(
-                  "inline-flex rounded-full text-xs font-semibold px-2.5 py-1 border",
+                  "inline-flex rounded-full text-xs font-semibold px-3 py-1 border",
                   orderStatusPillClass(r),
                 )}
               >
@@ -2650,7 +2657,7 @@ const MyOrders = () => {
       )}
 
       <Sheet open={editOrder != null} onOpenChange={(open) => !open && closeEditSheet()}>
-        <SheetContent side="bottom" className="rounded-t-2xl">
+        <SheetContent side="bottom" className="rounded-t-2xl px-4">
           <SheetHeader className="text-left">
             <SheetTitle>{s.editOrder}</SheetTitle>
           </SheetHeader>
@@ -2750,7 +2757,7 @@ const MyOrders = () => {
       </Sheet>
 
       <Sheet open={editingReview !== null} onOpenChange={(open) => !open && setEditingReview(null)}>
-        <SheetContent side="bottom" className="rounded-t-2xl">
+        <SheetContent side="bottom" className="rounded-t-2xl px-4">
           <SheetHeader>
             <SheetTitle>{s.review_editTitle}</SheetTitle>
           </SheetHeader>
@@ -2855,7 +2862,7 @@ const MyOrders = () => {
       )}
 
       <Sheet open={khataDetail != null} onOpenChange={(open) => !open && closeKhataDetail()}>
-        <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] flex flex-col">
+        <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] flex flex-col px-4">
           <SheetHeader className="text-left shrink-0">
             <SheetTitle>{khataDetail?.shop_name ?? ""}</SheetTitle>
           </SheetHeader>

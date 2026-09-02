@@ -1491,7 +1491,7 @@ export function VendorRegistrationWizard({
             type="button"
             onClick={tryStepANext}
             className={cn(
-              "w-full rounded-2xl bg-primary text-primary-foreground h-12 font-semibold",
+              "w-full rounded-2xl bg-primary text-primary-foreground h-12 text-sm font-semibold",
               !stepAReady && "opacity-50",
             )}
           >
@@ -1569,7 +1569,7 @@ export function VendorRegistrationWizard({
                       categorySuggestion.service_mode ?? "help",
                     )
                   }
-                  className="w-full rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
+                  className="w-full rounded-xl bg-brand h-12 text-sm font-semibold text-brand-foreground"
                 >
                   {s.category_confirm}
                 </button>
@@ -1585,7 +1585,7 @@ export function VendorRegistrationWizard({
                 <button
                   type="button"
                   onClick={confirmNewCategorySuggestion}
-                  className="w-full rounded-xl bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
+                  className="w-full rounded-xl bg-brand h-12 text-sm font-semibold text-brand-foreground"
                 >
                   {s.category_confirm}
                 </button>
@@ -1601,7 +1601,7 @@ export function VendorRegistrationWizard({
                     type="button"
                     data-testid="reg-browse-all-categories-nomatch"
                     onClick={() => setShowManualCategories(true)}
-                    className="w-full rounded-xl border border-border px-3 py-2 text-xs font-semibold"
+                    className="w-full rounded-xl border border-border h-10 text-sm font-semibold"
                   >
                     {s.category_browseManual}
                   </button>
@@ -1960,7 +1960,7 @@ export function VendorRegistrationWizard({
                 data-testid="reg-business-next"
                 disabled={!stepBReady || loading}
                 onClick={tryStepBNext}
-                className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 font-semibold disabled:opacity-50"
+                className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 text-sm font-semibold disabled:opacity-50"
               >
                 {s.reg_wizard_next}
               </button>
@@ -1968,7 +1968,7 @@ export function VendorRegistrationWizard({
               <button
                 type="submit"
                 disabled={!stepBReady || loading}
-                className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
               >
                 {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
                 {s.vendor_register_btn}
@@ -2061,7 +2061,7 @@ export function VendorRegistrationWizard({
               type="submit"
               data-testid="reg-license-submit"
               disabled={loading}
-              className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              className="flex-[2] rounded-2xl bg-primary text-primary-foreground h-12 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
               {s.vendor_register_btn}

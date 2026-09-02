@@ -5,6 +5,7 @@ import {
   NOTIFICATION_BELL_POLL_MS,
 } from "@/components/NotificationBell";
 import { strings } from "@/lib/strings";
+import { navigateFromNotification } from "@/lib/notificationNavigation";
 
 const { notifications, mockRpc, captureError } = vi.hoisted(() => {
   const rows = {
@@ -263,5 +264,41 @@ describe("NotificationBell", () => {
   it("does not hide the sidebar Notifications row at lg", () => {
     render(<NotificationBell layout="nav" navLabel="Notifications" />);
     expect(screen.getByTestId("desktop-nav-notifications").className).not.toContain("lg:hidden");
+  });
+
+  it("expands a long body in the tray without navigating away", async () => {
+    const longBody =
+      "Vendor confirmed your order and shared extra notes about timing, access, and payment so you can read the full message here.";
+    notifications.value = [
+      {
+        id: "n-long",
+        user_phone: "9876543210",
+        type: "order_update",
+        title: "Order update",
+        body: longBody,
+        route: "/orders",
+        route_params: null,
+        is_informational: false,
+        is_read: false,
+        read_at: null,
+        created_at: new Date().toISOString(),
+      },
+    ];
+
+    render(<NotificationBell />);
+    fireEvent.click(screen.getByLabelText(strings.en.notif_bell_aria_label));
+
+    const body = await screen.findByText(longBody);
+    expect(body.className).toContain("line-clamp-2");
+
+    fireEvent.click(screen.getByRole("button", { name: strings.en.notif_read_more }));
+    expect(body.className).not.toContain("line-clamp-2");
+    expect(navigateFromNotification).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: strings.en.notif_show_less })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Order update"));
+    await waitFor(() => {
+      expect(navigateFromNotification).toHaveBeenCalled();
+    });
   });
 });

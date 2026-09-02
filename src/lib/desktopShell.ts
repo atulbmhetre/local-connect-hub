@@ -13,6 +13,21 @@ export const DESKTOP_MAIN_OFFSET_CLASS = "lg:pl-64";
  */
 export const DESKTOP_CONTENT_WIDTH_CLASS = "lg:max-w-3xl";
 
+/** Pin overlays and bottom sheets to the content well (right of the sidebar). */
+export const DESKTOP_SHEET_OFFSET_CLASS = "lg:left-64";
+
+/** Web `lg+` only. Native Capacitor never offsets sheets for a sidebar. */
+export function desktopSheetOverlayClass(): string {
+  return isWebDesktopShell() ? DESKTOP_SHEET_OFFSET_CLASS : "";
+}
+
+/** Bottom-sheet width + sidebar offset matching the AppShell content well. */
+export function desktopBottomSheetClass(): string {
+  return isWebDesktopShell()
+    ? `${DESKTOP_SHEET_OFFSET_CLASS} ${DESKTOP_CONTENT_WIDTH_CLASS}`
+    : "";
+}
+
 /** Tailwind `lg` — desktop shell must not apply below this. */
 export const LG_MEDIA_QUERY = "(min-width: 1024px)";
 

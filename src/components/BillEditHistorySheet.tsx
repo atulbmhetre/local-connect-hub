@@ -81,7 +81,7 @@ export function BillEditHistorySheet({
     >
       <SheetContent
         side="bottom"
-        className="rounded-t-2xl max-h-[85vh] flex flex-col"
+        className="rounded-t-2xl max-h-[85vh] flex flex-col px-4"
         style={{ transform: "translateZ(0)", WebkitOverflowScrolling: "touch" }}
       >
         <SheetHeader className="text-left shrink-0">

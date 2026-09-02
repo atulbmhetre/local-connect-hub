@@ -17,7 +17,7 @@ import {
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
   cn(
-    "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+    "flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors",
     isActive
       ? "bg-brand/15 text-brand"
       : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -57,7 +57,7 @@ export function DesktopSidebar() {
         to="/"
         end
         data-testid="desktop-sidebar-logo"
-        className="flex items-center px-5 pt-8 pb-6"
+        className="flex items-center px-6 pt-8 pb-6"
       >
         <span className="font-display text-xl font-bold text-brand tracking-tight">
           {s.appName}
@@ -98,7 +98,7 @@ export function DesktopSidebar() {
           navLabel={s.notif_bell_title}
           className="text-muted-foreground hover:bg-muted hover:text-foreground"
         />
-        <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
+        <div className="flex items-center gap-3 rounded-xl px-3 py-3">
           <Store className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
           <span className="min-w-0 flex-1 text-sm font-medium text-muted-foreground">
             {s.vendor_mode_title}

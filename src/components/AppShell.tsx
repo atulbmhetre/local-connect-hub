@@ -30,7 +30,7 @@ export const AppShell = ({ children }: Props) => {
           className={cn(
             APP_COLUMN_CLASS,
             "px-4 pt-8",
-            desktopShell && `${DESKTOP_CONTENT_WIDTH_CLASS} lg:px-8 lg:pt-10`,
+            desktopShell && DESKTOP_CONTENT_WIDTH_CLASS,
           )}
         >
           {children}

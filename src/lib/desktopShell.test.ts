@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { Capacitor } from "@capacitor/core";
-import { desktopKhataHref, isWebDesktopShell } from "@/lib/desktopShell";
+import {
+  desktopBottomSheetClass,
+  desktopKhataHref,
+  desktopSheetOverlayClass,
+  isWebDesktopShell,
+} from "@/lib/desktopShell";
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: vi.fn(() => false) },
@@ -18,6 +23,20 @@ describe("isWebDesktopShell", () => {
   });
 });
 
+describe("desktop bottom sheets", () => {
+  it("offsets and widens sheets to the content well on web", () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+    expect(desktopSheetOverlayClass()).toContain("lg:left-64");
+    expect(desktopBottomSheetClass()).toContain("lg:left-64");
+    expect(desktopBottomSheetClass()).toContain("lg:max-w-3xl");
+  });
+
+  it("does not offset sheets on Capacitor", () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    expect(desktopSheetOverlayClass()).toBe("");
+    expect(desktopBottomSheetClass()).toBe("");
+  });
+});
 describe("desktopKhataHref", () => {
   it("sends vendors to /ledger", () => {
     expect(desktopKhataHref(true)).toBe("/ledger");

@@ -348,7 +348,7 @@ export function AiBridgeSheet({
     <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
       <SheetContent
         side="bottom"
-        className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[85vh] overflow-y-auto"
+        className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[85vh] overflow-y-auto px-4"
       >
         <SheetHeader className="text-left space-y-1 pr-8">
           <SheetTitle className="text-white font-display">{s.aiBridge}</SheetTitle>

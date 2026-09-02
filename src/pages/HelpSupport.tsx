@@ -164,7 +164,7 @@ const HelpSupport = () => {
 
   return (
     <AppShell>
-      <div className="space-y-4 pb-24" data-testid="help-support-screen">
+      <div className="space-y-3 pb-24" data-testid="help-support-screen">
         <div className="flex items-start gap-3">
           <button
             type="button"
@@ -181,7 +181,7 @@ const HelpSupport = () => {
         </div>
 
         <section className="space-y-2" data-testid="help-faq-section">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-brand px-1">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-brand">
             {s.help_faq_heading}
           </h2>
           <SettingsCard>
@@ -207,10 +207,10 @@ const HelpSupport = () => {
         </section>
 
         <section className="space-y-2" data-testid="help-feedback-section">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-brand px-1">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-brand">
             {s.help_feedback_heading}
           </h2>
-          <p className="text-xs text-muted-foreground px-1">{s.help_feedback_hint}</p>
+          <p className="text-xs text-muted-foreground">{s.help_feedback_hint}</p>
           <SettingsCard>
             <div className="px-4 py-4 space-y-4">
               <div className="space-y-2">
@@ -266,10 +266,10 @@ const HelpSupport = () => {
         </section>
 
         <section className="space-y-2" data-testid="help-contact-section">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-brand px-1">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-brand">
             {s.help_contact_heading}
           </h2>
-          <p className="text-xs text-muted-foreground px-1">{s.help_contact_hint}</p>
+          <p className="text-xs text-muted-foreground">{s.help_contact_hint}</p>
           <SettingsCard>
             <div className="px-4 py-4 space-y-4">
               <div className="space-y-2">

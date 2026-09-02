@@ -795,7 +795,7 @@ export function VendorMyBusinessOperations({
           if (!open) setEditingMenuItem(null);
         }}
       >
-        <SheetContent className="bg-page-bg border-surface-border">
+        <SheetContent className="bg-page-bg border-surface-border px-4">
           <SheetHeader>
             <SheetTitle className="text-foreground">{s.menu_itemName}</SheetTitle>
           </SheetHeader>
