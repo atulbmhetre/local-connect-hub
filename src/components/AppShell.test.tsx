@@ -4,7 +4,6 @@ import { MemoryRouter } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { APP_COLUMN_WIDTH_CLASS } from "@/lib/appColumn";
 import {
-  DESKTOP_CONTENT_WIDTH_CLASS,
   DESKTOP_MAIN_OFFSET_CLASS,
   LG_MEDIA_QUERY,
 } from "@/lib/desktopShell";
@@ -81,7 +80,9 @@ describe("AppShell desktop layout", () => {
     expect(main.className).toContain("px-4");
     expect(main.className).not.toContain("lg:pt-10");
     expect(main.className).not.toContain("lg:px-8");
-    expect(main.className).toContain(DESKTOP_CONTENT_WIDTH_CLASS);
+    expect(main.className).toContain("lg:max-w-3xl");
+    expect(main.className).toContain("xl:max-w-4xl");
+    expect(main.className).toContain("2xl:max-w-5xl");
     expect(screen.getByTestId("desktop-sidebar")).toBeTruthy();
     expect(screen.getByTestId("bottom-nav-chrome")).toBeTruthy();
     expect(screen.getByTestId("bottom-nav-chrome").closest("nav")?.className).toContain(
@@ -102,7 +103,9 @@ describe("AppShell desktop layout", () => {
     expect(screen.queryByTestId("desktop-sidebar")).toBeNull();
     const main = screen.getByTestId("app-shell-main");
     expect(main.className).toContain(APP_COLUMN_WIDTH_CLASS);
-    expect(main.className).not.toContain(DESKTOP_CONTENT_WIDTH_CLASS);
+    expect(main.className).not.toContain("lg:max-w-3xl");
+    expect(main.className).not.toContain("xl:max-w-4xl");
+    expect(main.className).not.toContain("2xl:max-w-5xl");
     expect(screen.getByTestId("bottom-nav-chrome").closest("nav")?.className).not.toContain(
       "lg:hidden",
     );

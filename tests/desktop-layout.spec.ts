@@ -30,7 +30,9 @@ test("DESKTOP-LAYOUT-01 — lg+ web shows sidebar, hides bottom nav, and caps co
   const main = page.getByTestId("app-shell-main");
   const box = await main.boundingBox();
   expect(box).toBeTruthy();
-  expect(box!.width).toBeLessThanOrEqual(768 + 2);
+  // 1280 is `xl` (1280px+): well is max-w-4xl (896px), not the lg 768px cap.
+  expect(box!.width).toBeGreaterThan(768);
+  expect(box!.width).toBeLessThanOrEqual(896 + 2);
   expect(box!.x).toBeGreaterThanOrEqual(240);
 
   const pad = await main.evaluate((el) => {
@@ -183,7 +185,39 @@ test("DESKTOP-LAYOUT-09 — bottom sheets sit in the content well, not over the 
   const box = await sheet.boundingBox();
   expect(box).toBeTruthy();
   expect(box!.x).toBeGreaterThanOrEqual(256 - 1);
-  expect(box!.width).toBeLessThanOrEqual(768 + 2);
+  expect(box!.width).toBeLessThanOrEqual(896 + 2);
+});
+
+test("DESKTOP-LAYOUT-12 — content well steps from 768 to 896 to 1024", async ({
+  page,
+}) => {
+  await skipWelcome(page);
+  await page.goto(`${APP_URL}/`, { waitUntil: "domcontentloaded" });
+  const main = page.getByTestId("app-shell-main");
+  const form = page.locator("[data-testid='home-screen'] form");
+  await expect(form).toBeVisible({ timeout: 20000 });
+
+  const measure = async (width: number) => {
+    await page.setViewportSize({ width, height: 800 });
+    const well = await main.boundingBox();
+    const formBox = await form.boundingBox();
+    expect(well).toBeTruthy();
+    expect(formBox).toBeTruthy();
+    expect(Math.abs(formBox!.width - (well!.width - 32))).toBeLessThan(4);
+    return well!.width;
+  };
+
+  const lgOnly = await measure(1100);
+  expect(lgOnly).toBeGreaterThan(448);
+  expect(lgOnly).toBeLessThanOrEqual(768 + 2);
+
+  const xl = await measure(1366);
+  expect(xl).toBeGreaterThan(768);
+  expect(xl).toBeLessThanOrEqual(896 + 2);
+
+  const twoXl = await measure(1920);
+  expect(twoXl).toBeGreaterThan(896);
+  expect(twoXl).toBeLessThanOrEqual(1024 + 2);
 });
 
 test("DESKTOP-LAYOUT-10 — radar locating is full-viewport at lg+ with 16px back offset", async ({

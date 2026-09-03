@@ -9,9 +9,11 @@ export const DESKTOP_MAIN_OFFSET_CLASS = "lg:pl-64";
 
 /**
  * Readable content column on desktop. Wider than the phone `max-w-md` column,
- * still capped so mobile-first cards are not stretched full-bleed.
+ * stepped up at each breakpoint so grids can show more tiles per row
+ * instead of stretching a single phone strip.
  */
-export const DESKTOP_CONTENT_WIDTH_CLASS = "lg:max-w-3xl";
+export const DESKTOP_CONTENT_WIDTH_CLASS =
+  "lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl";
 
 /** Pin overlays and bottom sheets to the content well (right of the sidebar). */
 export const DESKTOP_SHEET_OFFSET_CLASS = "lg:left-64";
