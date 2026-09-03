@@ -8,12 +8,11 @@ export const DESKTOP_SIDEBAR_WIDTH_CLASS = "w-64";
 export const DESKTOP_MAIN_OFFSET_CLASS = "lg:pl-64";
 
 /**
- * Readable content column on desktop. Wider than the phone `max-w-md` column,
- * stepped up at each breakpoint so grids can show more tiles per row
- * instead of stretching a single phone strip.
+ * Desktop content well: docked to the sidebar (no `mx-auto`), capped at
+ * `max-w-2xl` from `lg` and `max-w-3xl` from `xl` up. The strip to the
+ * right of the well stays empty on purpose.
  */
-export const DESKTOP_CONTENT_WIDTH_CLASS =
-  "lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl";
+export const DESKTOP_CONTENT_WIDTH_CLASS = "lg:mx-0 lg:max-w-2xl xl:max-w-3xl";
 
 /** Pin overlays and bottom sheets to the content well (right of the sidebar). */
 export const DESKTOP_SHEET_OFFSET_CLASS = "lg:left-64";

@@ -48,9 +48,8 @@ describe("desktop column chrome", () => {
 
   it("adds the desktop well offset on web without changing the below-lg column", () => {
     expect(desktopBottomSheetClass()).toContain("lg:left-64");
-    expect(desktopBottomSheetClass()).toContain("lg:max-w-3xl");
-    expect(desktopBottomSheetClass()).toContain("xl:max-w-4xl");
-    expect(desktopBottomSheetClass()).toContain("2xl:max-w-5xl");
+    expect(desktopBottomSheetClass()).toContain("lg:max-w-2xl");
+    expect(desktopBottomSheetClass()).toContain("xl:max-w-3xl");
     expect(sheetVariants({ side: "bottom" })).not.toContain("lg:left-64");
   });
 

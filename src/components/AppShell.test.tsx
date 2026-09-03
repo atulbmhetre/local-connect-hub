@@ -41,6 +41,13 @@ vi.mock("@/lib/language", () => ({
       nav_vendor: "Vendor",
       nav_vendor_online: "Live",
       nav_vendor_offline: "Offline",
+      get_app_heading: "Get the Aaspaas Pro App",
+      get_app_subtext: "Coming soon to Google Play",
+      get_app_placeholder: "Phone number or email",
+      get_app_notify: "Notify me",
+      get_app_success: "We'll notify you when it's on Google Play.",
+      get_app_invalid: "Enter a valid phone number or email.",
+      get_app_error: "Could not save. Try again.",
     },
   }),
 }));
@@ -78,16 +85,21 @@ describe("AppShell desktop layout", () => {
     expect(main.className).toContain(APP_COLUMN_WIDTH_CLASS);
     expect(main.className).toContain("pt-8");
     expect(main.className).toContain("px-4");
+    expect(main.className).toContain("lg:px-8");
+    expect(main.className).toContain("lg:mx-0");
     expect(main.className).not.toContain("lg:pt-10");
-    expect(main.className).not.toContain("lg:px-8");
-    expect(main.className).toContain("lg:max-w-3xl");
-    expect(main.className).toContain("xl:max-w-4xl");
-    expect(main.className).toContain("2xl:max-w-5xl");
+    expect(main.className).toContain("lg:max-w-2xl");
+    expect(main.className).toContain("xl:max-w-3xl");
+    expect(main.className).not.toContain("xl:max-w-4xl");
+    expect(main.className).not.toContain("2xl:max-w-5xl");
     expect(screen.getByTestId("desktop-sidebar")).toBeTruthy();
     expect(screen.getByTestId("bottom-nav-chrome")).toBeTruthy();
     expect(screen.getByTestId("bottom-nav-chrome").closest("nav")?.className).toContain(
       "lg:hidden",
     );
+    expect(screen.getByTestId("get-the-app-card")).toBeTruthy();
+    expect(screen.getByTestId("get-the-app-rail").className).toContain("hidden");
+    expect(screen.getByTestId("get-the-app-rail").className).toContain("lg:block");
   });
 
   it("does not mount the sidebar on Capacitor and leaves BottomNav un-gated", () => {
@@ -103,12 +115,13 @@ describe("AppShell desktop layout", () => {
     expect(screen.queryByTestId("desktop-sidebar")).toBeNull();
     const main = screen.getByTestId("app-shell-main");
     expect(main.className).toContain(APP_COLUMN_WIDTH_CLASS);
-    expect(main.className).not.toContain("lg:max-w-3xl");
-    expect(main.className).not.toContain("xl:max-w-4xl");
-    expect(main.className).not.toContain("2xl:max-w-5xl");
+    expect(main.className).not.toContain("lg:max-w-2xl");
+    expect(main.className).not.toContain("xl:max-w-3xl");
+    expect(main.className).not.toContain("lg:mx-0");
     expect(screen.getByTestId("bottom-nav-chrome").closest("nav")?.className).not.toContain(
       "lg:hidden",
     );
+    expect(screen.queryByTestId("get-the-app-card")).toBeNull();
   });
 
   it("does not mount the sidebar below lg on web", () => {
@@ -122,6 +135,7 @@ describe("AppShell desktop layout", () => {
     );
     expect(screen.queryByTestId("desktop-sidebar")).toBeNull();
     expect(screen.getByTestId("bottom-nav-chrome")).toBeTruthy();
+    expect(screen.queryByTestId("get-the-app-card")).toBeNull();
   });
 
   it("offsets main content for the sidebar only when the web desktop shell is on", () => {
@@ -132,8 +146,8 @@ describe("AppShell desktop layout", () => {
         </AppShell>
       </MemoryRouter>,
     );
-    expect(screen.getByTestId("app-shell-main").parentElement?.className).toContain(
-      DESKTOP_MAIN_OFFSET_CLASS,
-    );
+    expect(
+      screen.getByTestId("app-shell-main").parentElement?.parentElement?.className,
+    ).toContain(DESKTOP_MAIN_OFFSET_CLASS);
   });
 });

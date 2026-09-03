@@ -30,24 +30,24 @@ test("DESKTOP-LAYOUT-01 — lg+ web shows sidebar, hides bottom nav, and caps co
   const main = page.getByTestId("app-shell-main");
   const box = await main.boundingBox();
   expect(box).toBeTruthy();
-  // 1280 is `xl` (1280px+): well is max-w-4xl (896px), not the lg 768px cap.
-  expect(box!.width).toBeGreaterThan(768);
-  expect(box!.width).toBeLessThanOrEqual(896 + 2);
-  expect(box!.x).toBeGreaterThanOrEqual(240);
+  // 1280 is `xl`: well is max-w-3xl (768px), docked after the sidebar.
+  expect(box!.width).toBeGreaterThan(672);
+  expect(box!.width).toBeLessThanOrEqual(768 + 2);
+  expect(Math.abs(box!.x - 256)).toBeLessThan(2);
 
   const pad = await main.evaluate((el) => {
     const s = getComputedStyle(el);
     return { top: s.paddingTop, x: s.paddingLeft };
   });
   expect(pad.top).toBe("32px");
-  expect(pad.x).toBe("16px");
+  expect(pad.x).toBe("32px");
 
   const form = page.locator("[data-testid='home-screen'] form");
   await expect(form).toBeVisible({ timeout: 20000 });
   const formBox = await form.boundingBox();
   expect(formBox).toBeTruthy();
   expect(formBox!.width).toBeGreaterThan(448);
-  expect(Math.abs(formBox!.width - (box!.width - 32))).toBeLessThan(4);
+  expect(Math.abs(formBox!.width - (box!.width - 64))).toBeLessThan(4);
 });
 
 test("DESKTOP-LAYOUT-02 — below lg the phone column and bottom nav are unchanged", async ({
@@ -185,10 +185,10 @@ test("DESKTOP-LAYOUT-09 — bottom sheets sit in the content well, not over the 
   const box = await sheet.boundingBox();
   expect(box).toBeTruthy();
   expect(box!.x).toBeGreaterThanOrEqual(256 - 1);
-  expect(box!.width).toBeLessThanOrEqual(896 + 2);
+  expect(box!.width).toBeLessThanOrEqual(768 + 2);
 });
 
-test("DESKTOP-LAYOUT-12 — content well steps from 768 to 896 to 1024", async ({
+test("DESKTOP-LAYOUT-12 — content well is 672 at lg, 768 from xl, and stays left-docked", async ({
   page,
 }) => {
   await skipWelcome(page);
@@ -203,21 +203,51 @@ test("DESKTOP-LAYOUT-12 — content well steps from 768 to 896 to 1024", async (
     const formBox = await form.boundingBox();
     expect(well).toBeTruthy();
     expect(formBox).toBeTruthy();
-    expect(Math.abs(formBox!.width - (well!.width - 32))).toBeLessThan(4);
+    expect(Math.abs(well!.x - 256)).toBeLessThan(2);
+    expect(Math.abs(formBox!.width - (well!.width - 64))).toBeLessThan(4);
     return well!.width;
   };
 
   const lgOnly = await measure(1100);
   expect(lgOnly).toBeGreaterThan(448);
-  expect(lgOnly).toBeLessThanOrEqual(768 + 2);
+  expect(lgOnly).toBeLessThanOrEqual(672 + 2);
 
   const xl = await measure(1366);
-  expect(xl).toBeGreaterThan(768);
-  expect(xl).toBeLessThanOrEqual(896 + 2);
+  expect(xl).toBeGreaterThan(672);
+  expect(xl).toBeLessThanOrEqual(768 + 2);
 
   const twoXl = await measure(1920);
-  expect(twoXl).toBeGreaterThan(896);
-  expect(twoXl).toBeLessThanOrEqual(1024 + 2);
+  expect(twoXl).toBeGreaterThan(672);
+  expect(twoXl).toBeLessThanOrEqual(768 + 2);
+});
+
+test("DESKTOP-LAYOUT-13 — Get the App card sits in the right-hand rail at lg+", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 800 });
+  await skipWelcome(page);
+  await page.goto(`${APP_URL}/`, { waitUntil: "domcontentloaded" });
+
+  const card = page.getByTestId("get-the-app-card");
+  await expect(card).toBeVisible({ timeout: 20000 });
+  await expect(card.getByRole("heading", { name: "Get the Aaspaas Pro App" })).toBeVisible();
+  await expect(card.getByText("Coming soon to Google Play")).toBeVisible();
+  await expect(page.getByTestId("get-the-app-contact")).toBeVisible();
+  await expect(page.getByTestId("get-the-app-submit")).toHaveText("Notify me");
+
+  const well = page.getByTestId("app-shell-main");
+  const [wellBox, cardBox] = await Promise.all([well.boundingBox(), card.boundingBox()]);
+  expect(wellBox).toBeTruthy();
+  expect(cardBox).toBeTruthy();
+  expect(cardBox!.x).toBeGreaterThan(wellBox!.x + wellBox!.width - 2);
+  expect(cardBox!.width).toBeLessThanOrEqual(384 + 2);
+
+  await page.getByTestId("get-the-app-contact").fill(`get-app-${Date.now()}@example.com`);
+  await page.getByTestId("get-the-app-submit").click();
+  await expect(page.getByTestId("get-the-app-success")).toBeVisible({ timeout: 15000 });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId("get-the-app-card")).toBeHidden();
 });
 
 test("DESKTOP-LAYOUT-10 — radar locating is full-viewport at lg+ with 16px back offset", async ({
