@@ -5,7 +5,13 @@
  *   node scripts/db-push.mjs test
  *   node scripts/db-push.mjs prod
  *   node scripts/db-push.mjs test --preflight-only
+ *   node scripts/db-push.mjs test --dry-run
  *   node scripts/db-push.mjs prod --include-all
+ *
+ * SQL migrations must not rewrite Auth hook HMAC secrets. This wrapper always
+ * passes --skip-vault. config.toml still requires SEND_SMS_HOOK_SECRET to be
+ * v1,whsec_<base64> just to *parse*; if unset/malformed we inject a parse-only
+ * placeholder so `db push` can run in a clean shell.
  *
  * Refuses to push if any version listed in supabase/deferred-migrations.json
  * appears as a file under supabase/migrations/ (the CLI would otherwise try
@@ -30,7 +36,7 @@ const projectRefPath = path.join(projectRoot, 'supabase', '.temp', 'project-ref'
 
 function usageAndExit(code = 1) {
   console.error(
-    'Usage: node scripts/db-push.mjs test|prod [--preflight-only] [--include-all]\n' +
+    'Usage: node scripts/db-push.mjs test|prod [--preflight-only] [--dry-run] [--include-all]\n' +
       '  npm run db:push:test\n' +
       '  npm run db:push:prod\n' +
       '  npm run db:push:prod -- --include-all',
@@ -41,12 +47,30 @@ function usageAndExit(code = 1) {
 const envArg = (process.argv[2] ?? '').trim().toLowerCase();
 const preflightOnly = process.argv.includes('--preflight-only');
 const includeAll = process.argv.includes('--include-all');
+const dryRun = process.argv.includes('--dry-run');
+
+/** CLI rejects config.toml unless this matches v1,whsec_ + ≥32 chars of material. */
+const SEND_SMS_HOOK_SECRET_RE = /^v1,whsec_.{32,}$/;
+const CLI_PARSE_ONLY_SEND_SMS_HOOK_SECRET =
+  'v1,whsec_' + Buffer.from('local-cli-config-placeholder-32', 'utf8').toString('base64');
+
+function cliEnvWithParseableSendSmsHookSecret() {
+  const env = { ...process.env };
+  if (SEND_SMS_HOOK_SECRET_RE.test(env.SEND_SMS_HOOK_SECRET ?? '')) return env;
+  console.warn(
+    'SEND_SMS_HOOK_SECRET missing or not v1,whsec_<base64> (min 32 chars). ' +
+      'Using a CLI parse-only placeholder; --skip-vault so Auth hook secrets are not overwritten.',
+  );
+  env.SEND_SMS_HOOK_SECRET = CLI_PARSE_ONLY_SEND_SMS_HOOK_SECRET;
+  return env;
+}
 
 if (envArg !== 'test' && envArg !== 'prod') {
   usageAndExit(1);
 }
 
 const expectedRef = PROJECT_REFS[envArg];
+const cliEnv = cliEnvWithParseableSendSmsHookSecret();
 
 function loadManifest() {
   if (!fs.existsSync(manifestPath)) {
@@ -116,7 +140,7 @@ function runSupabase(args, label) {
     cwd: projectRoot,
     stdio: 'inherit',
     shell: true,
-    env: process.env,
+    env: cliEnv,
   });
   if (result.error) {
     console.error(`${label} failed to start: ${result.error.message}`);
@@ -171,10 +195,16 @@ if (linked !== expectedRef) {
   console.log(`linked project-ref ok: ${linked}`);
 }
 
-const pushArgs = ['db', 'push', '--yes'];
+const pushArgs = ['db', 'push', '--yes', '--skip-vault'];
 if (includeAll) {
   pushArgs.push('--include-all');
   console.log('passing --include-all (out-of-order local migrations ahead of remote tip)');
 }
-runSupabase(pushArgs, 'supabase db push');
-console.log(`db push complete: env=${envArg} ref=${expectedRef}`);
+if (dryRun) {
+  pushArgs.push('--dry-run');
+  console.log('dry-run: migrations will not be applied');
+}
+runSupabase(pushArgs, dryRun ? 'supabase db push --dry-run' : 'supabase db push');
+console.log(
+  `db push ${dryRun ? 'dry-run ' : ''}complete: env=${envArg} ref=${expectedRef}`,
+);

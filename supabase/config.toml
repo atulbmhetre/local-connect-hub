@@ -287,6 +287,10 @@ max_frequency = "5s"
 [auth.hook.send_sms]
 enabled = true
 uri = "https://hhdylnhqdzfabsolwxdz.supabase.co/functions/v1/sms-hook"
+# CLI cannot load this file unless SEND_SMS_HOOK_SECRET is v1,whsec_<base64>
+# (≥32 chars of material) — even with `db push --skip-vault`. SQL pushes must
+# not rewrite Auth hook HMAC secrets; `npm run db:push:*` injects a parse-only
+# placeholder when the var is missing and always passes --skip-vault.
 secrets = "env(SEND_SMS_HOOK_SECRET)"
 
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
