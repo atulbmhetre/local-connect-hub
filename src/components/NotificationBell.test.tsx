@@ -4,10 +4,12 @@ import {
   NotificationBell,
   NOTIFICATION_BELL_POLL_MS,
 } from "@/components/NotificationBell";
+import { supabase } from "@/lib/supabase";
+import { resetUserNotificationsRealtimeForTests } from "@/lib/userNotificationsRealtime";
 import { strings } from "@/lib/strings";
 import { navigateFromNotification } from "@/lib/notificationNavigation";
 
-const { notifications, mockRpc, captureError } = vi.hoisted(() => {
+const { notifications, mockRpc, captureError, channelState } = vi.hoisted(() => {
   const rows = {
     value: [] as Array<{
       id: string;
@@ -27,6 +29,7 @@ const { notifications, mockRpc, captureError } = vi.hoisted(() => {
     notifications: rows,
     mockRpc: vi.fn(),
     captureError: vi.fn(),
+    channelState: { subscribed: false },
   };
 });
 
@@ -34,14 +37,24 @@ vi.mock("@/lib/sentry", () => ({ captureError }));
 
 vi.mock("@/lib/supabase", () => {
   const channel = {
-    on: vi.fn().mockReturnThis(),
-    subscribe: vi.fn(),
+    on: vi.fn(function (this: { on: unknown; subscribe: unknown }) {
+      if (channelState.subscribed) {
+        throw new Error("cannot add `postgres_changes` callbacks after `subscribe()`.");
+      }
+      return this;
+    }),
+    subscribe: vi.fn(function (this: { on: unknown; subscribe: unknown }) {
+      channelState.subscribed = true;
+      return this;
+    }),
   };
   return {
     supabase: {
       rpc: mockRpc,
       channel: vi.fn(() => channel),
-      removeChannel: vi.fn(),
+      removeChannel: vi.fn(() => {
+        channelState.subscribed = false;
+      }),
     },
   };
 });
@@ -70,6 +83,8 @@ vi.mock("@/lib/notificationNavigation", () => ({
 
 describe("NotificationBell", () => {
   beforeEach(() => {
+    resetUserNotificationsRealtimeForTests();
+    channelState.subscribed = false;
     notifications.value = [];
     vi.clearAllMocks();
     vi.useRealTimers();
@@ -89,6 +104,20 @@ describe("NotificationBell", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    resetUserNotificationsRealtimeForTests();
+  });
+
+  it("does not throw when the sidebar bell and the page bell mount together", () => {
+    expect(() =>
+      render(
+        <>
+          <NotificationBell />
+          <NotificationBell layout="nav" navLabel="Notifications" />
+        </>,
+      ),
+    ).not.toThrow();
+    expect(supabase.channel).toHaveBeenCalledTimes(1);
+    expect(supabase.channel).toHaveBeenCalledWith("user-notifications-9876543210");
   });
 
   it("shows empty state copy when there are no notifications", async () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell } from "lucide-react";
+import { useUserNotificationsRealtime } from "@/hooks/useUserNotificationsRealtime";
 import { supabase } from "@/lib/supabase";
 import {
   ensureUserDeviceLink,
@@ -261,52 +262,11 @@ export function NotificationBell({
     return () => window.clearInterval(t);
   }, [phone, refreshUnreadCount, loadTray]);
 
-  useEffect(() => {
+  useUserNotificationsRealtime(phone, () => {
     if (!phone) return;
-
-    const onChange = () => {
-      void refreshUnreadCount(phone);
-      if (openRef.current) void loadTray(phone);
-    };
-
-    const channel = supabase
-      .channel(`user-notifications-${phone}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "user_notifications",
-          filter: `user_phone=eq.${phone}`,
-        },
-        onChange,
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "user_notifications",
-          filter: `user_phone=eq.${phone}`,
-        },
-        onChange,
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "user_notifications",
-          filter: `user_phone=eq.${phone}`,
-        },
-        onChange,
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [phone, refreshUnreadCount, loadTray]);
+    void refreshUnreadCount(phone);
+    if (openRef.current) void loadTray(phone);
+  });
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
