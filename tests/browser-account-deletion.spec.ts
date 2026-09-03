@@ -83,7 +83,9 @@ test('DEL-02: Delete Account opens confirmation dialog with correct copy', async
   await expect(page.getByRole('alertdialog')).toBeVisible({ timeout: 5000 });
   await expect(page.getByText('Delete your account?')).toBeVisible();
   await expect(
-    page.getByText('This will permanently delete your account. Your data cannot be recovered.'),
+    page.getByText(
+      'This will schedule deletion of your account in 30 days. You can cancel from Settings on any device linked to this phone.',
+    ),
   ).toBeVisible();
 });
 
@@ -129,16 +131,14 @@ test('DEL-04: customer Yes Delete shows spinner, toast, and reloads to fresh sta
   await page.getByRole('button', { name: 'Yes, Delete' }).click();
 
   await expect(page.locator('section .animate-spin').first()).toBeVisible({ timeout: 5000 });
-  await expect(page.getByText('Account deleted')).toBeVisible({ timeout: 10000 });
-
-  await page.waitForFunction(
-    () => localStorage.getItem('aaspaas:user_phone') === null,
-    undefined,
-    { timeout: 10000 },
-  );
+  await expect(page.locator('[data-sonner-toast]').getByText('Deletion scheduled', { exact: true })).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(page.getByText(/Account deletion scheduled/i)).toBeVisible({ timeout: 8000 });
+  await expect(page.getByRole('button', { name: 'Cancel Deletion' })).toBeVisible();
 
   const phoneAfter = await page.evaluate(() => localStorage.getItem('aaspaas:user_phone'));
-  expect(phoneAfter).toBeNull();
+  expect(phoneAfter).toBe(CUSTOMER_PHONE);
 });
 
 test('DEL-05: vendor Yes Delete shows spinner, toast, and scheduled deletion UI', async ({ page }) => {

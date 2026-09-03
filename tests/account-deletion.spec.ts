@@ -74,7 +74,7 @@ async function seedCustomerWithData() {
   return vendor.id;
 }
 
-test('DEL-01: customer deletion anonymises users.phone to deleted_*', async () => {
+test('DEL-01: customer deletion schedules 30-day grace (sets deletion_requested_at)', async () => {
   await seedCustomerWithData();
 
   const { status, body } = await postDeleteAccount({
@@ -85,26 +85,18 @@ test('DEL-01: customer deletion anonymises users.phone to deleted_*', async () =
 
   expect(status).toBe(200);
   expect(body.ok).toBe(true);
+  expect(body.message).toBe('Deletion scheduled');
 
   const { data: original } = await supabaseAdmin
     .from('users')
-    .select('phone')
+    .select('phone, deletion_requested_at')
     .eq('phone', CUSTOMER_PHONE)
     .maybeSingle();
-  expect(original).toBeNull();
-
-  const { data: anonymised } = await supabaseAdmin
-    .from('users')
-    .select('phone, deletion_requested_at')
-    .like('phone', 'deleted_%')
-    .limit(1)
-    .maybeSingle();
-
-  expect(anonymised?.phone).toMatch(/^deleted_/);
-  expect(anonymised?.deletion_requested_at).toBeNull();
+  expect(original?.phone).toBe(CUSTOMER_PHONE);
+  expect(original?.deletion_requested_at).not.toBeNull();
 });
 
-test('DEL-02: customer deletion removes user_devices rows', async () => {
+test('DEL-02: customer deletion keeps user_devices until 30-day grace elapses', async () => {
   await seedCustomerWithData();
 
   await postDeleteAccount({ phone: CUSTOMER_PHONE, type: 'customer', device_id: DEVICE_ID });
@@ -113,10 +105,10 @@ test('DEL-02: customer deletion removes user_devices rows', async () => {
     .from('user_devices')
     .select('id')
     .eq('user_phone', CUSTOMER_PHONE);
-  expect(data).toEqual([]);
+  expect(data?.length).toBeGreaterThan(0);
 });
 
-test('DEL-03: customer deletion removes user_addresses rows', async () => {
+test('DEL-03: customer deletion keeps user_addresses until 30-day grace elapses', async () => {
   await seedCustomerWithData();
 
   await postDeleteAccount({ phone: CUSTOMER_PHONE, type: 'customer', device_id: DEVICE_ID });
@@ -125,10 +117,10 @@ test('DEL-03: customer deletion removes user_addresses rows', async () => {
     .from('user_addresses')
     .select('id')
     .eq('user_phone', CUSTOMER_PHONE);
-  expect(data).toEqual([]);
+  expect(data?.length).toBeGreaterThan(0);
 });
 
-test('DEL-04: customer deletion anonymises requests.user_phone', async () => {
+test('DEL-04: customer deletion does not anonymise requests.user_phone immediately', async () => {
   await seedCustomerWithData();
 
   await postDeleteAccount({ phone: CUSTOMER_PHONE, type: 'customer', device_id: DEVICE_ID });
@@ -137,14 +129,7 @@ test('DEL-04: customer deletion anonymises requests.user_phone', async () => {
     .from('requests')
     .select('id')
     .eq('user_phone', CUSTOMER_PHONE);
-  expect(originalRequests).toEqual([]);
-
-  const { data: anonymisedRequests } = await supabaseAdmin
-    .from('requests')
-    .select('user_phone, message')
-    .like('user_phone', 'deleted_%');
-  expect(anonymisedRequests?.length).toBeGreaterThan(0);
-  expect(anonymisedRequests![0].message).toBe('Order deleted');
+  expect(originalRequests?.length).toBeGreaterThan(0);
 });
 
 test('DEL-05: vendor deletion schedules but does not anonymise immediately', async () => {

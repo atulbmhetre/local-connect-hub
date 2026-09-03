@@ -22,8 +22,9 @@ const L = {
   myAccount: 'My Account',
   deleteAccount: 'Delete Account',
   confirmTitle: 'Delete your account?',
-  /** Customer-only confirm body — no shop / 30-day grace language. */
-  confirmBody: 'This will permanently delete your account. Your data cannot be recovered.',
+  /** Customer confirm body — 30-day grace, same pattern as vendor deletion. */
+  confirmBody:
+    'This will schedule deletion of your account in 30 days. You can cancel from Settings on any device linked to this phone.',
   yesDelete: 'Yes, Delete',
   cancel: 'Cancel',
   scheduledPrefix: 'Account deletion scheduled',
@@ -31,9 +32,8 @@ const L = {
   vendorActiveBlock:
     'You have an active vendor account. Please delete your vendor account first',
   dualRoleNotice:
-    'Your customer account will be deleted immediately. Your vendor shop will be deleted after 30 days, and you will not be able to register a new shop with this same phone number for 30 days.',
-  dualRoleSuccess:
-    'Your account will be deleted. Your vendor shop will remain active for 30 days as per policy.',
+    'Your customer account and vendor shop will both be scheduled for deletion in 30 days. You can cancel from Settings on any device linked to this phone. You will not be able to register a new shop with this same phone number for 30 days.',
+  dualRoleSuccess: 'Deletion scheduled',
   deletionSuccessCustomer: 'Account deleted',
   deletionScheduled: 'Deletion scheduled',
 } as const;
@@ -196,7 +196,7 @@ test('DEL-REQ-02 — Delete confirmation dialog shows correct warning copy', asy
   await expect(dialog.getByText(L.confirmBody)).toBeVisible();
   await expect(dialog.getByRole('button', { name: L.yesDelete })).toBeVisible();
   await expect(dialog.getByRole('button', { name: L.cancel })).toBeVisible();
-  await expect(dialog.getByText(/30 days/i)).not.toBeVisible();
+  await expect(dialog.getByText(/30 days/i)).toBeVisible();
 });
 
 test('DEL-REQ-03 — Customer deletion clears localStorage and shows fresh state', async ({
@@ -228,14 +228,15 @@ test('DEL-REQ-03 — Customer deletion clears localStorage and shows fresh state
   await expect(page.getByTestId('first-open-flow')).toBeVisible({ timeout: 15000 });
 });
 
-test('DEL-REQ-04 — Customer phone anonymized in DB after deletion', async () => {
+test('DEL-REQ-04 — Customer phone anonymized in DB after 30-day grace', async () => {
   const phone = `900000${String(T % 10000).padStart(4, '0')}`;
   createdPhones.push(phone);
+  const requestedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
   await supabaseAdmin.from('users').upsert(
     {
       phone,
       total_orders: 0,
-      deletion_requested_at: new Date().toISOString(),
+      deletion_requested_at: requestedAt,
     },
     { onConflict: 'phone' },
   );
@@ -277,19 +278,15 @@ test('DEL-REQ-05 — Dual-role deletion applies customer + vendor rules', async 
   await expect(page.locator('[data-sonner-toast]').getByText(L.dualRoleSuccess)).toBeVisible({
     timeout: 10000,
   });
+  await expect(page.getByRole('button', { name: L.cancelDeletion })).toBeVisible();
 
   const { data: originalUser } = await supabaseAdmin
     .from('users')
-    .select('phone')
+    .select('phone, deletion_requested_at')
     .eq('phone', phone)
     .maybeSingle();
-  expect(originalUser).toBeNull();
-
-  const { count: anonCount } = await supabaseAdmin
-    .from('users')
-    .select('id', { count: 'exact', head: true })
-    .like('phone', 'deleted_%');
-  expect(anonCount ?? 0).toBeGreaterThan(0);
+  expect(originalUser?.phone).toBe(phone);
+  expect(originalUser?.deletion_requested_at).not.toBeNull();
 
   const { data: vendorRow } = await supabaseAdmin
     .from('vendors')
@@ -426,10 +423,10 @@ test('DEL-REQ-09 — Vendor anonymization NULLs PII fields after 30 days', async
   expect(anonymised?.referral_code).toBeNull();
 });
 
-test('DEL-REQ-10 — Customer-linked data cleaned on customer delete', async ({}, testInfo) => {
+test('DEL-REQ-10 — Customer-linked data kept during grace, cleaned after 30 days', async ({}, testInfo) => {
   const deviceId = deviceIdFor(testInfo.title);
   const phone = nextCustomerPhone();
-  await seedCustomer(phone, deviceId, { total_orders: 1, deletion_requested_at: new Date().toISOString() });
+  await seedCustomer(phone, deviceId, { total_orders: 1 });
   const vendor = await createVendor(nextVendorPhone(), 'req10-ref', deviceId);
   await supabaseAdmin.from('saved_vendors').insert({
     user_phone: phone,
@@ -450,6 +447,35 @@ test('DEL-REQ-10 — Customer-linked data cleaned on customer delete', async ({}
   });
   expect(status).toBe(200);
   expect(body.ok).toBe(true);
+  expect(body.message).toBe('Deletion scheduled');
+
+  const { data: savedDuringGrace } = await supabaseAdmin
+    .from('saved_vendors')
+    .select('id')
+    .eq('user_phone', phone);
+  expect(savedDuringGrace?.length).toBeGreaterThan(0);
+
+  const { data: devicesDuringGrace } = await supabaseAdmin
+    .from('user_devices')
+    .select('id')
+    .eq('user_phone', phone);
+  expect(devicesDuringGrace?.length).toBeGreaterThan(0);
+
+  const { data: userDuringGrace } = await supabaseAdmin
+    .from('users')
+    .select('phone, deletion_requested_at')
+    .eq('phone', phone)
+    .maybeSingle();
+  expect(userDuringGrace?.phone).toBe(phone);
+  expect(userDuringGrace?.deletion_requested_at).not.toBeNull();
+
+  const thirtyOneDaysAgo = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+  await supabaseAdmin
+    .from('users')
+    .update({ deletion_requested_at: thirtyOneDaysAgo })
+    .eq('phone', phone);
+
+  await invokeAnonymiseDeletedAccounts();
 
   const { data: saved } = await supabaseAdmin
     .from('saved_vendors')

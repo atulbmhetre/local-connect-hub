@@ -3,6 +3,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 import { buildFcmData } from "../_shared/notification-routes.ts";
+import {
+  assertNotifyRelationship,
+  extractRequestId,
+  isServiceRoleRequest,
+} from "../_shared/notify-relationship.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -75,6 +80,17 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    const gate = await assertNotifyRelationship(req, supabase, {
+      requestId: extractRequestId(payload),
+      targetUserPhone: userPhone ?? null,
+    });
+    if (!gate.ok) {
+      return new Response(JSON.stringify({ error: gate.error, sent: 0 }), {
+        status: gate.status,
+        headers: CORS_HEADERS,
+      });
+    }
+
     // 40 / 5 min per target phone — allows legitimate order bursts, blocks spam floods
     const ratePhone = userPhone?.trim();
     if (ratePhone) {
@@ -137,11 +153,16 @@ serve(async (req) => {
     if (directToken) {
       tokens = [directToken];
     } else if (userPhone) {
-      const { data: devices, error } = await supabase
+      const allLinked =
+        payload?.all_linked_devices === true && isServiceRoleRequest(req);
+      let devicesQuery = supabase
         .from("user_devices")
         .select("fcm_token")
-        .eq("user_phone", userPhone)
-        .eq("is_current", true);
+        .eq("user_phone", userPhone);
+      if (!allLinked) {
+        devicesQuery = devicesQuery.eq("is_current", true);
+      }
+      const { data: devices, error } = await devicesQuery;
 
       if (error) {
         console.error("notify-user user_devices query failed", error);

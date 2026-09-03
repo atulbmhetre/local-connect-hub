@@ -14,8 +14,9 @@ import {
 
 const T = Date.now();
 
+/** Service-role: these cases cover FCM/device fan-out, not the relationship gate. */
 async function invokeNotifyVendor(record: Record<string, unknown>) {
-  return supabase.functions.invoke('notify-vendor', { body: { record } });
+  return supabaseAdmin.functions.invoke('notify-vendor', { body: { record } });
 }
 
 async function queryFcmLogs(targetPhone: string, notificationType: string) {

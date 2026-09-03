@@ -176,7 +176,8 @@ test.describe("web FCM (real token)", () => {
 
       await page.bringToFront();
       const baseline = await countFcmLogs(vendor.phone, "user-order_accepted");
-      const { error: notifyErr } = await supabase.functions.invoke("notify-user", {
+      // Delivery probe — no live request relationship; service-role bypass.
+      const { error: notifyErr } = await supabaseAdmin.functions.invoke("notify-user", {
         body: {
           user_phone: vendor.phone,
           title: TITLE,

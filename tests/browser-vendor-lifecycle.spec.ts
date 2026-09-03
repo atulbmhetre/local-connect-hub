@@ -168,12 +168,14 @@ test('VL-03 — phone lookup: unknown and banned share vendor_not_found UI; bann
   // RPC-level: banned phone returns SQL NULL (PostgREST may send a null-filled composite).
   const { data: bannedRow, error: bannedErr } = await supabase.rpc('get_vendor_by_phone_login', {
     p_phone: banned.phone,
+    p_device_id: `${DEVICE_ID}_ban`,
   });
   expect(bannedErr).toBeNull();
   expect(isAbsentVendorLoginRow(bannedRow)).toBe(true);
 
   const { data: unknownRow, error: unknownErr } = await supabase.rpc('get_vendor_by_phone_login', {
     p_phone: unknownPhone,
+    p_device_id: `${DEVICE_ID}_unknown`,
   });
   expect(unknownErr).toBeNull();
   expect(isAbsentVendorLoginRow(unknownRow)).toBe(true);

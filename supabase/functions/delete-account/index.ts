@@ -116,6 +116,36 @@ async function enforceRateLimit(
   return null;
 }
 
+async function notifyAllLinkedDevices(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  phone: string,
+): Promise<void> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/notify-user`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_phone: phone,
+        title: "Account deletion scheduled",
+        body: "Your Aaspaas account is scheduled for deletion in 30 days. Open Settings and tap Cancel Deletion if this was not you.",
+        type: "account_deletion_scheduled",
+        route: "settings",
+        all_linked_devices: true,
+      }),
+    });
+    if (!res.ok) {
+      console.error("delete-account notify-user HTTP", res.status, await res.text());
+    }
+  } catch (err) {
+    console.error("delete-account notify-user failed", err);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -252,13 +282,13 @@ serve(async (req) => {
         return jsonResponse({ error: rpcError.message }, 500);
       }
 
+      await notifyAllLinkedDevices(supabaseUrl, serviceRoleKey, phone);
+
       return jsonResponse({
         ok: true,
         type: "customer",
         dual_role: dualRole,
-        message: dualRole
-          ? "Your account will be deleted. Your vendor shop will remain active for 30 days as per policy."
-          : "Account deleted",
+        message: "Deletion scheduled",
       });
     }
 

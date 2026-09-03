@@ -3,6 +3,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 import { buildVendorFcmData } from "../_shared/notification-routes.ts";
+import {
+  assertNotifyRelationship,
+  extractRequestId,
+} from "../_shared/notify-relationship.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -105,6 +109,17 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    const gate = await assertNotifyRelationship(req, supabase, {
+      requestId: extractRequestId(payload),
+      targetVendorId: typeof vendorId === "string" ? vendorId : null,
+    });
+    if (!gate.ok) {
+      return new Response(JSON.stringify({ error: gate.error, ok: false }), {
+        status: gate.status,
+        headers: CORS_HEADERS,
+      });
+    }
 
     if (typeof vendorId === "string" && vendorId.trim()) {
       const { data: allowed, error: rlError } = await supabase.rpc("check_and_log_rate_limit", {

@@ -1,4 +1,5 @@
 import { supabase, type Vendor } from "@/lib/supabase";
+import { getDeviceId } from "@/lib/deviceId";
 import {
   applyAbortSignal,
   throwOnSupabaseNetworkError,
@@ -28,6 +29,7 @@ export async function fetchVendorByPhoneLogin(
         await applyAbortSignal(
           supabase.rpc("get_vendor_by_phone_login", {
             p_phone: phone.trim(),
+            p_device_id: getDeviceId(),
           }),
           signal,
         ),

@@ -1441,20 +1441,35 @@ const Settings = () => {
 
   useEffect(() => {
     const phone = userPhone?.trim();
-    if (!phone || !isVendor) {
+    if (!phone) {
       setVendorDeletionRequestedAt(null);
       return;
     }
     void (async () => {
-      const { data, error } = await supabase.rpc("get_vendor_deletion_status", {
-        p_phone: phone,
-      });
-      if (error) {
-        console.error("loadVendorDeletionRequestedAt", error);
-        return;
+      let at: string | null = null;
+      if (isVendor) {
+        const { data, error } = await supabase.rpc("get_vendor_deletion_status", {
+          p_phone: phone,
+        });
+        if (error) {
+          console.error("loadVendorDeletionRequestedAt", error);
+        } else {
+          const row = Array.isArray(data) ? data[0] : null;
+          at = row?.deletion_requested_at ?? null;
+        }
       }
-      const row = Array.isArray(data) ? data[0] : null;
-      setVendorDeletionRequestedAt(row?.deletion_requested_at ?? null);
+      if (!at) {
+        const { data, error } = await supabase.rpc("get_user_deletion_status", {
+          p_phone: phone,
+        });
+        if (error) {
+          console.error("loadUserDeletionRequestedAt", error);
+        } else {
+          const row = Array.isArray(data) ? data[0] : null;
+          at = row?.deletion_requested_at ?? null;
+        }
+      }
+      setVendorDeletionRequestedAt(at);
     })();
   }, [userPhone, isVendor]);
 
@@ -3355,19 +3370,8 @@ const Settings = () => {
       return;
     }
 
-    toast.success(
-      result.message ??
-        (dualRoleDelete && !isVendor
-          ? s.delete_account_success_dual_role
-          : s.delete_account_success_customer),
-    );
-    try {
-      localStorage.removeItem("aaspaas:user_phone");
-      localStorage.removeItem("aaspaas:device_id");
-    } catch {
-      /* ignore */
-    }
-    window.setTimeout(() => window.location.reload(), 1500);
+    setVendorDeletionRequestedAt(new Date().toISOString());
+    toast.success(s.delete_account_success_vendor);
   };
 
   const cancelAccountDeletion = async () => {

@@ -76,8 +76,8 @@ test('NRF-01: category_approved notify produces non-null settings route (not Hom
   expect(catErr).toBeNull();
 
   try {
-    // Explicit route (Settings.notifyCategoryVendor pattern)
-    const { error } = await supabase.functions.invoke('notify-vendor', {
+    // Category approve has no order relationship — service-role (admin path in prod).
+    const { error } = await supabaseAdmin.functions.invoke('notify-vendor', {
       body: {
         record: {
           vendor_id: testVendor.id,
@@ -116,7 +116,7 @@ test('NRF-01: category_approved notify produces non-null settings route (not Hom
 
     // Mapper-only path (no explicit route) — requires deployed buildVendorFcmData branch
     const m2 = marker('cat-mapper');
-    const { error: mapperErr } = await supabase.functions.invoke('notify-vendor', {
+    const { error: mapperErr } = await supabaseAdmin.functions.invoke('notify-vendor', {
       body: {
         record: {
           vendor_id: testVendor.id,
