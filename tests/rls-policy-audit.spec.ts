@@ -21,12 +21,7 @@ dotenv.config({ path: path.resolve(process.cwd(), envFile), override: true });
 
 /** Intentional SELECT-only public reads — any other true-expression anon/PUBLIC policy is a leak. */
 const ALLOWED_ANON_TRUE_POLICIES = [
-  {
-    table: 'app_config',
-    policy: 'app_config_public_read',
-    command: 'SELECT' as const,
-    reason: 'Public app_config keys (feature flags, copy) for unauthenticated clients.',
-  },
+  // app_config_public_read is SELECT-only but uses a key denylist, not USING true.
   {
     table: 'categories',
     policy: 'categories_public_read',
