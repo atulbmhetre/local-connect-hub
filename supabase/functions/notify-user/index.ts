@@ -6,6 +6,7 @@ import { buildFcmData } from "../_shared/notification-routes.ts";
 import {
   assertNotifyRelationship,
   extractRequestId,
+  extractVendorId,
   isServiceRoleRequest,
 } from "../_shared/notify-relationship.ts";
 
@@ -82,6 +83,7 @@ serve(async (req) => {
 
     const gate = await assertNotifyRelationship(req, supabase, {
       requestId: extractRequestId(payload),
+      khataVendorId: extractVendorId(payload),
       targetUserPhone: userPhone ?? null,
     });
     if (!gate.ok) {

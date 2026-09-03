@@ -559,12 +559,18 @@ const LedgerView = () => {
       }
       const paidTitle = s.khata_paidNotifTitle;
       const paidBody = s.khata_paidNotifBody;
+      // order_id when a linked request exists; otherwise vendor_id + khata_ledger
+      // is the relationship proof for notify-user's gate.
       void invokeNotifyUser({
         user_phone: selectedPhone,
         title: paidTitle,
         body: paidBody,
         type: "bill",
-        ...(linkedRequestId ? { order_id: linkedRequestId } : {}),
+        vendor_id: vendorId,
+        route: "my-orders",
+        ...(linkedRequestId
+          ? { order_id: linkedRequestId, route_params: { order_id: linkedRequestId } }
+          : {}),
       });
     }
 

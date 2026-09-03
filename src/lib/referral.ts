@@ -124,8 +124,10 @@ export async function recordUserReferralDetailed(
     const vendorStrings = strings[vendorLang];
 
     // Session 42B violation: client-triggered notify — move to DB trigger post-launch.
+    // referral_id proves the referrer↔referee relationship to notify-vendor's gate.
     void invokeNotifyVendor({
       vendor_id: result.vendor_id,
+      referral_id: result.referral_id,
       type: "referral_credit",
       notification_title: vendorStrings.feed_referralCredit_title,
       message: vendorStrings.feed_referralCredit_body(result.credit_amount ?? 2.5),

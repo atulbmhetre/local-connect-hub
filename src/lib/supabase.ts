@@ -193,6 +193,7 @@ export async function invokeNotifyVendor(
     message?: string;
     notification_title?: string;
     request_id?: string;
+    referral_id?: string;
     type?: string;
     route?: string;
     route_params?: Record<string, string>;
@@ -201,7 +202,7 @@ export async function invokeNotifyVendor(
 ): Promise<void> {
   const breadcrumbCtx = notifyInvokeContext(observability, {
     type: record.type ?? null,
-    request_id: record.request_id ?? null,
+    request_id: record.request_id ?? record.referral_id ?? null,
   });
 
   if (!record.route?.trim()) {
@@ -299,6 +300,8 @@ export function invokeNotifyUser(
     body: string;
     type?: string;
     order_id?: string;
+    /** Khata / vendor-scoped notifies: proves khata_ledger relationship when no order_id. */
+    vendor_id?: string;
     post_id?: string;
     route?: string;
     route_params?: Record<string, string>;

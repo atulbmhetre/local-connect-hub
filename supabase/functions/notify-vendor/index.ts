@@ -5,6 +5,7 @@ import { deleteStaleToken } from "../_shared/fcm-cleanup.ts";
 import { buildVendorFcmData } from "../_shared/notification-routes.ts";
 import {
   assertNotifyRelationship,
+  extractReferralId,
   extractRequestId,
 } from "../_shared/notify-relationship.ts";
 
@@ -112,6 +113,7 @@ serve(async (req) => {
 
     const gate = await assertNotifyRelationship(req, supabase, {
       requestId: extractRequestId(payload),
+      referralId: extractReferralId(payload),
       targetVendorId: typeof vendorId === "string" ? vendorId : null,
     });
     if (!gate.ok) {

@@ -1,25 +1,31 @@
 ﻿/**
  * Shared gate for notify-user / notify-vendor (initiate-call pattern).
- * Anon/authenticated must reference a live/recent request linking the target.
- * Service-role and admin-session callers are allowed without an order id.
+ * Anon/authenticated must prove a real relationship to the target:
+ *   - live/recent request (order_id / request_id), or
+ *   - referrals row (referral_id → referrer vendor), or
+ *   - khata_ledger row (vendor_id + customer phone).
+ * Service-role and admin-session callers are allowed without those proofs.
  *
  * Call sites WITH order_id/request_id (client): IncomingOrdersSection, MyOrders,
  * RatingSheet, UpiPaymentPanel, iveStartedNotify; LedgerView when a khata-linked
  * request exists. Server/pg_net triggers that include order_id also pass.
  *
- * FLAG — legitimate call sites WITHOUT an order relationship today (bypass only
- * via service-role or admin-session; do not invent OTP/identity redesign here):
+ * Call sites WITH non-order proofs:
+ * - referral.ts → referral_id (referrals.referrer_vendor_id)
+ * - LedgerView khata paid (no linked order) → vendor_id + khata_ledger
+ *
+ * Admin/service-role only (no end-user relationship to invent here):
  * - Settings: category approve/reject, ban/unban/restore, vendor verification
- * - applyVendorWaiveoff, warnFlaggedUser (admin)
- * - referral.ts recordUserReferral (end-user client, no order)
- * - LedgerView khata paid when get_vendor_khata_linked_request returns null
+ * - applyVendorWaiveoff, warnFlaggedUser
  * - process-new-category / check-vendor-subscriptions / process-vendor-referral
- *   / razorpay-webhook / delete-account (service-role)
+ *   / razorpay-webhook / delete-account
  */
 
 const IN_PROGRESS = ["sent", "seen", "accepted"] as const;
 const ACTIVE_ORDER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const SCHEDULED_GRACE_MS = 24 * 60 * 60 * 1000;
+/** Referral notify is sent immediately after apply; allow a short replay window. */
+const REFERRAL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type NotifyGateResult =
   | { ok: true }
@@ -63,6 +69,26 @@ export function extractRequestId(payload: Record<string, unknown>): string | nul
   return null;
 }
 
+export function extractReferralId(payload: Record<string, unknown>): string | null {
+  const record =
+    payload.record && typeof payload.record === "object"
+      ? (payload.record as Record<string, unknown>)
+      : payload;
+  const value = record.referral_id ?? payload.referral_id;
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return null;
+}
+
+export function extractVendorId(payload: Record<string, unknown>): string | null {
+  const record =
+    payload.record && typeof payload.record === "object"
+      ? (payload.record as Record<string, unknown>)
+      : payload;
+  const value = record.vendor_id ?? payload.vendor_id;
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return null;
+}
+
 function isRecentOrLiveRequest(row: {
   status: string;
   created_at: string;
@@ -100,23 +126,16 @@ async function callerIsAdminSession(req: Request): Promise<boolean> {
   }
 }
 
-export async function assertNotifyRelationship(
-  req: Request,
-  // Service-role client; only used to read public.requests.
-  supabase: { from: (table: string) => any },
+type SupabaseLike = { from: (table: string) => any };
+
+async function assertOrderRelationship(
+  supabase: SupabaseLike,
   opts: {
-    requestId: string | null;
+    requestId: string;
     targetUserPhone?: string | null;
     targetVendorId?: string | null;
   },
 ): Promise<NotifyGateResult> {
-  if (isServiceRoleRequest(req)) return { ok: true };
-  if (await callerIsAdminSession(req)) return { ok: true };
-
-  if (!opts.requestId) {
-    return { ok: false, status: 403, error: "relationship_required" };
-  }
-
   const { data, error } = await supabase
     .from("requests")
     .select("id, status, created_at, user_phone, vendor_id, appointment_time, delivery_slot_deadline")
@@ -157,4 +176,130 @@ export async function assertNotifyRelationship(
   }
 
   return { ok: true };
+}
+
+async function assertReferralRelationship(
+  supabase: SupabaseLike,
+  opts: { referralId: string; targetVendorId: string },
+): Promise<NotifyGateResult> {
+  const { data, error } = await supabase
+    .from("referrals")
+    .select("id, referrer_vendor_id, triggered_at")
+    .eq("id", opts.referralId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("notify referral relationship lookup failed", error);
+    return { ok: false, status: 500, error: "relationship_check_failed" };
+  }
+  if (!data) {
+    return { ok: false, status: 403, error: "relationship_required" };
+  }
+
+  const row = data as {
+    referrer_vendor_id: string;
+    triggered_at: string | null;
+  };
+
+  if (row.referrer_vendor_id !== opts.targetVendorId.trim()) {
+    return { ok: false, status: 403, error: "relationship_required" };
+  }
+
+  const triggered = row.triggered_at ? new Date(row.triggered_at).getTime() : NaN;
+  if (!Number.isFinite(triggered) || Date.now() - triggered > REFERRAL_MAX_AGE_MS) {
+    return { ok: false, status: 403, error: "relationship_required" };
+  }
+
+  return { ok: true };
+}
+
+async function assertKhataRelationship(
+  supabase: SupabaseLike,
+  opts: { vendorId: string; targetUserPhone: string },
+): Promise<NotifyGateResult> {
+  const phone = opts.targetUserPhone.trim();
+  if (!phone || !opts.vendorId.trim()) {
+    return { ok: false, status: 403, error: "relationship_required" };
+  }
+
+  // LedgerView always notifies with the phone key stored on khata_ledger.
+  const { data, error } = await supabase
+    .from("khata_ledger")
+    .select("id, user_phone")
+    .eq("vendor_id", opts.vendorId.trim())
+    .eq("user_phone", phone)
+    .maybeSingle();
+
+  if (error) {
+    console.error("notify khata relationship lookup failed", error);
+    return { ok: false, status: 500, error: "relationship_check_failed" };
+  }
+
+  if (data) return { ok: true };
+
+  // Fallback: match last-10 when client/DB formatting differs slightly.
+  const target10 = last10(phone);
+  if (target10.length !== 10) {
+    return { ok: false, status: 403, error: "relationship_required" };
+  }
+  const { data: rows, error: listError } = await supabase
+    .from("khata_ledger")
+    .select("id, user_phone")
+    .eq("vendor_id", opts.vendorId.trim())
+    .like("user_phone", `%${target10}`)
+    .limit(5);
+
+  if (listError) {
+    console.error("notify khata relationship fallback failed", listError);
+    return { ok: false, status: 500, error: "relationship_check_failed" };
+  }
+
+  const hit = ((rows as { user_phone: string }[] | null) ?? []).some(
+    (row) => last10(row.user_phone) === target10,
+  );
+  if (!hit) {
+    return { ok: false, status: 403, error: "relationship_required" };
+  }
+
+  return { ok: true };
+}
+
+export async function assertNotifyRelationship(
+  req: Request,
+  // Service-role client; used to read requests / referrals / khata_ledger.
+  supabase: SupabaseLike,
+  opts: {
+    requestId: string | null;
+    referralId?: string | null;
+    khataVendorId?: string | null;
+    targetUserPhone?: string | null;
+    targetVendorId?: string | null;
+  },
+): Promise<NotifyGateResult> {
+  if (isServiceRoleRequest(req)) return { ok: true };
+  if (await callerIsAdminSession(req)) return { ok: true };
+
+  if (opts.requestId) {
+    return assertOrderRelationship(supabase, {
+      requestId: opts.requestId,
+      targetUserPhone: opts.targetUserPhone,
+      targetVendorId: opts.targetVendorId,
+    });
+  }
+
+  if (opts.referralId?.trim() && opts.targetVendorId?.trim()) {
+    return assertReferralRelationship(supabase, {
+      referralId: opts.referralId.trim(),
+      targetVendorId: opts.targetVendorId.trim(),
+    });
+  }
+
+  if (opts.khataVendorId?.trim() && opts.targetUserPhone?.trim()) {
+    return assertKhataRelationship(supabase, {
+      vendorId: opts.khataVendorId.trim(),
+      targetUserPhone: opts.targetUserPhone.trim(),
+    });
+  }
+
+  return { ok: false, status: 403, error: "relationship_required" };
 }
