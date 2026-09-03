@@ -78,7 +78,6 @@ import {
 } from "lucide-react";
 import { TrustBadge } from "@/components/TrustBadge";
 import { IncomingOrdersSection } from "@/components/IncomingOrdersSection";
-import { VendorNoteEditor } from "@/components/vendor/VendorNoteEditor";
 import {
   VendorAnalytics,
   type VendorOrderStats,

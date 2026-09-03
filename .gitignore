@@ -62,6 +62,9 @@ followup_diagnostics_status.txt
 rls_investigation_summary.txt
 
 # Root-level one-off session test-run dumps and scratch artifacts
+/_*.txt
+/_*.json
+/_*.log
 /isolated-*.txt
 /full-playwright-run*.txt
 /full-test-run*.txt
