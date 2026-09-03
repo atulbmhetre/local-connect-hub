@@ -2,7 +2,6 @@ import { ShieldCheck, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Vendor } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
-import { strings } from "@/lib/strings";
 import {
   businessBadgeTone,
   type AccountTrustSignals,
@@ -10,8 +9,6 @@ import {
 } from "@/lib/businessTrust";
 
 export type VerificationDisplayTier = "green" | "yellow" | "red";
-
-type VerificationStrings = typeof strings.en;
 
 /**
  * Legacy account-level tier (admin lists / older call sites).
@@ -23,26 +20,6 @@ export function vendorTier(v: Vendor): VerificationDisplayTier {
     String(v.verification_status ?? "").trim().toLowerCase() === "yellow";
   if (v.shop_photo_url != null || v.upi_verified === true || statusIsYellow) return "yellow";
   return "red";
-}
-
-export function getVerificationCopy(s: VerificationStrings): Record<
-  VerificationDisplayTier,
-  { label: string; sub: string }
-> {
-  return {
-    green: {
-      label: s.vendor_verified_pro,
-      sub: s.verification_green_sub,
-    },
-    yellow: {
-      label: s.verification_yellow_label,
-      sub: s.verification_yellow_sub,
-    },
-    red: {
-      label: s.settings_unverified,
-      sub: s.verification_red_sub,
-    },
-  };
 }
 
 /** Binary per-business badge for customers (Verified | Unverified only). */
@@ -103,6 +80,3 @@ export function BusinessVerificationBadge({
     </span>
   );
 }
-
-/** @deprecated Use getVerificationCopy(s) with useLanguage() instead. */
-export const verificationCopy = getVerificationCopy(strings.en);
