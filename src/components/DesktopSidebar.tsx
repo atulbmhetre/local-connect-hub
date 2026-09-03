@@ -49,7 +49,7 @@ export function DesktopSidebar() {
     <aside
       data-testid="desktop-sidebar"
       className={cn(
-        "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-border bg-background lg:flex",
+        "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-border lg:flex",
         DESKTOP_SIDEBAR_WIDTH_CLASS,
       )}
     >

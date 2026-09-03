@@ -93,6 +93,9 @@ describe("AppShell desktop layout", () => {
     expect(main.className).not.toContain("xl:max-w-4xl");
     expect(main.className).not.toContain("2xl:max-w-5xl");
     expect(screen.getByTestId("desktop-sidebar")).toBeTruthy();
+    expect(screen.getByTestId("desktop-sidebar").className).toContain("border-r");
+    expect(screen.getByTestId("desktop-sidebar").className).toContain("border-border");
+    expect(screen.getByTestId("desktop-sidebar").className).not.toContain("bg-background");
     expect(screen.getByTestId("bottom-nav-chrome")).toBeTruthy();
     expect(screen.getByTestId("bottom-nav-chrome").closest("nav")?.className).toContain(
       "lg:hidden",
