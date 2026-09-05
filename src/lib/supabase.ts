@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { getDeviceId } from "@/lib/deviceId";
+import { isValidPhone } from "@/lib/indianPhone";
 import { addBreadcrumb, captureError, phoneSuffix } from "@/lib/sentry";
+
+export { isValidPhone } from "@/lib/indianPhone";
 
 export type NotifyObservabilityContext = {
   source: string;
@@ -943,12 +946,6 @@ export async function invokeAttachPendingCategory(params: {
       error: err instanceof Error ? err.message : "attach_pending_category_failed",
     };
   }
-}
-
-// Indian phone heuristic: optional +91, 10 digits starting 6-9.
-const PHONE_RE = /^(\+?91[\s-]?)?[6-9]\d{9}$/;
-export function isValidPhone(phone: string) {
-  return PHONE_RE.test(phone.replace(/\s|-/g, ""));
 }
 
 /**

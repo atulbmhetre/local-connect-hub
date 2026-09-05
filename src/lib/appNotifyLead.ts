@@ -17,7 +17,7 @@ export function parseAppNotifyContact(raw: string): ParsedAppNotifyContact {
   }
 
   const digits = normalizePhoneDigits(trimmed);
-  if (!isValidIndianMobile(digits)) return { ok: false };
+  if (!digits || !isValidIndianMobile(digits)) return { ok: false };
   return { ok: true, contact: digits, kind: "phone" };
 }
 

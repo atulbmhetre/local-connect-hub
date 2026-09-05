@@ -1,24 +1,18 @@
 import { strings } from "@/lib/strings";
+import { isSamePhone, normalizePhoneDigits } from "@/lib/indianPhone";
+
+export { isSamePhone, normalizePhoneDigits } from "@/lib/indianPhone";
 
 export function maskPhoneLast4(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
+  const digits = normalizePhoneDigits(phone) ?? phone.replace(/\D/g, "");
   return `••••${digits.slice(-4)}`;
 }
 
-/** Mask phone for display: •••• + last 4 characters of the stored value. */
+/** Mask phone for display: •••• + last 4 of canonical national digits when possible. */
 export function maskPhone(phone: string): string {
-  if (phone.length >= 4) return `••••${phone.slice(-4)}`;
+  const digits = normalizePhoneDigits(phone) ?? phone.replace(/\D/g, "");
+  if (digits.length >= 4) return `••••${digits.slice(-4)}`;
   return "••••";
-}
-
-export function normalizePhoneDigits(phone: string): string {
-  return phone.replace(/\D/g, "");
-}
-
-export function isSamePhone(a: string, b: string): boolean {
-  const da = normalizePhoneDigits(a);
-  const db = normalizePhoneDigits(b);
-  return da.length > 0 && da === db;
 }
 
 export function feedAuthorLabel(phone: string, viewerPhone: string | null): string {

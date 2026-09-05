@@ -206,7 +206,7 @@ export function PhoneEntrySheet({
 
   const handleConfirm = async () => {
     const digits = normalizePhoneDigits(value);
-    if (!isValidIndianMobile(digits)) {
+    if (!digits || !isValidIndianMobile(digits)) {
       setError(s.phone_entry_invalid);
       return;
     }
@@ -262,7 +262,7 @@ export function PhoneEntrySheet({
 
   const handleRestoreExisting = async () => {
     const digits = normalizePhoneDigits(value);
-    if (!existingAccount || !isValidIndianMobile(digits)) return;
+    if (!digits || !existingAccount || !isValidIndianMobile(digits)) return;
     setIsRestoring(true);
     try {
       completePhoneFlow(digits, true);
@@ -281,6 +281,7 @@ export function PhoneEntrySheet({
 
   const handleContinueWithoutRestore = () => {
     const digits = normalizePhoneDigits(value);
+    if (!digits) return;
     completePhoneFlow(digits, false);
     setExistingAccount(null);
   };

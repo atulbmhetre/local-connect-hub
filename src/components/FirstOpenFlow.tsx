@@ -205,7 +205,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
   const handleRegisterPhoneContinue = () => {
     const digits = normalizePhoneDigits(phoneValue);
-    if (!isValidIndianMobile(digits)) {
+    if (!digits || !isValidIndianMobile(digits)) {
       setInlineMessage(s.vendor_phone_invalid_body);
       setInlineTone("error");
       return;
@@ -228,6 +228,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
   const handleChooseVerifyOtp = () => {
     const digits = normalizePhoneDigits(phoneValue);
+    if (!digits) return;
     pushRestoreDebug(`restore chose verify OTP phone=…${digits.slice(-4)}`);
     beginOtpVerification(digits, "restore");
   };
@@ -242,6 +243,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
   const handleNoAccountContinue = () => {
     const digits = normalizePhoneDigits(phoneValue);
+    if (!digits) return;
     pushRestoreDebug(`Continue after no-account phone=…${digits.slice(-4)}`);
     setAwaitingNoAccountContinue(false);
     setInlineMessage(null);
@@ -254,7 +256,7 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
 
   const handleRestore = async () => {
     const digits = normalizePhoneDigits(phoneValue);
-    if (!isValidIndianMobile(digits)) {
+    if (!digits || !isValidIndianMobile(digits)) {
       setInlineMessage(s.vendor_phone_invalid_body);
       setInlineTone("error");
       return;
@@ -653,7 +655,10 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
             {inlineMessage ?? s.firstopen_restore_found}
           </p>
           <p className="text-sm text-muted-foreground text-center leading-relaxed">
-            {s.firstopen_otp_subtitle.replace("{phone}", normalizePhoneDigits(phoneValue))}
+            {s.firstopen_otp_subtitle.replace(
+              "{phone}",
+              normalizePhoneDigits(phoneValue) ?? phoneValue,
+            )}
           </p>
           <button
             type="button"

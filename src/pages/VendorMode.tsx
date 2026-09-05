@@ -23,7 +23,6 @@ import {
   distanceMeters,
   useCategoryLabel,
   useServiceModeLabel,
-  invokeNotifyAdmin,
   invokeRegisterVendor,
   invokeSuggestCategory,
   type CategorySuggestionResult,
@@ -489,7 +488,8 @@ const VendorMode = () => {
             if (cancelled || isTogglingRef.current) return;
             if (!sessionPhoneMatchesVendor(sessionPhone, loaded.phone)) {
               vendorSessionReadyRef.current = false;
-              const otpPhone = normalizePhoneDigits(loaded.phone ?? "") || getUserPhone() || "";
+              const otpPhone =
+                normalizePhoneDigits(loaded.phone ?? "") || getUserPhone() || "";
               if (otpPhone.length === 10) {
                 setPendingLoginVendor(loaded);
                 setLoginOtpPhone(otpPhone);

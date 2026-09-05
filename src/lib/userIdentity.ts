@@ -7,16 +7,9 @@ import {
   throwOnSupabaseNetworkError,
   withTimedRetry,
 } from "@/lib/withNetworkRetry";
+import { normalizeAuthPhone } from "@/lib/indianPhone";
 
-/** 10-digit app phone from Auth or vendor row (`+91`, `91`, or 10 digits). */
-export function normalizeAuthPhone(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
-  if (digits.length === 10) return digits;
-  if (digits.length > 10 && digits.startsWith("91")) return digits.slice(-10);
-  return null;
-}
+export { normalizeAuthPhone } from "@/lib/indianPhone";
 
 // Phase D: get phone from real Supabase session, strips 91 prefix
 async function getSessionPhone(): Promise<string | null> {

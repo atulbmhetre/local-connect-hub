@@ -26,6 +26,14 @@ describe("parseAppNotifyContact", () => {
     });
   });
 
+  it("strips a bare 91 country prefix (12 digits)", () => {
+    expect(parseAppNotifyContact("919876543210")).toEqual({
+      ok: true,
+      contact: "9876543210",
+      kind: "phone",
+    });
+  });
+
   it("rejects a landline-style number", () => {
     expect(parseAppNotifyContact("0221234567")).toEqual({ ok: false });
   });
