@@ -15,12 +15,19 @@ describe("create_customer_request idempotency wiring", () => {
     expect(mig).toContain("p_client_idempotency_key");
     expect(mig).toContain("interval '2 minutes'");
 
+    const place = fs.readFileSync(
+      path.join(process.cwd(), "src/lib/executeOrderInsert.ts"),
+      "utf8",
+    );
+    expect(place).toContain("clientIdempotencyKey");
+    expect(place).toContain("p_client_idempotency_key: clientIdempotencyKey");
+    expect(place).toContain("safeRandomUUID()");
+
     const parchi = fs.readFileSync(
       path.join(process.cwd(), "src/components/ParchiSheet.tsx"),
       "utf8",
     );
-    expect(parchi).toContain("clientIdempotencyKey");
-    expect(parchi).toContain("p_client_idempotency_key: clientIdempotencyKey");
-    expect(parchi).toContain("safeRandomUUID()");
+    expect(parchi).toContain("executeOrderInsert");
+    expect(parchi).toMatch(/from ["']@\/lib\/executeOrderInsert["']/);
   });
 });

@@ -6,11 +6,15 @@ describe("recurring orders wiring", () => {
   it("Parchi offers recurrence for Delivery/Scheduled, not Help", () => {
     const parchi = readFileSync(resolve("src/components/ParchiSheet.tsx"), "utf8");
     expect(parchi).toContain("parchi-recurrence");
-    expect(parchi).toContain("create_recurring_order");
     expect(parchi).toContain("showRecurrence");
     expect(parchi).toMatch(/isHelpMode/);
     expect(parchi).toContain('deliverySlot !== "asap"');
     expect(parchi).toContain("appointmentTiming === \"scheduled\"");
+    expect(parchi).toContain("executeOrderInsert");
+
+    const place = readFileSync(resolve("src/lib/executeOrderInsert.ts"), "utf8");
+    expect(place).toContain("create_recurring_order");
+    expect(place).toContain("showRecurrence");
   });
 
   it("My Orders surfaces pause/resume/stop on the arrangement, not buried in a single request", () => {

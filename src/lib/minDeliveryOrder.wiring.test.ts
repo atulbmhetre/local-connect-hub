@@ -20,15 +20,19 @@ describe("min delivery order wiring", () => {
     const parchi = readFileSync(resolve("src/components/ParchiSheet.tsx"), "utf8");
     expect(parchi).toContain("selectedMenuItemsRef");
     expect(parchi).toContain("menuItemsRef");
-    expect(parchi).toContain("buildStructuredItemsFrom");
     expect(parchi).toContain("parchi-min-delivery-subtotal");
     expect(parchi).toContain("parchi-min-delivery-need");
+    expect(parchi).toContain("executeOrderInsert");
     const addFn = parchi.slice(
       parchi.indexOf("const addMenuToOrder"),
       parchi.indexOf("const selectedMenuCount"),
     );
     expect(addFn).not.toMatch(/setSelectedMenuItems\(\{\}\)/);
     expect(parchi).toMatch(/selectedMenuItems,\s*\n\s*menuItems,/);
+
+    const place = readFileSync(resolve("src/lib/executeOrderInsert.ts"), "utf8");
+    expect(place).toContain("buildStructuredItemsFrom");
+    expect(place).toContain("meetsMinDeliveryOrder");
   });
 
   it("My Business shows the field only for delivery modes", () => {
