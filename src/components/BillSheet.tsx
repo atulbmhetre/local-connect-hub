@@ -28,6 +28,7 @@ import { getVoiceLang } from "@/lib/voiceUtils";
 import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
 import { billUnitOptions } from "@/lib/billUnits";
 import { captureError } from "@/lib/sentry";
+import { fetchParseImageJson } from "@/lib/parseImageFetch";
 import { safeRandomUUID } from "@/lib/safeRandomUUID";
 import { parseBillQuantity, parseBillUnitPrice } from "@/lib/billEdit";
 import { applyCatalogItemTap } from "@/lib/billMenuCatalog";
@@ -422,24 +423,17 @@ export function BillSheet({
             reader.onerror = rej;
             reader.readAsDataURL(file);
           });
-          const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-image-bill`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify({
-              image_base64: base64,
-              media_type: file.type,
-              phone: getUserPhone()?.trim() || undefined,
-              vendor_id: vendorId,
-            }),
+          const result = await fetchParseImageJson("parse-image-bill", {
+            image_base64: base64,
+            media_type: file.type,
+            phone: getUserPhone()?.trim() || undefined,
+            vendor_id: vendorId,
           });
-          const result = await resp.json();
-          if (result.success && result.items?.length) {
+          const parsedItems = Array.isArray(result.items) ? result.items : [];
+          if (result.success && parsedItems.length) {
             setItems((prev) => {
               const hasEmpty = prev.length === 1 && !prev[0].description;
-              const newItems = result.items.map(
+              const newItems = parsedItems.map(
                 (i: {
                   description?: string;
                   quantity?: number;

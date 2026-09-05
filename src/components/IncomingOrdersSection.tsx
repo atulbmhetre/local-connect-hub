@@ -584,10 +584,14 @@ export function IncomingOrdersSection({
   };
 
   const markOrderBillPaid = async (billId: string, requestId: string) => {
+    const lockKey = `bill-paid:${billId}`;
+    if (rowActionLockRef.current.has(lockKey)) return;
+    rowActionLockRef.current.add(lockKey);
     setMarkingBillPaidId(billId);
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
       setMarkingBillPaidId(null);
+      rowActionLockRef.current.delete(lockKey);
       toast.error(s.incoming_errCouldNotUpdate);
       return;
     }
@@ -631,6 +635,7 @@ export function IncomingOrdersSection({
       }
     } finally {
       setMarkingBillPaidId(null);
+      rowActionLockRef.current.delete(lockKey);
     }
   };
 
@@ -1229,6 +1234,8 @@ export function IncomingOrdersSection({
       toast.error(s.incoming_errCouldNotUpdate);
       return;
     }
+    if (rowActionLockRef.current.has(id)) return;
+    rowActionLockRef.current.add(id);
     setMarkingId(id);
     try {
       const { error } = await withNetworkRetry(
@@ -1273,6 +1280,7 @@ export function IncomingOrdersSection({
       }
     } finally {
       setMarkingId(null);
+      rowActionLockRef.current.delete(id);
     }
   };
 
@@ -1284,10 +1292,14 @@ export function IncomingOrdersSection({
     utr: string | null,
     _billAmount: number | null,
   ) => {
+    const lockKey = `confirm:${requestId}`;
+    if (rowActionLockRef.current.has(lockKey)) return;
+    rowActionLockRef.current.add(lockKey);
     setConfirmingPaymentId(requestId);
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
       setConfirmingPaymentId(null);
+      rowActionLockRef.current.delete(lockKey);
       toast.error(s.payment_confirm_error);
       return;
     }
@@ -1333,14 +1345,19 @@ export function IncomingOrdersSection({
       }
     } finally {
       setConfirmingPaymentId(null);
+      rowActionLockRef.current.delete(lockKey);
     }
   };
 
   const disputePayment = async (requestId: string, _userPhone: string) => {
+    const lockKey = `dispute:${requestId}`;
+    if (rowActionLockRef.current.has(lockKey)) return;
+    rowActionLockRef.current.add(lockKey);
     setDisputingPaymentId(requestId);
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
       setDisputingPaymentId(null);
+      rowActionLockRef.current.delete(lockKey);
       toast.error(s.payment_dispute_error);
       return;
     }
@@ -1385,6 +1402,7 @@ export function IncomingOrdersSection({
       }
     } finally {
       setDisputingPaymentId(null);
+      rowActionLockRef.current.delete(lockKey);
     }
   };
 

@@ -71,6 +71,7 @@ import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { CUSTOMER_KHATA_HASH } from "@/lib/desktopShell";
 import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
 import { captureError } from "@/lib/sentry";
+import { fetchParseImageJson } from "@/lib/parseImageFetch";
 import {
   isMyOrdersOverlayBlockingAutoRating,
   resolveAutoRatingAction,
@@ -316,6 +317,7 @@ const MyOrders = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const highlightOrderId = (location.state as LocationHighlightState | null)?.highlightOrderId;
+  const missingHighlightToastRef = useRef<string | null>(null);
   const [flashOrderId, setFlashOrderId] = useState<string | null>(null);
   const { s } = useLanguage();
   const { config } = useAppConfig();
@@ -512,12 +514,19 @@ const MyOrders = () => {
   useEffect(() => {
     if (!highlightOrderId || loading) return;
     const el = document.getElementById(`order-card-${highlightOrderId}`);
-    if (!el) return;
+    if (!el) {
+      if (missingHighlightToastRef.current !== highlightOrderId) {
+        missingHighlightToastRef.current = highlightOrderId;
+        toast.info(s.myOrders_orderNoLongerAvailable);
+      }
+      return;
+    }
+    missingHighlightToastRef.current = null;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     setFlashOrderId(highlightOrderId);
     const t = window.setTimeout(() => setFlashOrderId(null), 2000);
     return () => window.clearTimeout(t);
-  }, [highlightOrderId, loading, rows.length]);
+  }, [highlightOrderId, loading, rows.length, s.myOrders_orderNoLongerAvailable]);
 
   useEffect(() => {
     if (location.hash !== `#${CUSTOMER_KHATA_HASH}`) return;
@@ -1551,17 +1560,13 @@ const MyOrders = () => {
             reader.onerror = rej;
             reader.readAsDataURL(file);
           });
-          const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-image-order`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify({ image_base64: base64, media_type: file.type }),
+          const data = await fetchParseImageJson("parse-image-order", {
+            image_base64: base64,
+            media_type: file.type,
           });
-          const data = await resp.json();
-          if (data.success && data.text) {
-            setEditMessage((prev) => (prev ? `${prev}\n${data.text}` : data.text));
+          const parsedText = typeof data.text === "string" ? data.text : "";
+          if (data.success && parsedText) {
+            setEditMessage((prev) => (prev ? `${prev}\n${parsedText}` : parsedText));
             toast.success(s.image_parsed);
           } else {
             toast.error(s.image_failed);

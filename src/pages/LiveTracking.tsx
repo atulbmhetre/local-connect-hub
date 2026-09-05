@@ -123,7 +123,11 @@ const LiveTracking = () => {
   const flashTimerRef = useRef<number | null>(null);
 
   const fetchVendor = useCallback(async () => {
-    if (!vendorId) return;
+    if (!vendorId) {
+      setLoading(false);
+      setError(s.liveTracking_invalidLink);
+      return;
+    }
     setLoading(true);
     setNetworkLoadStatus(null);
     setError(null);
@@ -220,8 +224,13 @@ const LiveTracking = () => {
 
   // Fetch vendor + initial helper coords.
   useEffect(() => {
+    if (!vendorId) {
+      setLoading(false);
+      setError(s.liveTracking_invalidLink);
+      return;
+    }
     void fetchVendor();
-  }, [fetchVendor]);
+  }, [fetchVendor, vendorId, s.liveTracking_invalidLink]);
 
   // User GPS — high accuracy, watched.
   useEffect(() => {

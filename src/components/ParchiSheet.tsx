@@ -54,9 +54,11 @@ import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import { withNetworkRetry } from "@/lib/withNetworkRetry";
+import { fetchParseImageJson } from "@/lib/parseImageFetch";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useUserAddresses, type SavedAddress } from "@/hooks/useUserAddresses";
+import { MAX_ADDRESS_TEXT_CHARS } from "@/lib/addressLimits";
 import { cn } from "@/lib/utils";
 
 type VendorMenuItem = ParchiVendorMenuItem;
@@ -607,20 +609,13 @@ export function ParchiSheet({
             reader.onerror = rej;
             reader.readAsDataURL(file);
           });
-          const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-image-order`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify({
-              image_base64: base64,
-              media_type: file.type,
-            }),
+          const data = await fetchParseImageJson("parse-image-order", {
+            image_base64: base64,
+            media_type: file.type,
           });
-          const data = await resp.json();
-          if (data.success && data.text) {
-            setMessage((prev) => (prev ? `${prev}\n${data.text}` : data.text));
+          const parsedText = typeof data.text === "string" ? data.text : "";
+          if (data.success && parsedText) {
+            setMessage((prev) => (prev ? `${prev}\n${parsedText}` : parsedText));
             toast.success(s.image_parsed);
           } else {
             toast.error(s.image_failed);
@@ -1124,7 +1119,10 @@ export function ParchiSheet({
                       type="text"
                       data-testid="parchi-address-input"
                       value={newAddress}
-                      onChange={(e) => setNewAddress(e.target.value)}
+                      onChange={(e) =>
+                        setNewAddress(e.target.value.slice(0, MAX_ADDRESS_TEXT_CHARS))
+                      }
+                      maxLength={MAX_ADDRESS_TEXT_CHARS}
                       placeholder={s.parchi_addressPlaceholder}
                       className="w-full rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand/50"
                     />

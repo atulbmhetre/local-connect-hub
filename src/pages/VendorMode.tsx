@@ -1218,26 +1218,32 @@ const VendorMode = () => {
       if (next) {
         dismissRegisteredBanner(vendor.id);
         setGoLivePromptVisible(false);
+        toast(s.vendor_you_are_live, {
+          description: liveCoords
+            ? s.vendor_live_body
+            : s.vendor_live_body_short,
+        });
         if (offersHelp) {
-          void startHelpLiveTracking(
+          const trackingOk = await startHelpLiveTracking(
             {
               vendorId: vendor.id,
               vendorPhone: vendor.phone,
             },
             { requestMissingPermissions: true },
           );
+          if (!trackingOk) {
+            toast.warning(s.vendor_live_tracking_failed, {
+              description: s.vendor_live_tracking_failed_body,
+            });
+          }
         }
       } else {
         void stopHelpLiveTracking();
+        toast(s.vendor_you_are_offline, {
+          description: s.vendor_offline_body,
+        });
       }
 
-      toast(next ? s.vendor_you_are_live : s.vendor_you_are_offline, {
-        description: next
-          ? liveCoords
-            ? s.vendor_live_body
-            : s.vendor_live_body_short
-          : s.vendor_offline_body,
-      });
       if (next && !vendor.is_manual_verified) {
         toast.info(s.vendor_golive_unverified_nudge);
       }

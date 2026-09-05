@@ -38,6 +38,8 @@ import {
   showNetworkFailedToast,
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
+import { composeOrderMessageForRpc } from "@/lib/orderMessageCompose";
+import { MAX_ADDRESS_TEXT_CHARS } from "@/lib/addressLimits";
 
 /** Per-attempt budget for place RPC — hung TCP must surface as retry/failure. */
 const ORDER_PLACE_TIMEOUT_MS = 15_000;
@@ -198,6 +200,10 @@ export async function executeOrderInsert(
         ? (addresses.find((a) => a.id === selectedAddressId)?.address_text ?? "")
         : newAddress.trim()
       : null;
+    const addressForRpc =
+      finalAddress == null
+        ? null
+        : finalAddress.slice(0, MAX_ADDRESS_TEXT_CHARS);
     const locationNote =
       resolvedServiceMode === "appointment"
         ? appointmentLocation === "home"
@@ -283,7 +289,11 @@ export async function executeOrderInsert(
       }
     }
 
-    const messageForRpc = text.slice(0, maxOrderMessageChars) + locationNote;
+    const messageForRpc = composeOrderMessageForRpc(
+      text,
+      locationNote,
+      maxOrderMessageChars,
+    );
     const recurrenceKindForKey = wantsRecurring ? recurrenceKind : "one_time";
     const fingerprint = buildOrderPlacementFingerprint({
       vendorId: v.id,
@@ -293,7 +303,7 @@ export async function executeOrderInsert(
       deliverySlot: selectedSlot,
       appointmentTimestamp,
       appointmentInstant: isInstantAppointment,
-      address: finalAddress,
+      address: addressForRpc,
       itemsJson: JSON.stringify(structuredItems),
       recurrenceKind: recurrenceKindForKey,
       recurrenceCustomDays: wantsRecurring && recurrenceKind === "custom" ? recurrenceCustomDays : "",
@@ -308,7 +318,7 @@ export async function executeOrderInsert(
       p_message: messageForRpc,
       p_user_phone: phone,
       p_device_id_log: device_id,
-      p_delivery_address: finalAddress,
+      p_delivery_address: addressForRpc,
       p_delivery_slot: selectedSlot,
       p_delivery_slot_deadline:
         resolvedServiceMode === "delivery" ? getDeliverySlotDeadline(selectedSlot) : null,
@@ -385,7 +395,7 @@ export async function executeOrderInsert(
         p_device_id: getDeviceId(),
         p_user_phone: getUserPhone() ?? null,
         p_label: "",
-        p_address_text: newAddress.trim(),
+        p_address_text: newAddress.trim().slice(0, MAX_ADDRESS_TEXT_CHARS),
         p_is_default: addresses.length === 0,
       });
       if (addrError) {

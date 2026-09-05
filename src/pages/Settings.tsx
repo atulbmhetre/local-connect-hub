@@ -44,6 +44,7 @@ import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
+import { MAX_ADDRESS_TEXT_CHARS } from "@/lib/addressLimits";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useFeedNotificationsEnabled } from "@/hooks/useFeedNotificationsEnabled";
 import { FeedReachChips } from "@/components/FeedReachChips";
@@ -667,7 +668,7 @@ const Settings = () => {
   };
 
   const saveEditAddress = async () => {
-    const trimmed = editAddressValue.trim();
+    const trimmed = editAddressValue.trim().slice(0, MAX_ADDRESS_TEXT_CHARS);
     if (!trimmed || !editingAddressId) {
       toast.error(s.settings_addressEmptyError);
       return;
@@ -1021,7 +1022,10 @@ const Settings = () => {
                     <Input
                       type="text"
                       value={editAddressValue}
-                      onChange={(e) => setEditAddressValue(e.target.value)}
+                      onChange={(e) =>
+                        setEditAddressValue(e.target.value.slice(0, MAX_ADDRESS_TEXT_CHARS))
+                      }
+                      maxLength={MAX_ADDRESS_TEXT_CHARS}
                       className="bg-surface border-surface-border"
                       autoFocus
                     />

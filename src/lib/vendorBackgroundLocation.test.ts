@@ -124,7 +124,7 @@ describe("vendorBackgroundLocation sources", () => {
       vendorPhone: "9888888888",
     });
     expect(result.ok).toBe(true);
-    expect(mockInvokeNotifyUser).toHaveBeenCalledTimes(1);
+    expect(mockInvokeNotifyUser).not.toHaveBeenCalled();
     expect(getActiveTrackingSourcesForTests()).toEqual(before);
     expect(mockStart).not.toHaveBeenCalled();
   });
@@ -142,7 +142,7 @@ describe("vendorBackgroundLocation sources", () => {
       vendorId: "vendor-2",
       vendorPhone: "9777777777",
     });
-    expect(mockInvokeNotifyUser).toHaveBeenCalled();
+    expect(mockInvokeNotifyUser).not.toHaveBeenCalled();
     expect(getActiveTrackingSourcesForTests()).toEqual([]);
     expect(mockStart).not.toHaveBeenCalled();
   });
@@ -169,6 +169,15 @@ describe("vendorBackgroundLocation sources", () => {
       expect.any(Function),
     );
 
+    await stopHelpLiveTracking();
+    isNativeMock.mockReturnValue(false);
+  });
+
+  it("returns false when native BackgroundGeolocation.start fails (M7)", async () => {
+    isNativeMock.mockReturnValue(true);
+    mockStart.mockRejectedValueOnce(new Error("permission denied"));
+    const ok = await startHelpLiveTracking(ctx, { requestMissingPermissions: true });
+    expect(ok).toBe(false);
     await stopHelpLiveTracking();
     isNativeMock.mockReturnValue(false);
   });

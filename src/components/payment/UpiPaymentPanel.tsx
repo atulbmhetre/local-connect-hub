@@ -32,6 +32,7 @@ import {
 
 /** Per-attempt budget for claim RPC — hung TCP must surface as retry/failure. */
 const CLAIM_PAYMENT_TIMEOUT_MS = 15_000;
+const SCREENSHOT_UPLOAD_TIMEOUT_MS = 15_000;
 
 export interface UpiPaymentPanelProps {
   /** Prefix for DOM ids (kept distinct per surface for tests/labels). */
@@ -82,6 +83,9 @@ export function UpiPaymentPanel({
   const [showReturnPrompt, setShowReturnPrompt] = useState(false);
   const [utr, setUtr] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  /** Sync guard — disabled={submitting} alone loses a fast double-tap before re-render. */
+  const submittingLockRef = useRef(false);
+  const screenshotLockRef = useRef(false);
   const [localPaymentStatus, setLocalPaymentStatus] = useState(paymentStatus);
   const [requiresScreenshot, setRequiresScreenshot] = useState(false);
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
@@ -241,16 +245,33 @@ export function UpiPaymentPanel({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    if (screenshotLockRef.current) return;
+    screenshotLockRef.current = true;
 
     setScreenshotUploading(true);
     try {
-      const uploaded = await uploadPaymentProof(orderId, file);
+      const uploaded = await withTimedRetry(
+        async (signal) => {
+          void signal;
+          return uploadPaymentProof(orderId, file);
+        },
+        {
+          timeoutMs: SCREENSHOT_UPLOAD_TIMEOUT_MS,
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
       setScreenshotUrl(uploaded.publicUrl);
     } catch (err) {
+      dismissNetworkRetryingToast();
       captureError(err, { scope: "upiPaymentPanel.uploadScreenshot", orderId });
       toast.error(s.payment_confirm_error);
     } finally {
       setScreenshotUploading(false);
+      screenshotLockRef.current = false;
     }
   };
 
@@ -264,6 +285,8 @@ export function UpiPaymentPanel({
       toast.error(s.payment_screenshot_required);
       return;
     }
+    if (submittingLockRef.current) return;
+    submittingLockRef.current = true;
 
     setSubmitting(true);
     try {
@@ -340,6 +363,7 @@ export function UpiPaymentPanel({
       }
     } finally {
       setSubmitting(false);
+      submittingLockRef.current = false;
     }
   }, [
     orderId,

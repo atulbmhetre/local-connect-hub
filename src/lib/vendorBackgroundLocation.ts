@@ -102,19 +102,20 @@ function reconcileHelpLiveHeartbeat(): void {
 async function ensureWatcherStarted(
   ctx: VendorCtx,
   requestMissingPermissions = false,
-): Promise<void> {
+): Promise<boolean> {
   activeCtx = ctx;
   if (!Capacitor.isNativePlatform()) {
     // Web/Playwright: sources still tracked; no FGS. Go-live uses one-shot GPS separately.
-    return;
+    return true;
   }
-  if (watcherRunning) return;
+  if (watcherRunning) return true;
   if (startInFlight) {
     await startInFlight;
-    return;
+    return watcherRunning;
   }
 
   const { title, message } = trackingNotificationCopy();
+  let startedOk = false;
   startInFlight = (async () => {
     try {
       if (requestMissingPermissions) {
@@ -138,15 +139,18 @@ async function ensureWatcherStarted(
         },
       );
       watcherRunning = true;
+      startedOk = true;
     } catch (err) {
       console.error("vendorBackgroundLocation start failed:", err);
       watcherRunning = false;
+      startedOk = false;
     } finally {
       startInFlight = null;
     }
   })();
 
   await startInFlight;
+  return startedOk;
 }
 
 async function ensureWatcherStopped(): Promise<void> {
@@ -170,11 +174,12 @@ async function addSource(
   key: string,
   ctx: VendorCtx,
   requestMissingPermissions = false,
-): Promise<void> {
+): Promise<boolean> {
   sources.add(key);
   ensureVisibilityListener();
-  await ensureWatcherStarted(ctx, requestMissingPermissions);
+  const ok = await ensureWatcherStarted(ctx, requestMissingPermissions);
   reconcileHelpLiveHeartbeat();
+  return ok;
 }
 
 async function removeSource(key: string): Promise<void> {
@@ -183,12 +188,12 @@ async function removeSource(key: string): Promise<void> {
   await ensureWatcherStopped();
 }
 
-/** Case 1 — Help Go-Live continuous tracking. */
+/** Case 1 — Help Go-Live continuous tracking. Returns false if native start fails. */
 export async function startHelpLiveTracking(
   ctx: VendorCtx,
   options?: { requestMissingPermissions?: boolean },
-): Promise<void> {
-  await addSource(HELP_SOURCE, ctx, options?.requestMissingPermissions === true);
+): Promise<boolean> {
+  return addSource(HELP_SOURCE, ctx, options?.requestMissingPermissions === true);
 }
 
 export async function stopHelpLiveTracking(): Promise<void> {
