@@ -52,19 +52,19 @@ const values = {
   VITE_ENVIRONMENT: target,
   VITE_SUPABASE_URL: PROJECT_URLS[target],
   VITE_SUPABASE_ANON_KEY: anonKey,
-  VITE_OTP_ENABLED: target === 'test' ? 'true' : 'false',
 };
 
 const original = fs.readFileSync(envPath, 'utf8');
 
+// Do not rewrite VITE_OTP_ENABLED — leave whatever is already in .env.development
+// (OTP cutover is a deliberate flag flip, not an env-switch side effect).
 const KEYS = new Set([
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
   'VITE_ENVIRONMENT',
-  'VITE_OTP_ENABLED',
 ]);
 
-const updated = original
+const finalContent = original
   .split(/\r?\n/)
   .map((line) => {
     const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=/);
@@ -79,15 +79,12 @@ const updated = original
   })
   .join(original.includes('\r\n') ? '\r\n' : '\n');
 
-const otpLinePresent = /^VITE_OTP_ENABLED=/m.test(updated);
-const finalContent = otpLinePresent
-  ? updated
-  : `${updated}${updated.endsWith('\n') ? '' : '\n'}VITE_OTP_ENABLED=${values.VITE_OTP_ENABLED}\n`;
+const otpLine = original.match(/^VITE_OTP_ENABLED=(.*)$/m)?.[1] ?? '(unset — left unchanged)';
 
 console.log(`Switching env: development → ${target}`);
 console.log(`VITE_SUPABASE_URL=${values.VITE_SUPABASE_URL}`);
 console.log(`VITE_SUPABASE_ANON_KEY source: ${anonKeyEnvName}`);
-console.log(`VITE_OTP_ENABLED=${values.VITE_OTP_ENABLED}`);
+console.log(`VITE_OTP_ENABLED left as-is: ${otpLine}`);
 
 fs.writeFileSync(envPath, finalContent, 'utf8');
 
