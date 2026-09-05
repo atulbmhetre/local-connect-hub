@@ -3,11 +3,10 @@ import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { Camera, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase, invokeNotifyVendor } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
-import { strings, type Language } from "@/lib/strings";
 import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 import { isValidPaymentUtr } from "@/lib/validation";
@@ -18,6 +17,17 @@ import {
   paymentQrUrlChanged,
   type BilledPaymentDestination,
 } from "@/lib/paymentDestinationChanged";
+import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
+import {
+  NetworkExhaustedError,
+  throwOnSupabaseNetworkError,
+  withNetworkRetry,
+} from "@/lib/withNetworkRetry";
+import {
+  dismissNetworkRetryingToast,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+} from "@/lib/networkToast";
 
 export interface UpiPaymentPanelProps {
   /** Prefix for DOM ids (kept distinct per surface for tests/labels). */
@@ -53,7 +63,7 @@ export function UpiPaymentPanel({
   orderId,
   paymentStatus,
   amountRupees,
-  vendorId,
+  vendorId: _vendorId,
   shopName,
   upiId,
   vendorPhone,
@@ -252,65 +262,89 @@ export function UpiPaymentPanel({
     }
 
     setSubmitting(true);
-    const { error } = await supabase.rpc("claim_customer_payment", {
-      p_request_id: orderId,
-      p_payment_utr: trimmed,
-      p_device_id: getDeviceId(),
-      p_user_phone: getUserPhone(),
-      p_payment_screenshot_url: screenshotUrl,
-    });
-    if (error) {
-      captureError(error, { scope: "upiPaymentPanel.claimCustomerPayment", orderId });
-      const errMsg = error.message ?? "";
-      if (errMsg.includes("payment_self_declare_restricted")) {
-        const { data: blockData } = await supabase.rpc("get_customer_payment_block_status", {
-          p_device_id: getDeviceId(),
-          p_user_phone: getUserPhone(),
-        });
-        const blockRow = blockData?.[0] as { is_blocked?: boolean; request_id?: string | null } | undefined;
-        if (blockRow?.is_blocked && blockRow.request_id === orderId) {
-          toast.error(s.payment_restricted_blocking_bill_resolve(shopName));
-          setSubmitting(false);
-          return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("claim_customer_payment", {
+              p_request_id: orderId,
+              p_payment_utr: trimmed,
+              p_device_id: getDeviceId(),
+              p_user_phone: getUserPhone(),
+              p_payment_screenshot_url: screenshotUrl,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        captureError(error, { scope: "upiPaymentPanel.claimCustomerPayment", orderId });
+        const errMsg = error.message ?? "";
+        if (errMsg.includes("payment_self_declare_restricted")) {
+          try {
+            const { data: blockData, error: blockErr } = await supabase.rpc(
+              "get_customer_payment_block_status",
+              {
+                p_device_id: getDeviceId(),
+                p_user_phone: getUserPhone(),
+              },
+            );
+            if (blockErr) {
+              captureError(blockErr, {
+                scope: "upiPaymentPanel.paymentBlockStatus",
+                orderId,
+              });
+            } else {
+              const blockRow = blockData?.[0] as
+                | { is_blocked?: boolean; request_id?: string | null }
+                | undefined;
+              if (blockRow?.is_blocked && blockRow.request_id === orderId) {
+                toast.error(s.payment_restricted_blocking_bill_resolve(shopName));
+                return;
+              }
+            }
+          } catch (blockLookupErr) {
+            captureError(blockLookupErr, {
+              scope: "upiPaymentPanel.paymentBlockStatus",
+              orderId,
+            });
+          }
         }
+        toast.error(s.payment_confirm_error);
+        return;
       }
-      toast.error(s.payment_confirm_error);
+      setLocalPaymentStatus("claimed");
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void handleSubmitUtr(), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        captureError(err, { scope: "upiPaymentPanel.claimCustomerPayment", orderId });
+        toast.error(s.payment_confirm_error);
+      }
+    } finally {
       setSubmitting(false);
-      return;
     }
-    void (async () => {
-      let vendorLang: Language = "en";
-      const { data: langData, error: langError } = await supabase.rpc("resolve_user_lang", {
-        p_user_phone: vendorPhone,
-      });
-      if (langError) {
-        captureError(langError, { scope: "upiPaymentPanel.resolveVendorLang", orderId });
-      } else if (langData === "hi" || langData === "mr") {
-        vendorLang = langData;
-      }
-      const vendorStrings = strings[vendorLang];
-      void invokeNotifyVendor({
-        vendor_id: vendorId,
-        notification_title: vendorStrings.notifyVendor_paymentClaimed_title,
-        message: vendorStrings.notifyVendor_paymentClaimed_body(amountLabel, trimmed),
-        type: "payment_claimed",
-        request_id: orderId,
-      });
-    })();
-    setLocalPaymentStatus("claimed");
-    setSubmitting(false);
   }, [
-    amountLabel,
     orderId,
     requiresScreenshot,
     screenshotUrl,
+    s.network_failed,
+    s.network_retry_btn,
+    s.network_retrying,
     s.payment_confirm_error,
     s.payment_restricted_blocking_bill_resolve,
     s.payment_screenshot_required,
     s.payment_utr_invalid,
     utr,
-    vendorId,
-    vendorPhone,
     shopName,
   ]);
 

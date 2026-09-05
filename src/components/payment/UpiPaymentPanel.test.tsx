@@ -3,12 +3,24 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { UpiPaymentPanel } from "@/components/payment/UpiPaymentPanel";
 import { strings } from "@/lib/strings";
 import { MIN_PAYMENT_AWAY_MS } from "@/lib/paymentResume";
+import * as withNetworkRetryMod from "@/lib/withNetworkRetry";
 
-const { mockRpc, mockFrom, mockInvokeNotifyVendor, captureError } = vi.hoisted(() => ({
+const {
+  mockRpc,
+  mockFrom,
+  mockInvokeNotifyVendor,
+  captureError,
+  showNetworkFailedToast,
+  showNetworkRetryingToast,
+  toastError,
+} = vi.hoisted(() => ({
   mockRpc: vi.fn(),
   mockFrom: vi.fn(),
   mockInvokeNotifyVendor: vi.fn(),
   captureError: vi.fn(),
+  showNetworkFailedToast: vi.fn(),
+  showNetworkRetryingToast: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@/lib/sentry", () => ({ captureError }));
@@ -32,6 +44,40 @@ vi.mock("@capacitor/core", () => ({
 vi.mock("@capacitor/app", () => ({
   App: { addListener: vi.fn() },
 }));
+
+vi.mock("@/lib/networkToast", () => ({
+  showNetworkRetryingToast,
+  showNetworkFailedToast,
+  dismissNetworkRetryingToast: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: toastError,
+    success: vi.fn(),
+    loading: vi.fn(),
+    dismiss: vi.fn(),
+    warning: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/withNetworkRetry", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/withNetworkRetry")>();
+  return {
+    ...actual,
+    withNetworkRetry: vi.fn(
+      async (
+        fn: () => Promise<unknown>,
+        opts?: Parameters<typeof actual.withNetworkRetry>[1],
+      ) =>
+        actual.withNetworkRetry(fn, {
+          ...opts,
+          maxAttempts: 3,
+          baseDelayMs: 1,
+        }),
+    ),
+  };
+});
 
 const UTR = "123456789012";
 
@@ -131,7 +177,7 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
     );
   });
 
-  it("resolves the VENDOR's own language for the notification, not the customer's", async () => {
+  it("claims payment without client invokeNotifyVendor", async () => {
     mockRpc.mockImplementation(async (name: string) => {
       if (name === "get_payment_claim_requirements") {
         return {
@@ -140,7 +186,6 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
         };
       }
       if (name === "claim_customer_payment") return { data: null, error: null };
-      if (name === "resolve_user_lang") return { data: "hi", error: null };
       return { data: null, error: null };
     });
 
@@ -148,56 +193,16 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
     await payAndSubmitUtr();
 
     await waitFor(() => {
-      expect(mockInvokeNotifyVendor).toHaveBeenCalledTimes(1);
+      expect(mockRpc).toHaveBeenCalledWith(
+        "claim_customer_payment",
+        expect.objectContaining({
+          p_request_id: "req-1",
+          p_payment_utr: UTR,
+        }),
+      );
     });
-
-    expect(mockRpc).toHaveBeenCalledWith("resolve_user_lang", {
-      p_user_phone: "9000000000",
-    });
-    expect(mockInvokeNotifyVendor).toHaveBeenCalledWith({
-      vendor_id: "vendor-1",
-      notification_title: strings.hi.notifyVendor_paymentClaimed_title,
-      message: strings.hi.notifyVendor_paymentClaimed_body("250.00", UTR),
-      type: "payment_claimed",
-      request_id: "req-1",
-    });
-    const sentTitle = mockInvokeNotifyVendor.mock.calls[0][0].notification_title;
-    expect(sentTitle).not.toBe(strings.en.payment_pay_now);
-  });
-
-  it("falls back to English copy and captures the error when the vendor language lookup fails", async () => {
-    mockRpc.mockImplementation(async (name: string) => {
-      if (name === "get_payment_claim_requirements") {
-        return {
-          data: { requires_screenshot: false, is_anomalous: false },
-          error: null,
-        };
-      }
-      if (name === "claim_customer_payment") return { data: null, error: null };
-      if (name === "resolve_user_lang") {
-        return { data: null, error: { message: "lang lookup failed" } };
-      }
-      return { data: null, error: null };
-    });
-
-    renderPanel();
-    await payAndSubmitUtr();
-
-    await waitFor(() => {
-      expect(mockInvokeNotifyVendor).toHaveBeenCalledTimes(1);
-    });
-
-    expect(captureError).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ scope: "upiPaymentPanel.resolveVendorLang", orderId: "req-1" }),
-    );
-    expect(mockInvokeNotifyVendor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        notification_title: strings.en.notifyVendor_paymentClaimed_title,
-        message: strings.en.notifyVendor_paymentClaimed_body("250.00", UTR),
-        type: "payment_claimed",
-      }),
-    );
+    expect(mockInvokeNotifyVendor).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalledWith("resolve_user_lang", expect.anything());
   });
 
   it("does not show the resume prompt if the customer returns before the minimum away duration", async () => {
@@ -247,6 +252,93 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
         p_user_phone: "9876543210",
       });
     });
+    await waitFor(() => {
+      expect(screen.getByText(strings.en.payment_submit_utr)).not.toBeDisabled();
+    });
+  });
+
+  it("retries claim_customer_payment on network blip then succeeds (submit not stuck)", async () => {
+    let claimAttempts = 0;
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === "get_payment_claim_requirements") {
+        return {
+          data: { requires_screenshot: false, is_anomalous: false },
+          error: null,
+        };
+      }
+      if (name === "claim_customer_payment") {
+        claimAttempts += 1;
+        if (claimAttempts === 1) {
+          return { data: null, error: { message: "Failed to fetch" } };
+        }
+        return { data: null, error: null };
+      }
+      return { data: null, error: null };
+    });
+
+    renderPanel();
+    await payAndSubmitUtr();
+
+    await waitFor(() => {
+      expect(claimAttempts).toBeGreaterThanOrEqual(2);
+    });
+    await waitFor(() => {
+      expect(screen.getByText(strings.en.payment_claimed)).toBeInTheDocument();
+    });
+    expect(showNetworkRetryingToast).toHaveBeenCalled();
+    expect(showNetworkFailedToast).not.toHaveBeenCalled();
+    expect(withNetworkRetryMod.withNetworkRetry).toHaveBeenCalled();
+  });
+
+  it("shows network failed toast and re-enables submit after retries exhaust", async () => {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === "get_payment_claim_requirements") {
+        return {
+          data: { requires_screenshot: false, is_anomalous: false },
+          error: null,
+        };
+      }
+      if (name === "claim_customer_payment") {
+        return { data: null, error: { message: "Failed to fetch" } };
+      }
+      return { data: null, error: null };
+    });
+
+    renderPanel();
+    await payAndSubmitUtr();
+
+    await waitFor(() => {
+      expect(showNetworkFailedToast).toHaveBeenCalled();
+    });
+    expect(screen.getByText(strings.en.payment_submit_utr)).not.toBeDisabled();
+    expect(toastError).not.toHaveBeenCalledWith(strings.en.payment_confirm_error);
+  });
+
+  it("resets submit state when payment block status lookup throws", async () => {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === "get_payment_claim_requirements") {
+        return {
+          data: { requires_screenshot: false, is_anomalous: false },
+          error: null,
+        };
+      }
+      if (name === "claim_customer_payment") {
+        return { data: null, error: { message: "payment_self_declare_restricted" } };
+      }
+      if (name === "get_customer_payment_block_status") {
+        throw new Error("block status blew up");
+      }
+      return { data: null, error: null };
+    });
+
+    renderPanel();
+    await payAndSubmitUtr();
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(strings.en.payment_confirm_error);
+    });
+    expect(screen.getByText(strings.en.payment_submit_utr)).not.toBeDisabled();
+    expect(captureError).toHaveBeenCalled();
   });
 
   it("shows one notice when live Pay destinations differ from the bill freeze", async () => {

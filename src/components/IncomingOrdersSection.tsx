@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { supabase, invokecalculateTrustScore, invokeNotifyUser, useCategoryLabel } from "@/lib/supabase";
+import { supabase, invokecalculateTrustScore, useCategoryLabel } from "@/lib/supabase";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -306,7 +306,6 @@ export function IncomingOrdersSection({
   >("help");
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [declineOrderId, setDeclineOrderId] = useState<string | null>(null);
-  const [declineUserPhone, setDeclineUserPhone] = useState<string | null>(null);
   const [categoryReasonsById, setCategoryReasonsById] = useState<Map<string, string[]>>(
     () => new Map(),
   );
@@ -663,25 +662,51 @@ export function IncomingOrdersSection({
     setMarkingBillPaidId(billId);
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
+      setMarkingBillPaidId(null);
       toast.error(s.incoming_errCouldNotUpdate);
       return;
     }
-    const { error } = await supabase.rpc("vendor_mark_bill_paid", {
-      p_bill_id: billId,
-      p_vendor_id: vendorId,
-      p_vendor_phone: vendorPhone,
-    });
-    setMarkingBillPaidId(null);
-    if (error) {
-      toast.error(error.message);
-      return;
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_mark_bill_paid", {
+              p_bill_id: billId,
+              p_vendor_id: vendorId,
+              p_vendor_phone: vendorPhone,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      toast.success(s.bill_marked_paid);
+      setBillsByRequestId((prev) => {
+        const bill = prev[requestId];
+        if (!bill || bill.id !== billId) return prev;
+        return { ...prev, [requestId]: { ...bill, payment_status: "paid" } };
+      });
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void markOrderBillPaid(billId, requestId), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setMarkingBillPaidId(null);
     }
-    toast.success(s.bill_marked_paid);
-    setBillsByRequestId((prev) => {
-      const bill = prev[requestId];
-      if (!bill || bill.id !== billId) return prev;
-      return { ...prev, [requestId]: { ...bill, payment_status: "paid" } };
-    });
   };
 
   const remindCustomerAboutBill = async (billId: string, requestId: string) => {
@@ -1144,7 +1169,6 @@ export function IncomingOrdersSection({
     setMarkingId(id);
     addBreadcrumb("order_accept.start", { request_id: id, acceptKind: "help" });
 
-    const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
       rowActionLockRef.current.delete(id);
@@ -1180,18 +1204,6 @@ export function IncomingOrdersSection({
         setRows((prev) => prev.filter((r) => r.id !== id));
         return;
       }
-      if (userPhone) {
-        void invokeNotifyUser(
-          {
-            user_phone: userPhone,
-            title: s.incoming_helpAcceptedNotifyTitle,
-            body: s.incoming_helpAcceptedNotifyBody,
-            type: "order_accepted",
-            order_id: id,
-          },
-          { source: "order_accept", request_id: id },
-        );
-      }
       // Help acceptance does not start order-scoped tracking (case 1 = Go-Live).
       setRows((prev) => {
         const next = prev.map((r) => (r.id === id ? { ...r, status: "accepted" } : r));
@@ -1214,7 +1226,7 @@ export function IncomingOrdersSection({
     }
   };
 
-  const acceptDeliveryOrder = async (id: string, userPhone: string | null) => {
+  const acceptDeliveryOrder = async (id: string, _userPhone: string | null) => {
     void clearOrderEditedFlag(id);
     if (rowActionLockRef.current.has(id)) return;
     rowActionLockRef.current.add(id);
@@ -1267,24 +1279,11 @@ export function IncomingOrdersSection({
           vendorPhone: vPhone,
         });
       }
-      const phone = userPhone?.trim();
-      if (phone) {
-        void invokeNotifyUser(
-          {
-            user_phone: phone,
-            title: s.incoming_orderAcceptedTitle,
-            body: s.incoming_orderAcceptedBody,
-            type: "order_update",
-            order_id: id,
-          },
-          { source: "order_accept", request_id: id },
-        );
-      }
       void load({ silent: true });
     } catch (err) {
       dismissNetworkRetryingToast();
       if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void acceptDeliveryOrder(id, userPhone), {
+        showNetworkFailedToast(() => void acceptDeliveryOrder(id, _userPhone), {
           failed: s.network_failed,
           retryBtn: s.network_retry_btn,
         });
@@ -1300,7 +1299,6 @@ export function IncomingOrdersSection({
   // One-tap without a confirmation dialog is a deliberate product decision
   // (the next action is obvious to the vendor) — do not add friction here.
   const markDone = async (id: string) => {
-    const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
       toast.error(s.incoming_errCouldNotUpdate);
@@ -1336,15 +1334,6 @@ export function IncomingOrdersSection({
       if (serviceMode === "delivery") {
         void supabase.rpc("recalculate_vendor_on_time_rate", { p_vendor_id: vendorId });
       }
-      if (userPhone) {
-        void invokeNotifyUser({
-          user_phone: userPhone,
-          title: s.incoming_orderFulfilledNotifyTitle,
-          body: s.incoming_orderFulfilledNotifyBody,
-          type: "order_update",
-          order_id: id,
-        });
-      }
       void stopOrderTracking(id);
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "fulfilled" } : r)));
     } catch (err) {
@@ -1366,9 +1355,9 @@ export function IncomingOrdersSection({
   // (the next action is obvious to the vendor) — do not add friction here.
   const confirmPayment = async (
     requestId: string,
-    userPhone: string,
+    _userPhone: string,
     utr: string | null,
-    billAmount: number | null,
+    _billAmount: number | null,
   ) => {
     setConfirmingPaymentId(requestId);
     const vendorPhone = getUserPhone()?.trim();
@@ -1380,38 +1369,49 @@ export function IncomingOrdersSection({
     // p_device_id blocks same-device customer self-confirm only. It is not a
     // vendor-session proof: a caller who knows the vendor phone and uses a
     // different device_id than the order still succeeds.
-    const { error } = await supabase.rpc("confirm_upi_payment", {
-      p_request_id: requestId,
-      p_vendor_phone: vendorPhone,
-      p_device_id: getDeviceId(),
-    });
-    setConfirmingPaymentId(null);
-    if (error) {
-      captureError(error, { scope: "incomingOrders.confirmPayment", requestId });
-      toast.error(s.payment_confirm_error);
-      return;
-    }
-    toast.success(s.payment_confirm_success);
-    setRows((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, payment_status: "confirmed" } : r)),
-    );
-    if (userPhone) {
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title: s.payment_confirmed_notify_title,
-        body: s.payment_confirmed_notify_body.replace(
-          "{amount}",
-          billAmount ? billAmount.toFixed(2) : "",
-        ),
-        type: "payment_confirmed",
-        order_id: requestId,
-        route: "my-orders",
-        route_params: { order_id: requestId },
-      });
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("confirm_upi_payment", {
+              p_request_id: requestId,
+              p_vendor_phone: vendorPhone,
+              p_device_id: getDeviceId(),
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        captureError(error, { scope: "incomingOrders.confirmPayment", requestId });
+        toast.error(s.payment_confirm_error);
+        return;
+      }
+      toast.success(s.payment_confirm_success);
+      setRows((prev) =>
+        prev.map((r) => (r.id === requestId ? { ...r, payment_status: "confirmed" } : r)),
+      );
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void confirmPayment(requestId, _userPhone, utr, _billAmount), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setConfirmingPaymentId(null);
     }
   };
 
-  const disputePayment = async (requestId: string, userPhone: string) => {
+  const disputePayment = async (requestId: string, _userPhone: string) => {
     setDisputingPaymentId(requestId);
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
@@ -1421,31 +1421,45 @@ export function IncomingOrdersSection({
     }
     // Same limitation as confirm_upi_payment: same-device self-dispute only,
     // not a complete anti-spoof of vendor phone.
-    const { error } = await supabase.rpc("dispute_upi_payment", {
-      p_request_id: requestId,
-      p_vendor_phone: vendorPhone,
-      p_device_id: getDeviceId(),
-    });
-    setDisputingPaymentId(null);
-    if (error) {
-      captureError(error, { scope: "incomingOrders.disputePayment", requestId });
-      toast.error(s.payment_dispute_error);
-      return;
-    }
-    toast.success(s.payment_dispute_success);
-    setRows((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, payment_status: "disputed" } : r)),
-    );
-    if (userPhone) {
-      void invokeNotifyUser({
-        user_phone: userPhone,
-        title: s.payment_disputed_notify_title,
-        body: s.payment_disputed_notify_body,
-        type: "payment_disputed",
-        order_id: requestId,
-        route: "my-orders",
-        route_params: { order_id: requestId },
-      });
+    try {
+      const { error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("dispute_upi_payment", {
+              p_request_id: requestId,
+              p_vendor_phone: vendorPhone,
+              p_device_id: getDeviceId(),
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) {
+        captureError(error, { scope: "incomingOrders.disputePayment", requestId });
+        toast.error(s.payment_dispute_error);
+        return;
+      }
+      toast.success(s.payment_dispute_success);
+      setRows((prev) =>
+        prev.map((r) => (r.id === requestId ? { ...r, payment_status: "disputed" } : r)),
+      );
+    } catch (err) {
+      dismissNetworkRetryingToast();
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void disputePayment(requestId, _userPhone), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+      } else {
+        throw err;
+      }
+    } finally {
+      setDisputingPaymentId(null);
     }
   };
 
@@ -1510,7 +1524,6 @@ export function IncomingOrdersSection({
     rowActionLockRef.current.add(id);
     setMarkingId(id);
 
-    const userPhone = rows.find((r) => r.id === id)?.user_phone?.trim() || "";
     const vendorPhone = getUserPhone()?.trim();
     if (!vendorPhone) {
       rowActionLockRef.current.delete(id);
@@ -1551,15 +1564,6 @@ export function IncomingOrdersSection({
         }
         toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
         return;
-      }
-      if (userPhone) {
-        void invokeNotifyUser({
-          user_phone: userPhone,
-          title: s.incoming_bookingConfirmedNotifyTitle,
-          body: s.incoming_bookingConfirmedNotifyBody,
-          type: "order_update",
-          order_id: id,
-        });
       }
       const confirmedRow = rows.find((r) => r.id === id);
       if (
@@ -1621,7 +1625,6 @@ export function IncomingOrdersSection({
 
   const closeDeclineSheet = () => {
     setDeclineOrderId(null);
-    setDeclineUserPhone(null);
     setSelectedReason(null);
     setOtherReasonText("");
   };
@@ -1659,11 +1662,6 @@ export function IncomingOrdersSection({
     const reasonText =
       selectedReason === "Other" ? otherReasonText.trim() : selectedReason;
     if (!reasonText) return;
-
-    const userPhone =
-      declineUserPhone?.trim() ||
-      rows.find((r) => r.id === declineOrderId)?.user_phone?.trim() ||
-      "";
 
     rowActionLockRef.current.add(declineOrderId);
     setDeclining(true);
@@ -1711,17 +1709,6 @@ export function IncomingOrdersSection({
         }
         toast.error(s.incoming_errCouldNotUpdateAppt, { description: error.message });
         return;
-      }
-      if (userPhone) {
-        const title = s.incoming_bookingDeclinedNotifyTitle;
-        const body = s.incoming_bookingDeclinedNotifyBody(reasonText);
-        void invokeNotifyUser({
-          user_phone: userPhone,
-          title,
-          body,
-          type: "order_update",
-          order_id: declineOrderId,
-        });
       }
       setRows((prev) =>
         prev.map((r) =>
@@ -1938,18 +1925,6 @@ export function IncomingOrdersSection({
         return;
       }
       void stopOrderTracking(cancelOrderId);
-      const userPhone = rows.find((r) => r.id === cancelOrderId)?.user_phone?.trim();
-      if (userPhone) {
-        const title = s.incoming_orderCancelledNotifyTitle;
-        const body = s.incoming_orderCancelledNotifyBody(reasonText);
-        void invokeNotifyUser({
-          user_phone: userPhone,
-          title,
-          body,
-          type: "order_update",
-          order_id: cancelOrderId,
-        });
-      }
       toast.success(s.orderCancelled);
       setRows((prev) =>
         prev.map((r) =>
@@ -2315,7 +2290,6 @@ export function IncomingOrdersSection({
                     disabled={markingId === r.id}
                     onClick={() => {
                       setDeclineOrderId(r.id);
-                      setDeclineUserPhone(r.user_phone?.trim() || null);
                       setSelectedReason(null);
                       setOtherReasonText("");
                     }}
