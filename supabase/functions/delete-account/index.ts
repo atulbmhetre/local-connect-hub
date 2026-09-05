@@ -275,6 +275,15 @@ serve(async (req) => {
         return jsonResponse({ error: "account_not_found" }, 404);
       }
 
+      const { error: finalizeError } = await supabase.rpc(
+        "finalize_customer_deletion_request",
+        { p_phone: phone },
+      );
+      if (finalizeError) {
+        console.error("delete-account finalize customer deletion failed", finalizeError);
+        return jsonResponse({ error: finalizeError.message }, 500);
+      }
+
       const { error: rpcError } = await supabase.rpc("anonymise_deleted_accounts");
 
       if (rpcError) {
@@ -319,6 +328,15 @@ serve(async (req) => {
     }
 
     if ((updatedUsers?.length ?? 0) > 0) {
+      const { error: finalizeError } = await supabase.rpc(
+        "finalize_customer_deletion_request",
+        { p_phone: phone },
+      );
+      if (finalizeError) {
+        console.error("delete-account finalize customer deletion failed", finalizeError);
+        return jsonResponse({ error: finalizeError.message }, 500);
+      }
+
       const { error: rpcError } = await supabase.rpc("anonymise_deleted_accounts");
       if (rpcError) {
         console.error("delete-account vendor dual-role anonymise failed", rpcError);

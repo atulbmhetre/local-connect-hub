@@ -352,8 +352,12 @@ export async function executeOrderInsert(
         toast.error(s.parchi_errBelowMinDelivery);
       } else if (msg.includes("customer_banned")) {
         setTrustBlock("banned");
+      } else if (msg.includes("customer_deletion_scheduled")) {
+        toast.error(s.parchi_errCustomerDeletionScheduled);
       } else if (msg.includes("customer_payment_block")) {
         void fetchPaymentBlockStatus(phone, getDeviceId());
+      } else if (msg.includes("vendor_deletion_scheduled")) {
+        toast.error(s.parchi_errVendorDeletionScheduled);
       } else if (msg.includes("vendor_banned") || msg.includes("vendor_not_discoverable")) {
         toast.error(s.parchi_errCouldNotSend, { description: error.message });
       } else {

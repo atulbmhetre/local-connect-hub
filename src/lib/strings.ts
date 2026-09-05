@@ -1399,7 +1399,7 @@ export const strings = {
     delete_account_confirm_body:
       'This will delete your shop. Your data cannot be recovered, and you will not be able to register a new shop with this same phone number for 30 days.',
     delete_account_confirm_body_customer:
-      'This will schedule deletion of your account in 30 days. You can cancel from Settings on any device linked to this phone.',
+      'This schedules deletion in 30 days. New orders will be blocked immediately, and all your open orders will be cancelled now (vendors will be notified). If you have an outstanding Khata balance, those vendors will also be notified. You can cancel deletion from Settings on any device linked to this phone.',
     delete_account_confirm_action: 'Yes, Delete',
     delete_account_scheduled:
       'Account deletion scheduled. Your account and data will be deleted on {date}.',
@@ -1409,7 +1409,7 @@ export const strings = {
     delete_account_success_dual_role: 'Deletion scheduled',
     delete_account_cancelled: 'Deletion cancelled',
     deletion_dualRoleNotice:
-      'Your customer account and vendor shop will both be scheduled for deletion in 30 days. You can cancel from Settings on any device linked to this phone. You will not be able to register a new shop with this same phone number for 30 days.',
+      'Your customer account and vendor shop will both be scheduled for deletion in 30 days. As a customer: new orders stop immediately and open orders are cancelled now (vendors notified; Khata balances also trigger a separate vendor notice). As a vendor: you stay off discovery for new bookings but can still finish existing jobs. You can cancel from Settings. You will not be able to register a new shop with this same phone number for 30 days.',
     settings_verifyVendor: 'Verify Vendor',
     settings_check1: 'Called vendor on registered phone — person picked up',
     settings_check2: 'Name matches what they said on call',
@@ -1499,6 +1499,10 @@ export const strings = {
     parchi_locationCaptured: '📍 Location captured',
     maps_openInMaps: 'Open in Maps',
     parchi_errCouldNotSend: 'Could not send order',
+    parchi_errCustomerDeletionScheduled:
+      'Your account is scheduled for deletion. New orders are blocked. Cancel deletion in Settings to order again.',
+    parchi_errVendorDeletionScheduled:
+      'This shop is scheduled for deletion and is not taking new orders.',
     parchi_payment_block_body: (shop: string, amount: number) =>
       `You have an unpaid bill of ₹${Math.round(amount)} from ${shop}. Pay or tap "I've Paid" in My Orders before placing a new order.`,
     parchi_payment_block_my_orders: 'Go to My Orders',
@@ -3347,7 +3351,7 @@ export const strings = {
     delete_account_confirm_body:
       'इससे आपकी दुकान हट जाएगी। आपका डेटा वापस नहीं मिलेगा, और 30 दिनों तक इसी नंबर से नई दुकान पंजीकृत नहीं कर सकेंगे।',
     delete_account_confirm_body_customer:
-      'इससे आपका खाता 30 दिनों में हटने के लिए शेड्यूल होगा। किसी भी लिंक किए गए डिवाइस की Settings से रद्द कर सकते हैं।',
+      'खाता 30 दिनों में हटने के लिए शेड्यूल होगा। नए ऑर्डर तुरंत बंद हो जाएंगे और आपके सभी खुले ऑर्डर अभी रद्द होंगे (दुकानदारों को सूचना मिलेगी)। यदि ख़ाता बकाया है तो उन दुकानदारों को अलग सूचना भी जाएगी। किसी भी लिंक किए गए डिवाइस की Settings से रद्द कर सकते हैं।',
     delete_account_confirm_action: 'हां, हटाएं',
     delete_account_scheduled:
       'Account deletion scheduled. Your account and data will be deleted on {date}.',
@@ -3357,7 +3361,7 @@ export const strings = {
     delete_account_success_dual_role: 'Deletion scheduled',
     delete_account_cancelled: 'Deletion cancelled',
     deletion_dualRoleNotice:
-      'आपका ग्राहक खाता और दुकान दोनों 30 दिनों में हटने के लिए शेड्यूल होंगे। किसी भी लिंक किए गए डिवाइस की Settings से रद्द कर सकते हैं। 30 दिनों तक इसी नंबर से नई दुकान पंजीकृत नहीं कर सकेंगे।',
+      'आपका ग्राहक खाता और दुकान दोनों 30 दिनों में हटने के लिए शेड्यूल होंगे। ग्राहक के रूप में: नए ऑर्डर तुरंत बंद, खुले ऑर्डर अभी रद्द (सूचना + ख़ाता बकाया की अलग सूचना)। दुकानदार के रूप में: नई बुकिंग नहीं दिखेगी, मौजूदा ऑर्डर पूरे कर सकते हैं। Settings से रद्द कर सकते हैं। 30 दिनों तक इसी नंबर से नई दुकान नहीं।',
     settings_verifyVendor: 'दुकानदार सत्यापित करें',
     settings_check1: 'पंजीकृत फोन पर कॉल किया — व्यक्ति ने उठाया',
     settings_check2: 'नाम कॉल में बताए नाम से मेल खाता है',
@@ -3447,6 +3451,10 @@ export const strings = {
     parchi_locationCaptured: '📍 Location captured',
     maps_openInMaps: 'मैप में खोलें',
     parchi_errCouldNotSend: 'ऑर्डर नहीं भेजा जा सका',
+    parchi_errCustomerDeletionScheduled:
+      'आपका खाता हटाने के लिए शेड्यूल है। नए ऑर्डर बंद हैं। दोबारा ऑर्डर के लिए Settings से हटाना रद्द करें।',
+    parchi_errVendorDeletionScheduled:
+      'यह दुकान हटाने के लिए शेड्यूल है और नए ऑर्डर नहीं ले रही।',
     parchi_payment_block_body: (shop: string, amount: number) =>
       `${shop} का ₹${Math.round(amount)} का बिल बकाया है। नया ऑर्डर करने से पहले मेरे ऑर्डर में भुगतान करें या "I've Paid" दबाएँ।`,
     parchi_payment_block_my_orders: 'मेरे ऑर्डर पर जाएँ',
@@ -5294,7 +5302,7 @@ export const strings = {
     delete_account_confirm_body:
       'यामुळे तुमचे दुकान हटवले जाईल. तुमचा डेटा परत मिळणार नाही, आणि या त्याच नंबरने 30 दिवसांसाठी नवीन दुकान नोंदणी करू शकणार नाही.',
     delete_account_confirm_body_customer:
-      'यामुळे तुमचे खाते ३० दिवसांत हटवण्यासाठी शेड्यूल होईल. लिंक केलेल्या कोणत्याही डिव्हाइसच्या Settings मधून रद्द करता येईल.',
+      'खाते ३० दिवसांत हटवण्यासाठी शेड्यूल होईल. नवीन ऑर्डर ताबडतोब बंद होतील आणि तुमचे सर्व खुले ऑर्डर आता रद्द होतील (विक्रेत्यांना सूचना मिळेल). ख़ाता बाकी असल्यास त्या विक्रेत्यांना वेगळी सूचनाही जाईल. लिंक केलेल्या कोणत्याही डिव्हाइसच्या Settings मधून रद्द करता येईल.',
     delete_account_confirm_action: 'हो, हटवा',
     delete_account_scheduled:
       'Account deletion scheduled. Your account and data will be deleted on {date}.',
@@ -5304,7 +5312,7 @@ export const strings = {
     delete_account_success_dual_role: 'Deletion scheduled',
     delete_account_cancelled: 'Deletion cancelled',
     deletion_dualRoleNotice:
-      'तुमचे ग्राहक खाते आणि दुकान दोन्ही ३० दिवसांत हटवण्यासाठी शेड्यूल होतील. लिंक केलेल्या कोणत्याही डिव्हाइसच्या Settings मधून रद्द करता येईल. या त्याच नंबरने ३० दिवसांसाठी नवीन दुकान नोंदणी करू शकणार नाही.',
+      'तुमचे ग्राहक खाते आणि दुकान दोन्ही ३० दिवसांत हटवण्यासाठी शेड्यूल होतील. ग्राहक म्हणून: नवीन ऑर्डर बंद, खुले ऑर्डर आता रद्द (सूचना + ख़ाता बाकीची वेगळी सूचना). विक्रेता म्हणून: नवीन बुकिंग दिसणार नाहीत, विद्यमान ऑर्डर पूर्ण करता येतील. Settings मधून रद्द करता येईल. या नंबरने ३० दिवसांसाठी नवीन दुकान नोंदणी नाही.',
     settings_verifyVendor: 'विक्रेता सत्यापित करा',
     settings_check1: 'नोंदणीकृत फोनवर कॉल केला — व्यक्तीने उचलला',
     settings_check2: 'नाव कॉलमध्ये सांगितलेल्या नावाशी जुळते',
@@ -5394,6 +5402,10 @@ export const strings = {
     parchi_locationCaptured: '📍 Location captured',
     maps_openInMaps: 'नकाशात उघडा',
     parchi_errCouldNotSend: 'ऑर्डर पाठवता आला नाही',
+    parchi_errCustomerDeletionScheduled:
+      'तुमचे खाते हटवण्यासाठी शेड्यूल आहे. नवीन ऑर्डर बंद आहेत. पुन्हा ऑर्डरसाठी Settings मधून हटवणे रद्द करा.',
+    parchi_errVendorDeletionScheduled:
+      'हे दुकान हटवण्यासाठी शेड्यूल आहे आणि नवीन ऑर्डर घेत नाही.',
     parchi_payment_block_body: (shop: string, amount: number) =>
       `${shop} चा ₹${Math.round(amount)} थकबाकी बिल आहे. नवीन ऑर्डर करण्यापूर्वी माझे ऑर्डरमध्ये पैसे द्या किंवा "I've Paid" दाबा.`,
     parchi_payment_block_my_orders: 'माझे ऑर्डर उघडा',

@@ -131,7 +131,7 @@ test("RAD-DEL-01 — scheduled-deletion vendor excluded from radar and new booki
     },
   );
   expect(newOrderId).toBeFalsy();
-  expect(bookErr?.message ?? "").toContain("vendor_not_discoverable");
+  expect(bookErr?.message ?? "").toContain("vendor_deletion_scheduled");
 
   const { data: history, error: histErr } = await supabase.rpc(
     "get_vendors_visible_to_customer",
