@@ -3,6 +3,11 @@
  * Case 4/5 must never start GPS tracking — enforced here and in callers.
  */
 
+import {
+  DELIVERY_ASAP_OFFSET_MS,
+  INSTANT_ORDER_DETECT_TOLERANCE_MS,
+} from "@/lib/deliverySlotDeadline";
+
 export type TrackingServiceMode = "help" | "delivery" | "appointment" | "booking" | string | null | undefined;
 
 export type OrderTrackingSlice = {
@@ -37,7 +42,7 @@ export function isScheduledDeliveryOrder(order: Pick<OrderTrackingSlice, "delive
 
 /**
  * Instant appointments stamp appointment_time via getDeliverySlotDeadline("asap")
- * (= created_at + ~2h, from `@/lib/deliverySlotDeadline`). Scheduled picks use an
+ * (= created_at + {@link DELIVERY_ASAP_OFFSET_MS}). Scheduled picks use an
  * arbitrary future datetime.
  */
 export function isInstantAppointmentOrder(
@@ -47,8 +52,8 @@ export function isInstantAppointmentOrder(
   const created = new Date(order.created_at).getTime();
   const appt = new Date(order.appointment_time).getTime();
   if (!Number.isFinite(created) || !Number.isFinite(appt)) return false;
-  const deltaFromPlus2h = Math.abs(appt - created - 2 * 60 * 60 * 1000);
-  return deltaFromPlus2h <= 15 * 60 * 1000;
+  const deltaFromAsap = Math.abs(appt - created - DELIVERY_ASAP_OFFSET_MS);
+  return deltaFromAsap <= INSTANT_ORDER_DETECT_TOLERANCE_MS;
 }
 
 export function isScheduledAppointmentOrder(

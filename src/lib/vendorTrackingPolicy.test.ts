@@ -14,6 +14,7 @@ import {
   vendorOffersHelp,
   customerOrderShowsLiveLocation,
 } from "@/lib/vendorTrackingPolicy";
+import { DELIVERY_ASAP_OFFSET_MS } from "@/lib/deliverySlotDeadline";
 
 const store = new Map<string, string>();
 
@@ -50,7 +51,7 @@ describe("vendorTrackingPolicy — 5 cases", () => {
 
   it("case 2: instant appointment starts tracking on accept; scheduled does not", () => {
     const created = "2026-07-11T10:00:00.000Z";
-    const instantAppt = new Date(new Date(created).getTime() + 2 * 60 * 60 * 1000).toISOString();
+    const instantAppt = new Date(new Date(created).getTime() + DELIVERY_ASAP_OFFSET_MS).toISOString();
     const instant = {
       id: "a1",
       status: "accepted",
@@ -117,7 +118,7 @@ describe("vendorTrackingPolicy — 5 cases", () => {
 
   it("customer live-location: help + instant D/A only; scheduled never", () => {
     const created = "2026-07-11T10:00:00.000Z";
-    const instantAppt = new Date(new Date(created).getTime() + 2 * 60 * 60 * 1000).toISOString();
+    const instantAppt = new Date(new Date(created).getTime() + DELIVERY_ASAP_OFFSET_MS).toISOString();
     expect(
       customerOrderShowsLiveLocation({
         id: "h",

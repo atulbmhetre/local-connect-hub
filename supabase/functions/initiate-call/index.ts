@@ -1,5 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  ACTIVE_ORDER_MAX_AGE_MS,
+  SCHEDULED_ORDER_GRACE_MS,
+} from "../_shared/activeOrderWindow.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -10,8 +14,6 @@ const CORS_HEADERS = {
 };
 
 const IN_PROGRESS_STATUSES = ["sent", "seen", "accepted"] as const;
-const ACTIVE_ORDER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const SCHEDULED_GRACE_MS = 24 * 60 * 60 * 1000;
 
 type InitiateCallBody = {
   caller_phone?: string;
@@ -105,7 +107,7 @@ function isInProgressRequest(row: RequestLinkRow): boolean {
   for (const iso of [row.appointment_time, row.delivery_slot_deadline]) {
     if (!iso) continue;
     const t = new Date(iso).getTime();
-    if (Number.isFinite(t) && t >= Date.now() - SCHEDULED_GRACE_MS) return true;
+    if (Number.isFinite(t) && t >= Date.now() - SCHEDULED_ORDER_GRACE_MS) return true;
   }
   return false;
 }

@@ -47,7 +47,7 @@ import {
   formatMinDeliveryOrderAmount,
   meetsMinDeliveryOrder,
 } from "@/lib/deliveryMinOrder";
-import { getDeliverySlotDeadline, getIstHour } from "@/lib/deliverySlotDeadline";
+import { getDeliverySlotDeadline, getIstHour, DELIVERY_ASAP_OFFSET_MS, DELIVERY_SLOT_CUTOFF_HOUR } from "@/lib/deliverySlotDeadline";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
@@ -739,7 +739,7 @@ export function ParchiSheet({
           !isInstantAppointment &&
           v.is_active === false &&
           appointmentTimestamp != null &&
-          new Date(appointmentTimestamp).getTime() - Date.now() < 2 * 60 * 60 * 1000
+          new Date(appointmentTimestamp).getTime() - Date.now() < DELIVERY_ASAP_OFFSET_MS
         ) {
           setOfflineApptError(true);
           return;
@@ -987,7 +987,7 @@ export function ParchiSheet({
           appointmentDate &&
           appointmentTime &&
           new Date(`${appointmentDate}T${appointmentTime}:00`).getTime() - Date.now() <
-            2 * 60 * 60 * 1000
+            DELIVERY_ASAP_OFFSET_MS
         ) {
           setOfflineApptError(true);
           return;
@@ -1125,9 +1125,21 @@ export function ParchiSheet({
 
     const all = [
       { value: "asap", label: s.parchi_slotAsapEmoji, alwaysShow: true },
-      { value: "morning", label: s.parchi_slotMorningEmoji, cutoffHour: 11 },
-      { value: "afternoon", label: s.parchi_slotAfternoonEmoji, cutoffHour: 15 },
-      { value: "evening", label: s.parchi_slotEveningEmoji, cutoffHour: 19 },
+      {
+        value: "morning",
+        label: s.parchi_slotMorningEmoji,
+        cutoffHour: DELIVERY_SLOT_CUTOFF_HOUR.morning,
+      },
+      {
+        value: "afternoon",
+        label: s.parchi_slotAfternoonEmoji,
+        cutoffHour: DELIVERY_SLOT_CUTOFF_HOUR.afternoon,
+      },
+      {
+        value: "evening",
+        label: s.parchi_slotEveningEmoji,
+        cutoffHour: DELIVERY_SLOT_CUTOFF_HOUR.evening,
+      },
       { value: "tomorrow", label: s.parchi_slotTomorrowEmoji, alwaysShow: true },
     ];
 

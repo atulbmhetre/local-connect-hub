@@ -1,3 +1,11 @@
+/**
+ * Client helpers for request list windows / active-order age.
+ *
+ * ACTIVE_ORDER_MAX_AGE_MS / SCHEDULED_ORDER_GRACE_MS must stay aligned with
+ * Deno edge copies in `supabase/functions/_shared/activeOrderWindow.ts`
+ * (initiate-call, notify-relationship). Edge cannot import this Vite module.
+ */
+
 export type RequestStatus = "sent" | "seen" | "accepted" | "fulfilled" | "done" | "cancelled";
 
 export type OrderRequestRow = {
@@ -31,7 +39,16 @@ export type OrderRequestRow = {
   categories?: { label: string; emoji: string | null } | { label: string; emoji: string | null }[] | null;
 };
 
+/** Max age for an in-progress order to count as “active” (call / notify gates). */
 export const ACTIVE_ORDER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Extra lookback for scheduled appointment_time / delivery_slot_deadline when
+ * deciding active linkage (edge initiate-call / notify-relationship).
+ * Keep in sync with `SCHEDULED_ORDER_GRACE_MS` in
+ * `supabase/functions/_shared/activeOrderWindow.ts`.
+ */
+export const SCHEDULED_ORDER_GRACE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * PostgREST `.or()` filter for `requests`. Vendor: `sent` (48h) + `seen` (24h).

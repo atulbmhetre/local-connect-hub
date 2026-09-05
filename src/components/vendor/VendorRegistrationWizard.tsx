@@ -20,7 +20,6 @@ import {
   isValidPhone,
   isValidUpi,
   useCategoryLabel,
-  invokeNotifyAdmin,
   invokeRegisterVendor,
   invokeAttachPendingCategory,
   invokeSuggestCategory,
@@ -77,7 +76,7 @@ import {
   resolveRegistrationShopName,
   showRegistrationGuidanceToast,
 } from "@/lib/vendorRegistration";
-import type { ServiceRadiusKm } from "@/lib/serviceRadius";
+import { DEFAULT_SERVICE_RADIUS_KM, type ServiceRadiusKm } from "@/lib/serviceRadius";
 import { decodeUpiPayeeIdFromImageFile } from "@/lib/upiQrDecode";
 import {
   licenseFieldHasValue,
@@ -897,7 +896,7 @@ export function VendorRegistrationWizard({
             base_type: baseType,
             serves_at_vendor_place: reachFlags.serves_at_vendor_place,
             serves_at_customer_place: reachFlags.serves_at_customer_place,
-            service_radius_km: serviceRadiusKm ?? 15,
+            service_radius_km: serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM,
             availability_modes: availabilityModesUnion,
           });
           if (r.ok === false && isNetworkFailure({ message: r.error })) {
@@ -1346,16 +1345,6 @@ export function VendorRegistrationWizard({
         vendorId: newVendorId,
       });
     }
-
-    void invokeNotifyAdmin(
-      s.vendor_admin_notify_title,
-      `${name.trim()} — ${resolvedCategoryLabel} (${resolvedPrimaryServiceMode})`,
-      {
-        type: "new_vendor",
-        route: "settings",
-        route_params: { vendor_id: newVendorId },
-      },
-    );
 
     if (referralCodeInput.trim()) {
       try {

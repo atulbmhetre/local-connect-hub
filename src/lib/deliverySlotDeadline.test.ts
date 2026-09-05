@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   APP_TIME_ZONE,
+  DELIVERY_ASAP_OFFSET_MS,
+  DELIVERY_SLOT_CUTOFF_HOUR,
+  DELIVERY_SLOT_DEADLINE_HOUR,
   getDeliverySlotDeadline,
   getDeliverySlotWindowStart,
   getIstHour,
   getIstYmd,
+  INSTANT_ORDER_DETECT_TOLERANCE_MS,
   zonedIstDateTimeToUtcIso,
 } from "@/lib/deliverySlotDeadline";
 
@@ -103,5 +107,18 @@ describe("getIstHour", () => {
   it("reads Kolkata hour, not UTC", () => {
     // 06:00 UTC = 11:30 IST
     expect(getIstHour(new Date("2026-03-15T06:00:00.000Z"))).toBe(11);
+  });
+});
+
+describe("shared slot / ASAP constants", () => {
+  it("keeps UI cutoffs one hour before IST deadline hours", () => {
+    expect(DELIVERY_SLOT_CUTOFF_HOUR.morning).toBe(DELIVERY_SLOT_DEADLINE_HOUR.morning - 1);
+    expect(DELIVERY_SLOT_CUTOFF_HOUR.afternoon).toBe(DELIVERY_SLOT_DEADLINE_HOUR.afternoon - 1);
+    expect(DELIVERY_SLOT_CUTOFF_HOUR.evening).toBe(DELIVERY_SLOT_DEADLINE_HOUR.evening - 1);
+  });
+
+  it("exports ASAP 2h and instant detect 15m for tracking policy pairing", () => {
+    expect(DELIVERY_ASAP_OFFSET_MS).toBe(2 * 60 * 60 * 1000);
+    expect(INSTANT_ORDER_DETECT_TOLERANCE_MS).toBe(15 * 60 * 1000);
   });
 });

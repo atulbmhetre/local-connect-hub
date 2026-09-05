@@ -5,6 +5,10 @@
  *
  * Never use Date#setHours / getHours for slot math — those are device-local
  * and diverge from IST on non-India timezones.
+ *
+ * Keep slot clock hours / ASAP duration in sync with:
+ * - `public._delivery_slot_deadline_on` (supabase/migrations/20260830170001_recurring_orders.sql)
+ * - `public.delivery_slot_window_start` (supabase/migrations/20260816120001_customer_accepted_cancel_and_vendor_started.sql)
  */
 
 /** Business timezone for order slots (India; no DST). */
@@ -13,7 +17,37 @@ export const APP_TIME_ZONE = "Asia/Kolkata";
 /** Fixed IST offset — Kolkata does not observe DST. */
 export const IST_OFFSET = "+05:30";
 
+/**
+ * ASAP / instant appointment stamp: now + 2h.
+ * Same duration used by `isInstantAppointmentOrder` detection baseline.
+ */
 export const DELIVERY_ASAP_OFFSET_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Max |appointment_time − created_at − ASAP offset| to treat an appointment as
+ * "instant" (client-stamped via getDeliverySlotDeadline("asap")).
+ */
+export const INSTANT_ORDER_DETECT_TOLERANCE_MS = 15 * 60 * 1000;
+
+/** IST wall-clock hour when each scheduled slot ends (SQL `_delivery_slot_deadline_on`). */
+export const DELIVERY_SLOT_DEADLINE_HOUR = {
+  morning: 12,
+  afternoon: 16,
+  evening: 20,
+  /** Tomorrow evening deadline uses the same 20:00 IST end as evening. */
+  tomorrow: 20,
+} as const;
+
+/**
+ * IST hour after which a same-day slot is no longer offered in Parchi UI
+ * (deadline hour − 1). Not enforced in SQL — UI-only, but must stay paired
+ * with {@link DELIVERY_SLOT_DEADLINE_HOUR}.
+ */
+export const DELIVERY_SLOT_CUTOFF_HOUR = {
+  morning: 11,
+  afternoon: 15,
+  evening: 19,
+} as const;
 
 /** Morning / afternoon / evening: window opens at deadline − 4h (SQL). */
 export const DELIVERY_SLOT_WINDOW_BEFORE_DEADLINE_MS = 4 * 60 * 60 * 1000;
@@ -83,7 +117,14 @@ export function zonedIstDateTimeToUtcIso(
 
 function addIstCalendarDays(ymd: IstYmd, days: number): IstYmd {
   // Noon IST + N×24h stays on the intended calendar day (IST has no DST).
-  const noon = new Date(zonedIstDateTimeToUtcIso(ymd.year, ymd.month, ymd.day, 12));
+  const noon = new Date(
+    zonedIstDateTimeToUtcIso(
+      ymd.year,
+      ymd.month,
+      ymd.day,
+      DELIVERY_SLOT_DEADLINE_HOUR.morning,
+    ),
+  );
   return getIstYmd(new Date(noon.getTime() + days * 24 * 60 * 60 * 1000));
 }
 
@@ -106,17 +147,37 @@ export function getDeliverySlotDeadline(
 
   const ymd = getIstYmd(now);
   if (s === "morning") {
-    return zonedIstDateTimeToUtcIso(ymd.year, ymd.month, ymd.day, 12);
+    return zonedIstDateTimeToUtcIso(
+      ymd.year,
+      ymd.month,
+      ymd.day,
+      DELIVERY_SLOT_DEADLINE_HOUR.morning,
+    );
   }
   if (s === "afternoon") {
-    return zonedIstDateTimeToUtcIso(ymd.year, ymd.month, ymd.day, 16);
+    return zonedIstDateTimeToUtcIso(
+      ymd.year,
+      ymd.month,
+      ymd.day,
+      DELIVERY_SLOT_DEADLINE_HOUR.afternoon,
+    );
   }
   if (s === "evening") {
-    return zonedIstDateTimeToUtcIso(ymd.year, ymd.month, ymd.day, 20);
+    return zonedIstDateTimeToUtcIso(
+      ymd.year,
+      ymd.month,
+      ymd.day,
+      DELIVERY_SLOT_DEADLINE_HOUR.evening,
+    );
   }
   if (s === "tomorrow") {
     const next = addIstCalendarDays(ymd, 1);
-    return zonedIstDateTimeToUtcIso(next.year, next.month, next.day, 20);
+    return zonedIstDateTimeToUtcIso(
+      next.year,
+      next.month,
+      next.day,
+      DELIVERY_SLOT_DEADLINE_HOUR.tomorrow,
+    );
   }
   return null;
 }
