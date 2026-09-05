@@ -122,6 +122,8 @@ export function ParchiSheet({
   const [isListening, setIsListening] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [sending, setSending] = useState(false);
+  /** Sync guard — `disabled={sending}` alone loses a fast double-tap before re-render. */
+  const sendingLockRef = useRef(false);
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
   const { addresses, loading: addressLoading } = useUserAddresses();
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
@@ -637,13 +639,13 @@ export function ParchiSheet({
     }
   };
 
-  const executeOrderInsert = useCallback(
+  const runOrderInsert = useCallback(
     async (phone: string) => {
       const v = effectiveVendor;
       if (!v) return;
 
-      // Re-enter via `place` on network retry so refs/form match prior
-      // `() => void executeOrderInsert(phone)` behavior.
+      // Re-enter via `place` on network retry so refs/form match prior behavior.
+      // Acquire sendingLockRef around retry so a second tap cannot race it.
       const place = async (): Promise<void> => {
         await executeOrderInsertCore(
           {
@@ -688,7 +690,17 @@ export function ParchiSheet({
             onOrderSent,
             onClose,
             fetchPaymentBlockStatus,
-            scheduleNetworkRetry: () => void place(),
+            scheduleNetworkRetry: () => {
+              void (async () => {
+                if (sendingLockRef.current) return;
+                sendingLockRef.current = true;
+                try {
+                  await place();
+                } finally {
+                  sendingLockRef.current = false;
+                }
+              })();
+            },
           },
         );
       };
@@ -730,8 +742,22 @@ export function ParchiSheet({
     ],
   );
 
+  const executeOrderInsert = useCallback(
+    async (phone: string) => {
+      if (sendingLockRef.current) return;
+      sendingLockRef.current = true;
+      try {
+        await runOrderInsert(phone);
+      } finally {
+        sendingLockRef.current = false;
+      }
+    },
+    [runOrderInsert],
+  );
+
   const send = useCallback(
     async (overridePhone?: string) => {
+      if (sendingLockRef.current) return;
       const v = effectiveVendor;
       if (!v) return;
       const text = message.trim();
@@ -797,62 +823,68 @@ export function ParchiSheet({
       }
       const phone = overridePhone ?? getUserPhone()!;
 
+      sendingLockRef.current = true;
       setSending(true);
-      const paymentBlocked = await fetchPaymentBlockStatus(phone, getDeviceId());
-      if (paymentBlocked) {
-        setSending(false);
-        return;
-      }
-
-      let trust: Awaited<ReturnType<typeof fetchUserTrust>> = null;
       try {
-        trust = await withNetworkRetry(() => fetchUserTrust(phone), {
-          maxAttempts: 2,
-          baseDelayMs: 500,
-          shouldRetry: () => getNavigatorOnline(),
-        });
-      } catch (err) {
-        captureError(err, { scope: "parchiSheet.fetchUserTrust" });
-        toast.warning(s.parchi_trust_fetch_failed);
-        // Fail-open after retry: allow continue without trust gates.
-        trust = null;
-      }
-
-      if (trust?.is_banned) {
-        setSending(false);
-        setTrustBlock("banned");
-        return;
-      }
-
-      const score = trust?.trust_score;
-      if (score != null && score >= 1 && score <= 24) {
-        setSending(false);
-        setTrustBlock("suspended");
-        return;
-      }
-
-      if (score != null && score >= 25 && score <= 49) {
-        setSending(false);
-        if (resolvedServiceMode === "help") {
-          toast.error(s.parchi_errHelpUnavailableTrust);
-          onClose();
+        const paymentBlocked = await fetchPaymentBlockStatus(phone, getDeviceId());
+        if (paymentBlocked) {
+          setSending(false);
           return;
         }
-        setPendingPhone(phone);
-        setLowTrustConfirmed(false);
-        setLowTrustSheetOpen(true);
-        return;
-      }
 
-      if (score != null && score >= 50 && score <= 74) {
-        setSending(false);
-        setPendingPhone(phone);
-        setMediumTrustDialogOpen(true);
-        return;
-      }
+        let trust: Awaited<ReturnType<typeof fetchUserTrust>> = null;
+        try {
+          trust = await withNetworkRetry(() => fetchUserTrust(phone), {
+            maxAttempts: 2,
+            baseDelayMs: 500,
+            shouldRetry: () => getNavigatorOnline(),
+          });
+        } catch (err) {
+          captureError(err, { scope: "parchiSheet.fetchUserTrust" });
+          toast.warning(s.parchi_trust_fetch_failed);
+          // Fail-open after retry: allow continue without trust gates.
+          trust = null;
+        }
 
-      // Keep sending=true through the insert gap; executeOrderInsert finally clears it.
-      await executeOrderInsert(phone);
+        if (trust?.is_banned) {
+          setSending(false);
+          setTrustBlock("banned");
+          return;
+        }
+
+        const score = trust?.trust_score;
+        if (score != null && score >= 1 && score <= 24) {
+          setSending(false);
+          setTrustBlock("suspended");
+          return;
+        }
+
+        if (score != null && score >= 25 && score <= 49) {
+          setSending(false);
+          if (resolvedServiceMode === "help") {
+            toast.error(s.parchi_errHelpUnavailableTrust);
+            onClose();
+            return;
+          }
+          setPendingPhone(phone);
+          setLowTrustConfirmed(false);
+          setLowTrustSheetOpen(true);
+          return;
+        }
+
+        if (score != null && score >= 50 && score <= 74) {
+          setSending(false);
+          setPendingPhone(phone);
+          setMediumTrustDialogOpen(true);
+          return;
+        }
+
+        // Keep sending=true through the insert gap; runOrderInsert finally clears it.
+        // Lock already held — do not re-enter executeOrderInsert.
+        await runOrderInsert(phone);
+      } finally {
+        sendingLockRef.current = false;
+      }
     },
     [
       effectiveVendor,
@@ -861,7 +893,7 @@ export function ParchiSheet({
       isHelpMode,
       needsHelpWhereChoice,
       helpLocation,
-      executeOrderInsert,
+      runOrderInsert,
       selectedAddressId,
       addresses,
       newAddress,

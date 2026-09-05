@@ -65,15 +65,16 @@ vi.mock("@/lib/withNetworkRetry", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/withNetworkRetry")>();
   return {
     ...actual,
-    withNetworkRetry: vi.fn(
+    withTimedRetry: vi.fn(
       async (
-        fn: () => Promise<unknown>,
-        opts?: Parameters<typeof actual.withNetworkRetry>[1],
+        fn: (signal: AbortSignal) => Promise<unknown>,
+        opts?: Parameters<typeof actual.withTimedRetry>[1],
       ) =>
-        actual.withNetworkRetry(fn, {
+        actual.withTimedRetry(fn, {
           ...opts,
           maxAttempts: 3,
           baseDelayMs: 1,
+          timeoutMs: opts?.timeoutMs ?? 15_000,
         }),
     ),
   };
@@ -287,7 +288,49 @@ describe("UpiPaymentPanel payment_claimed vendor notification", () => {
     });
     expect(showNetworkRetryingToast).toHaveBeenCalled();
     expect(showNetworkFailedToast).not.toHaveBeenCalled();
-    expect(withNetworkRetryMod.withNetworkRetry).toHaveBeenCalled();
+    expect(withNetworkRetryMod.withTimedRetry).toHaveBeenCalled();
+  });
+
+  it("times out a hung claim_customer_payment and shows network failed retry", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/withNetworkRetry")>(
+      "@/lib/withNetworkRetry",
+    );
+    vi.mocked(withNetworkRetryMod.withTimedRetry).mockImplementation(
+      async (fn, opts) =>
+        actual.withTimedRetry(fn, {
+          ...opts,
+          maxAttempts: 2,
+          baseDelayMs: 1,
+          timeoutMs: 80,
+        }),
+    );
+
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === "get_payment_claim_requirements") {
+        return {
+          data: { requires_screenshot: false, is_anomalous: false },
+          error: null,
+        };
+      }
+      if (name === "claim_customer_payment") {
+        return new Promise(() => {});
+      }
+      return { data: null, error: null };
+    });
+
+    renderPanel();
+    await payAndSubmitUtr();
+
+    await waitFor(
+      () => {
+        expect(showNetworkFailedToast).toHaveBeenCalled();
+      },
+      { timeout: 5_000 },
+    );
+    expect(screen.getByText(strings.en.payment_submit_utr)).not.toBeDisabled();
+    expect(
+      mockRpc.mock.calls.filter((call) => call[0] === "claim_customer_payment").length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("shows network failed toast and re-enables submit after retries exhaust", async () => {

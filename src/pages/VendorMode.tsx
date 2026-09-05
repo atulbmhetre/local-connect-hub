@@ -1259,45 +1259,53 @@ const VendorMode = () => {
   };
 
   const toggleActive = async () => {
-    if (!vendor || checkingOffline) return;
-    const next = !vendor.is_active;
+    if (!vendor || checkingOffline || isTogglingRef.current) return;
+    isTogglingRef.current = true;
+    try {
+      const next = !vendor.is_active;
 
-    if (next && vendor.is_banned) {
-      toast.error(s.admin_vendor_banned_title, {
-        description: s.admin_vendor_banned_body,
-      });
-      return;
-    }
-
-    if (next && missingRequiredPhotos(vendor)) {
-      showPhotosRequiredToast();
-      return;
-    }
-
-    if (!next) {
-      setCheckingOffline(true);
-      const blockingResult = await fetchBlockingActiveOrders(
-        vendor.id,
-        vendor.phone,
-        vendor.service_mode,
-      );
-      setCheckingOffline(false);
-      if (blockingResult.ok === false) {
-        // Safer default: if the check itself fails, do not silently go offline.
-        toast.error(s.vendor_offline_check_failed, {
-          description: blockingResult.error,
+      if (next && vendor.is_banned) {
+        toast.error(s.admin_vendor_banned_title, {
+          description: s.admin_vendor_banned_body,
         });
         return;
       }
-      if (blockingResult.orders.length > 0) {
-        setOfflineBlockingOrders(blockingResult.orders);
-        setOfflineConfirmOpen(true);
+
+      if (next && missingRequiredPhotos(vendor)) {
+        showPhotosRequiredToast();
         return;
       }
-      setOfflineBlockingOrders([]);
-    }
 
-    await applyActiveState(next);
+      if (!next) {
+        setCheckingOffline(true);
+        try {
+          const blockingResult = await fetchBlockingActiveOrders(
+            vendor.id,
+            vendor.phone,
+            vendor.service_mode,
+          );
+          if (blockingResult.ok === false) {
+            // Safer default: if the check itself fails, do not silently go offline.
+            toast.error(s.vendor_offline_check_failed, {
+              description: blockingResult.error,
+            });
+            return;
+          }
+          if (blockingResult.orders.length > 0) {
+            setOfflineBlockingOrders(blockingResult.orders);
+            setOfflineConfirmOpen(true);
+            return;
+          }
+          setOfflineBlockingOrders([]);
+        } finally {
+          setCheckingOffline(false);
+        }
+      }
+
+      await applyActiveState(next);
+    } finally {
+      isTogglingRef.current = false;
+    }
   };
 
   const confirmGoOfflineAnyway = async () => {

@@ -20,14 +20,18 @@ import {
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import {
   NetworkExhaustedError,
+  applyAbortSignal,
   throwOnSupabaseNetworkError,
-  withNetworkRetry,
+  withTimedRetry,
 } from "@/lib/withNetworkRetry";
 import {
   dismissNetworkRetryingToast,
   showNetworkFailedToast,
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
+
+/** Per-attempt budget for claim RPC — hung TCP must surface as retry/failure. */
+const CLAIM_PAYMENT_TIMEOUT_MS = 15_000;
 
 export interface UpiPaymentPanelProps {
   /** Prefix for DOM ids (kept distinct per surface for tests/labels). */
@@ -263,18 +267,22 @@ export function UpiPaymentPanel({
 
     setSubmitting(true);
     try {
-      const { error } = await withNetworkRetry(
-        async () =>
+      const { error } = await withTimedRetry(
+        async (signal) =>
           throwOnSupabaseNetworkError(
-            await supabase.rpc("claim_customer_payment", {
-              p_request_id: orderId,
-              p_payment_utr: trimmed,
-              p_device_id: getDeviceId(),
-              p_user_phone: getUserPhone(),
-              p_payment_screenshot_url: screenshotUrl,
-            }),
+            await applyAbortSignal(
+              supabase.rpc("claim_customer_payment", {
+                p_request_id: orderId,
+                p_payment_utr: trimmed,
+                p_device_id: getDeviceId(),
+                p_user_phone: getUserPhone(),
+                p_payment_screenshot_url: screenshotUrl,
+              }),
+              signal,
+            ),
           ),
         {
+          timeoutMs: CLAIM_PAYMENT_TIMEOUT_MS,
           onRetrying: () => {
             showNetworkRetryingToast({ retrying: s.network_retrying });
           },

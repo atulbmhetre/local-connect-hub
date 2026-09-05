@@ -28,8 +28,9 @@ import {
 import { captureError } from "@/lib/sentry";
 import {
   NetworkExhaustedError,
+  applyAbortSignal,
   throwOnSupabaseNetworkError,
-  withNetworkRetry,
+  withTimedRetry,
 } from "@/lib/withNetworkRetry";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import {
@@ -37,6 +38,9 @@ import {
   showNetworkFailedToast,
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
+
+/** Per-attempt budget for place RPC — hung TCP must surface as retry/failure. */
+const ORDER_PLACE_TIMEOUT_MS = 15_000;
 
 export type ParchiVendorMenuItem = {
   id: string;
@@ -295,7 +299,7 @@ export async function executeOrderInsert(
       recurrenceCustomDays: wantsRecurring && recurrenceKind === "custom" ? recurrenceCustomDays : "",
       serviceLocation,
     });
-    // Persist across withNetworkRetry and user Retry toast; clear only on
+    // Persist across withTimedRetry and user Retry toast; clear only on
     // confirmed success or sheet cancel (not on NetworkExhaustedError).
     const clientIdempotencyKey = getOrCreateOrderPlacementIdempotencyKey(v.id, fingerprint);
     const orderPayload = {
@@ -320,18 +324,25 @@ export async function executeOrderInsert(
       p_client_idempotency_key: clientIdempotencyKey,
     };
 
-    const { error } = await withNetworkRetry(
-      async () =>
+    const { error } = await withTimedRetry(
+      async (signal) =>
         throwOnSupabaseNetworkError(
           wantsRecurring
-            ? await supabase.rpc("create_recurring_order", {
-                ...orderPayload,
-                p_interval_kind: recurrenceKind,
-                p_interval_days: recurrenceKind === "custom" ? customDays : null,
-              })
-            : await supabase.rpc("create_customer_request", orderPayload),
+            ? await applyAbortSignal(
+                supabase.rpc("create_recurring_order", {
+                  ...orderPayload,
+                  p_interval_kind: recurrenceKind,
+                  p_interval_days: recurrenceKind === "custom" ? customDays : null,
+                }),
+                signal,
+              )
+            : await applyAbortSignal(
+                supabase.rpc("create_customer_request", orderPayload),
+                signal,
+              ),
         ),
       {
+        timeoutMs: ORDER_PLACE_TIMEOUT_MS,
         onRetrying: () => {
           showNetworkRetryingToast({ retrying: s.network_retrying });
         },
