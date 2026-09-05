@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { supabase, invokecalculateTrustScore, useCategoryLabel } from "@/lib/supabase";
+import { supabase, invokecalculateTrustScore } from "@/lib/supabase";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { openGoogleMaps, resolveVendorNavigateToCustomerUrl } from "@/lib/mapsDeepLink";
 import { BillSheet } from "@/components/BillSheet";
 import { BillEditSheet } from "@/components/BillEditSheet";
 import { BillEditHistorySheet } from "@/components/BillEditHistorySheet";
@@ -50,11 +49,8 @@ import {
 } from "@/lib/vendorBackgroundLocation";
 import { sendIveStartedCustomerNotification } from "@/lib/iveStartedNotify";
 import { billBlocksDismiss } from "@/lib/dismissBillGate";
-import {
-  hasSentIveStarted,
-  shouldShowIveStartedButton,
-  shouldStartTrackingOnOrderAccept,
-} from "@/lib/vendorTrackingPolicy";
+import { shouldStartTrackingOnOrderAccept } from "@/lib/vendorTrackingPolicy";
+import { IncomingOrderCard } from "@/components/IncomingOrderCard";
 
 type TrustInfo = {
   trust_score: number;
@@ -123,51 +119,6 @@ function buildAppointmentOverlapIds(orders: IncomingOrderRow[]): Set<string> {
   return ids;
 }
 
-function getUserTrustBadge(
-  trust: TrustInfo | undefined,
-  labels: {
-    newUser: string;
-    trusted: string;
-    complaints: string;
-    risky: string;
-  },
-): { label: string; className: string } | null {
-  if (trust === undefined) return null;
-  if (trust === null || trust.total_orders < 3) {
-    return { label: labels.newUser, className: "text-blue-500/80" };
-  }
-  if (trust.trust_score >= 75) {
-    return { label: labels.trusted, className: "text-green-600 dark:text-green-500" };
-  }
-  if (trust.trust_score >= 50) {
-    return { label: labels.complaints, className: "text-amber-600 dark:text-amber-500" };
-  }
-  return { label: labels.risky, className: "text-red-600 dark:text-red-500" };
-}
-
-function getKhataCreditBadge(
-  outstanding: number,
-  amberLimit: number,
-  redLimit: number,
-  labels: { creditAmber: string; creditRed: string },
-): { label: string; className: string } | null {
-  if (redLimit > 0 && outstanding >= redLimit) {
-    return {
-      label: labels.creditRed,
-      className:
-        "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30",
-    };
-  }
-  if (amberLimit > 0 && outstanding >= amberLimit) {
-    return {
-      label: labels.creditAmber,
-      className:
-        "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
-    };
-  }
-  return null;
-}
-
 type Props = {
   vendorId: string;
   serviceMode?: "help" | "delivery" | "appointment" | "booking" | null;
@@ -185,14 +136,6 @@ function stripLocationTag(message: string): string {
     .replace(/\s*\[I'll visit your shop\]/g, "")
     .replace(/\s*\[Location TBD\]/g, "")
     .trim();
-}
-
-function deliverySlotLabel(
-  slot: string | null | undefined,
-  labels: Record<string, string>,
-): string | null {
-  if (!slot?.trim()) return null;
-  return labels[slot.trim().toLowerCase()] ?? slot;
 }
 
 function maskPhoneLast4(phone: string): string {
@@ -234,14 +177,6 @@ function countUnreadIncomingOrders(
 
 type LocationHighlightState = { highlightOrderId?: string };
 
-function canShowBillButton(r: OrderRequestRow): boolean {
-  if (r.appointment_time) {
-    if (r.appointment_status !== "confirmed") return false;
-    return r.status === "accepted" || r.status === "fulfilled";
-  }
-  return r.status === "accepted" || r.status === "fulfilled";
-}
-
 export function IncomingOrdersSection({
   vendorId,
   serviceMode,
@@ -259,7 +194,6 @@ export function IncomingOrdersSection({
   const { s, lang } = useLanguage();
   const appointmentDateLocale =
     lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";
-  const getLabel = useCategoryLabel();
   const slotLabels = useMemo(
     () => ({
       asap: s.parchi_slotAsap,
@@ -277,15 +211,6 @@ export function IncomingOrdersSection({
         { value: "fake" as const, label: s.incoming_flag_reason_fake },
         { value: "abusive" as const, label: s.incoming_flag_reason_abusive },
       ] as const,
-    [s],
-  );
-  const trustBadgeLabels = useMemo(
-    () => ({
-      newUser: s.incoming_trust_new_user,
-      trusted: s.incoming_trust_trusted,
-      complaints: s.incoming_trust_complaints,
-      risky: s.incoming_trust_risky,
-    }),
     [s],
   );
   const [rows, setRows] = useState<IncomingOrderRow[]>([]);
@@ -1971,80 +1896,6 @@ export function IncomingOrdersSection({
     return () => window.clearTimeout(t);
   }, [highlightOrderId, loading, rows.length]);
 
-  const acceptedStatusLabel = (r: Pick<OrderRequestRow, "appointment_status" | "status">): string => {
-    if (serviceMode !== "appointment") {
-      return s.status_accepted;
-    }
-    return r.appointment_status === "confirmed"
-      ? s.status_accepted_appointment_confirmed
-      : s.status_accepted_appointment_awaiting;
-  };
-
-  const badge = (r: Pick<OrderRequestRow, "status" | "appointment_status">) => {
-    const status = r.status;
-    if (status === "sent")
-      return (
-        <span
-          data-testid="incoming-order-status"
-          className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-xs font-bold px-2 py-0.5 border border-brand/40"
-        >
-          {s.incoming_statusNew}
-        </span>
-      );
-    if (status === "seen")
-      return (
-        <span
-          data-testid="incoming-order-status"
-          className="rounded-full bg-muted text-muted-foreground text-xs font-semibold px-2 py-0.5 border border-border"
-        >
-          {s.incoming_statusSeen}
-        </span>
-      );
-    if (status === "accepted")
-      return (
-        <span
-          data-testid="incoming-order-status"
-          className="rounded-full bg-brand/20 text-green-700 dark:text-brand text-xs font-semibold px-2 py-0.5 border border-brand/40"
-        >
-          {acceptedStatusLabel(r)}
-        </span>
-      );
-    if (status === "fulfilled")
-      return (
-        <span
-          data-testid="incoming-order-status"
-          className="rounded-full text-xs font-semibold px-2 py-0.5 border border-brand-border text-brand"
-        >
-          {s.incoming_statusDone}
-        </span>
-      );
-    if (status === "cancelled")
-      return (
-        <span
-          data-testid="incoming-order-status"
-          className="rounded-full bg-muted text-muted-foreground text-xs font-semibold px-2 py-0.5 border border-border"
-        >
-          {s.orderCancelled}
-        </span>
-      );
-    return (
-      <span
-        data-testid="incoming-order-status"
-        className="rounded-full text-xs font-semibold px-2 py-0.5 border border-brand-border text-brand"
-      >
-        {s.incoming_statusDone}
-      </span>
-    );
-  };
-
-  const shouldShowStatusBadge = (r: OrderRequestRow) => {
-    if (r.appointment_status === "declined") return false;
-    if (r.status === "cancelled" || r.status === "fulfilled" || r.status === "done") {
-      return false;
-    }
-    return true;
-  };
-
   return (
     <div
       className="rounded-2xl border border-surface-border bg-surface overflow-hidden"
@@ -2107,626 +1958,76 @@ export function IncomingOrdersSection({
         </div>
       ) : (
         <ul className="space-y-3">
-          {filteredRows.map((r) => {
-            const orderMode = orderEffectiveMode(r, serviceMode);
-            const orderIsHelp = orderMode === "help";
-            const orderCanAddToLedger =
-              orderMode === "appointment" || orderMode === "delivery" || orderMode === "booking";
-            return (
-            <li
+          {filteredRows.map((r) => (
+            <IncomingOrderCard
               key={r.id}
-              id={`order-card-${r.id}`}
-              data-testid="incoming-order-card"
-              className={cn(
-                "rounded-xl border border-border bg-muted/30 p-3 space-y-2",
-                flashOrderId === r.id &&
-                  "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse",
-              )}
-              onClick={() => void clearOrderEditedFlag(r.id)}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {formatTimeAgo(r.created_at)}
-                </span>
-                {shouldShowStatusBadge(r) && badge(r)}
-              </div>
-              {(() => {
-                const cat = Array.isArray(r.categories) ? r.categories[0] : r.categories;
-                if (!cat?.label) return null;
-                return (
-                  <span
-                    data-testid="incoming-order-category"
-                    className="inline-flex items-center gap-0.5 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-xs font-semibold text-foreground w-fit"
-                  >
-                    {cat.emoji ? <span aria-hidden>{cat.emoji}</span> : null}
-                    <span>{getLabel(cat.label)}</span>
-                  </span>
-                );
-              })()}
-              <div className="flex items-start gap-2">
-                <p className="flex-1 min-w-0 text-sm text-foreground leading-snug whitespace-pre-wrap break-words">
-                  {stripLocationTag(r.message)}
-                </p>
-                {r.is_edited && (
-                  <span className="shrink-0 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-xs font-semibold px-2 py-0.5 border border-amber-500/30">
-                    {s.order_edited_badge}
-                  </span>
-                )}
-              </div>
-              {r.user_phone && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {maskPhoneLast4(r.user_phone.trim())}
-                  </span>
-                  {khataAmberLimit > 0 &&
-                    (() => {
-                      const phone = r.user_phone.trim();
-                      if (!khataOutstandingByPhone.has(phone)) return null;
-                      const outstanding = khataOutstandingByPhone.get(phone) ?? 0;
-                      const creditBadge = getKhataCreditBadge(
-                        outstanding,
-                        khataAmberLimit,
-                        khataRedLimit,
-                        { creditAmber: s.khata_creditAmber, creditRed: s.khata_creditRed },
-                      );
-                      if (!creditBadge) return null;
-                      return (
-                        <span
-                          className={cn(
-                            "inline-flex rounded-full text-xs font-semibold px-2 py-0.5 border",
-                            creditBadge.className,
-                          )}
-                        >
-                          {creditBadge.label}
-                        </span>
-                      );
-                    })()}
-                  {(() => {
-                    const trustBadge = getUserTrustBadge(
-                      trustByPhone[r.user_phone.trim()],
-                      trustBadgeLabels,
-                    );
-                    if (!trustBadge) return null;
-                    return (
-                      <span className={cn("text-xs font-normal", trustBadge.className)}>
-                        {trustBadge.label}
-                      </span>
-                    );
-                  })()}
-                </div>
-              )}
-              {r.status === "cancelled" && r.cancel_reason && (
-                <span className="inline-flex rounded-full bg-muted text-muted-foreground text-xs font-medium px-2 py-0.5 border border-border">
-                  {r.cancel_reason}
-                </span>
-              )}
-              {r.delivery_address && (
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  {s.incoming_addressPrefix}<span className="text-foreground font-medium">{r.delivery_address}</span>
-                </div>
-              )}
-
-              {(() => {
-                const mapsUrl = resolveVendorNavigateToCustomerUrl(orderMode, r);
-                if (!mapsUrl) return null;
-                return (
-                  <button
-                    type="button"
-                    data-testid="incoming-open-maps-btn"
-                    onClick={() => openGoogleMaps(mapsUrl)}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
-                  >
-                    🗺️ {s.maps_openInMaps}
-                  </button>
-                );
-              })()}
-
-              {(() => {
-                const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
-                if (!slot) return null;
-                return (
-                  <div className="rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-xs">
-                    {s.incoming_slotPrefix}<span className="text-green-700 dark:text-brand font-semibold">{slot}</span>
-                  </div>
-                );
-              })()}
-
-              {r.appointment_time &&
-                (() => {
-                  const msg = r.message ?? "";
-                  const isHome = msg.includes("[Come to my place]");
-                  const isShop = msg.includes("[I'll visit your shop]");
-                  const colorClass = isHome
-                    ? "border-blue-500/30 bg-blue-500/5 text-blue-400"
-                    : isShop
-                      ? "border-purple-500/30 bg-purple-500/5 text-purple-400"
-                      : "border-gray-500/30 bg-gray-500/5 text-gray-400";
-                  const locationLabel = isHome
-                    ? s.incoming_locationComeToYou
-                    : isShop
-                      ? s.incoming_locationVisitShop
-                      : s.incoming_locationTbd;
-                  return (
-                    <div className={`rounded-lg border px-3 py-2 text-xs space-y-0.5 ${colorClass}`}>
-                      <div className="font-semibold">{locationLabel}</div>
-                      <div>
-                        {s.incoming_apptAround}
-                        <span className="font-semibold">
-                          {new Date(r.appointment_time).toLocaleString(appointmentDateLocale, {
-                            weekday: "short",
-                            day: "numeric",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-                      {appointmentOverlapIds.has(r.id) && (
-                        <p
-                          data-testid="incoming-appointment-overlap"
-                          className="text-muted-foreground font-normal pt-0.5"
-                        >
-                          {s.incoming_appointmentOverlap}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
-
-              {r.appointment_time && r.appointment_status === "pending" && (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    data-testid="incoming-accept-btn"
-                    disabled={markingId === r.id}
-                    onClick={() => void handleAppointmentAction(r.id, "confirmed")}
-                    className="min-h-[44px] rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {s.incoming_btnConfirm}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="incoming-decline-btn"
-                    disabled={markingId === r.id}
-                    onClick={() => {
-                      setDeclineOrderId(r.id);
-                      setSelectedReason(null);
-                      setOtherReasonText("");
-                    }}
-                    className="rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {s.incoming_btnDecline}
-                  </button>
-                </div>
-              )}
-
-              {r.appointment_time &&
-                r.appointment_status === "confirmed" &&
-                r.status !== "cancelled" && (
-                <>
-                  {r.status !== "fulfilled" && r.status !== "done" && (
-                    <span
-                      data-testid="incoming-order-status"
-                      className="inline-flex rounded-full bg-brand/20 text-green-700 dark:text-brand text-xs font-semibold px-2 py-0.5 border border-brand/40"
-                    >
-                      {s.incoming_bookingConfirmed}
-                    </span>
-                  )}
-                  {r.status !== "done" &&
-                    r.status !== "fulfilled" &&
-                    r.status !== "cancelled" && (
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCancelOrderId(r.id);
-                            setSelectedReason(null);
-                            setOtherReasonText("");
-                          }}
-                          className="w-full rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
-                        >
-                          {s.incoming_cancelBooking}
-                        </button>
-                        {(() => {
-                          void iveStartedTick;
-                          const showIve = shouldShowIveStartedButton(r);
-                          const sent = hasSentIveStarted(r.id);
-                          if (!showIve && !sent) return null;
-                          return (
-                            <button
-                              type="button"
-                              data-testid="incoming-ive-started-btn"
-                              disabled={sent}
-                              onClick={() => void handleIveStarted(r)}
-                              className="w-full rounded-lg border border-brand/50 bg-brand/10 text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                            >
-                              {sent ? s.incoming_iveStarted_sent : s.incoming_iveStarted_btn}
-                            </button>
-                          );
-                        })()}
-                        {r.user_phone && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleCallCustomer(r.user_phone!, orderMode)
-                            }
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
-                            aria-label={s.incoming_callCustomer}
-                          >
-                            📞 {s.incoming_callCustomer}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          data-testid="incoming-done-btn"
-                          disabled={markingId === r.id}
-                          onClick={() => void markDone(r.id)}
-                          className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                        >
-                          {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
-                        </button>
-                      </div>
-                    )}
-                </>
-              )}
-
-              {r.appointment_time && r.appointment_status === "declined" && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive font-semibold text-center">
-                  {s.incoming_bannerDeclined}
-                </div>
-              )}
-
-              {(r.status === "cancelled" || r.appointment_status === "declined") && (
-                <button
-                  type="button"
-                  disabled={markingId === r.id}
-                  onClick={() => void dismissOrder(r.id)}
-                  className="w-full rounded-lg border border-border bg-muted/40 text-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                >
-                  {markingId === r.id ? s.incoming_saving : s.incoming_dismiss}
-                </button>
-              )}
-
-              {!r.appointment_time && orderIsHelp && r.status === "sent" && (
-                  <button
-                    type="button"
-                    data-testid="incoming-accept-btn"
-                    disabled={markingId === r.id}
-                    onClick={() => void acceptHelpOrder(r.id)}
-                    className="w-full min-h-[44px] rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {markingId === r.id ? s.incoming_saving : s.incoming_btnAccept}
-                  </button>
-                )}
-
-              {!r.appointment_time && !orderIsHelp && r.status === "seen" && (
-                <button
-                  type="button"
-                  data-testid="incoming-accept-btn"
-                  disabled={markingId === r.id}
-                  onClick={() => void acceptDeliveryOrder(r.id, r.user_phone ?? null)}
-                  className="w-full min-h-[44px] rounded-lg bg-primary text-primary-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                >
-                  {markingId === r.id ? s.incoming_saving : s.incoming_acceptOrder}
-                </button>
-              )}
-
-              {!r.appointment_time && (
-                <>
-                  {(r.status === "sent" || r.status === "seen") && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCancelOrderId(r.id);
-                        setSelectedReason(null);
-                        setOtherReasonText("");
-                      }}
-                      className="w-full rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
-                    >
-                      {s.cancelOrder}
-                    </button>
-                  )}
-                  {r.status === "accepted" && (
-                    <>
-                      {(() => {
-                        void iveStartedTick;
-                        const showIve = shouldShowIveStartedButton(r);
-                        const sent = hasSentIveStarted(r.id);
-                        if (!showIve && !sent) return null;
-                        return (
-                          <button
-                            type="button"
-                            data-testid="incoming-ive-started-btn"
-                            disabled={sent}
-                            onClick={() => void handleIveStarted(r)}
-                            className="w-full rounded-lg border border-brand/50 bg-brand/10 text-brand text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                          >
-                            {sent ? s.incoming_iveStarted_sent : s.incoming_iveStarted_btn}
-                          </button>
-                        );
-                      })()}
-                      {r.user_phone && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleCallCustomer(r.user_phone!, orderMode)
-                          }
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
-                          aria-label={s.incoming_callCustomer}
-                        >
-                          📞 {s.incoming_callCustomer}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        data-testid="incoming-done-btn"
-                        disabled={markingId === r.id}
-                        onClick={() => void markDone(r.id)}
-                        className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                      >
-                        {markingId === r.id ? s.incoming_saving : s.incoming_markDone}
-                      </button>
-                    </>
-                  )}
-                  {(r.status === "fulfilled" || r.status === "cancelled") &&
-                    r.user_phone &&
-                    !flaggedOrderIds[r.id] && (
-                      <button
-                        type="button"
-                        onClick={() => openFlagSheet(r)}
-                        className="w-full text-left text-xs text-muted-foreground/80 hover:text-muted-foreground py-1"
-                      >
-                        {s.incoming_flag_report_btn}
-                      </button>
-                    )}
-                </>
-              )}
-
-              {canShowBillButton(r) && (
-                <>
-                  {(() => {
-                    const existingBill = billsByRequestId[r.id];
-                    return (
-                      <button
-                        type="button"
-                        data-testid="incoming-bill-btn"
-                        onClick={() => {
-                          if (existingBill) {
-                            document
-                              .getElementById(`incoming-bill-preview-${r.id}`)
-                              ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                            return;
-                          }
-                          setBillRequestId(r.id);
-                          setBillUserPhone(r.user_phone);
-                        }}
-                        className="w-full rounded-xl border border-primary/50 text-primary text-sm font-semibold h-10 active:scale-[0.99]"
-                      >
-                        {existingBill ? s.bill_view_title : s.bill_title}
-                      </button>
-                    );
-                  })()}
-                  {billsByRequestId[r.id] && (
-                    <div
-                      id={`incoming-bill-preview-${r.id}`}
-                      data-testid="incoming-bill-preview"
-                      className="rounded-xl border border-border bg-muted/30 px-3 py-2.5 space-y-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <p className="text-xs font-semibold text-foreground">
-                            {s.bill_total}: ₹{billsByRequestId[r.id].total_amount.toFixed(2)}
-                          </p>
-                          {editedBillIds.has(billsByRequestId[r.id].id) && (
-                            <button
-                              type="button"
-                              data-testid="incoming-bill-edited-badge"
-                              onClick={() => setHistoryBillId(billsByRequestId[r.id].id)}
-                              className="text-xs font-semibold text-brand underline shrink-0"
-                            >
-                              {s.bill_editedBadge}
-                            </button>
-                          )}
-                        </div>
-                        <span className="text-xs text-muted-foreground shrink-0">
-                          {billsByRequestId[r.id].payment_mode === "cash"
-                            ? s.bill_cash
-                            : billsByRequestId[r.id].payment_mode === "upi"
-                              ? s.bill_upi
-                              : s.bill_khata}
-                          {" · "}
-                          {billsByRequestId[r.id].payment_status === "paid"
-                            ? s.bill_statusPaid
-                            : s.bill_statusUnpaid}
-                        </span>
-                      </div>
-                      {(billsByRequestId[r.id].payment_mode === "cash" ||
-                        billsByRequestId[r.id].payment_mode === "upi") &&
-                        billsByRequestId[r.id].payment_status === "unpaid" && (
-                          <button
-                            type="button"
-                            disabled={markingBillPaidId === billsByRequestId[r.id].id}
-                            onClick={() =>
-                              void markOrderBillPaid(billsByRequestId[r.id].id, r.id)
-                            }
-                            className="w-full rounded-lg bg-brand/15 text-brand border border-brand/40 text-xs font-semibold py-2 disabled:opacity-50"
-                          >
-                            {markingBillPaidId === billsByRequestId[r.id].id
-                              ? s.incoming_saving
-                              : s.khata_markPaid}
-                          </button>
-                        )}
-                      {billsByRequestId[r.id].payment_status === "unpaid" && (
-                        <>
-                          <button
-                            type="button"
-                            data-testid="incoming-remind-customer-btn"
-                            disabled={
-                              remindingBillId === billsByRequestId[r.id].id ||
-                              isBillRemindDebounced(billsByRequestId[r.id].id)
-                            }
-                            onClick={() =>
-                              void remindCustomerAboutBill(
-                                billsByRequestId[r.id].id,
-                                r.id,
-                              )
-                            }
-                            className="w-full rounded-lg border border-amber-500/50 text-amber-500 text-xs font-semibold py-2 disabled:opacity-50"
-                          >
-                            {remindingBillId === billsByRequestId[r.id].id
-                              ? s.bill_remind_customer_sending
-                              : s.bill_remind_customer}
-                          </button>
-                          {billsByRequestId[r.id].last_vendor_reminder_at && (
-                            <p
-                              data-testid="incoming-last-reminded"
-                              className="text-xs text-muted-foreground text-center"
-                            >
-                              {s.bill_remind_customer_last.replace(
-                                "{when}",
-                                formatTimeAgo(billsByRequestId[r.id].last_vendor_reminder_at!),
-                              )}
-                            </p>
-                          )}
-                        </>
-                      )}
-                      {billsByRequestId[r.id].payment_status === "unpaid" &&
-                        billsByRequestId[r.id].payment_mode !== "khata" && (
-                          <button
-                            type="button"
-                            data-testid="incoming-add-bill-to-khata-btn"
-                            disabled={addingBillToKhataId === billsByRequestId[r.id].id}
-                            onClick={() =>
-                              void promptAddBillToKhata(
-                                billsByRequestId[r.id],
-                                r.id,
-                                r.user_phone,
-                              )
-                            }
-                            className="w-full rounded-lg border border-primary/50 text-primary text-xs font-semibold py-2 disabled:opacity-50"
-                          >
-                            {addingBillToKhataId === billsByRequestId[r.id].id
-                              ? s.incoming_saving
-                              : s.bill_addToKhata}
-                          </button>
-                        )}
-                      {billsByRequestId[r.id].payment_status !== "void" && (
-                        <button
-                          type="button"
-                          data-testid="incoming-edit-bill-btn"
-                          onClick={() =>
-                            setEditBillTarget({
-                              billId: billsByRequestId[r.id].id,
-                              requestId: r.id,
-                              userPhone: r.user_phone,
-                              total_amount: billsByRequestId[r.id].total_amount,
-                              payment_mode: billsByRequestId[r.id].payment_mode,
-                              payment_status: billsByRequestId[r.id].payment_status,
-                            })
-                          }
-                          className="w-full rounded-lg border border-surface-border text-foreground text-xs font-semibold py-2 active:scale-[0.99]"
-                        >
-                          {s.bill_edit}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {(r.status === "fulfilled" || r.status === "done") && (
-                <div className="space-y-2">
-                  {orderCanAddToLedger &&
-                    r.user_phone &&
-                    !requestIdsWithLedger.has(r.id) &&
-                    !billsByRequestId[r.id] && (
-                    <button
-                      type="button"
-                      onClick={() => openLedgerSheet(r)}
-                      className="w-full rounded-lg border border-primary/50 text-primary text-xs font-semibold py-2 active:scale-[0.99]"
-                    >
-                      {s.khata_addToLedger}
-                    </button>
-                  )}
-                  {(() => {
-                    const dismissBlockedByUnpaidBill = billBlocksDismiss(billsByRequestId[r.id]);
-                    const dismissBlockedByKhata = requestIdsDismissBlockedByKhata.has(r.id);
-                    const dismissBlocked = dismissBlockedByUnpaidBill || dismissBlockedByKhata;
-                    return (
-                      <div>
-                        <button
-                          type="button"
-                          data-testid="incoming-dismiss-btn"
-                          disabled={markingId === r.id || dismissBlocked}
-                          onClick={() => {
-                            if (!dismissBlocked) void dismissOrder(r.id);
-                          }}
-                          className={cn(
-                            "w-full rounded-lg border border-border bg-muted/40 text-foreground text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50",
-                            dismissBlocked && "opacity-50 cursor-not-allowed",
-                          )}
-                        >
-                          {markingId === r.id ? s.incoming_saving : s.incoming_dismiss}
-                        </button>
-                        {dismissBlockedByUnpaidBill && (
-                          <p
-                            data-testid="incoming-dismiss-blocked-unpaid"
-                            className="text-xs text-muted-foreground text-center mt-1"
-                          >
-                            {s.incoming_dismissBlockedUnpaid}
-                          </p>
-                        )}
-                        {!dismissBlockedByUnpaidBill && dismissBlockedByKhata && (
-                          <p className="text-xs text-muted-foreground text-center mt-1">
-                            {s.khata_settleDuesFirst}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {r.payment_status === "claimed" && (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    data-testid="incoming-confirm-payment-btn"
-                    disabled={confirmingPaymentId === r.id || disputingPaymentId === r.id}
-                    onClick={() =>
-                      void confirmPayment(
-                        r.id,
-                        r.user_phone?.trim() || "",
-                        r.payment_utr ?? null,
-                        billsByRequestId[r.id]?.total_amount ?? null,
-                      )
-                    }
-                    className="rounded-lg border border-green-500/50 text-green-600 dark:text-green-400 text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                  >
-                    {confirmingPaymentId === r.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : null}
-                    {s.payment_confirm_btn}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="dispute-payment-btn"
-                    disabled={confirmingPaymentId === r.id || disputingPaymentId === r.id}
-                    onClick={() =>
-                      void disputePayment(r.id, r.user_phone?.trim() || "")
-                    }
-                    className="rounded-lg border border-red-500/50 text-red-500 text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                  >
-                    {disputingPaymentId === r.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : null}
-                    {s.payment_dispute_btn}
-                  </button>
-                </div>
-              )}
-            </li>
-            );
-          })}
+              order={r}
+              flash={flashOrderId === r.id}
+              serviceMode={serviceMode}
+              markingId={markingId}
+              confirmingPaymentId={confirmingPaymentId}
+              disputingPaymentId={disputingPaymentId}
+              markingBillPaidId={markingBillPaidId}
+              remindingBillId={remindingBillId}
+              addingBillToKhataId={addingBillToKhataId}
+              khataAmberLimit={khataAmberLimit}
+              khataRedLimit={khataRedLimit}
+              khataOutstandingByPhone={khataOutstandingByPhone}
+              trustByPhone={trustByPhone}
+              appointmentOverlaps={appointmentOverlapIds.has(r.id)}
+              bill={billsByRequestId[r.id]}
+              billEdited={
+                !!billsByRequestId[r.id] &&
+                editedBillIds.has(billsByRequestId[r.id].id)
+              }
+              hasLedger={requestIdsWithLedger.has(r.id)}
+              dismissBlockedByKhata={requestIdsDismissBlockedByKhata.has(r.id)}
+              isFlagged={!!flaggedOrderIds[r.id]}
+              iveStartedTick={iveStartedTick}
+              slotLabels={slotLabels}
+              appointmentDateLocale={appointmentDateLocale}
+              isBillRemindDebounced={isBillRemindDebounced}
+              onClearEditedFlag={(id) => void clearOrderEditedFlag(id)}
+              onAppointmentConfirm={(id) => void handleAppointmentAction(id, "confirmed")}
+              onOpenDecline={(id) => {
+                setDeclineOrderId(id);
+                setSelectedReason(null);
+                setOtherReasonText("");
+              }}
+              onOpenCancel={(id) => {
+                setCancelOrderId(id);
+                setSelectedReason(null);
+                setOtherReasonText("");
+              }}
+              onIveStarted={(ord) => void handleIveStarted(ord)}
+              onCallCustomer={handleCallCustomer}
+              onMarkDone={(id) => void markDone(id)}
+              onDismiss={(id) => void dismissOrder(id)}
+              onAcceptHelp={(id) => void acceptHelpOrder(id)}
+              onAcceptDelivery={(id, phone) => void acceptDeliveryOrder(id, phone)}
+              onOpenFlag={openFlagSheet}
+              onOpenBill={(ord) => {
+                setBillRequestId(ord.id);
+                setBillUserPhone(ord.user_phone);
+              }}
+              onOpenBillHistory={setHistoryBillId}
+              onMarkBillPaid={(billId, requestId) => void markOrderBillPaid(billId, requestId)}
+              onRemindCustomer={(billId, requestId) =>
+                void remindCustomerAboutBill(billId, requestId)
+              }
+              onAddBillToKhata={(b, requestId, phone) =>
+                void promptAddBillToKhata(b, requestId, phone)
+              }
+              onEditBill={setEditBillTarget}
+              onOpenLedger={openLedgerSheet}
+              onConfirmPayment={(requestId, userPhone, utr, amount) =>
+                void confirmPayment(requestId, userPhone, utr, amount)
+              }
+              onDisputePayment={(requestId, userPhone) =>
+                void disputePayment(requestId, userPhone)
+              }
+            />
+          ))}
         </ul>
       )}
 

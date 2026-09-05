@@ -18,7 +18,7 @@ import { fetchVendorsVisibleToCustomer } from "@/lib/vendorRead";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { RatingSheet } from "@/components/RatingSheet";
 import { PaymentSheet } from "@/components/PaymentSheet";
-import { ArrowLeft, Loader2, Mic, Camera, Loader2 as Loader2Icon, Pencil, PhoneCall, Search, X } from "lucide-react";
+import { ArrowLeft, Loader2, Mic, Camera, Loader2 as Loader2Icon, PhoneCall, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
@@ -56,7 +56,6 @@ import {
 } from "@/lib/khataDisplay";
 import { KhataTxSourceChip } from "@/components/KhataTxSourceChip";
 import { syncVendorRatingFromReviews } from "@/lib/vendorRating";
-import { openGoogleMaps, resolveCustomerNavigateToVendorUrl } from "@/lib/mapsDeepLink";
 import {
   NetworkExhaustedError,
   throwOnSupabaseNetworkError,
@@ -82,6 +81,7 @@ import {
   isCustomerSelfDeclarePaymentEligible,
 } from "@/lib/customerPaymentGate";
 import { isBillPastPaymentHygieneTier1 } from "@/lib/paymentHygiene";
+import { MyOrderCard } from "@/components/MyOrderCard";
 const MAX_LEN = 200;
 
 function fulfilledOrderCtaLabel(
@@ -1760,12 +1760,6 @@ const MyOrders = () => {
     });
   };
 
-  const orderStatusPillClass = (r: RowWithShop) => {
-    if (r.status === "cancelled") return "bg-red-500/20 text-red-400 border-red-500/30";
-    if (r.status === "expired") return "bg-amber-500/20 text-amber-500 border-amber-500/30";
-    if (r.status === "fulfilled" || r.status === "done") return "bg-green-500/20 text-green-400 border-green-500/30";
-    return "bg-brand/20 text-brand border-brand/30";
-  };
 
   return (
     <AppShell theme="dark">
@@ -1945,712 +1939,49 @@ const MyOrders = () => {
         <SettingsSectionLabel>{s.myOrders_heading}</SettingsSectionLabel>
         <ul className="space-y-3 pb-4">
           {filteredRows.map((r) => (
-            <li
+            <MyOrderCard
               key={r.id}
-              id={`order-card-${r.id}`}
-              data-testid="order-card"
-              className={cn(
-                "rounded-2xl border border-surface-border bg-surface p-4 space-y-2 mb-3",
-                r.status === "cancelled" && "border-red-500/30 bg-red-500/5",
-                r.status === "expired" && "border-amber-500/30 bg-amber-500/5",
-                flashOrderId === r.id &&
-                  "ring-2 ring-amber-500 border-amber-500/50 bg-amber-500/10 animate-pulse",
-              )}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p
-                  className="font-semibold text-foreground truncate min-w-0"
-                  title={r.vendors?.shop_name ?? s.myOrders_shopFallback}
-                >
-                  {r.vendors?.shop_name ?? s.myOrders_shopFallback}
-                </p>
-                <div className="flex items-center gap-1 shrink-0">
-                  {(r.status === "sent" || r.status === "seen") &&
-                    r.appointment_status !== "declined" && (
-                    <button
-                      type="button"
-                      onClick={() => openEditSheet(r)}
-                      className="h-8 w-8 grid place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
-                      aria-label={s.editOrder}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                  )}
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {formatTimeAgo(r.created_at)}
-                  </span>
-                </div>
-              </div>
-              <span
-                data-testid="order-status-badge"
-                className={cn(
-                  "inline-flex rounded-full text-xs font-semibold px-3 py-1 border",
-                  orderStatusPillClass(r),
-                )}
-              >
-                {userStatusLabel(r, s)}
-              </span>
-              {isDeliveryAcceptedOverdue(r) && (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
-                  <p className="text-xs text-amber-400 text-center leading-snug font-semibold">
-                    {s.delivery_accepted_overdue_title}
-                  </p>
-                  <p className="text-xs text-amber-400 text-center leading-snug">
-                    {s.delivery_accepted_overdue_body}
-                  </p>
-                  {canShowCustomerCancelOrder(r) ? (
-                    <button
-                      type="button"
-                      data-testid="order-cancel-btn"
-                      disabled={markingId === r.id}
-                      onClick={() => void handleRemoveOrder(r)}
-                      className="w-full rounded-xl border border-destructive/40 text-destructive text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {markingId === r.id ? s.myOrders_saving : s.myOrders_cancelOrder}
-                    </button>
-                  ) : billBlocksDismiss(billsByRequestId[r.id]) ? (
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        data-testid="order-dismiss-btn"
-                        disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
-                      >
-                        {s.myOrders_dismiss}
-                      </button>
-                      <p
-                        data-testid="order-dismiss-blocked-unpaid"
-                        className="text-xs text-muted-foreground text-center leading-snug"
-                      >
-                        {s.myOrders_dismissBlockedUnpaid}
-                      </p>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      data-testid="order-dismiss-btn"
-                      disabled={markingId === r.id}
-                      onClick={() => void markDone(r)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
-                    </button>
-                  )}
-                </div>
-              )}
-              {isBookingConfirmedOverdue(r) && (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
-                  <p className="text-xs text-amber-400 text-center leading-snug font-semibold">
-                    {s.booking_confirmed_overdue_title}
-                  </p>
-                  <p className="text-xs text-amber-400 text-center leading-snug">
-                    {s.booking_confirmed_overdue_body}
-                  </p>
-                  {billBlocksDismiss(billsByRequestId[r.id]) ? (
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        data-testid="order-dismiss-btn"
-                        disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
-                      >
-                        {s.myOrders_dismiss}
-                      </button>
-                      <p
-                        data-testid="order-dismiss-blocked-unpaid"
-                        className="text-xs text-muted-foreground text-center leading-snug"
-                      >
-                        {s.myOrders_dismissBlockedUnpaid}
-                      </p>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      data-testid="order-dismiss-btn"
-                      disabled={markingId === r.id}
-                      onClick={() => void markDone(r)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
-                    </button>
-                  )}
-                </div>
-              )}
-              <p className="text-sm text-foreground/90 leading-snug whitespace-pre-wrap break-words">
-                {stripLocationTag(r.message)}
-              </p>
-              {billsByRequestId[r.id] &&
-                (() => {
-                  const bill = billsByRequestId[r.id];
-                  return (
-                    <div className="rounded-xl border border-brand-border bg-brand/5 p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-semibold text-brand">{s.bill_title}</p>
-                        {editedBillIds.has(bill.id) && (
-                          <button
-                            type="button"
-                            data-testid="my-orders-bill-edited-badge"
-                            onClick={() => setHistoryBillId(bill.id)}
-                            className="text-xs font-semibold text-brand underline shrink-0"
-                          >
-                            {s.bill_editedBadge}
-                          </button>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        {bill.items.map((item, i) => (
-                          <div
-                            key={i}
-                            className="flex justify-between text-xs text-foreground"
-                          >
-                            <span>
-                              {item.description}{" "}
-                              {item.quantity > 1
-                                ? `×${item.quantity}${item.unit ? item.unit : ""}`
-                                : ""}
-                            </span>
-                            <span>₹{(item.total_price ?? item.quantity * item.unit_price).toFixed(2)}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="border-t border-brand-border pt-1 flex justify-between text-sm font-semibold">
-                        <span>{s.bill_total}</span>
-                        <span className="text-brand">₹{bill.total_amount.toFixed(2)}</span>
-                      </div>
-                      {bill.payment_status === "unpaid" &&
-                        isBillPastPaymentHygieneTier1(bill.created_at, bill.payment_status) && (
-                          <div
-                            data-testid="my-orders-payment-hygiene-warning"
-                            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2"
-                          >
-                            <p className="text-xs text-amber-400 text-center leading-snug">
-                              {s.payment_hygiene_unpaid_warning}
-                            </p>
-                          </div>
-                        )}
-                      {r.payment_status === "claimed" && (
-                        <div className="flex items-center gap-2 text-xs text-foreground">
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" aria-hidden />
-                          {s.payment_claimed}
-                        </div>
-                      )}
-                      {r.payment_status === "confirmed" && (
-                        <div className="flex items-center gap-2 text-xs text-foreground">
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" aria-hidden />
-                          {s.payment_confirmed}
-                        </div>
-                      )}
-                      {r.payment_status === "disputed" && (
-                        <div className="flex items-center gap-2 text-xs text-foreground">
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-hidden />
-                          {s.payment_disputed}
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">
-                          {bill.payment_mode === "cash"
-                            ? s.bill_cash
-                            : bill.payment_mode === "upi"
-                              ? s.bill_upi
-                              : s.bill_khata}
-                          {" · "}
-                          {bill.payment_status === "paid" ? s.bill_statusPaid : s.bill_statusUnpaid}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {r.vendors?.phone?.trim() && (
-                            <button
-                              type="button"
-                              onClick={() => void openHelpVendorCall(r)}
-                              className="text-xs text-brand font-semibold border border-brand/40 rounded-lg px-3 py-1"
-                            >
-                              {s.ai_bridge_call_now}
-                            </button>
-                          )}
-                          {canCustomerSelfDeclarePayment(r, bill, paymentSelfDeclareRestricted) ? (
-                            <button
-                              type="button"
-                              data-testid="my-orders-pay-now-btn"
-                              disabled={paymentSheetLoadingId === r.id}
-                              className="text-xs text-amber-500 font-semibold border border-amber-500/50 rounded-lg px-3 py-1 disabled:opacity-50 inline-flex items-center gap-1.5"
-                              onClick={() => void openPaymentSheet(r, bill)}
-                            >
-                              {paymentSheetLoadingId === r.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : null}
-                              {s.payment_pay_now}
-                            </button>
-                          ) : isCustomerSelfDeclarePaymentEligible(r, bill) &&
-                            paymentSelfDeclareRestricted ? (
-                            r.id === paymentBlockRequestId ? (
-                              <span
-                                data-testid="my-orders-payment-restricted-blocking-bill"
-                                className="text-xs text-amber-700 dark:text-amber-400 max-w-[14rem] text-right leading-snug"
-                              >
-                                {s.payment_restricted_blocking_bill_resolve(
-                                  r.vendors?.shop_name?.trim() || s.myOrders_shopFallback,
-                                )}
-                              </span>
-                            ) : (
-                              <span
-                                data-testid="my-orders-payment-cash-only"
-                                className="text-xs text-amber-700 dark:text-amber-400 max-w-[14rem] text-right leading-snug"
-                              >
-                                {s.payment_cash_only_restricted}
-                              </span>
-                            )
-                          ) : bill.payment_status === "unpaid" ? (
-                            <span
-                              data-testid="my-orders-payment-awaiting-vendor"
-                              className="text-xs text-muted-foreground"
-                            >
-                              {s.payment_awaiting_vendor_confirm}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      {bill.notes && (
-                        <p className="text-xs text-muted-foreground italic">{bill.notes}</p>
-                      )}
-                    </div>
-                  );
-                })()}
-              {(r.status === "fulfilled" || r.status === "done") &&
-                myReviews[r.id] &&
-                (() => {
-                  const review = myReviews[r.id];
-                  const canEdit =
-                    Date.now() - new Date(review.created_at).getTime() < 7 * 24 * 60 * 60 * 1000;
-                  return (
-                    <div className="rounded-xl border border-surface-border bg-surface/50 px-3 py-2 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs">
-                          {"⭐".repeat(review.rating)}
-                          {"☆".repeat(5 - review.rating)}
-                        </span>
-                        {canEdit && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setEditingReview({
-                                id: review.id,
-                                vendorId: r.vendor_id,
-                                rating: review.rating,
-                                text: review.review_text ?? "",
-                              })
-                            }
-                            className="text-xs text-brand font-semibold"
-                          >
-                            {s.review_edit}
-                          </button>
-                        )}
-                      </div>
-                      {review.review_text && (
-                        <p className="text-xs text-muted-foreground">
-                          &quot;{review.review_text}&quot;
-                        </p>
-                      )}
-                      {review.vendor_response && (
-                        <div className="rounded-lg bg-brand/5 border border-brand-border px-2 py-1.5">
-                          <p className="text-xs text-brand font-semibold">{s.review_vendorSays}</p>
-                          <p className="text-xs text-foreground">{review.vendor_response}</p>
-                          {review.vendor_responded_at && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {formatTimeAgo(review.vendor_responded_at)}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              {customerOrderShowsLiveLocation({
-                id: r.id,
-                status: r.status,
-                created_at: r.created_at,
-                delivery_slot: r.delivery_slot,
-                appointment_time: r.appointment_time,
-                appointment_status: r.appointment_status,
-                service_mode: r.service_mode ?? r.vendors?.service_mode,
-              }) &&
-                (() => {
-                  const live = vendorLiveById[r.vendor_id];
-                  const distM =
-                    live && userCoords
-                      ? distanceMeters(
-                          { lat: userCoords.lat, lng: userCoords.lng },
-                          { lat: live.latitude, lng: live.longitude },
-                        )
-                      : null;
-                  void locationTick;
-                  const isHelpOrder =
-                    String(r.service_mode ?? r.vendors?.service_mode ?? "")
-                      .trim()
-                      .toLowerCase() === "help";
-                  return (
-                    <>
-                      {live && distM != null && (
-                        <p className="text-xs text-brand">
-                          📍 Vendor is {formatVendorDistance(distM)} · {s.vendor_last_updated}{" "}
-                          {formatTimeAgo(live.lastUpdated)}
-                        </p>
-                      )}
-                      {!live && (
-                        <p className="text-xs text-muted-foreground">📍 {s.vendor_distance}</p>
-                      )}
-                      {live && distM == null && (
-                        <p className="text-xs text-brand">
-                          📍 {s.vendor_distance} · {s.vendor_last_updated}{" "}
-                          {formatTimeAgo(live.lastUpdated)}
-                        </p>
-                      )}
-                      {vendorStoppedByOrderId[r.id] && (
-                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
-                          <p className="text-xs text-amber-400 text-center leading-snug">
-                            {s.vendor_stopped_warning}
-                          </p>
-                          {r.vendors?.phone && (
-                            <button
-                              type="button"
-                              onClick={() => void openHelpVendorCall(r)}
-                              className="w-full rounded-lg border border-brand/40 text-brand text-xs font-semibold py-2"
-                            >
-                              {s.radar_connect_ai}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      {isHelpOrder &&
-                        isHelpAcceptDelayedRow(r, config.helpAcceptTimeoutHours) && (
-                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-2">
-                          <p className="text-xs text-amber-400 text-center leading-snug">
-                            {formatHelpDelayedWarning(
-                              s.order_help_delayed_warning,
-                              config.helpAcceptTimeoutHours,
-                            )}
-                          </p>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              {r.status === "cancelled" && (
-                <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5">
-                  <p className="text-sm font-semibold text-foreground leading-snug">
-                    {/* cancel_reason is only recorded by vendor_cancel_order;
-                        customer cancels (cancel_customer_order) never set it —
-                        same origin discriminator as the status pill above. */}
-                    {r.cancel_reason?.trim() || s.myOrders_youCancelledDefault}
-                  </p>
-                </div>
-              )}
-              {r.status === "expired" && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-                  <p className="text-sm font-semibold text-foreground leading-snug">
-                    {s.myOrders_expiredBanner}
-                  </p>
-                </div>
-              )}
-              {(() => {
-                const slot = deliverySlotLabel(r.delivery_slot, slotLabels);
-                if (!slot) return null;
-                return (
-                  <div className="mt-1 rounded-lg border border-brand-border bg-brand/5 px-3 py-2 text-xs">
-                    {s.myOrders_deliverySlotPrefix}<span className="text-green-700 dark:text-brand font-semibold">{slot}</span>
-                  </div>
-                );
-              })()}
-              {r.appointment_time &&
-                (() => {
-                  const msg = r.message ?? "";
-                  const isHome = msg.includes("[Come to my place]");
-                  const isShop = msg.includes("[I'll visit your shop]");
-                  const borderColor = isHome
-                    ? "border-blue-500/30 bg-blue-500/5"
-                    : isShop
-                      ? "border-purple-500/30 bg-purple-500/5"
-                      : "border-gray-500/30 bg-gray-500/5";
-                  const labelColor = isHome
-                    ? "text-blue-400"
-                    : isShop
-                      ? "text-purple-400"
-                      : "text-gray-400";
-                  const timeColor = isHome
-                    ? "text-blue-400"
-                    : isShop
-                      ? "text-purple-400"
-                      : "text-gray-400";
-                  const locationLabel = isHome
-                    ? s.myOrders_locationComeToYou
-                    : isShop
-                      ? s.myOrders_locationVisitShop
-                      : s.myOrders_locationTbd;
-                  return (
-                    <div className={`mt-2 rounded-lg border px-3 py-2 text-xs space-y-0.5 ${borderColor}`}>
-                      <div className={`font-semibold ${labelColor}`}>{locationLabel}</div>
-                      <div>
-                        {s.myOrders_apptAround}
-                        <span className={`font-semibold ${timeColor}`}>
-                          {new Date(r.appointment_time).toLocaleString("en-IN", {
-                            weekday: "short",
-                            day: "numeric",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                        <span className="ml-2 text-muted-foreground">
-                          {r.appointment_status === "confirmed" &&
-                            r.status !== "cancelled" &&
-                            r.status !== "fulfilled" &&
-                            r.status !== "done" &&
-                            s.myOrders_apptConfirmed}
-                          {r.appointment_status === "declined" && s.myOrders_apptDeclined}
-                          {r.appointment_status === "cancelled" && s.myOrders_apptCancelled}
-                          {r.appointment_status === "pending" && s.myOrders_apptAwaiting}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-              {(() => {
-                const mapsUrl = resolveCustomerNavigateToVendorUrl(r);
-                if (!mapsUrl) return null;
-                return (
-                  <button
-                    type="button"
-                    data-testid="myorders-open-maps-btn"
-                    onClick={() => openGoogleMaps(mapsUrl)}
-                    className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-brand text-brand text-sm font-medium"
-                  >
-                    🗺️ {s.maps_openInMaps}
-                  </button>
-                );
-              })()}
-
-              {r.appointment_time &&
-                r.status !== "fulfilled" &&
-                r.status !== "done" &&
-                r.status !== "cancelled" &&
-                (() => {
-                  if (
-                    r.appointment_status === "declined" ||
-                    r.appointment_status === "cancelled"
-                  ) {
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => void cancelAppointment(r)}
-                        className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
-                      >
-                        {s.myOrders_dismiss}
-                      </button>
-                    );
-                  }
-
-                  const appointmentDate = new Date(r.appointment_time);
-                  const today = new Date();
-                  const isSameDay = appointmentDate.toDateString() === today.toDateString();
-                  const isPast = appointmentDate < today;
-
-                  if (isPast) return null;
-
-                  if (!isSameDay) {
-                    return (
-                      <button
-                        type="button"
-                        data-testid="order-cancel-btn"
-                        onClick={() => setShowCancelConfirm((p) => ({ ...p, [r.id]: true }))}
-                        className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
-                      >
-                        {s.myOrders_cancelBooking}
-                      </button>
-                    );
-                  }
-
-                  if (!calledVendor[r.id]) {
-                    return (
-                      <div className="space-y-2">
-                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400 text-center">
-                          {s.myOrders_sameDayWarning}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void openHelpVendorCall(r);
-                            setTimeout(() => setCalledVendor((p) => ({ ...p, [r.id]: true })), 3000);
-                          }}
-                          className="w-full rounded-lg border border-brand/40 text-brand text-xs font-semibold py-2"
-                        >
-                          {s.myOrders_callThenCancel}
-                        </button>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="space-y-2">
-                      <p className="text-xs text-gray-400 text-center">
-                        {s.myOrders_callDone}
-                      </p>
-                      {/* One-tap cancel after the call, without an extra confirmation
-                          dialog, is a deliberate product decision — the call itself is
-                          the confirmation step. Do not add friction here. */}
-                      <button
-                        type="button"
-                        data-testid="order-cancel-btn"
-                        onClick={() => void cancelAppointment(r)}
-                        className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
-                      >
-                        {s.myOrders_cancelBooking}
-                      </button>
-                    </div>
-                  );
-                })()}
-
-              {showCancelConfirm[r.id] && r.status !== "cancelled" && (
-                <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
-                  <p className="text-xs text-destructive font-semibold text-center">
-                    {s.myOrders_confirmCancelQ}
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void cancelAppointment(r)}
-                      className="rounded-lg bg-destructive text-white text-xs font-semibold py-2"
-                    >
-                      {s.myOrders_yesCancel}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowCancelConfirm((p) => ({ ...p, [r.id]: false }))}
-                      className="rounded-lg border border-border text-xs font-semibold py-2"
-                    >
-                      {s.myOrders_keepIt}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex flex-col gap-1.5">
-                {r.status === "cancelled" || r.status === "expired" ? (
-                  billBlocksDismiss(billsByRequestId[r.id]) ? (
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        data-testid="order-dismiss-btn"
-                        disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
-                      >
-                        {s.myOrders_dismiss}
-                      </button>
-                      <p
-                        data-testid="order-dismiss-blocked-unpaid"
-                        className="text-xs text-muted-foreground text-center leading-snug"
-                      >
-                        {s.myOrders_dismissBlockedUnpaid}
-                      </p>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      data-testid="order-dismiss-btn"
-                      disabled={markingId === r.id}
-                      onClick={() => void markDone(r)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
-                    </button>
-                  )
-                ) : null}
-                {r.status === "fulfilled" ? (
-                  billBlocksDismiss(billsByRequestId[r.id]) ? (
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        data-testid="order-dismiss-btn"
-                        disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
-                      >
-                        {s.myOrders_dismiss}
-                      </button>
-                      <p
-                        data-testid="order-dismiss-blocked-unpaid"
-                        className="text-xs text-muted-foreground text-center leading-snug"
-                      >
-                        {s.myOrders_dismissBlockedUnpaid}
-                      </p>
-                    </div>
-                  ) : myReviews[r.id] ? (
-                    <button
-                      type="button"
-                      data-testid="order-dismiss-btn"
-                      disabled={markingId === r.id}
-                      onClick={() => void markDone(r)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {markingId === r.id ? s.myOrders_saving : s.myOrders_dismiss}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      data-testid="order-rate-btn"
-                      disabled={markingId === r.id}
-                      onClick={() => handleFulfilledDismiss(r)}
-                      className="w-full rounded-2xl bg-brand text-page-bg text-sm font-semibold h-12 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {markingId === r.id
-                        ? s.myOrders_saving
-                        : fulfilledOrderCtaLabel(r.vendors?.service_mode, s)}
-                    </button>
-                  )
-                ) : null}
-                {r.status !== "cancelled" &&
-                  !r.appointment_time &&
-                  (canShowRemoveOrder(r) ? (
-                    !showOrderCancelConfirm[r.id] ? (
-                      <button
-                        type="button"
-                        data-testid="order-cancel-btn"
-                        disabled={markingId === r.id}
-                        onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: true }))}
-                        className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
-                      >
-                        {s.myOrders_cancelOrder}
-                      </button>
-                    ) : (
-                      <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
-                        <p className="text-xs text-destructive font-semibold text-center">
-                          {s.myOrders_confirmCancelOrderQ}
-                        </p>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            disabled={markingId === r.id}
-                            onClick={() => void handleRemoveOrder(r)}
-                            className="rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
-                          >
-                            {s.myOrders_yesCancel}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: false }))}
-                            className="rounded-lg border border-border text-xs font-semibold py-2"
-                          >
-                            {s.myOrders_keepIt}
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  ) : r.status === "seen" &&
-                    !canShowPreAcceptCancel(r) &&
-                    orderCreatedWithinLast24h(r.created_at) ? (
-                    <p className="text-xs text-muted-foreground text-center px-1">
-                      {s.myOrders_cannotCancel}
-                    </p>
-                  ) : null)}
-              </div>
-            </li>
+              order={r}
+              flash={flashOrderId === r.id}
+              isMarking={markingId === r.id}
+              bill={billsByRequestId[r.id]}
+              billEdited={
+                !!billsByRequestId[r.id] &&
+                editedBillIds.has(billsByRequestId[r.id].id)
+              }
+              review={myReviews[r.id]}
+              vendorLive={vendorLiveById[r.vendor_id]}
+              vendorStopped={!!vendorStoppedByOrderId[r.id]}
+              hasCalledVendor={!!calledVendor[r.id]}
+              showCancelConfirm={!!showCancelConfirm[r.id]}
+              showOrderCancelConfirm={!!showOrderCancelConfirm[r.id]}
+              paymentSheetLoading={paymentSheetLoadingId === r.id}
+              isPaymentBlockRequest={r.id === paymentBlockRequestId}
+              paymentSelfDeclareRestricted={paymentSelfDeclareRestricted}
+              paymentBlockRequestId={paymentBlockRequestId}
+              userCoords={userCoords}
+              locationTick={locationTick}
+              helpAcceptTimeoutHours={config.helpAcceptTimeoutHours}
+              slotLabels={slotLabels}
+              onOpenEdit={openEditSheet}
+              onRemoveOrder={(ord) => void handleRemoveOrder(ord)}
+              onMarkDone={(ord) => void markDone(ord)}
+              onOpenBillHistory={setHistoryBillId}
+              onHelpVendorCall={(ord) => void openHelpVendorCall(ord)}
+              onOpenPayment={(ord, b) => void openPaymentSheet(ord, b)}
+              onEditReview={setEditingReview}
+              onCancelAppointment={(ord) => void cancelAppointment(ord)}
+              onSetShowCancelConfirm={(open) =>
+                setShowCancelConfirm((p) => ({ ...p, [r.id]: open }))
+              }
+              onMarkCalledVendorSoon={() =>
+                setTimeout(() => setCalledVendor((p) => ({ ...p, [r.id]: true })), 3000)
+              }
+              onFulfilledDismiss={handleFulfilledDismiss}
+              onSetShowOrderCancelConfirm={(open) =>
+                setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: open }))
+              }
+            />
           ))}
         </ul>
         </>
