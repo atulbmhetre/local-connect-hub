@@ -837,7 +837,10 @@ export function IncomingOrderCard({
                     </button>
                   )}
                   {(() => {
-                    const dismissBlockedByUnpaidBill = billBlocksDismiss(bill);
+                    const dismissBlockedByUnpaidBill = billBlocksDismiss(
+                      bill,
+                      order.payment_status,
+                    );
                     const dismissBlocked = dismissBlockedByUnpaidBill || dismissBlockedByKhata;
                     return (
                       <div>

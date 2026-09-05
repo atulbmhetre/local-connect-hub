@@ -35,15 +35,12 @@ const anon = createClient(url, anonKey, { auth: { persistSession: false } });
 const T = Date.now();
 const vendorPhone = `9832${String(T).slice(-6)}`;
 const custPhone = `8842${String(T).slice(-6)}`;
-const adminEmail = `smhg-admin-${T}@aaspaas.invalid`;
-const adminPassword = `SmHg_${T}_pw!`;
 
 const created = {
   vendorIds: [],
   requestIds: [],
   billIds: [],
   recurringIds: [],
-  adminUserId: null,
   phones: [vendorPhone, custPhone],
 };
 
@@ -79,10 +76,6 @@ async function cleanup() {
   }
   for (const phone of created.phones) {
     await admin.from("users").delete().eq("phone", phone);
-  }
-  if (created.adminUserId) {
-    await admin.from("admin_users").delete().eq("user_id", created.adminUserId);
-    await admin.auth.admin.deleteUser(created.adminUserId);
   }
 }
 
@@ -193,103 +186,19 @@ try {
     status: (await statusOf(acceptedId))?.status,
   });
 
-  // ── 2) Admin resolve disputed UPI ──
-  const { data: adminUser, error: adminCreateErr } = await admin.auth.admin.createUser({
-    email: adminEmail,
-    email_confirm: true,
-    password: adminPassword,
-  });
-  if (adminCreateErr || !adminUser?.user?.id) {
-    throw new Error(`admin createUser: ${adminCreateErr?.message}`);
-  }
-  created.adminUserId = adminUser.user.id;
-  const { error: allowErr } = await admin.from("admin_users").insert({ user_id: created.adminUserId });
-  if (allowErr) throw new Error(`admin_users: ${allowErr.message}`);
-
-  const asAdmin = createClient(url, anonKey, { auth: { persistSession: false } });
-  const { error: signErr } = await asAdmin.auth.signInWithPassword({
-    email: adminEmail,
-    password: adminPassword,
-  });
-  if (signErr) throw new Error(`admin signIn: ${signErr.message}`);
-
-  const disputeConfirmId = await seedRequest(cancelVendorId, "fulfilled", {
-    payment_status: "disputed",
-    service_mode: "delivery",
-  });
-  const { data: bill1, error: bill1Err } = await admin
-    .from("order_bills")
-    .insert({
-      request_id: disputeConfirmId,
-      vendor_id: cancelVendorId,
-      user_phone: custPhone,
-      total_amount: 40,
-      payment_mode: "upi",
-      payment_status: "unpaid",
-    })
-    .select("id")
-    .single();
-  if (bill1Err || !bill1) throw new Error(`bill1: ${bill1Err?.message}`);
-  created.billIds.push(bill1.id);
-
-  const resolveConfirm = await asAdmin.rpc("admin_resolve_disputed_upi_payment", {
-    p_request_id: disputeConfirmId,
-    p_resolution: "confirmed",
-    p_notes: "probe dispute invalid",
-  });
-  const afterConfirm = await statusOf(disputeConfirmId);
-  const { data: bill1After } = await admin.from("order_bills").select("payment_status").eq("id", bill1.id).single();
-  check("admin_resolve_confirmed", !resolveConfirm.error && afterConfirm?.payment_status === "confirmed" && bill1After?.payment_status === "paid", {
-    rpc: "admin_resolve_disputed_upi_payment",
-    error: errMsg(resolveConfirm.error),
-    payment_status: afterConfirm?.payment_status,
-    bill_status: bill1After?.payment_status,
-  });
-
-  const disputeVoidId = await seedRequest(cancelVendorId, "fulfilled", {
-    payment_status: "disputed",
-  });
-  const { data: bill2, error: bill2Err } = await admin
-    .from("order_bills")
-    .insert({
-      request_id: disputeVoidId,
-      vendor_id: cancelVendorId,
-      user_phone: custPhone,
-      total_amount: 55,
-      payment_mode: "upi",
-      payment_status: "unpaid",
-    })
-    .select("id")
-    .single();
-  if (bill2Err || !bill2) throw new Error(`bill2: ${bill2Err?.message}`);
-  created.billIds.push(bill2.id);
-
-  const resolveVoid = await asAdmin.rpc("admin_resolve_disputed_upi_payment", {
-    p_request_id: disputeVoidId,
+  // ── 2) Admin resolve was replaced — function must not exist ──
+  const adminGone = await anon.rpc("admin_resolve_disputed_upi_payment", {
+    p_request_id: acceptedId,
     p_resolution: "void",
-    p_notes: "probe vendor concedes",
-  });
-  const afterVoid = await statusOf(disputeVoidId);
-  const { data: bill2After } = await admin.from("order_bills").select("payment_status").eq("id", bill2.id).single();
-  check("admin_resolve_void", !resolveVoid.error && afterVoid?.payment_status === "void" && bill2After?.payment_status === "void", {
-    rpc: "admin_resolve_disputed_upi_payment",
-    error: errMsg(resolveVoid.error),
-    payment_status: afterVoid?.payment_status,
-    bill_status: bill2After?.payment_status,
-  });
-
-  const nonAdmin = await anon.rpc("admin_resolve_disputed_upi_payment", {
-    p_request_id: disputeVoidId,
-    p_resolution: "void",
-    p_notes: "should fail",
+    p_notes: "should not exist",
   });
   check(
-    "admin_resolve_rejects_non_admin",
-    !!nonAdmin.error &&
-      /(unauthorized|permission denied)/i.test(errMsg(nonAdmin.error) ?? ""),
+    "admin_resolve_dropped",
+    !!adminGone.error &&
+      /could not find|does not exist|PGRST202|permission denied/i.test(errMsg(adminGone.error) ?? ""),
     {
       rpc: "admin_resolve_disputed_upi_payment",
-      error: errMsg(nonAdmin.error),
+      error: errMsg(adminGone.error),
     },
   );
 

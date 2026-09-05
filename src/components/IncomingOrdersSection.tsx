@@ -869,7 +869,10 @@ export function IncomingOrdersSection({
       const billMap = await loadBillsForOrders(list.map((r) => r.id));
       const unpaidCashUpiIds = new Set(
         Object.entries(billMap)
-          .filter(([, bill]) => billBlocksDismiss(bill))
+          .filter(([requestId, bill]) => {
+            const row = list.find((r) => r.id === requestId);
+            return billBlocksDismiss(bill, row?.payment_status);
+          })
           .map(([requestId]) => requestId),
       );
       let activeList = await autoDismissStaleFulfilledOnLoad(list, withLedger, unpaidCashUpiIds);
@@ -929,7 +932,10 @@ export function IncomingOrdersSection({
         const refreshedBillMap = await loadBillsForOrders(refreshedList.map((r) => r.id));
         const refreshedUnpaidCashUpiIds = new Set(
           Object.entries(refreshedBillMap)
-            .filter(([, bill]) => billBlocksDismiss(bill))
+            .filter(([requestId, bill]) => {
+              const row = refreshedList.find((r) => r.id === requestId);
+              return billBlocksDismiss(bill, row?.payment_status);
+            })
             .map(([requestId]) => requestId),
         );
         activeList = await autoDismissStaleFulfilledOnLoad(
@@ -1409,7 +1415,8 @@ export function IncomingOrdersSection({
   // One-tap without a confirmation dialog is a deliberate product decision
   // (the next action is obvious to the vendor) — do not add friction here.
   const dismissOrder = async (id: string) => {
-    if (billBlocksDismiss(billsByRequestId[id])) {
+    const dismissRow = rows.find((r) => r.id === id);
+    if (billBlocksDismiss(billsByRequestId[id], dismissRow?.payment_status)) {
       toast.error(s.incoming_dismissBlockedUnpaid);
       return;
     }

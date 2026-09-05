@@ -7,7 +7,7 @@ describe("MyOrders auto-rating unpaid / reopen wiring", () => {
 
   it("defers auto-rating while unpaid Pay Now is on screen", () => {
     expect(src).toContain("shouldDeferAutoRatingForUnpaidPayNow");
-    expect(src).toContain("billBlocksDismiss(bill)");
+    expect(src).toContain("billBlocksDismiss(bill, r.payment_status)");
     expect(src).toContain("openedPaymentOrderIdsRef");
     expect(src).toContain("billsLoaded");
     expect(src).toMatch(/if \(loading \|\| !billsLoaded \|\| rows\.length === 0\) return/);

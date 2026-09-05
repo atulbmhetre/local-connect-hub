@@ -910,7 +910,7 @@ const MyOrders = () => {
         ratingSheetAlreadyOpenForOrder: ratingOpenForIdRef.current === r.id,
         overlayBlocking: overlayBlocksRef.current || !khataAllowAutoRatingRef.current,
         deferForUnpaidPayNow: shouldDeferAutoRatingForUnpaidPayNow({
-          unpaidCashOrUpiBill: billBlocksDismiss(bill),
+          unpaidCashOrUpiBill: billBlocksDismiss(bill, r.payment_status),
           customerOpenedPayment: openedPaymentOrderIdsRef.current.has(r.id),
         }),
       });
@@ -978,7 +978,7 @@ const MyOrders = () => {
     const bill = billsByRequestId[pending.id];
     if (
       shouldDeferAutoRatingForUnpaidPayNow({
-        unpaidCashOrUpiBill: billBlocksDismiss(bill),
+        unpaidCashOrUpiBill: billBlocksDismiss(bill, pending.payment_status),
         customerOpenedPayment: openedPaymentOrderIdsRef.current.has(pending.id),
       })
     ) {
@@ -1323,7 +1323,11 @@ const MyOrders = () => {
   const markDone = async (target: RowWithShop | string) => {
     const id = typeof target === "string" ? target : target.id;
     const bill = billsByRequestId[id];
-    if (billBlocksDismiss(bill)) {
+    const requestPaymentStatus =
+      typeof target === "string"
+        ? rows.find((r) => r.id === id)?.payment_status
+        : target.payment_status;
+    if (billBlocksDismiss(bill, requestPaymentStatus)) {
       toast.error(s.myOrders_dismissBlockedUnpaid);
       return;
     }
@@ -2171,7 +2175,7 @@ const MyOrders = () => {
           const dismissId = pendingDismissId;
           const row = dismissId ? rows.find((r) => r.id === dismissId) : undefined;
           const bill = dismissId ? billsByRequestId[dismissId] : undefined;
-          if (dismissId && billBlocksDismiss(bill)) {
+          if (dismissId && billBlocksDismiss(bill, row?.payment_status)) {
             toast.error(s.myOrders_dismissBlockedUnpaid);
           } else if (dismissId) {
             await markDone(row ?? dismissId);

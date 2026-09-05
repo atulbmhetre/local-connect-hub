@@ -14,11 +14,18 @@ describe("state machine high gaps wiring", () => {
     );
   });
 
-  it("admin resolve disputed UPI supports confirmed and void", () => {
+  it("historical admin resolve was shipped then replaced by dismiss-disputed fix", () => {
+    // 20260905280001 introduced admin_resolve; 20260905300001 drops it.
     expect(mig).toContain("admin_resolve_disputed_upi_payment");
-    expect(mig).toContain("'confirmed'");
-    expect(mig).toContain("payment_status = 'void'");
-    expect(mig).toContain("is_admin_session()");
+    const replacement = readFileSync(
+      resolve(
+        "supabase/migrations/20260905300001_dismiss_allows_disputed_drop_admin_resolve.sql",
+      ),
+      "utf8",
+    );
+    expect(replacement).toContain(
+      "DROP FUNCTION IF EXISTS public.admin_resolve_disputed_upi_payment",
+    );
   });
 
   it("vendor_cancel_order requires sent|seen|accepted", () => {

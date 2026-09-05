@@ -323,7 +323,7 @@ export function MyOrderCard({
                     >
                       {isMarking ? s.myOrders_saving : s.myOrders_cancelOrder}
                     </button>
-                  ) : billBlocksDismiss(bill) ? (
+                  ) : billBlocksDismiss(bill, order.payment_status) ? (
                     <div className="space-y-1">
                       <button
                         type="button"
@@ -361,7 +361,7 @@ export function MyOrderCard({
                   <p className="text-xs text-amber-400 text-center leading-snug">
                     {s.booking_confirmed_overdue_body}
                   </p>
-                  {billBlocksDismiss(bill) ? (
+                  {billBlocksDismiss(bill, order.payment_status) ? (
                     <div className="space-y-1">
                       <button
                         type="button"
@@ -847,7 +847,7 @@ export function MyOrderCard({
 
               <div className="flex flex-col gap-1.5">
                 {order.status === "cancelled" || order.status === "expired" ? (
-                  billBlocksDismiss(bill) ? (
+                  billBlocksDismiss(bill, order.payment_status) ? (
                     <div className="space-y-1">
                       <button
                         type="button"
@@ -877,7 +877,7 @@ export function MyOrderCard({
                   )
                 ) : null}
                 {order.status === "fulfilled" ? (
-                  billBlocksDismiss(bill) ? (
+                  billBlocksDismiss(bill, order.payment_status) ? (
                     <div className="space-y-1">
                       <button
                         type="button"
