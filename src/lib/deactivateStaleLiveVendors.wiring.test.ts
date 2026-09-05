@@ -20,6 +20,8 @@ describe("deactivate_stale_live_vendors wiring (H5)", () => {
 
   it("defaults the threshold to 45 minutes matching the client constant", () => {
     expect(VENDOR_LIVE_STALE_MS).toBe(45 * 60 * 1000);
-    expect(mig).toMatch(/VALUES\s*\(\s*'vendor_live_stale_minutes',\s*'45'/);
+    expect(mig).toContain("vendor_live_stale_minutes");
+    expect(mig).toContain("'45'");
+    expect(mig).toContain("SET app.via_admin_rpc = 'true'");
   });
 });

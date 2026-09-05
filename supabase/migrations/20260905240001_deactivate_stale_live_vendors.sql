@@ -3,6 +3,9 @@
 -- running; once the process dies those pings stop. Auto-offline after 45 minutes
 -- (~2× the ping interval) so Radar/Help never surface stale coordinates as live.
 
+-- Bypass block_non_admin_writes trigger (same pattern as other config seeds).
+SET app.via_admin_rpc = 'true';
+
 INSERT INTO public.app_config (key, value, default_value)
 VALUES (
   'vendor_live_stale_minutes',
@@ -10,7 +13,9 @@ VALUES (
   '45'
 )
 ON CONFLICT (key) DO UPDATE
-SET default_value = EXCLUDED.default_value;
+SET default_value = COALESCE(public.app_config.default_value, EXCLUDED.default_value);
+
+RESET app.via_admin_rpc;
 
 CREATE OR REPLACE FUNCTION public.deactivate_stale_live_vendors()
 RETURNS integer
