@@ -355,43 +355,48 @@ export function BillSheet({
       const text = speechResult?.matches?.[0]?.trim();
       if (!text) return;
 
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-voice-bill`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          text,
-          phone: getUserPhone()?.trim() || undefined,
-          vendor_id: vendorId,
-        }),
-      });
-      const result = await resp.json();
-      if (result.success && result.items?.length) {
-        setItems((prev) => {
-          const hasEmpty = prev.length === 1 && !prev[0].description;
-          const newItems = result.items.map(
-            (i: {
-              description?: string;
-              quantity?: number;
-              unit?: string;
-              unit_price?: number;
-            }) => ({
-              id: safeRandomUUID(),
-              description: i.description ?? "",
-              quantity: String(i.quantity ?? 1),
-              unit: i.unit ?? "",
-              unit_price:
-                i.unit_price != null && Number(i.unit_price) > 0
-                  ? String(i.unit_price)
-                  : "",
-            }),
-          );
-          return hasEmpty ? newItems : [...prev, ...newItems];
+      try {
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-voice-bill`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            text,
+            phone: getUserPhone()?.trim() || undefined,
+            vendor_id: vendorId,
+          }),
         });
-        toast.success(s.bill_voiceParsed);
-      } else {
+        const result = await resp.json();
+        if (result.success && result.items?.length) {
+          setItems((prev) => {
+            const hasEmpty = prev.length === 1 && !prev[0].description;
+            const newItems = result.items.map(
+              (i: {
+                description?: string;
+                quantity?: number;
+                unit?: string;
+                unit_price?: number;
+              }) => ({
+                id: safeRandomUUID(),
+                description: i.description ?? "",
+                quantity: String(i.quantity ?? 1),
+                unit: i.unit ?? "",
+                unit_price:
+                  i.unit_price != null && Number(i.unit_price) > 0
+                    ? String(i.unit_price)
+                    : "",
+              }),
+            );
+            return hasEmpty ? newItems : [...prev, ...newItems];
+          });
+          toast.success(s.bill_voiceParsed);
+        } else {
+          toast.error(s.voice_failed);
+        }
+      } catch {
+        // Network / parse throw — same toast as soft-fail response (not cancel).
         toast.error(s.voice_failed);
       }
     } catch {

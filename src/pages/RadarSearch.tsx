@@ -36,6 +36,7 @@ import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { isWebDesktopShell, useLgUp } from "@/lib/desktopShell";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import {
   Collapsible,
@@ -705,6 +706,15 @@ const RadarSearch = () => {
 
           if (categoryIds.length === 0 && !resolveCanonicalTerm(term)) {
             const result = await invokeSuggestCategory({ description: term });
+            if (!result.success) {
+              if (isCurrent()) {
+                toast.info(s.search_category_unavailable, { duration: 4000 });
+                setResults([]);
+                setUnknownTermBrowse(true);
+                setSuggestedCategoryName(null);
+              }
+              return;
+            }
             const threshold = config.aiCategoryConfidenceThreshold ?? 0.85;
             if (
               result.success &&
@@ -1233,7 +1243,7 @@ const RadarSearch = () => {
         if (!opts.silent && isCurrent()) setScanning(false);
       }
     },
-    [coords, coordsTried, term, searchRadiusKm, selectedMode, forcedCategoryId, categories, categoriesLoaded, s.radar_connection_error, config.aiCategoryConfidenceThreshold],
+    [coords, coordsTried, term, searchRadiusKm, selectedMode, forcedCategoryId, categories, categoriesLoaded, s.radar_connection_error, s.search_category_unavailable, config.aiCategoryConfidenceThreshold],
   );
 
   // Run search only when GPS coordinates AND the category lookup are ready.

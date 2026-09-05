@@ -7,6 +7,7 @@ import { getVoiceLang } from "@/lib/voiceUtils";
 import { captureError } from "@/lib/sentry";
 import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
 import { resolveHelpServiceLocation } from "@/lib/helpServiceLocation";
+import { safeRandomUUID } from "@/lib/safeRandomUUID";
 import { UpiPaymentPanel } from "@/components/payment/UpiPaymentPanel";
 import { TrustWarningBanner } from "@/components/TrustWarningBanner";
 import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
@@ -812,6 +813,9 @@ export function ParchiSheet({
         }
       }
 
+      // One UUID per placement attempt so withNetworkRetry / lost-response retries
+      // hit create_customer_request idempotency instead of inserting a duplicate.
+      const clientIdempotencyKey = safeRandomUUID();
       const orderPayload = {
                 p_device_id: device_id,
                 p_vendor_id: v.id,
@@ -844,7 +848,10 @@ export function ParchiSheet({
                     p_interval_kind: recurrenceKind,
                     p_interval_days: recurrenceKind === "custom" ? customDays : null,
                   })
-                : await supabase.rpc("create_customer_request", orderPayload),
+                : await supabase.rpc("create_customer_request", {
+                    ...orderPayload,
+                    p_client_idempotency_key: clientIdempotencyKey,
+                  }),
             ),
           {
             onRetrying: () => {

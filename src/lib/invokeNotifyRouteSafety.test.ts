@@ -145,4 +145,14 @@ describe("invokeNotify route safety net", () => {
       expect.objectContaining({ request_id: "req-2" }),
     );
   });
+
+  it("captureError when invokeNotifyAdmin invoke fails", async () => {
+    const { invokeNotifyAdmin } = await import("@/lib/supabase");
+    invoke.mockResolvedValueOnce({ data: null, error: new Error("notify-admin failed") });
+    await invokeNotifyAdmin("Admin title", "Admin body", { type: "ops_alert", route: "admin" });
+    expect(captureError).toHaveBeenCalled();
+    expect(String(captureError.mock.calls[0][0])).toContain("notify-admin failed");
+    expect(captureError.mock.calls[0][1]?.notifyHelper).toBe("invokeNotifyAdmin");
+    expect(captureError.mock.calls[0][1]?.notificationType).toBe("ops_alert");
+  });
 });

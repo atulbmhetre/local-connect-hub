@@ -348,11 +348,15 @@ export async function invokeNotifyAdmin(
   options?: { type?: string; route?: string; route_params?: Record<string, string> },
 ): Promise<void> {
   try {
-    await supabase.functions.invoke("notify-admin", {
+    const { error } = await supabase.functions.invoke("notify-admin", {
       body: { title, body, ...options },
     });
-  } catch {
-    /* ignore */
+    if (error) throw error;
+  } catch (err) {
+    captureError(err, {
+      notifyHelper: "invokeNotifyAdmin",
+      notificationType: options?.type ?? null,
+    });
   }
 }
 
