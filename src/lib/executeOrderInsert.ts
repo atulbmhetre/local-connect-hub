@@ -11,12 +11,16 @@ import { supabase, upsertUser, incrementUserOrders } from "@/lib/supabase";
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { resolveHelpServiceLocation } from "@/lib/helpServiceLocation";
-import { safeRandomUUID } from "@/lib/safeRandomUUID";
 import {
   deliveryCartSubtotal,
   formatMinDeliveryOrderAmount,
   meetsMinDeliveryOrder,
 } from "@/lib/deliveryMinOrder";
+import {
+  buildOrderPlacementFingerprint,
+  clearOrderPlacementIdempotencyKey,
+  getOrCreateOrderPlacementIdempotencyKey,
+} from "@/lib/orderPlacementIdempotency";
 import {
   DELIVERY_ASAP_OFFSET_MS,
   getDeliverySlotDeadline,
@@ -275,13 +279,29 @@ export async function executeOrderInsert(
       }
     }
 
-    // One UUID per placement attempt so withNetworkRetry / lost-response retries
-    // hit create_customer_request idempotency instead of inserting a duplicate.
-    const clientIdempotencyKey = safeRandomUUID();
+    const messageForRpc = text.slice(0, maxOrderMessageChars) + locationNote;
+    const recurrenceKindForKey = wantsRecurring ? recurrenceKind : "one_time";
+    const fingerprint = buildOrderPlacementFingerprint({
+      vendorId: v.id,
+      phone,
+      message: messageForRpc,
+      serviceMode: resolvedServiceMode,
+      deliverySlot: selectedSlot,
+      appointmentTimestamp,
+      appointmentInstant: isInstantAppointment,
+      address: finalAddress,
+      itemsJson: JSON.stringify(structuredItems),
+      recurrenceKind: recurrenceKindForKey,
+      recurrenceCustomDays: wantsRecurring && recurrenceKind === "custom" ? recurrenceCustomDays : "",
+      serviceLocation,
+    });
+    // Persist across withNetworkRetry and user Retry toast; clear only on
+    // confirmed success or sheet cancel (not on NetworkExhaustedError).
+    const clientIdempotencyKey = getOrCreateOrderPlacementIdempotencyKey(v.id, fingerprint);
     const orderPayload = {
       p_device_id: device_id,
       p_vendor_id: v.id,
-      p_message: text.slice(0, maxOrderMessageChars) + locationNote,
+      p_message: messageForRpc,
       p_user_phone: phone,
       p_device_id_log: device_id,
       p_delivery_address: finalAddress,
@@ -297,6 +317,7 @@ export async function executeOrderInsert(
       p_service_mode: resolvedServiceMode,
       p_items: structuredItems,
       p_service_location: serviceLocation,
+      p_client_idempotency_key: clientIdempotencyKey,
     };
 
     const { error } = await withNetworkRetry(
@@ -308,10 +329,7 @@ export async function executeOrderInsert(
                 p_interval_kind: recurrenceKind,
                 p_interval_days: recurrenceKind === "custom" ? customDays : null,
               })
-            : await supabase.rpc("create_customer_request", {
-                ...orderPayload,
-                p_client_idempotency_key: clientIdempotencyKey,
-              }),
+            : await supabase.rpc("create_customer_request", orderPayload),
         ),
       {
         onRetrying: () => {
@@ -343,6 +361,7 @@ export async function executeOrderInsert(
       }
       return;
     }
+    clearOrderPlacementIdempotencyKey(v.id);
     void upsertUser(phone);
     void incrementUserOrders(phone);
     // Vendor new_order notify is server-triggered (request_after_insert_notify_vendor).
@@ -375,6 +394,7 @@ export async function executeOrderInsert(
   } catch (err) {
     dismissNetworkRetryingToast();
     if (err instanceof NetworkExhaustedError) {
+      // Keep placement idempotency key so Retry reuses it.
       showNetworkFailedToast(
         () => {
           if (effects.scheduleNetworkRetry) {

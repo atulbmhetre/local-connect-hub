@@ -15,6 +15,7 @@ describe("recurring orders wiring", () => {
     const place = readFileSync(resolve("src/lib/executeOrderInsert.ts"), "utf8");
     expect(place).toContain("create_recurring_order");
     expect(place).toContain("showRecurrence");
+    expect(place).toContain("p_client_idempotency_key");
   });
 
   it("My Orders surfaces pause/resume/stop on the arrangement, not buried in a single request", () => {

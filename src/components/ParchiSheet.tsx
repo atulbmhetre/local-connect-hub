@@ -49,6 +49,7 @@ import {
   menuItemLabel,
   type ParchiVendorMenuItem,
 } from "@/lib/executeOrderInsert";
+import { clearOrderPlacementIdempotencyKey } from "@/lib/orderPlacementIdempotency";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
@@ -482,6 +483,8 @@ export function ParchiSheet({
       if (!open) {
         // Radix may dismiss the parchi sheet when the nested phone sheet opens — keep form state.
         if (phoneSheetOpenRef.current) return;
+        const vendorIdForIdem = effectiveVendor?.id ?? resolvedVendorId;
+        if (vendorIdForIdem) clearOrderPlacementIdempotencyKey(vendorIdForIdem);
         resetFormFields();
         setSaveAddress(false);
         setTrustBlock(null);
@@ -493,7 +496,7 @@ export function ParchiSheet({
         onClose();
       }
     },
-    [onClose, resetFormFields],
+    [onClose, resetFormFields, effectiveVendor?.id, resolvedVendorId],
   );
 
   const applyPaymentBlockRow = useCallback(

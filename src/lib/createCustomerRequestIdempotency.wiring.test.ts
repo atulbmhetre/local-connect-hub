@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 describe("create_customer_request idempotency wiring", () => {
-  it("migration adds key column and RPC param; Parchi sends UUID", () => {
+  it("migration adds key column and RPC param; placement sends persisted UUID", () => {
     const mig = fs.readFileSync(
       path.join(
         process.cwd(),
@@ -21,7 +21,7 @@ describe("create_customer_request idempotency wiring", () => {
     );
     expect(place).toContain("clientIdempotencyKey");
     expect(place).toContain("p_client_idempotency_key: clientIdempotencyKey");
-    expect(place).toContain("safeRandomUUID()");
+    expect(place).toContain("getOrCreateOrderPlacementIdempotencyKey");
 
     const parchi = fs.readFileSync(
       path.join(process.cwd(), "src/components/ParchiSheet.tsx"),
