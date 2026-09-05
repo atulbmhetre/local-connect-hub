@@ -13,10 +13,13 @@ describe("vendor business soft-cap wiring", () => {
   });
 
   it("admin queue is its own Pending Businesses section", () => {
-    const settings = readFileSync(resolve("src/pages/Settings.tsx"), "utf8");
-    expect(settings).toContain("admin_pendingBusinesses");
-    expect(settings).toContain("admin_list_pending_vendor_businesses");
-    expect(settings).toContain("admin_approve_vendor_business");
+    const adminConsole = readFileSync(
+      resolve("src/components/settings/AdminConsole.tsx"),
+      "utf8",
+    );
+    expect(adminConsole).toContain("admin_pendingBusinesses");
+    expect(adminConsole).toContain("admin_list_pending_vendor_businesses");
+    expect(adminConsole).toContain("admin_approve_vendor_business");
   });
 
   it("migration uses insert trigger not a hard RPC exception at 5", () => {

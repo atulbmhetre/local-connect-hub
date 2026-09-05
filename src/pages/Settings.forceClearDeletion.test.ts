@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("Admin force-clear deletion (Settings vendor row)", () => {
-  const src = readFileSync(resolve(__dirname, "Settings.tsx"), "utf8");
+  const src = readFileSync(
+    resolve(__dirname, "../components/settings/AdminConsole.tsx"),
+    "utf8",
+  );
 
   it("sits on the same vendor row as Ban/Unban and is gated on deletion_requested_at", () => {
     const banBtn = src.indexOf("setVendorBanDialog({ open: true, vendor: v })");

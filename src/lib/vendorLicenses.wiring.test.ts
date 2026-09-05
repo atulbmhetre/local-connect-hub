@@ -66,12 +66,15 @@ describe("vendor license capture wiring", () => {
   });
 
   it("admin settings has a pending-license review queue and backfill", () => {
-    const settings = readFileSync(resolve("src/pages/Settings.tsx"), "utf8");
-    expect(settings).toContain("admin_pendingLicenses");
-    expect(settings).toContain("admin_list_pending_category_licenses");
-    expect(settings).toContain("admin_approve_category_license");
-    expect(settings).toContain("backfill_licenses");
-    expect(settings).toContain("admin-license-backfill");
+    const adminConsole = readFileSync(
+      resolve("src/components/settings/AdminConsole.tsx"),
+      "utf8",
+    );
+    expect(adminConsole).toContain("admin_pendingLicenses");
+    expect(adminConsole).toContain("admin_list_pending_category_licenses");
+    expect(adminConsole).toContain("admin_approve_category_license");
+    expect(adminConsole).toContain("backfill_licenses");
+    expect(adminConsole).toContain("admin-license-backfill");
   });
 });
 

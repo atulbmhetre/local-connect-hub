@@ -16,12 +16,15 @@ describe("category mode confidence wiring (impact scope)", () => {
   });
 
   it("admin Settings surfaces Mode Confidence Review with both actions", () => {
-    const settings = readFileSync(resolve("src/pages/Settings.tsx"), "utf8");
-    expect(settings).toContain("admin_modeConfidenceReview");
-    expect(settings).toContain("admin_confirm_category_mode_review");
-    expect(settings).toContain("admin_dismiss_category_mode_review");
-    expect(settings).toContain("admin_list_category_mode_vendors");
-    expect(settings).toContain("openVendorInAdminList");
+    const adminConsole = readFileSync(
+      resolve("src/components/settings/AdminConsole.tsx"),
+      "utf8",
+    );
+    expect(adminConsole).toContain("admin_modeConfidenceReview");
+    expect(adminConsole).toContain("admin_confirm_category_mode_review");
+    expect(adminConsole).toContain("admin_dismiss_category_mode_review");
+    expect(adminConsole).toContain("admin_list_category_mode_vendors");
+    expect(adminConsole).toContain("openVendorInAdminList");
   });
 
   it("migration does not touch search/discovery RPCs", () => {
