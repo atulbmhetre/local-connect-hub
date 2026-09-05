@@ -46,7 +46,6 @@
 | ☐ | `add_bill_to_khata` | `p_vendor_id` + `p_vendor_phone` | Session vendor; drop phone credential |
 | ☐ | `vendor_record_khata_payment` | Vendor id+phone; customer phone as ledger key | Session vendor; customer phone remains **data**, not auth |
 | ☐ | `vendor_record_khata_refund` | Vendor id+phone | Session vendor |
-| ☐ | `vendor_mark_customer_khata_bills_paid` | Vendor id+phone | Session vendor |
 | ☐ | `vendor_edit_bill` | Vendor id+phone (khata credit side-effects) | Session vendor |
 | ☐ | `insert_bill_with_items` | `p_vendor_id` (+ customer phone as data); **no vendor phone param** — ownership must be proven another way | Require session vendor owns `p_order_id`; never trust bare `p_vendor_id` |
 
@@ -69,7 +68,6 @@
 | ☐ | `edit_customer_order` | Phone/device match | Session customer |
 | ☐ | `dismiss_order` | Phone/device match | Session customer |
 | ☐ | `vendor_accept_order` | Vendor id+phone | Session vendor |
-| ☐ | `vendor_fulfill_order` | Vendor id+phone | Session vendor |
 | ☐ | `vendor_cancel_order` | Vendor id+phone | Session vendor |
 | ☐ | `vendor_confirm_appointment` | Vendor id+phone | Session vendor |
 | ☐ | `vendor_decline_booking` | Vendor id+phone | Session vendor |
