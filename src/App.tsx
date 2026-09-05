@@ -1,7 +1,6 @@
 import { Suspense, lazy, useEffect, type ReactNode } from "react";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import * as Sentry from "@sentry/react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -26,8 +25,6 @@ const LedgerView = lazy(() => import("./pages/LedgerView.tsx"));
 const RadarSearch = lazy(() => import("./pages/RadarSearch.tsx"));
 const MyOrders = lazy(() => import("./pages/MyOrders.tsx"));
 const VendorMode = lazy(() => import("./pages/VendorMode.tsx"));
-
-const queryClient = new QueryClient();
 
 const RELOAD_LABEL: Record<Language, string> = {
   en: "Reload",
@@ -105,7 +102,6 @@ function NativeBackButtonHandler() {
 
 const App = () => (
   <Sentry.ErrorBoundary fallback={<SentryErrorFallback />}>
-    <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <TooltipProvider>
         <Sonner />
@@ -185,7 +181,6 @@ const App = () => (
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
-    </QueryClientProvider>
   </Sentry.ErrorBoundary>
 );
 

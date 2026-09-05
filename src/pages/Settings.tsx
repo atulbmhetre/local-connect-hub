@@ -116,7 +116,7 @@ import {
   SettingsParentCollapsible,
 } from "@/components/settings/SettingsSection";
 import { AdminSystemHealthCard } from "@/components/settings/AdminSystemHealthCard";
-import { captureError } from "@/lib/sentry";
+import { captureError, phoneSuffix } from "@/lib/sentry";
 import {
   TRUST_TIER_GROUPS,
   computeTrustLevelForBusiness,
@@ -3217,7 +3217,7 @@ const Settings = () => {
         p_device_id: deviceId,
       });
       if (error) {
-        captureError(error, { scope: "settings.clearMyData", phone });
+        captureError(error, { scope: "settings.clearMyData", phoneSuffix: phoneSuffix(phone) });
         toast.error(s.settings_clearDataFailed);
         return;
       }

@@ -44,7 +44,6 @@
     "@sentry/capacitor": "4.2.0",
     "@sentry/react": "10.60.0",
     "@supabase/supabase-js": "^2.103.3",
-    "@tanstack/react-query": "^5.83.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^12.17.1",

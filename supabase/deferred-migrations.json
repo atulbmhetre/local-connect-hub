@@ -6,7 +6,9 @@
       "file": "supabase/migrations-deferred/20260711180001_retire_location_ping_cron_test.sql",
       "reason": "Retire FCM location-ping cron (superseded by Capgo background-geolocation). Must not land on PROD until Capgo real-device GPS tracking is verified (Part L).",
       "unblock": "After Part L Capgo real-device GPS verification: add a NEW idempotent migration with a fresh timestamp (unschedule job if present; delete location_ping_seconds). Do not move this version stamp back into supabase/migrations/.",
-      "applied_on": ["test"]
+      "applied_on": ["test"],
+      "resolved_by": "20260905083001_retire_location_ping_cron.sql",
+      "resolved_note": "Capgo path is live; PROD cron retired via new idempotent migration (TEST already had job absent)."
     }
   ]
 }
