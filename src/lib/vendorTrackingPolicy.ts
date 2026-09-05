@@ -37,7 +37,8 @@ export function isScheduledDeliveryOrder(order: Pick<OrderTrackingSlice, "delive
 
 /**
  * Instant appointments stamp appointment_time via getDeliverySlotDeadline("asap")
- * (= created_at + ~2h). Scheduled picks use an arbitrary future datetime.
+ * (= created_at + ~2h, from `@/lib/deliverySlotDeadline`). Scheduled picks use an
+ * arbitrary future datetime.
  */
 export function isInstantAppointmentOrder(
   order: Pick<OrderTrackingSlice, "appointment_time" | "created_at">,

@@ -1,7 +1,13 @@
 /**
  * Customer cancel gates for accepted Help / Delivery orders.
  * Appointment cancel stays on dismiss_order (unchanged).
+ *
+ * Delivery cancel windows use IST-stamped deadlines + SQL-mirrored offsets
+ * from `@/lib/deliverySlotDeadline` (same basis as `_delivery_slot_deadline_on`
+ * / `delivery_slot_window_start`). Do not reintroduce device-local Date math.
  */
+
+import { getDeliverySlotWindowStart } from "@/lib/deliverySlotDeadline";
 
 export type CustomerCancelOrderSlice = {
   id?: string;
@@ -15,22 +21,8 @@ export type CustomerCancelOrderSlice = {
   vendors?: { service_mode?: string | null } | null;
 };
 
-/** Mirrors ParchiSheet getDeliverySlotDeadline ends → window open. */
-export function getDeliverySlotWindowStart(
-  slot: string | null | undefined,
-  deadlineIso: string | null | undefined,
-): Date | null {
-  const s = String(slot ?? "")
-    .trim()
-    .toLowerCase();
-  if (!s || s === "asap") return null;
-  if (deadlineIso == null || String(deadlineIso).trim() === "") return null;
-  const deadline = new Date(deadlineIso).getTime();
-  if (!Number.isFinite(deadline)) return null;
-  if (s === "tomorrow") return new Date(deadline - 20 * 60 * 60 * 1000);
-  // morning / afternoon / evening (and unknown scheduled): end − 4h
-  return new Date(deadline - 4 * 60 * 60 * 1000);
-}
+/** Re-export — mirrors SQL `delivery_slot_window_start` on IST deadlines. */
+export { getDeliverySlotWindowStart };
 
 export function resolveOrderServiceMode(r: CustomerCancelOrderSlice): string {
   return String(r.service_mode ?? r.vendors?.service_mode ?? "")

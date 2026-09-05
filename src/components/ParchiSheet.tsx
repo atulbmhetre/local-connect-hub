@@ -47,6 +47,7 @@ import {
   formatMinDeliveryOrderAmount,
   meetsMinDeliveryOrder,
 } from "@/lib/deliveryMinOrder";
+import { getDeliverySlotDeadline, getIstHour } from "@/lib/deliverySlotDeadline";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
@@ -135,35 +136,6 @@ type Props = {
   onOrderCancelled?: () => void;
 };
 
-function getDeliverySlotDeadline(slot: string | null): string | null {
-  const now = new Date();
-
-  if (slot === "asap") {
-    return new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
-  }
-  if (slot === "morning") {
-    const d = new Date(now);
-    d.setHours(12, 0, 0, 0);
-    return d.toISOString();
-  }
-  if (slot === "afternoon") {
-    const d = new Date(now);
-    d.setHours(16, 0, 0, 0);
-    return d.toISOString();
-  }
-  if (slot === "evening") {
-    const d = new Date(now);
-    d.setHours(20, 0, 0, 0);
-    return d.toISOString();
-  }
-  if (slot === "tomorrow") {
-    const d = new Date(now);
-    d.setDate(d.getDate() + 1);
-    d.setHours(20, 0, 0, 0);
-    return d.toISOString();
-  }
-  return null;
-}
 
 export function ParchiSheet({
   vendor,
@@ -1149,7 +1121,7 @@ export function ParchiSheet({
 
   const getAvailableSlots = () => {
     const now = new Date();
-    const hour = now.getHours();
+    const hour = getIstHour(now);
 
     const all = [
       { value: "asap", label: s.parchi_slotAsapEmoji, alwaysShow: true },

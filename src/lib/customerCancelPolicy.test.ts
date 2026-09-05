@@ -6,22 +6,31 @@ import {
   getDeliverySlotWindowStart,
   shouldShowDismissInsteadOfCancel,
 } from "@/lib/customerCancelPolicy";
+import { getDeliverySlotDeadline } from "@/lib/deliverySlotDeadline";
 
 describe("getDeliverySlotWindowStart", () => {
   it("returns null for asap", () => {
     expect(getDeliverySlotWindowStart("asap", new Date().toISOString())).toBeNull();
   });
 
-  it("returns deadline − 4h for morning", () => {
-    const deadline = new Date("2026-08-16T12:00:00.000Z");
-    const start = getDeliverySlotWindowStart("morning", deadline.toISOString());
-    expect(start?.toISOString()).toBe("2026-08-16T08:00:00.000Z");
+  it("returns deadline − 4h for morning (IST noon → 08:00 IST)", () => {
+    const deadline = getDeliverySlotDeadline(
+      "morning",
+      new Date("2026-08-16T03:00:00.000Z"),
+    );
+    const start = getDeliverySlotWindowStart("morning", deadline);
+    expect(deadline).toBe("2026-08-16T06:30:00.000Z");
+    expect(start?.toISOString()).toBe("2026-08-16T02:30:00.000Z");
   });
 
-  it("returns deadline − 20h for tomorrow", () => {
-    const deadline = new Date("2026-08-17T20:00:00.000Z");
-    const start = getDeliverySlotWindowStart("tomorrow", deadline.toISOString());
-    expect(start?.toISOString()).toBe("2026-08-17T00:00:00.000Z");
+  it("returns deadline − 20h for tomorrow (IST 20:00 → midnight IST)", () => {
+    const deadline = getDeliverySlotDeadline(
+      "tomorrow",
+      new Date("2026-08-16T08:00:00.000Z"),
+    );
+    const start = getDeliverySlotWindowStart("tomorrow", deadline);
+    expect(deadline).toBe("2026-08-17T14:30:00.000Z");
+    expect(start?.toISOString()).toBe("2026-08-16T18:30:00.000Z");
   });
 });
 
