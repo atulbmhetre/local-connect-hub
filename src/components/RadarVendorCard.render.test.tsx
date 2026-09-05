@@ -67,6 +67,7 @@ const vendorComplete = {
   category: "Plumber",
   service_mode: "help",
   is_active: true,
+  last_updated: new Date().toISOString(),
   is_manual_verified: true,
   upi_verified: true,
   photo_selfie: "https://example.com/s.jpg",

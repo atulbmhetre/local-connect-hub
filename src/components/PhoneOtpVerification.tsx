@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/language";
 import { requestPhoneOtp, verifyPhoneOtp } from "@/lib/userIdentity";
+import { classifyOtpVerifyError, OTP_RESEND_COOLDOWN_MS } from "@/lib/otpVerify";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -31,23 +32,52 @@ export function PhoneOtpVerification({
   const [otpError, setOtpError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(requestOnMount);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
+  const [resendSecondsLeft, setResendSecondsLeft] = useState(0);
+
+  const armResendCooldown = useCallback(() => {
+    setResendAvailableAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
+  }, []);
+
+  useEffect(() => {
+    if (resendAvailableAt == null) {
+      setResendSecondsLeft(0);
+      return;
+    }
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((resendAvailableAt - Date.now()) / 1000));
+      setResendSecondsLeft(left);
+    };
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => window.clearInterval(id);
+  }, [resendAvailableAt]);
 
   const sendOtp = useCallback(async () => {
     setRequesting(true);
     setRequestError(null);
+    setOtpError(null);
     const result = await requestPhoneOtp(phone);
     setRequesting(false);
     if (!result.success) {
       const msg = result.error ?? "OTP request failed";
       setRequestError(msg);
+      // Failed send: allow immediate retry (same as prior behaviour).
+      setResendAvailableAt(Date.now());
       onRequestFailed?.(msg);
+      return;
     }
-  }, [phone, onRequestFailed]);
+    armResendCooldown();
+  }, [phone, onRequestFailed, armResendCooldown]);
 
   useEffect(() => {
-    if (!requestOnMount) return;
+    if (!requestOnMount) {
+      // Caller already sent — still arm cooldown so resend is available after wait.
+      armResendCooldown();
+      return;
+    }
     void sendOtp();
-  }, [requestOnMount, sendOtp]);
+  }, [requestOnMount, sendOtp, armResendCooldown]);
 
   const handleVerify = async () => {
     const token = otpValue.trim();
@@ -61,10 +91,15 @@ export function PhoneOtpVerification({
     setOtpLoading(false);
     if (result.success) {
       onVerified();
-    } else {
-      setOtpError(s.firstopen_otp_wrong);
+      return;
     }
+    const kind = classifyOtpVerifyError(result.error);
+    setOtpError(
+      kind === "expired" ? s.firstopen_otp_expired : s.firstopen_otp_wrong,
+    );
   };
+
+  const canResend = resendSecondsLeft <= 0 && !otpLoading && !requesting;
 
   if (requesting) {
     return (
@@ -109,7 +144,14 @@ export function PhoneOtpVerification({
         autoFocus
       />
 
-      {otpError && <p className="text-sm text-destructive text-center">{otpError}</p>}
+      {otpError && (
+        <p
+          className="text-sm text-destructive text-center"
+          data-testid="otp-error"
+        >
+          {otpError}
+        </p>
+      )}
 
       <Button
         type="button"
@@ -123,16 +165,17 @@ export function PhoneOtpVerification({
         {s.firstopen_otp_verify}
       </Button>
 
-      {requestError && (
-        <button
-          type="button"
-          data-testid="otp-resend-btn"
-          onClick={() => void sendOtp()}
-          className="text-sm text-muted-foreground underline text-center"
-        >
-          {s.network_retry_btn}
-        </button>
-      )}
+      <button
+        type="button"
+        data-testid="otp-resend-btn"
+        onClick={() => void sendOtp()}
+        disabled={!canResend}
+        className="text-sm text-muted-foreground underline text-center disabled:no-underline disabled:opacity-60"
+      >
+        {canResend
+          ? s.firstopen_otp_resend
+          : s.firstopen_otp_resend_in(resendSecondsLeft)}
+      </button>
     </div>
   );
 }

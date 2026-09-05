@@ -83,6 +83,7 @@ import {
   passesTrackARadiusFilter,
   trackQueryHitCap,
 } from "@/lib/radarVendorFilter";
+import { liveLocationFreshSinceIso } from "@/lib/vendorLiveStaleness";
 import { isVendorSubscriptionVisibleOnRadar } from "@/lib/radarSubscription";
 import {
   resolveCategoryBrandName,
@@ -927,7 +928,10 @@ const RadarSearch = () => {
             .eq("discoverable", true)
             .in("id", vendorIds);
           if (selectedMode === "help") {
-            qAccounts = qAccounts.eq("is_active", true);
+            // Server-side: only vendors with fresh GPS (≤45m) appear live on Help.
+            qAccounts = qAccounts
+              .eq("is_active", true)
+              .gte("last_updated", liveLocationFreshSinceIso());
           }
           const accountsResult = await withTimedRetry(
             async (signal) =>

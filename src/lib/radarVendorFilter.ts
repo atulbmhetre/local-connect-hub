@@ -3,21 +3,23 @@ import {
   normalizeServiceRadiusKm,
   PAN_INDIA_RADIUS_KM,
 } from "@/lib/serviceRadius";
+import { isVendorEffectivelyLive } from "@/lib/vendorLiveStaleness";
 
-type VendorModeSlice = Pick<Vendor, "is_active" | "service_mode">;
+type VendorModeSlice = Pick<Vendor, "is_active" | "service_mode" | "last_updated">;
 
 /**
- * Safety net: on the Help radar tab, never surface offline vendors.
+ * Safety net: on the Help radar tab, never surface offline or GPS-stale vendors.
  * On delivery/appointment tabs, offline multi-mode vendors remain visible
  * (primary service_mode may be "help" while the tab mode is not).
  */
 export function excludeOfflineHelpVendors<T extends VendorModeSlice>(
   vendors: T[],
   activeRadarMode?: string,
+  nowMs: number = Date.now(),
 ): T[] {
   const tabMode = String(activeRadarMode ?? "help").trim().toLowerCase();
   if (tabMode !== "help") return vendors;
-  return vendors.filter((v) => v.is_active !== false);
+  return vendors.filter((v) => isVendorEffectivelyLive(v, nowMs));
 }
 
 /** Track A: vendor must be within min(user bracket, vendor service radius). Pan-India uses Track B. */

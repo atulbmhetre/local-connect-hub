@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { captureError } from "@/lib/sentry";
 import { customerOrderShowsLiveLocation } from "@/lib/vendorTrackingPolicy";
 import { savedNeighbourDisplayName } from "@/lib/savedVendors";
+import { isVendorEffectivelyLive } from "@/lib/vendorLiveStaleness";
 import { fetchBusinessPhotos, resolveVendorPhoto } from "@/lib/businessPhotoFallback";
 import {
   logUnresolvedSearchTermReturningId,
@@ -154,7 +155,7 @@ const Index = () => {
     const { data: vendors, error: vErr } = await supabase
       .from("vendors")
       .select(
-        "id, name, shop_name, shop_photo_url, is_active, category, service_mode, phone, verification_status, is_manual_verified, upi_verified, vendor_note, total_helped, on_time_rate",
+        "id, name, shop_name, shop_photo_url, is_active, last_updated, category, service_mode, phone, verification_status, is_manual_verified, upi_verified, vendor_note, total_helped, on_time_rate",
       )
       .in("id", vendorIds)
       .eq("is_banned", false)
@@ -916,7 +917,7 @@ const Index = () => {
                     >
                       {savedNeighbourDisplayName(nickname, vendor.shop_name)}
                     </span>
-                    {vendor.is_active === true && (
+                    {isVendorEffectivelyLive(vendor) && (
                       <span
                         className="h-2 w-2 rounded-full bg-brand shrink-0"
                         aria-label={s.online}

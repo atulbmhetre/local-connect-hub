@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language";
 import { captureError } from "@/lib/sentry";
+import { isVendorEffectivelyLive } from "@/lib/vendorLiveStaleness";
 import {
   NetworkExhaustedError,
   throwOnSupabaseNetworkError,
@@ -878,13 +879,12 @@ export function RadarVendorCard({
             <div className="min-w-0 flex-1">
               <h3 className="text-base font-bold text-foreground break-words leading-snug inline-flex items-center gap-1.5 flex-wrap">
                 <span>{brandName}</span>
-                {vendor.is_active === true && (
+                {isVendorEffectivelyLive(vendor) ? (
                   <span
                     className="h-2 w-2 rounded-full bg-brand shrink-0"
                     aria-label={s.radar_vendor_online_aria}
                   />
-                )}
-                {vendor.is_active === false && (
+                ) : (
                   <span className="inline-flex text-xs rounded-full px-2 py-0.5 bg-amber-500/20 text-amber-600 font-medium shrink-0">
                     {s.vendor_offline_badge}
                   </span>

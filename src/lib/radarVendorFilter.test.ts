@@ -8,12 +8,15 @@ import {
 } from "@/lib/radarVendorFilter";
 
 function vendorSlice(
-  overrides: Partial<Pick<Vendor, "is_active" | "service_mode" | "service_radius_km">> = {},
-): Pick<Vendor, "is_active" | "service_mode" | "service_radius_km"> {
+  overrides: Partial<
+    Pick<Vendor, "is_active" | "service_mode" | "service_radius_km" | "last_updated">
+  > = {},
+): Pick<Vendor, "is_active" | "service_mode" | "service_radius_km" | "last_updated"> {
   return {
     is_active: true,
     service_mode: "delivery",
     service_radius_km: 15,
+    last_updated: new Date().toISOString(),
     ...overrides,
   };
 }
@@ -114,6 +117,17 @@ describe("excludeOfflineHelpVendors (offline appointment rule)", () => {
       vendorSlice({ is_active: true, service_mode: "help" }),
     ];
     expect(excludeOfflineHelpVendors(vendors, "help")).toEqual([vendors[1]]);
+  });
+
+  it("excludes Help vendors whose GPS last_updated is stale while still is_active", () => {
+    const now = Date.parse("2026-09-05T12:00:00.000Z");
+    const stale = new Date(now - 46 * 60 * 1000).toISOString();
+    const fresh = new Date(now - 10 * 60 * 1000).toISOString();
+    const vendors = [
+      vendorSlice({ is_active: true, service_mode: "help", last_updated: stale }),
+      vendorSlice({ is_active: true, service_mode: "help", last_updated: fresh }),
+    ];
+    expect(excludeOfflineHelpVendors(vendors, "help", now)).toEqual([vendors[1]]);
   });
 
   it("keeps offline help-primary vendors visible on delivery tab", () => {
