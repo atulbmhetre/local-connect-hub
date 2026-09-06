@@ -129,6 +129,11 @@ export const en = {
     privacy_policy_open: 'Open the current Privacy Policy',
     privacy_policy_canonical_note:
       'The current policy is maintained on the official Aaspaas Pro website.',
+    terms_of_service_title: 'Terms of Service',
+    terms_of_service_back_to_settings: 'Back to Settings',
+    terms_of_service_open: 'Open the current Terms of Service',
+    terms_of_service_canonical_note:
+      'The current terms are maintained on the official Aaspaas Pro website.',
     help_support_title: 'Help & Support',
     help_support_subtitle: 'FAQ, feedback, and contact',
     help_support_back: 'Back',

@@ -13,6 +13,7 @@ import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import Landing from "./pages/Landing.tsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.tsx";
+import TermsOfService from "./pages/TermsOfService.tsx";
 import { ReferralRedirect } from "@/components/ReferralRedirect";
 import { PushNavigationBridge } from "@/components/PushNavigationBridge";
 import { tryHandleFirstOpenBack } from "@/lib/firstOpenBackBridge";
@@ -203,6 +204,7 @@ const App = () => (
                 }
               />
               <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/terms" element={<TermsOfService />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

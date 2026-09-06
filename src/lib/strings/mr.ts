@@ -129,6 +129,11 @@ export const mr = {
     privacy_policy_open: 'सध्याचे गोपनीयता धोरण उघडा',
     privacy_policy_canonical_note:
       'सध्याचे धोरण अधिकृत Aaspaas Pro वेबसाइटवर राखले जाते.',
+    terms_of_service_title: 'सेवा अटी',
+    terms_of_service_back_to_settings: 'सेटिंग्जवर परत जा',
+    terms_of_service_open: 'सध्याच्या सेवा अटी उघडा',
+    terms_of_service_canonical_note:
+      'सध्याच्या अटी अधिकृत Aaspaas Pro वेबसाइटवर राखल्या जातात.',
     help_support_title: 'मदत आणि सपोर्ट',
     help_support_subtitle: 'FAQ, फीडबॅक आणि संपर्क',
     help_support_back: 'मागे',

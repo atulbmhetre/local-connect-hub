@@ -128,6 +128,11 @@ export const hi = {
     privacy_policy_open: 'वर्तमान गोपनीयता नीति खोलें',
     privacy_policy_canonical_note:
       'वर्तमान नीति आधिकारिक Aaspaas Pro वेबसाइट पर रखी जाती है।',
+    terms_of_service_title: 'सेवा की शर्तें',
+    terms_of_service_back_to_settings: 'सेटिंग्स पर वापस जाएँ',
+    terms_of_service_open: 'वर्तमान सेवा की शर्तें खोलें',
+    terms_of_service_canonical_note:
+      'वर्तमान शर्तें आधिकारिक Aaspaas Pro वेबसाइट पर रखी जाती हैं।',
     help_support_title: 'मदद और सहायता',
     help_support_subtitle: 'FAQ, फीडबैक और संपर्क',
     help_support_back: 'वापस',

@@ -1441,6 +1441,17 @@ const Settings = () => {
           </span>
           <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
         </button>
+        <button
+          type="button"
+          data-testid="settings-terms-of-service-link"
+          onClick={() => navigate("/terms", { state: { returnTo: "/settings" } })}
+          className="w-full flex items-center justify-between gap-3 px-4 py-3 border-b border-surface-border text-left active:opacity-90"
+        >
+          <span className="text-sm font-medium text-foreground underline decoration-muted-foreground/50 underline-offset-2">
+            {s.terms_of_service_title}
+          </span>
+          <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden />
+        </button>
         <div className="px-4 pb-3">
           <p className="text-xs text-brand font-medium">{s.settings_dbConnected}</p>
         </div>
