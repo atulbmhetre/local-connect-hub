@@ -13,7 +13,6 @@ import { SettingsPageHeader, SettingsCard } from "@/components/settings/Settings
 import { getDeviceId } from "@/lib/deviceId";
 import { useLanguage } from "@/lib/language";
 import {
-  invokeNotifyAdmin,
   invokeSendSupportEmail,
   type SupportContactCategory,
 } from "@/lib/supabase";
@@ -139,19 +138,7 @@ const HelpSupport = () => {
         return;
       }
 
-      const catLabel = categoryLabel(s, contactCategory);
-      const who = userPhone || vendorId || "unknown";
-      const adminTitle = `Support: ${catLabel}`.slice(0, 100);
-      const adminBody = `${who}: ${message}`.slice(0, 100);
-      void invokeNotifyAdmin(adminTitle, adminBody, {
-        type: "support_contact",
-        route: "settings",
-        route_params: {
-          ...(userPhone ? { phone: userPhone } : {}),
-          ...(vendorId ? { vendor_id: vendorId } : {}),
-          category: contactCategory,
-        },
-      });
+      // Admin support_contact notify is server-triggered on support_messages INSERT.
 
       setContactMessage("");
       setContactCategory("");

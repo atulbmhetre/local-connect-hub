@@ -97,7 +97,7 @@ describe("HelpSupport", () => {
     expect(mockNotifyAdmin).not.toHaveBeenCalled();
   });
 
-  it("Contact Support submit emails and notifies admin with category + identity", async () => {
+  it("Contact Support submit emails without client admin notify", async () => {
     render(
       <MemoryRouter>
         <HelpSupport />
@@ -123,24 +123,7 @@ describe("HelpSupport", () => {
         vendor_id: "11111111-1111-1111-1111-111111111111",
       }),
     );
-
-    await waitFor(() => {
-      expect(mockNotifyAdmin).toHaveBeenCalledTimes(1);
-    });
-
-    expect(mockNotifyAdmin).toHaveBeenCalledWith(
-      expect.stringContaining("Support:"),
-      expect.stringContaining("9876543210"),
-      expect.objectContaining({
-        type: "support_contact",
-        route: "settings",
-        route_params: expect.objectContaining({
-          phone: "9876543210",
-          vendor_id: "11111111-1111-1111-1111-111111111111",
-          category: "payment",
-        }),
-      }),
-    );
+    expect(mockNotifyAdmin).not.toHaveBeenCalled();
   });
 
   it("Contact Support does not notify admin when email/persist fails", async () => {

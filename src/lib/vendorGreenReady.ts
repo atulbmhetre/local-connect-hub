@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { supabase, invokeNotifyAdmin } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
 import { strings, type Language } from "@/lib/strings";
 
@@ -12,19 +12,6 @@ function readLang(): Language {
   }
 }
 
-function notifyAdminGreenReady(vendorId: string, shopName?: string): void {
-  const s = strings[readLang()];
-  void invokeNotifyAdmin(
-    s.admin_green_ready_title,
-    s.admin_green_ready_body.replace("{shop}", shopName?.trim() || "Vendor"),
-    {
-      type: "vendor_green_ready",
-      route: "settings",
-      route_params: { vendor_id: vendorId },
-    },
-  );
-}
-
 function resolvePromotePhone(explicit?: string | null): string | null {
   const fromArg = explicit?.trim() || "";
   if (fromArg) return fromArg;
@@ -35,10 +22,9 @@ function resolvePromotePhone(explicit?: string | null): string | null {
  * After verification-related vendor updates: if green criteria are met but admin
  * has not approved, mark green_pending once (deduped via verification_status).
  *
- * All criteria checks live server-side in vendor_promote_green_pending
- * (business_verified status, photo, selfie, verified UPI, valid phone, not
- * manual verified, not already pending). Promotion failures surface a visible
- * error; a genuine promotion notifies the admin (ready-for-review).
+ * All criteria checks live server-side in vendor_promote_green_pending.
+ * Admin notify on genuine promotion is fired by DB trigger when
+ * verification_status becomes green_pending.
  *
  * Requires vendor phone ownership. Customer-initiated callers without the
  * vendor's phone (e.g. rating sync) skip silently — they cannot prove ownership.
@@ -60,11 +46,7 @@ export async function checkAndNotifyAdminGreenReady(
       toast.error(s.vendor_green_promote_failed, { description: error.message });
       return false;
     }
-    if (data === true) {
-      notifyAdminGreenReady(vendorId, opts?.shopName);
-      return true;
-    }
-    return false;
+    return data === true;
   } catch (err) {
     console.error("checkAndNotifyAdminGreenReady", err);
     const s = strings[readLang()];
@@ -75,8 +57,7 @@ export async function checkAndNotifyAdminGreenReady(
 
 /**
  * Per-business variant: promote one category to green_pending (photo + UPI +
- * selfie checked server-side). Same visibility rules as the account-level
- * helper: errors toast, genuine promotion notifies the admin.
+ * selfie checked server-side). Admin notify is DB-triggered on status change.
  */
 export async function checkAndNotifyAdminCategoryGreenReady(
   vendorId: string,
@@ -97,11 +78,7 @@ export async function checkAndNotifyAdminCategoryGreenReady(
       toast.error(s.vendor_green_promote_failed, { description: error.message });
       return false;
     }
-    if (data === true) {
-      notifyAdminGreenReady(vendorId, opts?.shopName);
-      return true;
-    }
-    return false;
+    return data === true;
   } catch (err) {
     console.error("checkAndNotifyAdminCategoryGreenReady", err);
     const s = strings[readLang()];

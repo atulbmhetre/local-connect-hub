@@ -117,7 +117,10 @@ describe("LedgerView payment submit lock", () => {
 
     resolvePayment?.();
     await waitFor(() => {
-      expect(mockInvokeNotifyUser).toHaveBeenCalledTimes(1);
+      expect(
+        mockRpc.mock.calls.filter((call) => call[0] === "vendor_record_khata_payment"),
+      ).toHaveLength(1);
     });
+    expect(mockInvokeNotifyUser).not.toHaveBeenCalled();
   });
 });

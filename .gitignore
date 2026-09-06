@@ -41,6 +41,10 @@ playwright.config.ts.backup
 playwright_*.txt
 
 # Session / diagnostic artifacts
+.tmp-*/
+.tmp-*
+scripts/.tmp-*
+{console.error*
 .commit-tmp/
 .commit-patches/
 prod_*.txt

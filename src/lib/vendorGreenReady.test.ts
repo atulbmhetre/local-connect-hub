@@ -28,7 +28,7 @@ import {
   checkAndNotifyAdminCategoryGreenReady,
 } from "./vendorGreenReady";
 
-describe("checkAndNotifyAdminGreenReady — promote failures visible, promotion notifies admin", () => {
+describe("checkAndNotifyAdminGreenReady — promote failures visible; client does not notify", () => {
   beforeEach(() => {
     rpcMock.mockReset();
     notifyAdminMock.mockReset();
@@ -63,7 +63,7 @@ describe("checkAndNotifyAdminGreenReady — promote failures visible, promotion 
     expect(notifyAdminMock).not.toHaveBeenCalled();
   });
 
-  it("sends the translated admin_green_ready notification when promotion actually happens", async () => {
+  it("returns true on genuine promotion without client invokeNotifyAdmin", async () => {
     rpcMock.mockResolvedValue({ data: true, error: null });
 
     const promoted = await checkAndNotifyAdminGreenReady("vendor-1", {
@@ -76,20 +76,7 @@ describe("checkAndNotifyAdminGreenReady — promote failures visible, promotion 
       p_vendor_id: "vendor-1",
       p_vendor_phone: "9900011111",
     });
-    expect(notifyAdminMock).toHaveBeenCalledTimes(1);
-    const [title, body, options] = notifyAdminMock.mock.calls[0] as [
-      string,
-      string,
-      Record<string, unknown>,
-    ];
-    expect(title).toBe(strings.en.admin_green_ready_title);
-    expect(body).toBe(strings.en.admin_green_ready_body.replace("{shop}", "Atul Mess"));
-    expect(body).toContain("Atul Mess");
-    expect(options).toMatchObject({
-      type: "vendor_green_ready",
-      route: "settings",
-      route_params: { vendor_id: "vendor-1" },
-    });
+    expect(notifyAdminMock).not.toHaveBeenCalled();
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
@@ -130,7 +117,7 @@ describe("checkAndNotifyAdminCategoryGreenReady — per-business variant", () =>
     expect(notifyAdminMock).not.toHaveBeenCalled();
   });
 
-  it("notifies the admin when a business genuinely reaches green_pending", async () => {
+  it("returns true on category green_pending without client notify", async () => {
     rpcMock.mockResolvedValue({ data: true, error: null });
 
     const promoted = await checkAndNotifyAdminCategoryGreenReady("vendor-1", "cat-1", {
@@ -144,10 +131,7 @@ describe("checkAndNotifyAdminCategoryGreenReady — per-business variant", () =>
       p_vendor_phone: "9900011111",
       p_category_id: "cat-1",
     });
-    expect(notifyAdminMock).toHaveBeenCalledTimes(1);
-    const [title, body] = notifyAdminMock.mock.calls[0] as [string, string];
-    expect(title).toBe(strings.en.admin_green_ready_title);
-    expect(body).toContain("Atul Milk");
+    expect(notifyAdminMock).not.toHaveBeenCalled();
   });
 
   it("stays silent when the category was already green_pending (RPC returns false)", async () => {

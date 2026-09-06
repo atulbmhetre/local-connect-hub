@@ -1,5 +1,4 @@
-import { supabase, invokeNotifyVendor } from "@/lib/supabase";
-import { strings, type Language } from "@/lib/strings";
+import { supabase } from "@/lib/supabase";
 import { captureError } from "@/lib/sentry";
 
 const REFERRAL_STORAGE_KEY = "aaspaas:referral_code";
@@ -85,6 +84,8 @@ export type RecordUserReferralOutcome = "applied" | "not_applied" | "error";
  * completes the reward when a prior attempt created the user but the reward
  * step failed). Returns "applied" | "not_applied" (no/invalid/duplicate code)
  * | "error" (RPC/network failure — worth surfacing to the user).
+ *
+ * Vendor referral_credit notify is fired by DB trigger on vendor_credits INSERT.
  */
 export async function recordUserReferralDetailed(
   phone: string,
@@ -113,27 +114,6 @@ export async function recordUserReferralDetailed(
       // user, or reward already recorded.
       return "not_applied";
     }
-
-    // Notification copy resolves from the VENDOR's own language preference
-    // (app_users.lang, returned by the RPC), not the joining user's device
-    // language — each recipient reads their notification in their own locale.
-    const vendorLang: Language =
-      result.vendor_lang === "hi" || result.vendor_lang === "mr"
-        ? result.vendor_lang
-        : "en";
-    const vendorStrings = strings[vendorLang];
-
-    // Session 42B violation: client-triggered notify — move to DB trigger post-launch.
-    // referral_id proves the referrer↔referee relationship to notify-vendor's gate.
-    void invokeNotifyVendor({
-      vendor_id: result.vendor_id,
-      referral_id: result.referral_id,
-      type: "referral_credit",
-      notification_title: vendorStrings.feed_referralCredit_title,
-      message: vendorStrings.feed_referralCredit_body(result.credit_amount ?? 2.5),
-      route: "vendor",
-      route_params: { vendor_id: result.vendor_id },
-    });
 
     try {
       localStorage.removeItem(REFERRAL_STORAGE_KEY);

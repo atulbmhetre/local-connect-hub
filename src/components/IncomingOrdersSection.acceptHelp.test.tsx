@@ -53,7 +53,24 @@ const mockChannel = {
   subscribe: vi.fn(() => ({ unsubscribe: vi.fn() })),
 };
 
-vi.mock("@/lib/sentry", () => ({ captureError: vi.fn() }));
+vi.mock("@/lib/sentry", () => ({
+  captureError: vi.fn(),
+  addBreadcrumb: vi.fn(),
+  phoneSuffix: (phone: string) => phone.slice(-4),
+}));
+
+vi.mock("@/lib/withNetworkRetry", () => ({
+  withNetworkRetry: async <T,>(fn: () => Promise<T>) => fn(),
+  throwOnSupabaseNetworkError: <T,>(result: T) => result,
+  NetworkExhaustedError: class NetworkExhaustedError extends Error {},
+  getNavigatorOnline: () => true,
+}));
+
+vi.mock("@/lib/networkToast", () => ({
+  showNetworkRetryingToast: vi.fn(),
+  dismissNetworkRetryingToast: vi.fn(),
+  showNetworkFailedToast: vi.fn(),
+}));
 
 vi.mock("@/lib/supabase", () => ({
   supabase: {
@@ -138,7 +155,10 @@ describe("IncomingOrdersSection acceptHelp submit lock", () => {
 
     resolveAccept?.();
     await waitFor(() => {
-      expect(mockInvokeNotifyUser).toHaveBeenCalledTimes(1);
+      expect(
+        mockRpc.mock.calls.filter((call) => call[0] === "vendor_accept_order"),
+      ).toHaveLength(1);
     });
+    expect(mockInvokeNotifyUser).not.toHaveBeenCalled();
   });
 });

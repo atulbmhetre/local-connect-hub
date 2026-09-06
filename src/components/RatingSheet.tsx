@@ -13,7 +13,7 @@ import {
 
 } from "@/components/ui/sheet";
 
-import { supabase, invokeNotifyVendor } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 
 import { useLanguage } from "@/lib/language";
 
@@ -267,21 +267,6 @@ export function RatingSheet({
       alertAdmin: true,
     });
 
-    if (stars <= 2) {
-      void invokeNotifyVendor({
-        vendor_id: vendorId,
-        notification_title: s.review_lowRatingNotifTitle,
-        message: s.review_lowRatingNotifBody,
-        request_id: requestId,
-        type: "review_received",
-        route: "settings",
-        route_params: {
-          vendor_id: vendorId,
-          open_reviews: "1",
-        },
-      });
-    }
-
     releaseSubmitLock();
     onDismiss();
   }, [
@@ -301,8 +286,6 @@ export function RatingSheet({
     onDismiss,
 
     s.rating_errCouldNotSave,
-    s.review_lowRatingNotifTitle,
-    s.review_lowRatingNotifBody,
     shopName,
     vendorPhone,
 

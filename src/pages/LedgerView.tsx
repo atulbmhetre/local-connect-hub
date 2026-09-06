@@ -10,7 +10,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { supabase, invokeNotifyUser, invokeInitiateCall } from "@/lib/supabase";
+import { supabase, invokeInitiateCall } from "@/lib/supabase";
 import { NetworkErrorBanner } from "@/components/NetworkErrorBanner";
 import { getNavigatorOnline } from "@/hooks/useNetworkStatus";
 import { getUserPhone } from "@/lib/userIdentity";
@@ -539,40 +539,6 @@ const LedgerView = () => {
           : e,
       ),
     );
-
-    let linkedRequestId: string | null = null;
-    if (newOutstanding === 0) {
-      const phoneForRpc = (vendorPhone || getUserPhone() || "").trim();
-      if (phoneForRpc) {
-        const { data: linkedId, error: linkedErr } = await supabase.rpc(
-          "get_vendor_khata_linked_request",
-          {
-            p_vendor_id: vendorId,
-            p_vendor_phone: phoneForRpc,
-            p_user_phone: selectedPhone,
-          },
-        );
-        if (linkedErr) {
-          captureError(linkedErr, { scope: "ledgerView.getKhataLinkedRequest", vendorId });
-        }
-        linkedRequestId = typeof linkedId === "string" ? linkedId : null;
-      }
-      const paidTitle = s.khata_paidNotifTitle;
-      const paidBody = s.khata_paidNotifBody;
-      // order_id when a linked request exists; otherwise vendor_id + khata_ledger
-      // is the relationship proof for notify-user's gate.
-      void invokeNotifyUser({
-        user_phone: selectedPhone,
-        title: paidTitle,
-        body: paidBody,
-        type: "bill",
-        vendor_id: vendorId,
-        route: "my-orders",
-        ...(linkedRequestId
-          ? { order_id: linkedRequestId, route_params: { order_id: linkedRequestId } }
-          : {}),
-      });
-    }
 
     releaseSavingAmountLock();
     toast.success(s.khata_markedPaid);
