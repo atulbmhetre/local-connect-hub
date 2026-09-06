@@ -193,6 +193,9 @@ describe("RadarVendorCard captureError wiring", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: strings.en.neighbours_saved_button }));
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.en.removeFromNeighbourhood }),
+    );
 
     await waitFor(() => {
       expect(captureErrorMock).toHaveBeenCalledWith(

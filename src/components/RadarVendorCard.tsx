@@ -477,33 +477,9 @@ export function RadarVendorCard({
     setServiceFulfilledRequestId(row?.id ?? null);
   }, [vendor.id, isOwnVendor]);
 
-  const refreshSavedNeighbourFromDb = useCallback(async () => {
-    if (isOwnVendor) return;
-    // get_saved_vendors mirrors the old scoping (phone when present, else
-    // device); check membership for this card's vendor client-side.
-    const { data: savedRows } = await supabase.rpc("get_saved_vendors", {
-      p_user_phone: getUserPhone(),
-      p_device_id: getDeviceId(),
-    });
-    const data = ((savedRows ?? []) as { vendor_id: string }[]).filter(
-      (r) => r.vendor_id === vendor.id,
-    );
-    if (data?.length) {
-      writeSessionSaved(vendor.id);
-      setSavedVendorLocked(true);
-    } else {
-      clearSessionSaved(vendor.id);
-      setSavedVendorLocked(false);
-    }
-  }, [vendor.id, isOwnVendor]);
-
   const refreshOnVisibility = useCallback(async () => {
-    await Promise.all([
-      refreshActiveOrderFromDb(),
-      refreshServiceFulfilledFromDb(),
-      refreshSavedNeighbourFromDb(),
-    ]);
-  }, [refreshActiveOrderFromDb, refreshServiceFulfilledFromDb, refreshSavedNeighbourFromDb]);
+    await Promise.all([refreshActiveOrderFromDb(), refreshServiceFulfilledFromDb()]);
+  }, [refreshActiveOrderFromDb, refreshServiceFulfilledFromDb]);
 
   // Initial order/fulfilled/saved state is batch-fetched by the parent before
   // the card renders; only refetch after an in-card interaction (tick) or on

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
@@ -74,7 +74,9 @@ import {
   type VendorReferralCredits,
 } from "@/components/settings/VendorSettings";
 import { VendorMyBusiness } from "@/components/settings/VendorMyBusiness";
-import { AdminConsole } from "@/components/settings/AdminConsole";
+const AdminConsole = lazy(() =>
+  import("@/components/settings/AdminConsole").then((m) => ({ default: m.AdminConsole })),
+);
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -1512,22 +1514,30 @@ const Settings = () => {
       )}
 
       {adminTabRevealed && activeTab === "admin" && (
-        <AdminConsole
-          isAdmin={isAdmin}
-          adminAuthChecked={adminAuthChecked}
-          adminSessionEmail={adminSessionEmail}
-          checkAdminSession={checkAdminSession}
-          onAdminAuthChange={(next) => {
-            setIsAdmin(next);
-            if (!next) setAdminSessionEmail(null);
-          }}
-          onRequestSettingsTab={() => setActiveTab("settings")}
-          onHideAdminTab={() => setAdminTabRevealed(false)}
-          onReferEarnVisibleChange={setReferEarnVisible}
-          highlightVendorId={
-            (location.state as { highlightVendorId?: string } | null)?.highlightVendorId
+        <Suspense
+          fallback={
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-brand" />
+            </div>
           }
-        />
+        >
+          <AdminConsole
+            isAdmin={isAdmin}
+            adminAuthChecked={adminAuthChecked}
+            adminSessionEmail={adminSessionEmail}
+            checkAdminSession={checkAdminSession}
+            onAdminAuthChange={(next) => {
+              setIsAdmin(next);
+              if (!next) setAdminSessionEmail(null);
+            }}
+            onRequestSettingsTab={() => setActiveTab("settings")}
+            onHideAdminTab={() => setAdminTabRevealed(false)}
+            onReferEarnVisibleChange={setReferEarnVisible}
+            highlightVendorId={
+              (location.state as { highlightVendorId?: string } | null)?.highlightVendorId
+            }
+          />
+        </Suspense>
       )}
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>

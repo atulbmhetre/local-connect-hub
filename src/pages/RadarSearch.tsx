@@ -480,6 +480,8 @@ const RadarSearch = () => {
   >(null);
   /** Bumped when neighbours_dirty is consumed so isSaved re-reads session flags. */
   const [neighboursSyncTick, setNeighboursSyncTick] = useState(0);
+  /** Parent-level saved-vendor membership — one RPC per fetch/visibility, not per card. */
+  const [savedVendorIds, setSavedVendorIds] = useState<Set<string>>(() => new Set());
   const [suggestedCategoryName, setSuggestedCategoryName] = useState<string | null>(null);
   const [unknownTermBrowse, setUnknownTermBrowse] = useState(false);
   /** Monotonic id so a stale in-flight fetch can never overwrite newer results. */
@@ -1056,6 +1058,9 @@ const RadarSearch = () => {
               .map((r) => r.vendor_id)
               .filter((id) => vendorIdSet.has(id)),
           );
+          if (isCurrent()) {
+            setSavedVendorIds(savedVendorIds);
+          }
         }
 
         const trustKeys: Array<{ vendorId: string; categoryId: string }> = [];
@@ -1262,17 +1267,32 @@ const RadarSearch = () => {
     void fetchVendors({ silent: false });
   }, [coords, coordsTried, categoriesLoaded, fetchVendors, searchRadiusKm]);
 
+  const refreshSavedVendorIds = useCallback(async () => {
+    const { data, error } = await supabase.rpc("get_saved_vendors", {
+      p_user_phone: getUserPhone(),
+      p_device_id: getDeviceId(),
+    });
+    if (error) {
+      console.error("radar/saved_vendors refresh", error);
+      return;
+    }
+    setSavedVendorIds(
+      new Set(((data ?? []) as { vendor_id: string }[]).map((r) => r.vendor_id)),
+    );
+  }, []);
+
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
       void fetchVendors({ silent: true });
+      void refreshSavedVendorIds();
       if (consumeNeighboursDirty()) {
         setNeighboursSyncTick((t) => t + 1);
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [fetchVendors]);
+  }, [fetchVendors, refreshSavedVendorIds]);
 
   const headline = useMemo(() => {
     if (term) return displayName(term);
@@ -1284,10 +1304,10 @@ const RadarSearch = () => {
     return Object.fromEntries(
       results.map(({ vendor }) => [
         vendor.id,
-        vendor.isSavedNeighbour || readSessionSaved(vendor.id),
+        savedVendorIds.has(vendor.id) || readSessionSaved(vendor.id),
       ]),
     );
-  }, [results, neighboursSyncTick]);
+  }, [results, neighboursSyncTick, savedVendorIds]);
 
   const localResults = useMemo(
     () => results.filter(({ vendor }) => !vendor.isPanIndia),

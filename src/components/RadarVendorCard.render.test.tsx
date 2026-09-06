@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeAll } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { RadarVendorCard } from "@/components/RadarVendorCard";
-import { strings } from "@/lib/strings";
+import { strings, loadStringBundle } from "@/lib/strings";
 import { vendorBinaryTrustTier } from "@/lib/vendorBinaryTrust";
 
 vi.mock("@/lib/sentry", () => ({ captureError: vi.fn() }));
@@ -60,34 +60,44 @@ vi.mock("@/lib/language", () => ({
   }),
 }));
 
-const vendorComplete = {
-  id: "v-green",
-  shop_name: "Green Shop",
-  phone: "9000000001",
-  category: "Plumber",
-  service_mode: "help",
-  is_active: true,
-  last_updated: new Date().toISOString(),
-  is_manual_verified: true,
-  upi_verified: true,
-  photo_selfie: "https://example.com/s.jpg",
-  latitude: 18.5,
-  longitude: 73.8,
-  shop_photo_url: null,
-  verification_status: "verified",
-  total_helped: 0,
-  total_delivered: 0,
-  rating: 5,
-  rating_count: 1,
-  serves_at_vendor_place: true,
-  serves_at_customer_place: true,
-};
+beforeAll(async () => {
+  await loadStringBundle("hi");
+  await loadStringBundle("mr");
+});
+
+function freshVendor(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "v-green",
+    shop_name: "Green Shop",
+    phone: "9000000001",
+    category: "Plumber",
+    service_mode: "help",
+    is_active: true,
+    last_updated: new Date().toISOString(),
+    is_manual_verified: true,
+    upi_verified: true,
+    photo_selfie: "https://example.com/s.jpg",
+    latitude: 18.5,
+    longitude: 73.8,
+    shop_photo_url: null,
+    verification_status: "verified",
+    total_helped: 0,
+    total_delivered: 0,
+    rating: 5,
+    rating_count: 1,
+    serves_at_vendor_place: true,
+    serves_at_customer_place: true,
+    ...overrides,
+  };
+}
+
+const vendorComplete = freshVendor();
 
 function renderCard(
   vendorOverrides: Record<string, unknown> = {},
   own = false,
 ) {
-  const vendor = { ...vendorComplete, ...vendorOverrides };
+  const vendor = freshVendor(vendorOverrides);
   if (own) {
     localStorage.setItem("aaspaas:vendor_id", vendor.id);
     localStorage.setItem("aaspaas:user_phone", "9000000001");
@@ -135,7 +145,7 @@ describe("RadarVendorCard accent + i18n render", () => {
     const { container: c2 } = renderCard();
     const card2 = c2.querySelector('[data-testid="radar-vendor-card"]');
     const propsWithGpsVerified = {
-      vendor: vendorComplete,
+      vendor: freshVendor(),
       isSaved: false,
       hasOrdered: false,
       hasFulfilledOrder: false,
@@ -171,18 +181,18 @@ describe("RadarVendorCard accent + i18n render", () => {
     expect(card2?.className).not.toContain("ring-brand/50");
   });
 
-  it.each([
-    ["en", "Online", "• You"],
-    ["hi", "ऑनलाइन", "• आप"],
-    ["mr", "ऑनलाइन", "• तुम्ही"],
-  ] as const)("%s online aria + own-vendor label render", (lang, online, ownLabel) => {
-    langMock.current = lang;
-    localStorage.clear();
-    const { unmount } = renderCard({}, true);
-    expect(screen.getByLabelText(online)).toBeTruthy();
-    expect(screen.getByText(ownLabel)).toBeTruthy();
-    unmount();
-  });
+  it.each(["en", "hi", "mr"] as const)(
+    "%s online aria + own-vendor label render",
+    (lang) => {
+      langMock.current = lang;
+      localStorage.clear();
+      const copy = strings[lang];
+      const { unmount } = renderCard({}, true);
+      expect(screen.getByLabelText(copy.radar_vendor_online_aria)).toBeTruthy();
+      expect(screen.getByText(copy.radar_own_vendor_label)).toBeTruthy();
+      unmount();
+    },
+  );
 });
 
 describe("RadarVendorCard menu search highlight", () => {

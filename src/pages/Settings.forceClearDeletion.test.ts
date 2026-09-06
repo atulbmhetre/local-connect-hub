@@ -10,7 +10,7 @@ describe("Admin force-clear deletion (Settings vendor row)", () => {
 
   it("sits on the same vendor row as Ban/Unban and is gated on deletion_requested_at", () => {
     const banBtn = src.indexOf("setVendorBanDialog({ open: true, vendor: v })");
-    const unbanBtn = src.indexOf("void unbanVendor(v.id)");
+    const unbanBtn = src.indexOf("setVendorUnbanDialog({ open: true, vendorId: v.id })");
     const clearBtn = src.indexOf('data-testid="admin-force-clear-deletion"');
     expect(banBtn).toBeGreaterThan(-1);
     expect(unbanBtn).toBeGreaterThan(banBtn);
