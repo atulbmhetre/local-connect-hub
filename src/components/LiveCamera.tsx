@@ -9,6 +9,12 @@ import {
 } from "@capacitor/camera";
 import { useLanguage } from "@/lib/language";
 import { ensureNativePermission, isPermissionGranted } from "@/lib/nativePermissions";
+import {
+  IMAGE_UPLOAD_MAX_BYTES,
+  IMAGE_UPLOAD_MAX_EDGE_PX,
+  blobToDataUrl,
+  prepareImageBlob,
+} from "@/lib/prepareImageBlob";
 import { useOverlayBack } from "@/lib/overlayBackBridge";
 
 export type CapturedShot = {
@@ -115,10 +121,16 @@ export const LiveCamera = ({
     if (cancelledRef.current) return;
     const coords = await resolveCoords();
     if (cancelledRef.current) return;
-    const blob = await fetch(dataUrl).then((r) => r.blob());
+    const rawBlob = await fetch(dataUrl).then((r) => r.blob());
+    const blob = await prepareImageBlob(
+      rawBlob,
+      IMAGE_UPLOAD_MAX_EDGE_PX,
+      IMAGE_UPLOAD_MAX_BYTES,
+    );
+    const preparedDataUrl = await blobToDataUrl(blob);
     onCapture({
       blob,
-      dataUrl,
+      dataUrl: preparedDataUrl,
       coords,
       takenAt: new Date().toISOString(),
     });
@@ -131,6 +143,7 @@ export const LiveCamera = ({
       setError(s.camera_capture_failed);
       return;
     }
+    stopWebStream();
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -141,7 +154,6 @@ export const LiveCamera = ({
     }
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    stopWebStream();
     try {
       await finishWithDataUrl(dataUrl);
     } catch (e: unknown) {

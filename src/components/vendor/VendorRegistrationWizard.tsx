@@ -37,6 +37,11 @@ import {
   readGeolocationAccuracy,
   type GpsPoint,
 } from "@/lib/gpsMatch";
+import {
+  IMAGE_UPLOAD_MAX_BYTES,
+  IMAGE_UPLOAD_MAX_EDGE_PX,
+  prepareImageBlob,
+} from "@/lib/prepareImageBlob";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import {
   withNetworkRetry,
@@ -1071,10 +1076,15 @@ export function VendorRegistrationWizard({
 
     try {
       const selfiePath = `${newVendorId}/selfie.jpg`;
+      const preparedSelfie = await prepareImageBlob(
+        selfieBlob,
+        IMAGE_UPLOAD_MAX_EDGE_PX,
+        IMAGE_UPLOAD_MAX_BYTES,
+      );
       const { error: selfieUpErr } = await withTimedRetry(async (signal) => {
         const r = await supabase.storage
           .from(VENDOR_SELFIES_BUCKET)
-          .upload(selfiePath, selfieBlob, { contentType: "image/jpeg", upsert: true });
+          .upload(selfiePath, preparedSelfie, { contentType: "image/jpeg", upsert: true });
         if (signal.aborted) throw new Error("aborted");
         if (r.error && isNetworkFailure(r.error)) throw r.error;
         return r;
@@ -1138,10 +1148,15 @@ export function VendorRegistrationWizard({
     if (resolvedCategoryId && shopPhotoBlob) {
       try {
         const shopPath = `${newVendorId}/${resolvedCategoryId}/${Date.now()}.jpg`;
+        const preparedShopPhoto = await prepareImageBlob(
+          shopPhotoBlob,
+          IMAGE_UPLOAD_MAX_EDGE_PX,
+          IMAGE_UPLOAD_MAX_BYTES,
+        );
         const { error: shopUpErr } = await withTimedRetry(async (signal) => {
           const r = await supabase.storage
             .from(SHOP_PHOTOS_BUCKET)
-            .upload(shopPath, shopPhotoBlob, { contentType: "image/jpeg", upsert: true });
+            .upload(shopPath, preparedShopPhoto, { contentType: "image/jpeg", upsert: true });
           if (signal.aborted) throw new Error("aborted");
           if (r.error && isNetworkFailure(r.error)) throw r.error;
           return r;

@@ -1,4 +1,10 @@
 import { supabase } from "@/lib/supabase";
+import {
+  IMAGE_UPLOAD_MAX_BYTES,
+  IMAGE_UPLOAD_MAX_EDGE_PX,
+  ImageUploadValidationError,
+  prepareImageBlob,
+} from "@/lib/prepareImageBlob";
 
 export const FEED_IMAGES_BUCKET = "feed-images";
 
@@ -7,6 +13,20 @@ export type FeedImageUploadResult = {
   path: string;
 };
 
+export class FeedImageValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FeedImageValidationError";
+  }
+}
+
+function mapPrepareError(err: unknown): never {
+  if (err instanceof ImageUploadValidationError) {
+    throw new FeedImageValidationError(err.message);
+  }
+  throw err;
+}
+
 /**
  * Upload an image to the feed-images bucket and return its public URL + storage path.
  */
@@ -14,10 +34,16 @@ export async function uploadFeedImage(
   file: File,
   folder: "announcements" | "offers" = "announcements",
 ): Promise<FeedImageUploadResult> {
-  const path = `${folder}/${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
+  let prepared: Blob;
+  try {
+    prepared = await prepareImageBlob(file, IMAGE_UPLOAD_MAX_EDGE_PX, IMAGE_UPLOAD_MAX_BYTES);
+  } catch (err) {
+    mapPrepareError(err);
+  }
+  const path = `${folder}/${Date.now()}-${file.name.replace(/\s+/g, "_").replace(/\.[^.]+$/, "")}.jpg`;
   const { error } = await supabase.storage
     .from(FEED_IMAGES_BUCKET)
-    .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
+    .upload(path, prepared, { upsert: true, contentType: "image/jpeg" });
   if (error) throw error;
   const { data } = supabase.storage.from(FEED_IMAGES_BUCKET).getPublicUrl(path);
   return { publicUrl: data.publicUrl, path };

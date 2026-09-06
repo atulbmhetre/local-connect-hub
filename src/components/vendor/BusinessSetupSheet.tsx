@@ -25,6 +25,11 @@ import {
   logGpsMatchFailure,
   type GpsPoint,
 } from "@/lib/gpsMatch";
+import {
+  IMAGE_UPLOAD_MAX_BYTES,
+  IMAGE_UPLOAD_MAX_EDGE_PX,
+  prepareImageBlob,
+} from "@/lib/prepareImageBlob";
 import { useLanguage } from "@/lib/language";
 import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { cn } from "@/lib/utils";
@@ -694,9 +699,14 @@ export function BusinessSetupSheet({
     }
 
     const path = `${vendor.id}/${selectedCategoryId}/${Date.now()}.jpg`;
+    const preparedShopPhoto = await prepareImageBlob(
+      shopPhotoBlob,
+      IMAGE_UPLOAD_MAX_EDGE_PX,
+      IMAGE_UPLOAD_MAX_BYTES,
+    );
     const { error: upErr } = await supabase.storage
       .from(SHOP_PHOTOS_BUCKET)
-      .upload(path, shopPhotoBlob, { contentType: "image/jpeg", upsert: true });
+      .upload(path, preparedShopPhoto, { contentType: "image/jpeg", upsert: true });
     if (upErr) {
       setSubmitting(false);
       toast.error(s.vendor_upload_failed, { description: upErr.message });

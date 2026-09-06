@@ -16,6 +16,12 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
+vi.mock("@/lib/prepareImageBlob", () => ({
+  prepareImageBlob: vi.fn(async (blob: Blob) => blob),
+  IMAGE_UPLOAD_MAX_EDGE_PX: 2048,
+  IMAGE_UPLOAD_MAX_BYTES: 5_242_880,
+}));
+
 import { withOptionalFeedImageUpload } from "./imageUpload";
 
 describe("withOptionalFeedImageUpload — orphan cleanup", () => {

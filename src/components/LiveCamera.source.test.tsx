@@ -42,6 +42,13 @@ vi.mock("@/lib/nativePermissions", () => ({
   isPermissionGranted: (status: string) => status === "granted" || status === "limited",
 }));
 
+vi.mock("@/lib/prepareImageBlob", () => ({
+  prepareImageBlob: vi.fn(async (blob: Blob) => blob),
+  blobToDataUrl: vi.fn(async () => "data:image/jpeg;base64,aa"),
+  IMAGE_UPLOAD_MAX_EDGE_PX: 2048,
+  IMAGE_UPLOAD_MAX_BYTES: 5_242_880,
+}));
+
 import { LiveCamera } from "@/components/LiveCamera";
 
 describe("LiveCamera source", () => {

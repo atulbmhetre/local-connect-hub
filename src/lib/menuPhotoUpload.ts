@@ -1,4 +1,9 @@
 import { supabase } from "@/lib/supabase";
+import {
+  IMAGE_UPLOAD_MAX_EDGE_PX,
+  ImageUploadValidationError,
+  prepareImageBlob,
+} from "@/lib/prepareImageBlob";
 
 export const MENU_PHOTOS_BUCKET = "menu-photos";
 /** Match storage.buckets.file_size_limit for menu-photos. */
@@ -21,6 +26,22 @@ function normalizeType(type: string | undefined): string {
   return (type || "image/jpeg").toLowerCase();
 }
 
+function mapPrepareError(err: unknown): never {
+  if (err instanceof ImageUploadValidationError) {
+    switch (err.message) {
+      case "unsupported_image_type":
+        throw new MenuPhotoValidationError("unsupported_menu_photo_type");
+      case "empty_image":
+        throw new MenuPhotoValidationError("empty_menu_photo");
+      case "image_too_large":
+        throw new MenuPhotoValidationError("menu_photo_too_large");
+      default:
+        throw new MenuPhotoValidationError(err.message);
+    }
+  }
+  throw err;
+}
+
 /** Client-side type + size gate before storage upload (storage still enforces). */
 export function assertMenuPhotoBlob(blob: Blob): void {
   const type = normalizeType(blob.type);
@@ -35,52 +56,13 @@ export function assertMenuPhotoBlob(blob: Blob): void {
   }
 }
 
-/**
- * Ensure blob is an allowed type and ≤ 5MB. Re-encodes via canvas when oversized.
- */
+/** Ensure blob is an allowed type, ≤ max edge, and ≤ 5MB. */
 export async function prepareMenuPhotoBlob(blob: Blob): Promise<Blob> {
-  const type = normalizeType(blob.type);
-  if (!ALLOWED_TYPES.has(type)) {
-    throw new MenuPhotoValidationError("unsupported_menu_photo_type");
-  }
-  if (blob.size <= 0) {
-    throw new MenuPhotoValidationError("empty_menu_photo");
-  }
-  if (blob.size <= MENU_PHOTO_MAX_BYTES) {
-    return blob;
-  }
-
-  if (typeof createImageBitmap !== "function" || typeof document === "undefined") {
-    throw new MenuPhotoValidationError("menu_photo_too_large");
-  }
-
-  const bitmap = await createImageBitmap(blob);
   try {
-    let width = bitmap.width;
-    let height = bitmap.height;
-    let quality = 0.85;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(width));
-      canvas.height = Math.max(1, Math.round(height));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) break;
-      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const compressed = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob((b) => resolve(b), "image/jpeg", quality),
-      );
-      if (compressed && compressed.size > 0 && compressed.size <= MENU_PHOTO_MAX_BYTES) {
-        return compressed;
-      }
-      width *= 0.75;
-      height *= 0.75;
-      quality = Math.max(0.5, quality - 0.1);
-    }
-  } finally {
-    bitmap.close();
+    return await prepareImageBlob(blob, IMAGE_UPLOAD_MAX_EDGE_PX, MENU_PHOTO_MAX_BYTES);
+  } catch (err) {
+    mapPrepareError(err);
   }
-
-  throw new MenuPhotoValidationError("menu_photo_too_large");
 }
 
 export async function uploadMenuPhoto(

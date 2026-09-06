@@ -1,4 +1,9 @@
 import { supabase } from "@/lib/supabase";
+import {
+  IMAGE_UPLOAD_MAX_EDGE_PX,
+  ImageUploadValidationError,
+  prepareImageBlob,
+} from "@/lib/prepareImageBlob";
 
 export const PAYMENT_PROOFS_BUCKET = "payment-proofs";
 export const PAYMENT_PROOF_MAX_BYTES = 5_242_880;
@@ -20,6 +25,22 @@ function normalizeType(type: string | undefined): string {
   return (type || "image/jpeg").toLowerCase();
 }
 
+function mapPrepareError(err: unknown): never {
+  if (err instanceof ImageUploadValidationError) {
+    switch (err.message) {
+      case "unsupported_image_type":
+        throw new PaymentProofValidationError("unsupported_payment_proof_type");
+      case "empty_image":
+        throw new PaymentProofValidationError("empty_payment_proof");
+      case "image_too_large":
+        throw new PaymentProofValidationError("payment_proof_too_large");
+      default:
+        throw new PaymentProofValidationError(err.message);
+    }
+  }
+  throw err;
+}
+
 export function assertPaymentProofBlob(blob: Blob): void {
   const type = normalizeType(blob.type);
   if (!ALLOWED_TYPES.has(type)) {
@@ -37,11 +58,16 @@ export async function uploadPaymentProof(
   requestId: string,
   blob: Blob,
 ): Promise<PaymentProofUploadResult> {
-  assertPaymentProofBlob(blob);
-  const ext = normalizeType(blob.type) === "image/png" ? "png" : "jpg";
-  const path = `${requestId}/${Date.now()}.${ext}`;
-  const { error } = await supabase.storage.from(PAYMENT_PROOFS_BUCKET).upload(path, blob, {
-    contentType: blob.type || "image/jpeg",
+  let prepared: Blob;
+  try {
+    prepared = await prepareImageBlob(blob, IMAGE_UPLOAD_MAX_EDGE_PX, PAYMENT_PROOF_MAX_BYTES);
+  } catch (err) {
+    mapPrepareError(err);
+  }
+  assertPaymentProofBlob(prepared);
+  const path = `${requestId}/${Date.now()}.jpg`;
+  const { error } = await supabase.storage.from(PAYMENT_PROOFS_BUCKET).upload(path, prepared, {
+    contentType: "image/jpeg",
     upsert: false,
   });
   if (error) throw error;
