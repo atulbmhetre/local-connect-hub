@@ -29,6 +29,7 @@ import { SettingsSectionLabel, SettingsCard } from "@/components/settings/Settin
 import { NotificationBell } from "@/components/NotificationBell";
 import { useLanguage } from "@/lib/language";
 import { strings, type Language } from "@/lib/strings";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { buildRecommendedVendorRadarUrl, resolveRecommendedVendorRadarLink } from "@/lib/feedVendorLink";
 import { maskPhoneNumbers } from "@/lib/textUtils";
 import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
@@ -291,8 +292,13 @@ export default function LocalFeed() {
   const highlightPostId = (location.state as LocationHighlightState | null)?.highlightPostId;
   const { s, lang } = useLanguage();
   const [posts, setPosts] = useState<FeedPost[]>([]);
+  const postsRef = useRef<FeedPost[]>([]);
+  postsRef.current = posts;
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [locationUnavailable, setLocationUnavailable] = useState(false);
+  const [locationRetrying, setLocationRetrying] = useState(false);
+  const [refreshBanner, setRefreshBanner] = useState<string | null>(null);
   const [truncatedRemaining, setTruncatedRemaining] = useState(0);
   const fetchLimitRef = useRef(FEED_PAGE_SIZE);
   const [flashPostId, setFlashPostId] = useState<string | null>(null);
@@ -308,6 +314,8 @@ export default function LocalFeed() {
   const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set());
   const [flaggingId, setFlaggingId] = useState<string | null>(null);
   const [flaggedByMe, setFlaggedByMe] = useState<Set<string>>(() => new Set());
+  const [replySendingId, setReplySendingId] = useState<string | null>(null);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const [vendorSearchQuery, setVendorSearchQuery] = useState("");
   const [vendorSearchResults, setVendorSearchResults] = useState<VendorSearchHit[]>([]);
   const [vendorSearchLoading, setVendorSearchLoading] = useState(false);
@@ -439,6 +447,7 @@ export default function LocalFeed() {
     async (opts?: { silent?: boolean; limit?: number }) => {
       const limit = opts?.limit ?? fetchLimitRef.current;
       fetchLimitRef.current = limit;
+      const keepExisting = opts?.silent === true && postsRef.current.length > 0;
 
       const cached = !opts?.silent ? readFeedCache() : null;
       const showingCached = cached != null;
@@ -452,12 +461,20 @@ export default function LocalFeed() {
       try {
         const readerCoords = await resolveReaderCoords();
         if (!readerCoords) {
-          if (!showingCached) {
-            setPosts([]);
+          if (keepExisting || showingCached) {
+            setRefreshBanner(s.feed_refreshKeepShowing);
+            toast.error(s.feed_refreshKeepShowing);
+            return;
           }
+          setPosts([]);
+          setLocationUnavailable(true);
+          setRefreshBanner(null);
           setTruncatedRemaining(0);
           return;
         }
+
+        setLocationUnavailable(false);
+        setRefreshBanner(null);
 
         const readerVendorIdRaw = localStorage.getItem("aaspaas:vendor_id");
         const readerVendorId = readerVendorIdRaw?.trim() || null;
@@ -517,8 +534,11 @@ export default function LocalFeed() {
       } catch (error) {
         console.error("fetchPosts", error);
         captureError(error, { scope: "localFeed.fetchPosts" });
-        toast.error(s.feed_errLoad);
-        if (!showingCached) {
+        if (keepExisting || showingCached) {
+          setRefreshBanner(s.feed_refreshKeepShowing);
+          toast.error(s.feed_refreshKeepShowing);
+        } else {
+          toast.error(s.feed_errLoad);
           setPosts([]);
         }
         setTruncatedRemaining(0);
@@ -526,8 +546,18 @@ export default function LocalFeed() {
         if (!opts?.silent) setLoading(false);
       }
     },
-    [s.feed_errLoad, readerDiscoveryRadiusKm],
+    [s.feed_errLoad, s.feed_refreshKeepShowing, readerDiscoveryRadiusKm],
   );
+
+  const retryReaderLocation = useCallback(async () => {
+    setLocationRetrying(true);
+    setRefreshBanner(null);
+    try {
+      await fetchPosts();
+    } finally {
+      setLocationRetrying(false);
+    }
+  }, [fetchPosts]);
 
   useEffect(() => {
     fetchLimitRef.current = FEED_PAGE_SIZE;
@@ -685,22 +715,28 @@ export default function LocalFeed() {
     }
     const content = (replyDrafts[postId] ?? "").trim();
     if (!content) return;
+    if (replySendingId) return;
 
-    const { error } = await supabase.rpc("submit_feed_reply", {
-      p_post_id: postId,
-      p_user_phone: phone,
-      p_content: content,
-    });
+    setReplySendingId(postId);
+    try {
+      const { error } = await supabase.rpc("submit_feed_reply", {
+        p_post_id: postId,
+        p_user_phone: phone,
+        p_content: content,
+      });
 
-    if (error) {
-      console.error("submitReply", error);
-      captureError(error, { scope: "localFeed.submitReply", postId });
-      toast.error(s.feed_errSendReply);
-      return;
+      if (error) {
+        console.error("submitReply", error);
+        captureError(error, { scope: "localFeed.submitReply", postId });
+        toast.error(s.feed_errSendReply);
+        return;
+      }
+
+      setReplyDrafts((prev) => ({ ...prev, [postId]: "" }));
+      await loadReplies(postId);
+    } finally {
+      setReplySendingId(null);
     }
-
-    setReplyDrafts((prev) => ({ ...prev, [postId]: "" }));
-    await loadReplies(postId);
   };
 
   const flagPost = async (postId: string) => {
@@ -800,6 +836,33 @@ export default function LocalFeed() {
     });
   };
 
+  const finishCloseCompose = () => {
+    setShowCompose(false);
+    setDiscardConfirmOpen(false);
+    resetCompose();
+  };
+
+  const requestCloseCompose = useOverlayBack(
+    showCompose,
+    finishCloseCompose,
+    "aaspaasFeedCompose",
+  );
+
+  const composeIsDirty =
+    composeContent.trim().length > 0 ||
+    imageFile != null ||
+    recommendedVendorName.trim().length > 0 ||
+    recommendedVendorPhone.trim().length > 0 ||
+    recommendedVendorId != null;
+
+  const attemptCloseCompose = () => {
+    if (composeIsDirty) {
+      setDiscardConfirmOpen(true);
+      return;
+    }
+    requestCloseCompose();
+  };
+
   const openCompose = async () => {
     try {
       await getPosition();
@@ -813,13 +876,11 @@ export default function LocalFeed() {
       return;
     }
     resetCompose();
+    setDiscardConfirmOpen(false);
     setShowCompose(true);
   };
 
-  const closeCompose = () => {
-    setShowCompose(false);
-    resetCompose();
-  };
+  const closeCompose = attemptCloseCompose;
 
   const submitPost = async () => {
     const phone = getUserPhone() || vendor?.phone || null;
@@ -932,7 +993,7 @@ export default function LocalFeed() {
       return;
     }
 
-    closeCompose();
+    requestCloseCompose();
     await fetchPosts();
     toast.success(s.feed_postedSuccess);
   };
@@ -1002,12 +1063,53 @@ export default function LocalFeed() {
             <FeedPostSkeleton key={i} />
           ))}
         </ul>
+      ) : locationUnavailable && visiblePosts.length === 0 ? (
+        <div
+          className="mx-4 my-8 rounded-2xl border border-border bg-muted/30 px-4 py-8 text-center space-y-3"
+          data-testid="feed-location-required"
+        >
+          <p className="text-sm text-foreground font-medium">{s.feed_locationRequiredRead}</p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {s.feed_location_help_step3}
+          </p>
+          <button
+            type="button"
+            data-testid="feed-location-retry"
+            disabled={locationRetrying}
+            onClick={() => void retryReaderLocation()}
+            className="w-full min-h-[44px] rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-50"
+          >
+            {locationRetrying ? s.feed_loadingMore : s.feed_locationRetry}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowComposeLocationHelp((v) => !v)}
+            className="text-xs text-muted-foreground underline underline-offset-2"
+          >
+            {s.feed_location_help_title}
+          </button>
+          {showComposeLocationHelp && (
+            <div className="rounded-xl border border-border bg-background p-3 text-xs text-muted-foreground space-y-1 text-left">
+              <p>1. {s.feed_location_help_step1}</p>
+              <p>2. {s.feed_location_help_step2}</p>
+              <p>3. {s.feed_location_help_step3}</p>
+            </div>
+          )}
+        </div>
       ) : visiblePosts.length === 0 ? (
         <p className="text-center text-muted-foreground py-12 px-4">
-          {s.feed_empty}
+          {selectedCategoryMeta ? s.feed_empty_category : s.feed_empty}
         </p>
       ) : (
         <>
+          {refreshBanner && (
+            <p
+              data-testid="feed-refresh-banner"
+              className="mx-4 mb-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 text-center"
+            >
+              {refreshBanner}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground text-center py-2 px-4">
             {s.feed_auto_remove_note}
           </p>
@@ -1022,7 +1124,15 @@ export default function LocalFeed() {
               )}
             >
               {post.type === "offer" && (
-                <OfferCard post={post} viewerPhone={viewerPhone} s={s} lang={lang} />
+                <OfferCard
+                  post={post}
+                  viewerPhone={viewerPhone}
+                  s={s}
+                  lang={lang}
+                  onFlag={() => void flagPost(post.id)}
+                  flagging={flaggingId === post.id}
+                  reported={flaggedByMe.has(post.id)}
+                />
               )}
               {post.type === "announcement" && (
                 <AnnouncementCard
@@ -1050,6 +1160,7 @@ export default function LocalFeed() {
                   }
                   onToggleReplies={() => void toggleReplies(post.id)}
                   onSendReply={() => void submitReply(post.id)}
+                  replySending={replySendingId === post.id}
                   onFlag={() => void flagPost(post.id)}
                   flagging={flaggingId === post.id}
                   reported={flaggedByMe.has(post.id)}
@@ -1065,7 +1176,7 @@ export default function LocalFeed() {
               data-testid="feed-load-more"
               disabled={loadingMore}
               onClick={() => void loadMoreFeed()}
-              className="w-full rounded-xl border border-border bg-muted/40 h-10 text-sm font-semibold text-foreground disabled:opacity-50"
+              className="w-full min-h-[44px] rounded-xl border border-border bg-muted/40 h-11 text-sm font-semibold text-foreground disabled:opacity-50"
             >
               {loadingMore
                 ? s.feed_loadingMore
@@ -1087,7 +1198,7 @@ export default function LocalFeed() {
             type="button"
             className="absolute inset-0 bg-black/50"
             aria-label={s.feed_closeAria}
-            onClick={closeCompose}
+            onClick={attemptCloseCompose}
           />
           <div
             className={cn(
@@ -1099,13 +1210,37 @@ export default function LocalFeed() {
               <h2 className="font-display font-semibold text-xl">{s.feed_composeTitle}</h2>
               <button
                 type="button"
-                onClick={closeCompose}
-                className="h-9 w-9 grid place-items-center rounded-lg border border-border"
+                onClick={attemptCloseCompose}
+                className="h-11 w-11 min-h-[44px] min-w-[44px] grid place-items-center rounded-lg border border-border"
                 aria-label={s.feed_closeAria}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            {discardConfirmOpen && (
+              <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
+                <p className="text-xs text-destructive font-semibold text-center">
+                  {s.feed_discard_confirm_q}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold"
+                    onClick={() => requestCloseCompose()}
+                  >
+                    {s.feed_discard_confirm_yes}
+                  </button>
+                  <button
+                    type="button"
+                    className="min-h-[44px] rounded-lg border border-border text-xs font-semibold"
+                    onClick={() => setDiscardConfirmOpen(false)}
+                  >
+                    {s.cancel}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <SettingsSectionLabel>{s.feed_postTypeLabel}</SettingsSectionLabel>
             <div className="flex flex-wrap gap-2 mb-4 px-4">
@@ -1290,8 +1425,8 @@ export default function LocalFeed() {
             )}
 
             <Button
-              className="w-full"
-              disabled={submitting}
+              className="w-full min-h-[44px]"
+              disabled={submitting || !composeContent.trim()}
               onClick={() => void submitPost()}
             >
               {submitting ? (
@@ -1357,18 +1492,24 @@ function OfferCard({
   viewerPhone,
   s,
   lang,
+  onFlag,
+  flagging,
+  reported,
 }: {
   post: FeedPost;
   viewerPhone: string | null;
   s: FeedStrings;
   lang: Language;
+  onFlag: () => void;
+  flagging: boolean;
+  reported: boolean;
 }) {
   const expiry = expiryBadgeLabel(post.expires_at, s);
   const postedAt = feedPostedTimeLabel(post.created_at, s, lang);
   return (
     <article
       data-testid="feed-post-card"
-      className="mb-3 rounded-2xl border border-surface-border bg-surface p-4"
+      className="mb-3 rounded-2xl border border-surface-border bg-surface p-4 relative"
     >
       <span className="inline-block text-xs font-semibold rounded-full bg-amber-500/20 text-amber-400 px-2 py-0.5 mb-2">
         {s.feed_typeOffer}
@@ -1401,6 +1542,7 @@ function OfferCard({
           {expiry}
         </span>
       )}
+      <FeedFlagButton reported={reported} flagging={flagging} onFlag={onFlag} s={s} />
     </article>
   );
 }
@@ -1416,15 +1558,52 @@ function FeedFlagButton({
   onFlag: () => void;
   s: FeedStrings;
 }) {
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  if (showConfirm && !reported) {
+    return (
+      <div
+        className="absolute bottom-2 right-2 left-2 rounded-xl border border-destructive/40 bg-destructive/5 p-2 space-y-2"
+        data-testid="feed-flag-confirm"
+      >
+        <p className="text-xs text-destructive font-semibold text-center">
+          {s.feed_report_confirm_q}
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            data-testid="feed-flag-confirm-yes"
+            disabled={flagging}
+            onClick={() => {
+              onFlag();
+              setShowConfirm(false);
+            }}
+            className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold disabled:opacity-50"
+          >
+            {flagging ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : s.feed_report_confirm_yes}
+          </button>
+          <button
+            type="button"
+            data-testid="feed-flag-confirm-keep"
+            onClick={() => setShowConfirm(false)}
+            className="min-h-[44px] rounded-lg border border-border text-xs font-semibold"
+          >
+            {s.cancel}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
       data-testid="feed-flag-btn"
       data-reported={reported ? "true" : "false"}
-      onClick={onFlag}
+      onClick={() => setShowConfirm(true)}
       disabled={flagging || reported}
       className={cn(
-        "absolute bottom-3 right-3 h-8 w-8 grid place-items-center rounded-lg transition-colors",
+        "absolute bottom-3 right-3 h-11 w-11 min-h-[44px] min-w-[44px] grid place-items-center rounded-lg transition-colors",
         reported
           ? "text-destructive bg-destructive/10 cursor-default"
           : "text-muted-foreground hover:text-destructive hover:bg-destructive/10 disabled:opacity-50",
@@ -1507,6 +1686,7 @@ function RecommendationCard({
   onReplyDraftChange,
   onToggleReplies,
   onSendReply,
+  replySending,
   onFlag,
   flagging,
   reported,
@@ -1522,6 +1702,7 @@ function RecommendationCard({
   onReplyDraftChange: (v: string) => void;
   onToggleReplies: () => void;
   onSendReply: () => void;
+  replySending: boolean;
   onFlag: () => void;
   flagging: boolean;
   reported: boolean;
@@ -1644,8 +1825,12 @@ function RecommendationCard({
                 }
               }}
             />
-            <Button size="sm" onClick={onSendReply}>
-              {s.feed_sendReply}
+            <Button
+              className="min-h-[44px] min-w-[44px]"
+              disabled={replySending || !replyDraft.trim()}
+              onClick={onSendReply}
+            >
+              {replySending ? <Loader2 className="h-4 w-4 animate-spin" /> : s.feed_sendReply}
             </Button>
           </div>
         </div>

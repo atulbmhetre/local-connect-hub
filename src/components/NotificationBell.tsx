@@ -19,6 +19,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { navigateFromNotification } from "@/lib/notificationNavigation";
 
 /** Poll interval matching Home help-banner OTP-off Realtime fallback. */
@@ -71,6 +72,7 @@ export function NotificationBell({
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const loadIdRef = useRef(0);
   const openRef = useRef(open);
@@ -268,16 +270,25 @@ export function NotificationBell({
     if (openRef.current) void loadTray(phone);
   });
 
+  const closeUi = useCallback(() => {
+    setClearConfirmOpen(false);
+    setOpen(false);
+  }, []);
+  const requestClose = useOverlayBack(open, closeUi, "aaspaasNotifBell");
+
   const handleOpenChange = (next: boolean) => {
-    setOpen(next);
+    if (!next) {
+      requestClose();
+      return;
+    }
+    setOpen(true);
+    setClearConfirmOpen(false);
     const userPhone = getUserPhone();
     if (userPhone) setPhone(userPhone);
     const activePhone = userPhone ?? phone;
     if (!activePhone) return;
-    if (next) {
-      void loadTray(activePhone);
-      void markInformationalRead(activePhone);
-    }
+    void loadTray(activePhone);
+    void markInformationalRead(activePhone);
   };
 
   const handleNotificationTap = async (n: UserNotification) => {
@@ -305,7 +316,7 @@ export function NotificationBell({
         void refreshUnreadCount(phone);
       }
     }
-    setOpen(false);
+    requestClose();
     navigateFromNotification(navigate, n.route, n.route_params);
   };
 
@@ -409,18 +420,18 @@ export function NotificationBell({
       <Sheet open={open} onOpenChange={handleOpenChange}>
         <SheetContent
           side="bottom"
-          className="rounded-t-2xl border-t border-border bg-background max-h-[85vh] flex flex-col p-0 [&>button]:hidden"
+          className="rounded-t-2xl border-t border-border bg-background max-h-[85vh] flex flex-col p-0 [&>button]:min-h-[44px] [&>button]:min-w-[44px] [&>button]:grid [&>button]:place-items-center"
         >
           <SheetHeader className="px-4 pt-4 pb-2 border-b border-border text-left shrink-0">
             <div className="flex items-center justify-between gap-2 pr-8">
               <SheetTitle className="text-foreground">{s.notif_bell_title}</SheetTitle>
               {!loadError && (unreadCount > 0 || notifications.length > 0) && (
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   {unreadCount > 0 && (
                     <button
                       type="button"
                       onClick={() => void handleMarkAllRead()}
-                      className="text-xs font-medium text-brand hover:underline"
+                      className="min-h-[44px] px-2 text-xs font-medium text-brand"
                     >
                       {s.notifications_mark_all_read}
                     </button>
@@ -428,8 +439,8 @@ export function NotificationBell({
                   {notifications.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => phone && void clearAll(phone)}
-                      className="text-xs font-medium text-muted-foreground hover:underline"
+                      onClick={() => setClearConfirmOpen(true)}
+                      className="min-h-[44px] px-2 text-xs font-medium text-muted-foreground"
                     >
                       {s.notifications_clear_all}
                     </button>
@@ -439,18 +450,59 @@ export function NotificationBell({
             </div>
           </SheetHeader>
 
+          {clearConfirmOpen && (
+            <div
+              className="mx-4 mt-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2"
+              data-testid="notif-clear-all-confirm"
+            >
+              <p className="text-xs text-destructive font-semibold text-center">
+                {s.notifications_clear_all_confirm_q}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold"
+                  onClick={() => {
+                    setClearConfirmOpen(false);
+                    if (phone) void clearAll(phone);
+                  }}
+                >
+                  {s.notifications_clear_all_confirm_yes}
+                </button>
+                <button
+                  type="button"
+                  className="min-h-[44px] rounded-lg border border-border text-xs font-semibold"
+                  onClick={() => setClearConfirmOpen(false)}
+                >
+                  {s.cancel}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {loading && notifications.length === 0 && !loadError ? (
               <p className="text-sm text-muted-foreground text-center py-8">{s.notif_bell_loading}</p>
             ) : loadError ? (
               <div
-                className="flex flex-col items-center justify-center py-12 text-center"
+                className="flex flex-col items-center justify-center py-12 text-center gap-3"
                 data-testid="notification-bell-load-error"
               >
-                <div className="h-16 w-16 rounded-full bg-muted border border-border grid place-items-center mb-4">
+                <div className="h-16 w-16 rounded-full bg-muted border border-border grid place-items-center">
                   <Bell className="h-8 w-8 text-muted-foreground" />
                 </div>
                 <p className="text-sm font-medium text-foreground">{s.notif_bell_load_error}</p>
+                <button
+                  type="button"
+                  data-testid="notification-bell-retry"
+                  className="min-h-[44px] rounded-xl border border-border px-4 text-sm font-semibold"
+                  onClick={() => {
+                    const p = getUserPhone() ?? phone;
+                    if (p) void loadTray(p);
+                  }}
+                >
+                  {s.network_retry_btn}
+                </button>
               </div>
             ) : notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -523,7 +575,7 @@ export function NotificationBell({
                         e.stopPropagation();
                         void dismissNotification(n);
                       }}
-                      className="shrink-0 w-9 grid place-items-center text-muted-foreground hover:text-foreground border-l border-border active:opacity-70"
+                      className="shrink-0 min-w-[44px] min-h-[44px] grid place-items-center text-muted-foreground hover:text-foreground border-l border-border active:opacity-70"
                     >
                       ✕
                     </button>
@@ -537,7 +589,7 @@ export function NotificationBell({
             <button
               type="button"
               onClick={() => {
-                setOpen(false);
+                requestClose();
                 navigate("/vendor");
               }}
               className="shrink-0 mx-4 mb-4 mt-1 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-left text-xs text-foreground leading-relaxed active:opacity-90"

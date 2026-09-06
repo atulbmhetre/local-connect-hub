@@ -49,6 +49,9 @@ export function VendorCategoryOffers({
   const [offerStartError, setOfferStartError] = useState("");
   const [offerEndError, setOfferEndError] = useState("");
   const [offerLoading, setOfferLoading] = useState(false);
+  const [offerFetching, setOfferFetching] = useState(false);
+  const [offerLoadFailed, setOfferLoadFailed] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [offerImageFile, setOfferImageFile] = useState<File | null>(null);
   const [offerImagePreview, setOfferImagePreview] = useState<string | null>(null);
   const [offersOpen, setOffersOpen] = useState(false);
@@ -64,8 +67,11 @@ export function VendorCategoryOffers({
   const loadActiveOffer = useCallback(async () => {
     if (!businessCategoryId) {
       setActiveOffer(null);
+      setOfferLoadFailed(false);
+      setConfirmingRemove(false);
       return;
     }
+    setOfferFetching(true);
     const { data, error } = await supabase
       .from("feed_posts")
       .select("id, content, expires_at")
@@ -83,8 +89,13 @@ export function VendorCategoryOffers({
         businessCategoryId,
       });
       setActiveOffer(null);
+      setOfferLoadFailed(true);
+      setConfirmingRemove(false);
+      setOfferFetching(false);
       return;
     }
+    setOfferLoadFailed(false);
+    setConfirmingRemove(false);
     setActiveOffer(
       data
         ? {
@@ -94,6 +105,7 @@ export function VendorCategoryOffers({
           }
         : null,
     );
+    setOfferFetching(false);
   }, [businessCategoryId, vendorId]);
 
   useEffect(() => {
@@ -226,7 +238,7 @@ export function VendorCategoryOffers({
   };
 
   const removeOffer = async () => {
-    if (!activeOffer) return;
+    if (!activeOffer || offerLoading) return;
     const phone = getUserPhone();
     if (!phone) {
       toast.error(s.vendor_offer_phone_required);
@@ -244,6 +256,7 @@ export function VendorCategoryOffers({
       return;
     }
     setActiveOffer(null);
+    setConfirmingRemove(false);
     toast(s.vendor_offer_removed);
   };
 
@@ -256,21 +269,69 @@ export function VendorCategoryOffers({
       onToggle={() => setOffersOpen((o) => !o)}
       nested
     >
-      {activeOffer ? (
+      {offerFetching ? (
+        <p className="text-xs text-muted-foreground px-4 py-3 inline-flex items-center gap-1.5">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {s.settings_loading}
+        </p>
+      ) : offerLoadFailed ? (
+        <div className="px-4 py-3 space-y-2" data-testid="vendor-offer-load-error">
+          <p className="text-xs text-destructive">{s.vendor_offer_load_error}</p>
+          <button
+            type="button"
+            onClick={() => void loadActiveOffer()}
+            className="min-h-[44px] rounded-lg border border-surface-border px-3 text-xs font-semibold text-foreground"
+          >
+            {s.network_retry_btn}
+          </button>
+        </div>
+      ) : activeOffer ? (
         <div className="px-4 py-3 space-y-3">
           <p className="text-sm text-foreground">{activeOffer.content}</p>
           <p className="text-xs text-muted-foreground">
             {s.vendor_offer_expires_label}{" "}
             {activeOffer.expires_at ? new Date(activeOffer.expires_at).toLocaleString() : "—"}
           </p>
-          <button
-            type="button"
-            onClick={() => void removeOffer()}
-            disabled={offerLoading}
-            className="w-full rounded-xl border border-destructive/40 text-destructive h-10 text-sm font-semibold disabled:opacity-50"
-          >
-            {s.vendor_offer_remove_btn}
-          </button>
+          {!confirmingRemove ? (
+            <button
+              type="button"
+              onClick={() => setConfirmingRemove(true)}
+              disabled={offerLoading}
+              data-testid="vendor-offer-remove-btn"
+              className="w-full rounded-xl border border-destructive/40 text-destructive min-h-[44px] text-sm font-semibold disabled:opacity-50"
+            >
+              {s.vendor_offer_remove_btn}
+            </button>
+          ) : (
+            <div
+              className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2"
+              data-testid="vendor-offer-remove-confirm"
+            >
+              <p className="text-xs text-destructive font-semibold text-center">
+                {s.vendor_offer_remove_confirm}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  data-testid="vendor-offer-remove-confirm-yes"
+                  disabled={offerLoading}
+                  onClick={() => void removeOffer()}
+                  className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
+                >
+                  {s.vendor_offer_remove_yes}
+                </button>
+                <button
+                  type="button"
+                  data-testid="vendor-offer-remove-confirm-keep"
+                  disabled={offerLoading}
+                  onClick={() => setConfirmingRemove(false)}
+                  className="min-h-[44px] rounded-lg border border-border text-xs font-semibold py-2 disabled:opacity-50"
+                >
+                  {s.myOrders_keepIt}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="px-4 py-3 space-y-3">

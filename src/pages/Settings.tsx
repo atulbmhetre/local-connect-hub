@@ -42,6 +42,7 @@ import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
 import { fetchVendorOwn } from "@/lib/vendorRead";
 import { formatVendorDeletionDate } from "@/lib/vendorDeletion";
 import { getDeviceId } from "@/lib/deviceId";
+import { resolveAccountStanding } from "@/lib/accountStanding";
 import { useLanguage } from "@/lib/language";
 import { useTheme } from "@/lib/theme";
 import { MAX_ADDRESS_TEXT_CHARS } from "@/lib/addressLimits";
@@ -171,6 +172,7 @@ const Settings = () => {
   const [editAddressValue, setEditAddressValue] = useState("");
   const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
   const [clearDataOpen, setClearDataOpen] = useState(false);
+  const [clearingData, setClearingData] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [dualRoleDelete, setDualRoleDelete] = useState(false);
   const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
@@ -208,6 +210,7 @@ const Settings = () => {
   // True only when the trust RPC itself failed — distinct from "no row yet",
   // which is a legitimately good standing, not an unknown one.
   const [trustLoadFailed, setTrustLoadFailed] = useState(false);
+  const [trustLoading, setTrustLoading] = useState(() => Boolean(getUserPhone()?.trim()));
   const [accountOpen, setAccountOpen] = useState(false);
   const [shopOpen, setShopOpen] = useState(() => Boolean(vendorId?.trim()));
   const initialVendorPanelTab =
@@ -313,7 +316,7 @@ const Settings = () => {
         type="button"
         onClick={onRequest}
         data-testid="settings-permission-allow"
-        className="shrink-0 rounded-lg border border-surface-border px-3 py-1 text-xs font-semibold text-foreground"
+        className="shrink-0 min-h-[44px] rounded-lg border border-surface-border px-3 py-1 text-xs font-semibold text-foreground"
       >
         {s.settings_permission_request}
       </button>
@@ -329,13 +332,14 @@ const Settings = () => {
     void supabase.rpc("get_feed_preferences", { p_user_phone: phone }).then(({ data, error }) => {
       if (error) {
         console.error("get_feed_preferences", error);
+        toast.error(s.settings_feedDiscoveryLoadError);
         return;
       }
       const raw = (data as { feed_discovery_radius_km?: number | null } | null)
         ?.feed_discovery_radius_km;
       setFeedDiscoveryRadiusKm(raw === null ? null : (raw ?? 5));
     });
-  }, [userPhone]);
+  }, [userPhone, s.settings_feedDiscoveryLoadError]);
 
   const onFeedDiscoveryRadiusChange = async (km: number | null) => {
     const phone = userPhone?.trim();
@@ -421,8 +425,10 @@ const Settings = () => {
     if (!phone) {
       setUserTrust(null);
       setTrustLoadFailed(false);
+      setTrustLoading(false);
       return;
     }
+    setTrustLoading(true);
     void (async () => {
       const { data, error } = await supabase.rpc("lookup_user_by_phone", { p_phone: phone });
       if (error) {
@@ -430,6 +436,7 @@ const Settings = () => {
         console.error("loadUserTrust", error);
         setUserTrust(null);
         setTrustLoadFailed(true);
+        setTrustLoading(false);
         return;
       }
       setTrustLoadFailed(false);
@@ -443,30 +450,27 @@ const Settings = () => {
             }
           : null,
       );
+      setTrustLoading(false);
     })();
   }, [userPhone]);
 
-  const accountStanding = useMemo(() => {
-    // RPC failure: show "unavailable", not a false-good standing.
-    if (trustLoadFailed) {
-      return { tone: "unavailable" as const, label: s.trust_status_unavailable };
-    }
-    if (!userTrust) {
-      return { tone: "good" as const, label: s.trust_status_good };
-    }
-    if (userTrust.is_banned) {
-      return { tone: "banned" as const, label: s.trust_status_banned };
-    }
-    const score = userTrust.trust_score ?? 75;
-    const warns = userTrust.warn_count ?? 0;
-    if (score < 25 || warns >= 3) {
-      return { tone: "complaints" as const, label: s.trust_status_complaints };
-    }
-    if (score >= 25 && score <= 74) {
-      return { tone: "fair" as const, label: s.trust_status_fair };
-    }
-    return { tone: "good" as const, label: s.trust_status_good };
-  }, [userTrust, trustLoadFailed, s]);
+  const accountStanding = useMemo(
+    () =>
+      resolveAccountStanding({
+        loading: trustLoading,
+        loadFailed: trustLoadFailed,
+        userTrust,
+        labels: {
+          trust_status_loading: s.trust_status_loading,
+          trust_status_unavailable: s.trust_status_unavailable,
+          trust_status_good: s.trust_status_good,
+          trust_status_fair: s.trust_status_fair,
+          trust_status_complaints: s.trust_status_complaints,
+          trust_status_banned: s.trust_status_banned,
+        },
+      }),
+    [userTrust, trustLoadFailed, trustLoading, s],
+  );
   const [vendorLoadFailed, setVendorLoadFailed] = useState(false);
   const loadVendorOwn = useCallback(async () => {
     if (!vendorId) return;
@@ -613,48 +617,55 @@ const Settings = () => {
   };
 
   const reset = async () => {
-    await stopAllVendorLocationTracking();
-    const phone = localStorage.getItem("aaspaas:user_phone");
-    const deviceId = getDeviceId();
-    if (phone) {
-      const { error } = await supabase.rpc("clear_my_data", {
-        p_user_phone: phone,
-        p_device_id: deviceId,
-      });
-      if (error) {
-        captureError(error, { scope: "settings.clearMyData", phoneSuffix: phoneSuffix(phone) });
-        toast.error(s.settings_clearDataFailed);
-        return;
-      }
-    }
-
-    Object.keys(localStorage)
-      .filter((key) => key.startsWith("aaspaas:"))
-      .forEach((key) => localStorage.removeItem(key));
-
-    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
-      const key = sessionStorage.key(i);
-      if (key?.startsWith("aaspaas:")) sessionStorage.removeItem(key);
-    }
-
-    let notificationNudge: string | undefined;
+    if (clearingData) return;
+    setClearingData(true);
     try {
-      const live = await checkNativePermissionStatuses();
-      if (isPermissionGranted(live.notifications)) {
-        notificationNudge = s.settings_clearDataDescription_permissions;
+      await stopAllVendorLocationTracking();
+      const phone = localStorage.getItem("aaspaas:user_phone");
+      const deviceId = getDeviceId();
+      if (phone) {
+        const { error } = await supabase.rpc("clear_my_data", {
+          p_user_phone: phone,
+          p_device_id: deviceId,
+        });
+        if (error) {
+          captureError(error, { scope: "settings.clearMyData", phoneSuffix: phoneSuffix(phone) });
+          toast.error(s.settings_clearDataFailed);
+          return;
+        }
       }
-    } catch {
-      /* OS check failed — skip the post-clear nudge */
-    }
 
-    showClearMyDataSuccessThenReload({
-      message: phone ? s.settings_accountDataCleared : s.settings_localDataCleared,
-      description: notificationNudge,
-      toastSuccess: (message, description) =>
-        description
-          ? toast.success(message, { description })
-          : toast.success(message),
-    });
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith("aaspaas:"))
+        .forEach((key) => localStorage.removeItem(key));
+
+      for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+        const key = sessionStorage.key(i);
+        if (key?.startsWith("aaspaas:")) sessionStorage.removeItem(key);
+      }
+
+      let notificationNudge: string | undefined;
+      try {
+        const live = await checkNativePermissionStatuses();
+        if (isPermissionGranted(live.notifications)) {
+          notificationNudge = s.settings_clearDataDescription_permissions;
+        }
+      } catch {
+        /* OS check failed — skip the post-clear nudge */
+      }
+
+      setClearDataOpen(false);
+      showClearMyDataSuccessThenReload({
+        message: phone ? s.settings_accountDataCleared : s.settings_localDataCleared,
+        description: notificationNudge,
+        toastSuccess: (message, description) =>
+          description
+            ? toast.success(message, { description })
+            : toast.success(message),
+      });
+    } finally {
+      setClearingData(false);
+    }
   };
 
   const startEditAddress = (addr: (typeof addresses)[number]) => {
@@ -973,7 +984,8 @@ const Settings = () => {
                   "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
                 accountStanding.tone === "good" &&
                   "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30",
-                accountStanding.tone === "unavailable" &&
+                (accountStanding.tone === "unavailable" ||
+                  accountStanding.tone === "loading") &&
                   "bg-muted text-muted-foreground border-surface-border",
               )}
             >
@@ -1058,7 +1070,7 @@ const Settings = () => {
                     <button
                       type="button"
                       onClick={() => startEditAddress(addr)}
-                      className="shrink-0 h-8 w-8 rounded-lg border border-surface-border text-sm active:opacity-80"
+                      className="shrink-0 min-h-[44px] min-w-[44px] rounded-lg border border-surface-border text-sm active:opacity-80 inline-flex items-center justify-center"
                       aria-label="Edit address"
                     >
                       ✏️
@@ -1066,7 +1078,7 @@ const Settings = () => {
                     <button
                       type="button"
                       onClick={() => setDeleteAddressId(addr.id)}
-                      className="shrink-0 h-8 w-8 rounded-lg border border-surface-border text-sm active:opacity-80"
+                      className="shrink-0 min-h-[44px] min-w-[44px] rounded-lg border border-surface-border text-sm active:opacity-80 inline-flex items-center justify-center"
                       aria-label="Delete address"
                     >
                       🗑️
@@ -1446,7 +1458,8 @@ const Settings = () => {
       <button
         type="button"
         onClick={() => setClearDataOpen(true)}
-        className="w-full rounded-xl border border-destructive/40 text-destructive bg-transparent h-10 text-sm font-medium flex items-center justify-center gap-2 active:opacity-90"
+        disabled={clearingData}
+        className="w-full rounded-xl border border-destructive/40 text-destructive bg-transparent min-h-[44px] text-sm font-medium flex items-center justify-center gap-2 active:opacity-90 disabled:opacity-50"
       >
         <Trash2 className="h-4 w-4" /> {s.settings_clearMyData}
       </button>
@@ -1471,7 +1484,7 @@ const Settings = () => {
               <button
                 type="button"
                 onClick={() => void cancelAccountDeletion()}
-                className="w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:opacity-90"
+                className="w-full rounded-xl border border-border min-h-[44px] text-sm font-semibold text-foreground active:opacity-90"
               >
                 {s.delete_account_cancel}
               </button>
@@ -1480,7 +1493,7 @@ const Settings = () => {
             <button
               type="button"
               onClick={() => void openDeleteAccountConfirm()}
-              className="w-full rounded-xl bg-destructive text-destructive-foreground h-10 text-sm font-semibold active:opacity-90"
+              className="w-full rounded-xl bg-destructive text-destructive-foreground min-h-[44px] text-sm font-semibold active:opacity-90"
             >
               {s.delete_account_title}
             </button>
@@ -1545,7 +1558,13 @@ const Settings = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={clearDataOpen} onOpenChange={setClearDataOpen}>
+      <AlertDialog
+        open={clearDataOpen}
+        onOpenChange={(open) => {
+          if (clearingData) return;
+          setClearDataOpen(open);
+        }}
+      >
         <AlertDialogContent className="rounded-2xl border border-border bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle>{s.settings_clearDataTitle}</AlertDialogTitle>
@@ -1560,17 +1579,19 @@ const Settings = () => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
-            <AlertDialogCancel className="mt-0">{s.settings_cancel}</AlertDialogCancel>
+            <AlertDialogCancel className="mt-0" disabled={clearingData}>
+              {s.settings_cancel}
+            </AlertDialogCancel>
             <AlertDialogAction
               data-testid="settings-clear-data-confirm"
+              disabled={clearingData}
               onClick={(e) => {
                 e.preventDefault();
-                setClearDataOpen(false);
                 void reset();
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
             >
-              {s.settings_clearDataConfirm}
+              {clearingData ? s.settings_loading : s.settings_clearDataConfirm}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

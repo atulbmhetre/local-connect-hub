@@ -33,6 +33,7 @@ import {
 } from "@/lib/supabase";
 import { mapPublicCategoryOrderStats } from "@/lib/categoryScopedVendor";
 import { useLanguage } from "@/lib/language";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { SecureCallPreDialOverlay } from "@/components/SecureCallPreDialOverlay";
 
@@ -112,6 +113,7 @@ export function AiBridgeSheet({
   const { config } = useAppConfig();
   const getLabel = useCategoryLabel();
   const [businessGpsVerified, setBusinessGpsVerified] = useState<boolean | null>(null);
+  const requestClose = useOverlayBack(open, onClose, "aaspaasAiBridge");
   
   const vendorRow = useMemo(() => asVendor(vendor), [vendor]);
   const bannerTier = vendorBinaryTrustTier({
@@ -345,7 +347,7 @@ export function AiBridgeSheet({
   );
 
   return (
-    <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
+    <Sheet open={open} onOpenChange={(next) => !next && requestClose()}>
       <SheetContent
         side="bottom"
         className="bg-page-bg border-t border-surface-raised text-white rounded-t-2xl max-h-[85vh] overflow-y-auto px-4"

@@ -9,6 +9,7 @@ import {
 } from "@capacitor/camera";
 import { useLanguage } from "@/lib/language";
 import { ensureNativePermission, isPermissionGranted } from "@/lib/nativePermissions";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 
 export type CapturedShot = {
   blob: Blob;
@@ -61,6 +62,7 @@ export const LiveCamera = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cancelledRef = useRef(false);
+  const requestClose = useOverlayBack(open, onClose, "aaspaasLiveCamera");
 
   const useWebLiveCapture =
     open && !isE2eCameraMock() && !Capacitor.isNativePlatform() && source === CameraSource.Camera;
@@ -195,7 +197,7 @@ export const LiveCamera = ({
         const message = e instanceof Error ? e.message : String(e ?? "");
         const lowered = message.toLowerCase();
         if (lowered.includes("cancelled") || lowered.includes("user cancelled")) {
-          onClose();
+          requestClose();
           return;
         }
         setError(message || s.camera_access_failed);
@@ -270,7 +272,7 @@ export const LiveCamera = ({
             )}
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="w-full rounded-xl border border-white/20 px-4 h-10 text-sm font-semibold"
             >
               {s.camera_cancel}
@@ -312,7 +314,7 @@ export const LiveCamera = ({
             type="button"
             onClick={() => {
               stopWebStream();
-              onClose();
+              requestClose();
             }}
             className="w-full rounded-xl border border-white/20 px-4 h-10 text-sm font-semibold text-white"
           >

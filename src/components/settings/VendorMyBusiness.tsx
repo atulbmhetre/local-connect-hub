@@ -17,7 +17,6 @@ import {
   isValidPhone,
   isValidUpi,
   useCategoryLabel,
-  invokeNotifyAdmin,
 } from "@/lib/supabase";
 import { decodeUpiPayeeIdFromImageFile } from "@/lib/upiQrDecode";
 import {
@@ -30,7 +29,6 @@ import { patchVendorOwn } from "@/lib/vendorPatch";
 import {
   checkAndNotifyAdminCategoryGreenReady,
 } from "@/lib/vendorGreenReady";
-import { myBusinessSaveVerificationNotifyReasons } from "@/lib/myBusinessSaveNotify";
 import { useLanguage } from "@/lib/language";
 import { captureError } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
@@ -362,6 +360,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const [identityExpanded, setIdentityExpanded] = useState(false);
   const [addBusinessOpen, setAddBusinessOpen] = useState(false);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesLoadFailed, setCategoriesLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingLockRef = useRef(false);
   const [updatingLocationFor, setUpdatingLocationFor] = useState<string | null>(null);
@@ -396,6 +395,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   useEffect(() => {
     const loadSeq = ++loadSeqRef.current;
     setCategoriesLoading(true);
+    setCategoriesLoadFailed(false);
     void (async () => {
       const [availResult, vcResult, menuResult] = await Promise.all([
         supabase
@@ -437,6 +437,13 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           vendorId: vendor.id,
         });
       }
+
+      if (availResult.error || vcResult.error) {
+        setCategoriesLoadFailed(true);
+        setCategoriesLoading(false);
+        return;
+      }
+
       const priced = new Set<string>();
       for (const row of menuResult.data ?? []) {
         const catId = (row as { category_id?: string | null }).category_id;
@@ -529,6 +536,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         prev && selectedIds.includes(prev) ? prev : selectedIds[0] ?? null,
       );
 
+      setCategoriesLoadFailed(false);
       setCategoriesLoading(false);
     })();
   }, [
@@ -979,17 +987,6 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
 
     savedCategoryIdsRef.current = [...categoryIdsToSave];
 
-    const adminNotifyReasons = myBusinessSaveVerificationNotifyReasons({
-      phoneChanged,
-      upiChanged: false,
-    });
-    if (adminNotifyReasons.length > 0) {
-      void invokeNotifyAdmin(
-        "✏️ Vendor edited verified identity fields",
-        `${resolvedShopName.trim()} — ${primaryLabel} (${adminNotifyReasons.join(", ")})`,
-        { type: "vendor_edited", route: "settings", route_params: { vendor_id: vendor.id } },
-      );
-    }
     toast.success(s.my_business_saved);
     triggerCategoryModeConfidenceCheck(categoryIdsToSave);
     releaseSaveLock();
@@ -1399,6 +1396,20 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           {s.vendor_understanding}
         </p>
+      ) : categoriesLoadFailed ? (
+        <div
+          className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 space-y-2"
+          data-testid="my-business-categories-load-error"
+        >
+          <p className="text-sm text-destructive">{s.home_categories_load_error}</p>
+          <button
+            type="button"
+            onClick={() => setCategoriesReloadKey((k) => k + 1)}
+            className="min-h-[44px] rounded-lg border border-surface-border px-3 text-xs font-semibold text-foreground"
+          >
+            {s.network_retry_btn}
+          </button>
+        </div>
       ) : (
         <div className="space-y-3" data-testid="my-business-accordions">
           <SettingsCard
@@ -1985,7 +1996,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                         type="button"
                         data-testid={`my-business-remove-cat-${cat.id}`}
                         onClick={() => toggleCategory(cat.id)}
-                        className="w-full rounded-xl border border-destructive/40 text-destructive h-10 text-xs font-semibold"
+                        className="w-full rounded-xl border border-destructive/40 text-destructive min-h-[44px] text-xs font-semibold"
                       >
                         Remove {getLabel(cat.label)}
                       </button>

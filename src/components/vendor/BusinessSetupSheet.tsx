@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Camera, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ServiceRadiusChips } from "@/components/ServiceRadiusChips";
@@ -26,6 +26,7 @@ import {
   type GpsPoint,
 } from "@/lib/gpsMatch";
 import { useLanguage } from "@/lib/language";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { cn } from "@/lib/utils";
 import { checkAndNotifyAdminCategoryGreenReady } from "@/lib/vendorGreenReady";
 import { triggerProactiveCategoryAliases } from "@/lib/proactiveCategoryAliases";
@@ -180,9 +181,16 @@ export function BusinessSetupSheet({
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
   const vendorPhone = (vendor.phone ?? "").trim();
+  const requestClose = useOverlayBack(open, () => onOpenChange(false), "aaspaasBusinessSetup");
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) requestClose();
+    else onOpenChange(true);
+  };
 
   const [categories, setCategories] = useState<RegCategoryRow[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [categoriesLoadFailed, setCategoriesLoadFailed] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [setupPage, setSetupPage] = useState<1 | 2>(1);
   const [licenseDrafts, setLicenseDrafts] = useState<
@@ -220,6 +228,27 @@ export function BusinessSetupSheet({
   const [inheritFromCategoryId, setInheritFromCategoryId] = useState<string | null>(null);
   const [gatePin, setGatePin] = useState<GpsPoint | null>(null);
 
+  const loadCategories = useCallback(() => {
+    setCategoriesLoading(true);
+    setCategoriesLoadFailed(false);
+    void supabase
+      .from("categories")
+      .select("id, label, emoji, service_mode, license_type, license_review_status")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .then(({ data, error }) => {
+        setCategoriesLoading(false);
+        if (error) {
+          console.error("load categories for business setup", error);
+          setCategories([]);
+          setCategoriesLoadFailed(true);
+          return;
+        }
+        setCategoriesLoadFailed(false);
+        setCategories((data ?? []) as RegCategoryRow[]);
+      });
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     setSelectedCategoryId(null);
@@ -249,22 +278,8 @@ export function BusinessSetupSheet({
     setColocatedChecking(false);
     setInheritFromCategoryId(null);
     setGatePin(null);
-    setCategoriesLoading(true);
-    void supabase
-      .from("categories")
-      .select("id, label, emoji, service_mode, license_type, license_review_status")
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .then(({ data, error }) => {
-        setCategoriesLoading(false);
-        if (error) {
-          console.error("load categories for business setup", error);
-          setCategories([]);
-          return;
-        }
-        setCategories((data ?? []) as RegCategoryRow[]);
-      });
-  }, [open]);
+    loadCategories();
+  }, [open, loadCategories]);
 
   const available = categories.filter((c) => !existingCategoryIds.includes(c.id));
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId) ?? null;
@@ -736,7 +751,7 @@ export function BusinessSetupSheet({
 
   return (
     <>
-      <Sheet open={open} onOpenChange={onOpenChange}>
+      <Sheet open={open} onOpenChange={handleOpenChange}>
         <SheetContent
           side="bottom"
           className="max-h-[92vh] overflow-y-auto rounded-t-2xl p-0"
@@ -749,10 +764,36 @@ export function BusinessSetupSheet({
           </SheetHeader>
 
           <div className="px-4 pb-6 space-y-4" data-testid="add-business-sheet">
-            {available.length === 0 ? (
+            {!categoriesLoading && !categoriesLoadFailed && available.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {s.vendor_categories_selected(existingCategoryIds.length)}
               </p>
+            ) : categoriesLoading || categoriesLoadFailed ? (
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {s.vendor_categories_label} *
+                </label>
+                {categoriesLoading ? (
+                  <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {s.vendor_understanding}
+                  </p>
+                ) : (
+                  <div
+                    className="mt-2 space-y-2"
+                    data-testid="add-business-categories-load-error"
+                  >
+                    <p className="text-xs text-destructive">{s.home_categories_load_error}</p>
+                    <button
+                      type="button"
+                      onClick={() => loadCategories()}
+                      className="min-h-[44px] rounded-lg border border-surface-border px-3 text-xs font-semibold text-foreground"
+                    >
+                      {s.network_retry_btn}
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <>
                 {setupPage === 1 && (
@@ -761,13 +802,7 @@ export function BusinessSetupSheet({
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     {s.vendor_categories_label} *
                   </label>
-                  {categoriesLoading ? (
-                    <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      {s.vendor_understanding}
-                    </p>
-                  ) : (
-                    <div className="mt-2 flex flex-wrap gap-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
                       {available.map((cat) => {
                         const selected = selectedCategoryId === cat.id;
                         return (
@@ -810,7 +845,6 @@ export function BusinessSetupSheet({
                         </p>
                       )}
                     </div>
-                  )}
                 </div>
 
                 <div>

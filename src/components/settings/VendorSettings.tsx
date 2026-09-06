@@ -93,9 +93,7 @@ type Props = {
   openReviewsInitially?: boolean;
 };
 
-/** Order alert toggles (vibrate/sound) for nested MY SHOP section; native only. */
-
-/** Order alert toggles (vibrate/sound) for nested MY SHOP section; native only. */
+/** Order alert toggles (vibrate/sound) for vendor Preferences; native only. */
 export function VendorSettingsOrderAlertsContent() {
   const { s } = useLanguage();
   const [vendorVibrate, setVendorVibrate] = useState(() => isVendorVibrateEnabled());
@@ -743,6 +741,20 @@ export function VendorSettings({
           </button>
         </div>
       </SettingsCard>
+
+      {Capacitor.isNativePlatform() && (
+        <SettingsCollapsible
+          label={s.settings_order_alerts}
+          open={orderAlertsOpen}
+          onToggle={() => setOrderAlertsOpen((o) => !o)}
+          nested
+          testId="settings-order-alerts-toggle"
+        >
+          <div className="px-0" data-testid="settings-order-alerts">
+            <VendorSettingsOrderAlertsContent />
+          </div>
+        </SettingsCollapsible>
+      )}
 
       <SettingsCollapsible
         label={s.vendor_ledgerCycleStart}

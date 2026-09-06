@@ -11,6 +11,7 @@ import {
   type Vendor,
 } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { cn } from "@/lib/utils";
 import { getVoiceLang } from "@/lib/voiceUtils";
 import { ensureVoiceMicrophone } from "@/lib/nativePermissions";
@@ -109,6 +110,16 @@ export function VendorMyBusinessOperations({
   const [noteOpen, setNoteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [deletingMenuItem, setDeletingMenuItem] = useState(false);
+  const closeMenuEdit = useCallback(() => {
+    setEditingMenuItem(null);
+  }, []);
+  const requestCloseMenuEdit = useOverlayBack(
+    editingMenuItem !== null,
+    closeMenuEdit,
+    "aaspaasMenuEdit",
+  );
 
   const scopedMenuItems = filterMenuItemsByCategoryContext(menuItems, activeCategoryId);
 
@@ -315,17 +326,20 @@ export function VendorMyBusinessOperations({
   };
 
   const deleteMenuItem = async (id: string) => {
-    if (!vendorPhone) return;
+    if (!vendorPhone || deletingMenuItem) return;
     const item = menuItems.find((m) => m.id === id);
+    setDeletingMenuItem(true);
     const { error } = await supabase.rpc("vendor_delete_menu_item", {
       p_vendor_id: vendor.id,
       p_vendor_phone: vendorPhone,
       p_item_id: id,
     });
+    setDeletingMenuItem(false);
     if (error) {
       toast.error(error.message);
       return;
     }
+    setConfirmingDeleteId(null);
     if (item?.image_url) void bestEffortDeleteMenuPhotoByUrl(item.image_url);
     void loadMenu();
     triggerProactiveCategoryAliases({ vendorId: vendor.id, categoryId: activeCategoryId });
@@ -664,45 +678,77 @@ export function VendorMyBusinessOperations({
               </>
             }
           >
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => void toggleAvailability(item)}
-                className={cn(
-                  "text-xs px-2 py-1 rounded-lg border whitespace-nowrap",
-                  item.is_available
-                    ? "border-brand/40 text-brand"
-                    : "border-surface-border text-muted-foreground",
-                )}
+            {confirmingDeleteId === item.id ? (
+              <div
+                className="rounded-xl border border-destructive/40 bg-destructive/5 p-2 space-y-2 min-w-[9.5rem]"
+                data-testid="menu-item-delete-confirm"
               >
-                {item.is_available ? s.menu_available : s.menu_unavailable}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingMenuItem(item);
-                  setEditDraft({
-                    name: item.name,
-                    price: String(item.price),
-                    unit: item.unit ?? "",
-                    description: item.description ?? "",
-                    image_url: item.image_url ?? null,
-                  });
-                }}
-                className="p-1.5 text-muted-foreground active:text-brand"
-                aria-label={s.vendor_menu_edit_aria}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void deleteMenuItem(item.id)}
-                className="p-1.5 text-muted-foreground active:text-danger"
-                aria-label={s.vendor_menu_delete_aria}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
+                <p className="text-xs text-destructive font-semibold text-center">
+                  {s.vendor_menu_delete_confirm}
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    data-testid="menu-item-delete-confirm-yes"
+                    disabled={deletingMenuItem}
+                    onClick={() => void deleteMenuItem(item.id)}
+                    className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
+                  >
+                    {s.vendor_menu_delete_yes}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="menu-item-delete-confirm-keep"
+                    disabled={deletingMenuItem}
+                    onClick={() => setConfirmingDeleteId(null)}
+                    className="min-h-[44px] rounded-lg border border-border text-xs font-semibold py-2 disabled:opacity-50"
+                  >
+                    {s.myOrders_keepIt}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void toggleAvailability(item)}
+                  className={cn(
+                    "text-xs px-2 py-1 rounded-lg border whitespace-nowrap",
+                    item.is_available
+                      ? "border-brand/40 text-brand"
+                      : "border-surface-border text-muted-foreground",
+                  )}
+                >
+                  {item.is_available ? s.menu_available : s.menu_unavailable}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingMenuItem(item);
+                    setEditDraft({
+                      name: item.name,
+                      price: String(item.price),
+                      unit: item.unit ?? "",
+                      description: item.description ?? "",
+                      image_url: item.image_url ?? null,
+                    });
+                  }}
+                  className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-muted-foreground active:text-brand"
+                  aria-label={s.vendor_menu_edit_aria}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDeleteId(item.id)}
+                  className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-muted-foreground active:text-danger"
+                  aria-label={s.vendor_menu_delete_aria}
+                  data-testid="menu-item-delete-btn"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
           </SettingsRow>
         ))}
 
@@ -783,7 +829,7 @@ export function VendorMyBusinessOperations({
           type="button"
           onClick={() => setAddingItem(true)}
           disabled={!activeCategoryId}
-          className="w-full mb-3 mt-1 rounded-xl border border-brand/30 bg-brand/5 h-10 text-sm font-semibold text-brand active:scale-[0.99] disabled:opacity-50"
+          className="w-full mb-3 mt-1 rounded-xl border border-brand/30 bg-brand/5 min-h-[44px] text-sm font-semibold text-brand active:scale-[0.99] disabled:opacity-50"
         >
           + {s.menu_addItem}
         </button>
@@ -792,7 +838,7 @@ export function VendorMyBusinessOperations({
       <Sheet
         open={editingMenuItem !== null}
         onOpenChange={(open) => {
-          if (!open) setEditingMenuItem(null);
+          if (!open) requestCloseMenuEdit();
         }}
       >
         <SheetContent className="bg-page-bg border-surface-border px-4">
@@ -868,7 +914,7 @@ export function VendorMyBusinessOperations({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setEditingMenuItem(null)}
+                  onClick={requestCloseMenuEdit}
                   className="flex-1 rounded-lg border border-surface-border text-sm py-2 text-foreground"
                 >
                   {s.settings_cancel}

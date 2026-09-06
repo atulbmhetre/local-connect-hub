@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Camera, CheckCircle2, ChevronLeft, Loader2, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
@@ -259,6 +259,7 @@ export function VendorRegistrationWizard({
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [regCategories, setRegCategories] = useState<RegCategoryRow[]>([]);
   const [regCategoriesLoading, setRegCategoriesLoading] = useState(true);
+  const [regCategoriesLoadFailed, setRegCategoriesLoadFailed] = useState(false);
   const [extraRegCategories, setExtraRegCategories] = useState<RegCategoryRow[]>([]);
   const [categorySuggesting, setCategorySuggesting] = useState(false);
   const [categorySuggestion, setCategorySuggestion] = useState<CategorySuggestionResult | null>(
@@ -326,9 +327,10 @@ export function VendorRegistrationWizard({
     if (stored) setReferralCodeInput(stored);
   }, []);
 
-  useEffect(() => {
+  const loadRegCategories = useCallback(() => {
     let cancelled = false;
     setRegCategoriesLoading(true);
+    setRegCategoriesLoadFailed(false);
     void supabase
       .from("categories")
       .select("id, label, emoji, service_mode, license_type, license_review_status")
@@ -339,8 +341,10 @@ export function VendorRegistrationWizard({
         if (error) {
           console.error("load registration categories", error);
           setRegCategories([]);
+          setRegCategoriesLoadFailed(true);
         } else {
           setRegCategories((data ?? []) as RegCategoryRow[]);
+          setRegCategoriesLoadFailed(false);
         }
         setRegCategoriesLoading(false);
       });
@@ -348,6 +352,10 @@ export function VendorRegistrationWizard({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    return loadRegCategories();
+  }, [loadRegCategories]);
 
   const allRegCategories = useMemo(() => {
     const map = new Map<string, RegCategoryRow>();
@@ -1538,7 +1546,7 @@ export function VendorRegistrationWizard({
               type="button"
               onClick={() => void handleFindCategory()}
               disabled={categorySuggesting || businessDescription.trim().length < 3}
-              className="mt-2 w-full rounded-xl bg-brand px-3 h-10 text-sm font-semibold text-brand-foreground disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              className="mt-2 w-full rounded-xl bg-brand px-3 min-h-[44px] text-sm font-semibold text-brand-foreground disabled:opacity-50 inline-flex items-center justify-center gap-2"
             >
               {categorySuggesting ? (
                 <>
@@ -1596,7 +1604,7 @@ export function VendorRegistrationWizard({
                     type="button"
                     data-testid="reg-browse-all-categories-nomatch"
                     onClick={() => setShowManualCategories(true)}
-                    className="w-full rounded-xl border border-border h-10 text-sm font-semibold"
+                    className="w-full rounded-xl border border-border min-h-[44px] text-sm font-semibold"
                   >
                     {s.category_browseManual}
                   </button>
@@ -1616,6 +1624,20 @@ export function VendorRegistrationWizard({
               <div className="mt-2 flex flex-wrap gap-2">
                 {regCategoriesLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
+                ) : regCategoriesLoadFailed ? (
+                  <div
+                    className="w-full space-y-2"
+                    data-testid="reg-categories-load-error"
+                  >
+                    <p className="text-xs text-destructive">{s.home_categories_load_error}</p>
+                    <button
+                      type="button"
+                      onClick={() => loadRegCategories()}
+                      className="min-h-[44px] rounded-lg border border-border px-3 text-xs font-semibold"
+                    >
+                      {s.network_retry_btn}
+                    </button>
+                  </div>
                 ) : (
                   allRegCategories.map((cat) => {
                     const selected = selectedCategoryIds.includes(cat.id);
@@ -1731,18 +1753,55 @@ export function VendorRegistrationWizard({
             </>
           )}
           {baseType === "none" && (
-            <p className="text-xs text-muted-foreground text-center px-2">
-              {locating ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {s.vendor_visiting_location_hint}
-                </span>
-              ) : coords ? (
-                s.reg_gps_silent_hint
-              ) : (
-                s.vendor_visiting_location_hint
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground text-center px-2">
+                {locating ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {s.vendor_visiting_location_hint}
+                  </span>
+                ) : coords ? (
+                  s.reg_gps_silent_hint
+                ) : (
+                  s.vendor_visiting_location_hint
+                )}
+              </p>
+              {!coords && !locating && (
+                <button
+                  type="button"
+                  data-testid="reg-visiting-location-retry"
+                  onClick={() => void detectLocation()}
+                  className={cn(
+                    "w-full rounded-xl border-2 min-h-[44px] h-12 flex items-center justify-center gap-2 font-semibold",
+                    "border-border",
+                  )}
+                >
+                  <MapPin className="h-4 w-4" />
+                  {s.vendor_capture_location}
+                </button>
               )}
-            </p>
+              {locationInlineError && (
+                <p className="text-xs text-destructive text-center">{locationInlineError}</p>
+              )}
+              {(locationInlineError || !coords) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowLocationHelp((v) => !v)}
+                    className="text-xs text-muted-foreground underline w-full"
+                  >
+                    {s.vendor_location_help_title}
+                  </button>
+                  {showLocationHelp && (
+                    <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                      <p>1. {s.vendor_location_help_step1}</p>
+                      <p>2. {s.vendor_location_help_step2}</p>
+                      <p>3. {s.vendor_location_help_step3}</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           )}
 
           <RegField
@@ -1770,7 +1829,7 @@ export function VendorRegistrationWizard({
               type="button"
               disabled={upiQrUploading}
               onClick={() => upiQrInputRef.current?.click()}
-              className="mt-1 w-full rounded-xl border border-border h-10 text-sm"
+              className="mt-1 w-full rounded-xl border border-border min-h-[44px] text-sm"
             >
               {upiQrUploading ? s.vendor_uploading : s.vendor_upi_qr_hint}
             </button>
@@ -1918,7 +1977,7 @@ export function VendorRegistrationWizard({
                   type="button"
                   data-testid="reg-gps-submit-for-review"
                   onClick={submitShopPhotoForLocationReview}
-                  className="mt-2 w-full rounded-xl border border-amber-500/50 bg-amber-500/10 h-10 text-sm font-semibold text-amber-800"
+                  className="mt-2 w-full rounded-xl border border-amber-500/50 bg-amber-500/10 min-h-[44px] text-sm font-semibold text-amber-800"
                 >
                   {s.vendor_gps_submit_for_review}
                 </button>
@@ -1944,7 +2003,7 @@ export function VendorRegistrationWizard({
             <button
               type="button"
               onClick={() => setRegPage(1)}
-              className="flex-1 rounded-2xl border border-border h-10 font-semibold inline-flex items-center justify-center gap-1"
+              className="flex-1 rounded-2xl border border-border min-h-[44px] font-semibold inline-flex items-center justify-center gap-1"
             >
               <ChevronLeft className="h-4 w-4" />
               {s.reg_wizard_back}
@@ -2009,7 +2068,7 @@ export function VendorRegistrationWizard({
                       licensePhotoTargetRef.current = field.fieldKey;
                       licensePhotoInputRef.current?.click();
                     }}
-                    className="mt-2 w-full rounded-xl border border-border h-10 text-sm font-semibold"
+                    className="mt-2 w-full rounded-xl border border-border min-h-[44px] text-sm font-semibold"
                   >
                     {draft?.preview ? s.reg_license_photo_replace : s.reg_license_photo_upload}
                   </button>
@@ -2039,7 +2098,7 @@ export function VendorRegistrationWizard({
             <button
               type="button"
               onClick={() => setRegPage(2)}
-              className="flex-1 rounded-2xl border border-border h-10 font-semibold inline-flex items-center justify-center gap-1"
+              className="flex-1 rounded-2xl border border-border min-h-[44px] font-semibold inline-flex items-center justify-center gap-1"
             >
               <ChevronLeft className="h-4 w-4" />
               {s.reg_wizard_back}
@@ -2048,7 +2107,7 @@ export function VendorRegistrationWizard({
               type="submit"
               data-testid="reg-license-skip"
               disabled={loading}
-              className="flex-1 rounded-2xl border border-border h-10 font-semibold disabled:opacity-50"
+              className="flex-1 rounded-2xl border border-border min-h-[44px] font-semibold disabled:opacity-50"
             >
               {s.reg_license_skip}
             </button>

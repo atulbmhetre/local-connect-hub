@@ -221,7 +221,7 @@ test.afterAll(async () => {
 
 // ─── CUSTOMER VIEW ───────────────────────────────────────────────────────────
 
-test('SET-REQ-01 — Customer Settings shows correct sections', async ({ page }) => {
+test('SET-REQ-01 — Customer Settings shows correct sections (Order Alerts hidden for customers)', async ({ page }) => {
   await loginAsCustomer(page, CUSTOMER_PHONE, DEVICE_ID);
   await gotoSettings(page);
 
@@ -238,7 +238,9 @@ test('SET-REQ-01 — Customer Settings shows correct sections', async ({ page })
 
   await expect(page.getByRole('button', { name: new RegExp(`^${L.myShop}$`, 'i') })).not.toBeVisible();
   await expect(page.getByTestId('settings-tab-admin')).not.toBeVisible();
+  // Customer Settings must never show vendor Order Alerts (native-only vendor Preferences).
   await expect(page.getByText(L.orderAlerts)).not.toBeVisible();
+  await expect(page.getByTestId('settings-order-alerts-toggle')).toHaveCount(0);
 });
 
 test('SET-REQ-02 — Feed notifications toggle hidden on web', async ({ page }) => {
@@ -328,11 +330,41 @@ test('SET-REQ-08 — Vendor Preferences and My Business show expected sections',
 
   await expect(page.getByRole('button', { name: L.referEarn })).toBeVisible();
   await expect(page.getByRole('button', { name: L.ledgerCycle })).toBeVisible();
+  // Web (Playwright default): Order Alerts stay hidden — native-only.
+  await expect(page.getByText(L.orderAlerts)).not.toBeVisible();
+  await expect(page.getByTestId('settings-order-alerts-toggle')).toHaveCount(0);
 
   await expandMyBusinessOperations(page);
   await expect(page.getByRole('button', { name: L.menu })).toBeVisible();
   await expect(page.getByRole('button', { name: L.offers })).toBeVisible();
   await expect(page.getByRole('button', { name: L.rejectionReasons })).toBeVisible();
+});
+
+test('SET-REQ-08b — Vendor Order Alerts visible in Preferences on native', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as {
+      CapacitorCustomPlatform?: { name: string; plugins: Record<string, unknown> };
+      Capacitor?: { isNativePlatform: () => boolean; getPlatform: () => string };
+    };
+    w.CapacitorCustomPlatform = { name: 'android', plugins: {} };
+    w.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+    };
+  });
+
+  const vendor = await createVendor('VEN-08b');
+  await loginAsVendor(page, vendor.phone, vendor.id, DEVICE_ID);
+  await gotoSettings(page);
+  await expandVendorPreferences(page);
+
+  const alertsToggle = page.getByTestId('settings-order-alerts-toggle');
+  await expect(alertsToggle).toBeVisible({ timeout: 20000 });
+  await expect(alertsToggle).toHaveText(L.orderAlerts);
+  await alertsToggle.click();
+  await expect(page.getByTestId('settings-order-alerts')).toBeVisible();
+  await expect(page.getByText('Vibrate on new order')).toBeVisible();
+  await expect(page.getByText('Sound on new order')).toBeVisible();
 });
 
 test('SET-REQ-09 — My Business tab uses localized string not hardcoded', async ({ page }) => {
