@@ -73,7 +73,7 @@ import {
   type VendorVerificationRow,
 } from "@/lib/trustLevel";
 import { resolveAdminBusinessPayeeAndPin } from "@/lib/adminBusinessPayee";
-import { setOverlayBackHandler } from "@/lib/overlayBackBridge";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { gpsEffectiveTolerance } from "@/lib/gpsMatch";
 
 type AdminVendorCategory = {
@@ -838,12 +838,20 @@ export function AdminConsole({
     phone: null,
   });
   const [banReason, setBanReason] = useState("");
+  const [userUnbanDialog, setUserUnbanDialog] = useState<{
+    open: boolean;
+    phone: string | null;
+  }>({ open: false, phone: null });
   const [vendorBanDialog, setVendorBanDialog] = useState<{
     open: boolean;
     vendor: (typeof vendorList)[number] | null;
   }>({ open: false, vendor: null });
   const [vendorBanReason, setVendorBanReason] = useState("");
   const [vendorBanAction, setVendorBanAction] = useState<string | null>(null);
+  const [vendorUnbanDialog, setVendorUnbanDialog] = useState<{
+    open: boolean;
+    vendorId: string | null;
+  }>({ open: false, vendorId: null });
   const [vendorClearDeletionDialog, setVendorClearDeletionDialog] = useState<{
     open: boolean;
     vendor: (typeof vendorList)[number] | null;
@@ -857,7 +865,6 @@ export function AdminConsole({
     vendor: (typeof vendorList)[number] | null;
     category: AdminVendorCategory | null;
   }>({ open: false, vendor: null, category: null });
-  const verifyHistoryPushedRef = useRef(false);
   const [verifyChecks, setVerifyChecks] = useState<Record<string, boolean>>({});
   const [verifyAutoTicked, setVerifyAutoTicked] = useState<Set<string>>(() => new Set());
   const [verifyReferrerLabel, setVerifyReferrerLabel] = useState<string | null>(null);
@@ -1845,6 +1852,20 @@ export function AdminConsole({
     }
   };
 
+  const confirmUnbanVendor = async () => {
+    const vendorId = vendorUnbanDialog.vendorId;
+    if (!vendorId) return;
+    setVendorUnbanDialog({ open: false, vendorId: null });
+    await unbanVendor(vendorId);
+  };
+
+  const confirmUnbanFlaggedUser = async () => {
+    const phone = userUnbanDialog.phone;
+    if (!phone) return;
+    setUserUnbanDialog({ open: false, phone: null });
+    await unbanFlaggedUser(phone);
+  };
+
   const confirmForceClearDeletion = async () => {
     const v = vendorClearDeletionDialog.vendor;
     if (!v || !vendorClearDeletionReason.trim()) return;
@@ -2364,41 +2385,14 @@ export function AdminConsole({
     setVerifyReferrerLabel(null);
   };
 
-  const closeVerifySheet = () => {
-    const shouldPop = verifyHistoryPushedRef.current;
-    verifyHistoryPushedRef.current = false;
-    closeVerifySheetUi();
-    if (shouldPop && (window.history.state as { aaspaasVerifySheet?: boolean } | null)?.aaspaasVerifySheet) {
-      window.history.back();
-    }
-  };
+  const closeVerifySheet = useOverlayBack(
+    verifySheet.open,
+    closeVerifySheetUi,
+    "aaspaasVerifySheet",
+  );
 
   // Verify sheet: hardware/browser back closes sheet instead of leaving Settings.
-  useEffect(() => {
-    const onPopState = () => {
-      if (!verifySheet.open) return;
-      verifyHistoryPushedRef.current = false;
-      closeVerifySheetUi();
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, [verifySheet.open]);
-
-  useEffect(() => {
-    if (!verifySheet.open) {
-      setOverlayBackHandler(null);
-      return;
-    }
-    setOverlayBackHandler(() => {
-      if (verifyHistoryPushedRef.current) {
-        window.history.back();
-        return true;
-      }
-      closeVerifySheetUi();
-      return true;
-    });
-    return () => setOverlayBackHandler(null);
-  }, [verifySheet.open]);
+  // (history push + stack handler live in useOverlayBack)
 
   const openVerifySheet = (
     vendor: (typeof vendorList)[number],
@@ -2422,10 +2416,6 @@ export function AdminConsole({
     setVerifySheet({ open: true, vendor, category });
     setVerifyChecks({ ...emptyVerifyChecks(), ...autoChecks, ...savedChecks });
     setVerifyReferrerLabel(null);
-    if (!verifyHistoryPushedRef.current) {
-      window.history.pushState({ aaspaasVerifySheet: true }, "");
-      verifyHistoryPushedRef.current = true;
-    }
     void (async () => {
       const { data: ref } = await supabase
         .from("referrals")
@@ -2956,7 +2946,7 @@ export function AdminConsole({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => void unbanVendor(v.id)}
+                          onClick={() => setVendorUnbanDialog({ open: true, vendorId: v.id })}
                           disabled={vendorBanAction === v.id}
                           className="rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-1 text-xs font-semibold disabled:opacity-50"
                         >
@@ -3080,7 +3070,9 @@ export function AdminConsole({
                           {user.is_banned && (
                             <button
                               type="button"
-                              onClick={() => void unbanFlaggedUser(user.phone)}
+                              onClick={() =>
+                                setUserUnbanDialog({ open: true, phone: user.phone })
+                              }
                               disabled={flaggedAction === user.phone}
                               className="flex-1 rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
                             >
@@ -4088,6 +4080,34 @@ export function AdminConsole({
           </AlertDialog>
 
           <AlertDialog
+            open={vendorUnbanDialog.open}
+            onOpenChange={(open) => {
+              if (!open) setVendorUnbanDialog({ open: false, vendorId: null });
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Unban this vendor?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  They will be able to accept orders again immediately.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={vendorBanAction != null}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmUnbanVendor();
+                  }}
+                >
+                  Confirm unban
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
             open={vendorClearDeletionDialog.open}
             onOpenChange={(open) => {
               if (!open) {
@@ -4162,6 +4182,34 @@ export function AdminConsole({
                   }}
                 >
                   Confirm ban
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={userUnbanDialog.open}
+            onOpenChange={(open) => {
+              if (!open) setUserUnbanDialog({ open: false, phone: null });
+            }}
+          >
+            <AlertDialogContent className="rounded-2xl border border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Unban this user?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  They will be able to place orders again immediately.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={flaggedAction != null}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmUnbanFlaggedUser();
+                  }}
+                >
+                  Confirm unban
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

@@ -395,6 +395,7 @@ export function RadarVendorCard({
   const [phoneSheetOpen, setPhoneSheetOpen] = useState(false);
   const [saveNicknameSheetOpen, setSaveNicknameSheetOpen] = useState(false);
   const [saveNicknameDraft, setSaveNicknameDraft] = useState("");
+  const [showUnsaveConfirm, setShowUnsaveConfirm] = useState(false);
   const [rateCardOpen, setRateCardOpen] = useState(false);
   const [rateCardLoading, setRateCardLoading] = useState(false);
   const [rateCardItems, setRateCardItems] = useState<
@@ -1206,16 +1207,43 @@ export function RadarVendorCard({
         </button>
       )}
       {showUnsaveRow && (
-        <button
-          type="button"
-          onClick={() => void handleUnsaveVendor()}
-          className={cn(
-            "mt-2 w-full rounded-xl border h-10 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
-            "border-border text-muted-foreground bg-muted/30 hover:bg-muted/50",
-          )}
-        >
-          {s.neighbours_saved_button}
-        </button>
+        !showUnsaveConfirm ? (
+          <button
+            type="button"
+            onClick={() => setShowUnsaveConfirm(true)}
+            className={cn(
+              "mt-2 w-full min-h-[44px] rounded-xl border h-11 px-3 text-sm font-semibold transition-colors active:scale-[0.99]",
+              "border-border text-muted-foreground bg-muted/30 hover:bg-muted/50",
+            )}
+          >
+            {s.neighbours_saved_button}
+          </button>
+        ) : (
+          <div className="mt-2 rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
+            <p className="text-xs text-destructive font-semibold text-center">
+              {s.removeFromNeighbourhoodConfirm}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnsaveConfirm(false);
+                  void handleUnsaveVendor();
+                }}
+                className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold py-2"
+              >
+                {s.removeFromNeighbourhood}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUnsaveConfirm(false)}
+                className="min-h-[44px] rounded-lg border border-border text-xs font-semibold py-2"
+              >
+                {s.cancel}
+              </button>
+            </div>
+          </div>
+        )
       )}
       <ParchiSheet
         vendor={parchiVendor}

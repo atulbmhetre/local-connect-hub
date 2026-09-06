@@ -17,6 +17,7 @@ import { OTP_ENABLED, normalizePhoneDigits, isValidIndianMobile } from "@/lib/ph
 import { PhoneOtpVerification } from "@/components/PhoneOtpVerification";
 import { recordUserReferral } from "@/lib/referral";
 import { getDeviceId } from "@/lib/deviceId";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { useLanguage } from "@/lib/language";
 import { captureError } from "@/lib/sentry";
 import { supabase } from "@/lib/supabase";
@@ -153,6 +154,7 @@ export function PhoneEntrySheet({
   skipRecovery = false,
 }: Props) {
   const { s } = useLanguage();
+  const requestClose = useOverlayBack(isOpen, onClose, "aaspaasPhoneEntry");
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const [step, setStep] = useState<SheetStep>("phone");
@@ -293,7 +295,7 @@ export function PhoneEntrySheet({
       setIsRestoring(false);
       setStep("phone");
       setPending(null);
-      onClose();
+      requestClose();
     }
   };
 
@@ -411,7 +413,7 @@ export function PhoneEntrySheet({
 
               <button
                 type="button"
-                onClick={onClose}
+                onClick={requestClose}
                 disabled={isChecking}
                 className="w-full text-center text-sm font-semibold text-muted-foreground active:opacity-80 disabled:opacity-50"
               >

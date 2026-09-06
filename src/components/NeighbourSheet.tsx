@@ -17,6 +17,7 @@ import {
 import { getDeviceId } from "@/lib/deviceId";
 import { getUserPhone } from "@/lib/userIdentity";
 import { useLanguage } from "@/lib/language";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { captureError } from "@/lib/sentry";
 import { savedNeighbourDisplayName, markNeighboursDirty } from "@/lib/savedVendors";
 import {
@@ -92,15 +93,18 @@ export function NeighbourSheet({
   onNavigateOrders,
 }: NeighbourSheetProps) {
   const { s } = useLanguage();
+  const requestClose = useOverlayBack(isOpen, onClose, "aaspaasNeighbourSheet");
   const getLabel = useCategoryLabel();
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameBusy, setNicknameBusy] = useState(false);
   const [businesses, setBusinesses] = useState<NeighbourBusiness[]>([]);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setEditingNickname(false);
+      setShowRemoveConfirm(false);
       return;
     }
     setNicknameDraft((savedVendor?.nickname ?? "").trim());
@@ -209,7 +213,7 @@ export function NeighbourSheet({
         /* ignore */
       }
       markNeighboursDirty();
-      onClose();
+      requestClose();
       onRemove();
       toast.success(s.removedFromNeighbourhood);
     } catch (err) {
@@ -292,7 +296,7 @@ export function NeighbourSheet({
     <Sheet
       open={isOpen}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) requestClose();
       }}
     >
       <SheetContent
@@ -411,7 +415,7 @@ export function NeighbourSheet({
                   type="button"
                   className="w-full text-left text-sm text-muted-foreground underline underline-offset-2 py-1"
                   onClick={() => {
-                    onClose();
+                    requestClose();
                     onNavigateOrders();
                   }}
                 >
@@ -475,18 +479,42 @@ export function NeighbourSheet({
               })}
               <button
                 type="button"
-                className="w-full rounded-xl border border-border h-10 text-sm font-semibold text-muted-foreground"
-                onClick={onClose}
+                className="w-full min-h-[44px] rounded-xl border border-border h-11 text-sm font-semibold text-muted-foreground"
+                onClick={() => requestClose()}
               >
                 {s.cancel}
               </button>
-              <button
-                type="button"
-                className="w-full py-2 text-xs font-medium text-destructive hover:underline"
-                onClick={() => void handleRemove()}
-              >
-                {s.removeFromNeighbourhood}
-              </button>
+              {!showRemoveConfirm ? (
+                <button
+                  type="button"
+                  className="w-full min-h-[44px] py-2 text-sm font-medium text-destructive hover:underline"
+                  onClick={() => setShowRemoveConfirm(true)}
+                >
+                  {s.removeFromNeighbourhood}
+                </button>
+              ) : (
+                <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
+                  <p className="text-xs text-destructive font-semibold text-center">
+                    {s.removeFromNeighbourhoodConfirm}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold py-2"
+                      onClick={() => void handleRemove()}
+                    >
+                      {s.removeFromNeighbourhood}
+                    </button>
+                    <button
+                      type="button"
+                      className="min-h-[44px] rounded-lg border border-border text-xs font-semibold py-2"
+                      onClick={() => setShowRemoveConfirm(false)}
+                    >
+                      {s.cancel}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}

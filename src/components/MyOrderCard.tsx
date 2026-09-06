@@ -314,22 +314,49 @@ export function MyOrderCard({
                     {s.delivery_accepted_overdue_body}
                   </p>
                   {canShowCustomerCancelOrder(order) ? (
-                    <button
-                      type="button"
-                      data-testid="order-cancel-btn"
-                      disabled={isMarking}
-                      onClick={() => onRemoveOrder(order)}
-                      className="w-full rounded-xl border border-destructive/40 text-destructive text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
-                    >
-                      {isMarking ? s.myOrders_saving : s.myOrders_cancelOrder}
-                    </button>
+                    !showOrderCancelConfirm ? (
+                      <button
+                        type="button"
+                        data-testid="order-cancel-btn"
+                        disabled={isMarking}
+                        onClick={() => onSetShowOrderCancelConfirm(true)}
+                        className="w-full min-h-[44px] rounded-xl border border-destructive/40 text-destructive text-sm font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                      >
+                        {isMarking ? s.myOrders_saving : s.myOrders_cancelOrder}
+                      </button>
+                    ) : (
+                      <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
+                        <p className="text-xs text-destructive font-semibold text-center">
+                          {s.myOrders_confirmCancelOrderQ}
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            data-testid="order-cancel-confirm-yes"
+                            disabled={isMarking}
+                            onClick={() => onRemoveOrder(order)}
+                            className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
+                          >
+                            {s.myOrders_yesCancel}
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="order-cancel-confirm-keep"
+                            onClick={() => onSetShowOrderCancelConfirm(false)}
+                            className="min-h-[44px] rounded-lg border border-border text-xs font-semibold py-2"
+                          >
+                            {s.myOrders_keepIt}
+                          </button>
+                        </div>
+                      </div>
+                    )
                   ) : billBlocksDismiss(bill, order.payment_status) ? (
                     <div className="space-y-1">
                       <button
                         type="button"
                         data-testid="order-dismiss-btn"
                         disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
+                        className="w-full min-h-[44px] rounded-xl border border-border bg-card text-sm font-semibold py-2 opacity-50 cursor-not-allowed"
                       >
                         {s.myOrders_dismiss}
                       </button>
@@ -346,7 +373,7 @@ export function MyOrderCard({
                       data-testid="order-dismiss-btn"
                       disabled={isMarking}
                       onClick={() => onMarkDone(order)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full min-h-[44px] rounded-xl border border-border bg-card text-sm font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                     >
                       {isMarking ? s.myOrders_saving : s.myOrders_dismiss}
                     </button>
@@ -367,7 +394,7 @@ export function MyOrderCard({
                         type="button"
                         data-testid="order-dismiss-btn"
                         disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
+                        className="w-full min-h-[44px] rounded-xl border border-border bg-card text-sm font-semibold py-2 opacity-50 cursor-not-allowed"
                       >
                         {s.myOrders_dismiss}
                       </button>
@@ -384,7 +411,7 @@ export function MyOrderCard({
                       data-testid="order-dismiss-btn"
                       disabled={isMarking}
                       onClick={() => onMarkDone(order)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full min-h-[44px] rounded-xl border border-border bg-card text-sm font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                     >
                       {isMarking ? s.myOrders_saving : s.myOrders_dismiss}
                     </button>
@@ -830,14 +857,14 @@ export function MyOrderCard({
                     <button
                       type="button"
                       onClick={() => onCancelAppointment(order)}
-                      className="rounded-lg bg-destructive text-white text-xs font-semibold py-2"
+                      className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold py-2"
                     >
                       {s.myOrders_yesCancel}
                     </button>
                     <button
                       type="button"
                       onClick={() => onSetShowCancelConfirm(false)}
-                      className="rounded-lg border border-border text-xs font-semibold py-2"
+                      className="min-h-[44px] rounded-lg border border-border text-xs font-semibold py-2"
                     >
                       {s.myOrders_keepIt}
                     </button>
@@ -853,7 +880,7 @@ export function MyOrderCard({
                         type="button"
                         data-testid="order-dismiss-btn"
                         disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
+                        className="w-full min-h-[44px] rounded-xl border border-border bg-card text-sm font-semibold py-2 opacity-50 cursor-not-allowed"
                       >
                         {s.myOrders_dismiss}
                       </button>
@@ -870,7 +897,7 @@ export function MyOrderCard({
                       data-testid="order-dismiss-btn"
                       disabled={isMarking}
                       onClick={() => onMarkDone(order)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full min-h-[44px] rounded-xl border border-border bg-card text-sm font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                     >
                       {isMarking ? s.myOrders_saving : s.myOrders_dismiss}
                     </button>
@@ -883,7 +910,7 @@ export function MyOrderCard({
                         type="button"
                         data-testid="order-dismiss-btn"
                         disabled
-                        className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 opacity-50 cursor-not-allowed"
+                        className="w-full min-h-[44px] rounded-xl border border-border bg-card text-sm font-semibold py-2 opacity-50 cursor-not-allowed"
                       >
                         {s.myOrders_dismiss}
                       </button>
@@ -900,7 +927,7 @@ export function MyOrderCard({
                       data-testid="order-dismiss-btn"
                       disabled={isMarking}
                       onClick={() => onMarkDone(order)}
-                      className="w-full rounded-xl border border-border bg-card text-sm font-semibold h-10 active:scale-[0.99] disabled:opacity-50"
+                      className="w-full min-h-[44px] rounded-xl border border-border bg-card text-sm font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                     >
                       {isMarking ? s.myOrders_saving : s.myOrders_dismiss}
                     </button>
@@ -927,7 +954,7 @@ export function MyOrderCard({
                         data-testid="order-cancel-btn"
                         disabled={isMarking}
                         onClick={() => onSetShowOrderCancelConfirm(true)}
-                        className="w-full rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                        className="w-full min-h-[44px] rounded-lg border border-destructive/40 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                       >
                         {s.myOrders_cancelOrder}
                       </button>
@@ -941,14 +968,14 @@ export function MyOrderCard({
                             type="button"
                             disabled={isMarking}
                             onClick={() => onRemoveOrder(order)}
-                            className="rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
+                            className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50"
                           >
                             {s.myOrders_yesCancel}
                           </button>
                           <button
                             type="button"
                             onClick={() => onSetShowOrderCancelConfirm(false)}
-                            className="rounded-lg border border-border text-xs font-semibold py-2"
+                            className="min-h-[44px] rounded-lg border border-border text-xs font-semibold py-2"
                           >
                             {s.myOrders_keepIt}
                           </button>

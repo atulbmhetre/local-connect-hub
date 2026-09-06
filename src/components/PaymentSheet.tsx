@@ -1,3 +1,4 @@
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import {
   Sheet,
   SheetContent,
@@ -28,9 +29,10 @@ export interface PaymentSheetProps {
 
 export function PaymentSheet({ open, onClose, order, vendor }: PaymentSheetProps) {
   const { s } = useLanguage();
+  const requestClose = useOverlayBack(open, onClose, "aaspaasPaymentSheet");
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) onClose();
+    if (!next) requestClose();
   };
 
   return (

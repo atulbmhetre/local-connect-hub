@@ -33,6 +33,7 @@ import { safeRandomUUID } from "@/lib/safeRandomUUID";
 import { parseBillQuantity, parseBillUnitPrice } from "@/lib/billEdit";
 import { applyCatalogItemTap } from "@/lib/billMenuCatalog";
 import { BillMenuCatalogPicker } from "@/components/BillMenuCatalogPicker";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { messageForKhataChargeError } from "@/lib/khataBillErrors";
 import { DeliveryFulfillmentSettings } from "@/components/vendor/DeliveryFulfillmentSettings";
 import {
@@ -94,6 +95,7 @@ export function BillSheet({
   khataRedLimit,
 }: Props) {
   const { s } = useLanguage();
+  const requestClose = useOverlayBack(isOpen, onClose, "aaspaasBillSheet");
   const unitOptions = useMemo(() => billUnitOptions(s), [s]);
   const [items, setItems] = useState<BillItem[]>([newBillItem()]);
   const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "khata">("cash");
@@ -242,10 +244,10 @@ export function BillSheet({
         setRequestServiceMode(null);
         setDeliveryFulfillment(DEFAULT_DELIVERY_FULFILLMENT);
         setDeliveryPaymentTiming(DEFAULT_DELIVERY_PAYMENT_TIMING);
-        onClose();
+        requestClose();
       }
     },
-    [onClose],
+    [requestClose],
   );
 
   useEffect(() => {
@@ -549,7 +551,7 @@ export function BillSheet({
 
     toast.success(s.bill_sent);
     releaseSendingLock();
-    onClose();
+    requestClose();
   };
 
   const sendBill = async () => {

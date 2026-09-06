@@ -49,6 +49,7 @@ import {
 } from "@/lib/vendorBackgroundLocation";
 import { sendIveStartedCustomerNotification } from "@/lib/iveStartedNotify";
 import { billBlocksDismiss } from "@/lib/dismissBillGate";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { shouldStartTrackingOnOrderAccept } from "@/lib/vendorTrackingPolicy";
 import { IncomingOrderCard } from "@/components/IncomingOrderCard";
 
@@ -231,6 +232,28 @@ export function IncomingOrdersSection({
   >("help");
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [declineOrderId, setDeclineOrderId] = useState<string | null>(null);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [otherReasonText, setOtherReasonText] = useState("");
+  const closeCancelSheet = useCallback(() => {
+    setCancelOrderId(null);
+    setSelectedReason(null);
+    setOtherReasonText("");
+  }, []);
+  const closeDeclineSheet = useCallback(() => {
+    setDeclineOrderId(null);
+    setSelectedReason(null);
+    setOtherReasonText("");
+  }, []);
+  const requestCloseCancel = useOverlayBack(
+    cancelOrderId != null,
+    closeCancelSheet,
+    "aaspaasVendorCancel",
+  );
+  const requestCloseDecline = useOverlayBack(
+    declineOrderId != null,
+    closeDeclineSheet,
+    "aaspaasVendorDecline",
+  );
   const [categoryReasonsById, setCategoryReasonsById] = useState<Map<string, string[]>>(
     () => new Map(),
   );
@@ -264,8 +287,6 @@ export function IncomingOrdersSection({
     [activeReasonCategoryId, categoryReasonsById, cancelReasons],
   );
   const [declining, setDeclining] = useState(false);
-  const [selectedReason, setSelectedReason] = useState<string | null>(null);
-  const [otherReasonText, setOtherReasonText] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [billRequestId, setBillRequestId] = useState<string | null>(null);
   const [billUserPhone, setBillUserPhone] = useState<string | null>(null);
@@ -1573,12 +1594,6 @@ export function IncomingOrdersSection({
     toast.success(s.incoming_iveStarted_sent);
   };
 
-  const closeDeclineSheet = () => {
-    setDeclineOrderId(null);
-    setSelectedReason(null);
-    setOtherReasonText("");
-  };
-
   const handleCallCustomer = (phone: string, mode: string) => {
     setCallTargetPhone(phone);
     setCallServiceMode(
@@ -1689,12 +1704,6 @@ export function IncomingOrdersSection({
       setDeclining(false);
       setMarkingId((current) => (current === declineOrderId ? null : current));
     }
-  };
-
-  const closeCancelSheet = () => {
-    setCancelOrderId(null);
-    setSelectedReason(null);
-    setOtherReasonText("");
   };
 
   const openLedgerSheet = (order: OrderRequestRow) => {
@@ -2130,7 +2139,7 @@ export function IncomingOrdersSection({
         </SheetContent>
       </Sheet>
 
-      <Sheet open={cancelOrderId != null} onOpenChange={(open) => !open && closeCancelSheet()}>
+      <Sheet open={cancelOrderId != null} onOpenChange={(open) => !open && requestCloseCancel()}>
         <SheetContent side="bottom" className="rounded-t-2xl px-4">
           <SheetHeader className="text-left">
             <SheetTitle>{s.cancelReason}</SheetTitle>
@@ -2276,7 +2285,7 @@ export function IncomingOrdersSection({
         </SheetContent>
       </Sheet>
 
-      <Sheet open={declineOrderId != null} onOpenChange={(open) => !open && closeDeclineSheet()}>
+      <Sheet open={declineOrderId != null} onOpenChange={(open) => !open && requestCloseDecline()}>
         <SheetContent side="bottom" className="rounded-t-2xl px-4">
           <SheetHeader className="text-left">
             <SheetTitle>{s.incoming_decline_booking_title}</SheetTitle>

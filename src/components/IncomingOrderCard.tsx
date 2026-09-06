@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import { useState } from "react";
 import { useCategoryLabel } from "@/lib/supabase";
 import { formatTimeAgo, type OrderRequestRow } from "@/lib/orders";
 import { useLanguage } from "@/lib/language";
@@ -319,6 +320,7 @@ export function IncomingOrderCard({
 }: IncomingOrderCardProps) {
   const { s } = useLanguage();
   const getLabel = useCategoryLabel();
+  const [showDisputeConfirm, setShowDisputeConfirm] = useState(false);
   const trustBadgeLabels = {
     newUser: s.incoming_trust_new_user,
     trusted: s.incoming_trust_trusted,
@@ -507,7 +509,7 @@ export function IncomingOrderCard({
                     data-testid="incoming-decline-btn"
                     disabled={markingId === order.id}
                     onClick={() => onOpenDecline(order.id)}
-                    className="rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                    className="min-h-[44px] rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                   >
                     {s.incoming_btnDecline}
                   </button>
@@ -533,7 +535,7 @@ export function IncomingOrderCard({
                         <button
                           type="button"
                           onClick={() => onOpenCancel(order.id)}
-                          className="w-full rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
+                          className="w-full min-h-[44px] rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                         >
                           {s.incoming_cancelBooking}
                         </button>
@@ -569,7 +571,7 @@ export function IncomingOrderCard({
                           data-testid="incoming-done-btn"
                           disabled={markingId === order.id}
                           onClick={() => onMarkDone(order.id)}
-                          className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                          className="w-full min-h-[44px] rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                         >
                           {markingId === order.id ? s.incoming_saving : s.incoming_markDone}
                         </button>
@@ -625,7 +627,7 @@ export function IncomingOrderCard({
                     <button
                       type="button"
                       onClick={() => onOpenCancel(order.id)}
-                      className="w-full rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
+                      className="w-full min-h-[44px] rounded-lg border border-destructive/50 text-destructive text-xs font-semibold py-2 active:scale-[0.99]"
                     >
                       {s.cancelOrder}
                     </button>
@@ -664,7 +666,7 @@ export function IncomingOrderCard({
                         data-testid="incoming-done-btn"
                         disabled={markingId === order.id}
                         onClick={() => onMarkDone(order.id)}
-                        className="w-full rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
+                        className="w-full min-h-[44px] rounded-lg border border-primary/50 bg-primary/10 text-primary text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50"
                       >
                         {markingId === order.id ? s.incoming_saving : s.incoming_markDone}
                       </button>
@@ -878,38 +880,72 @@ export function IncomingOrderCard({
               )}
 
               {order.payment_status === "claimed" && (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    data-testid="incoming-confirm-payment-btn"
-                    disabled={confirmingPaymentId === order.id || disputingPaymentId === order.id}
-                    onClick={() =>
-                      onConfirmPayment(
-                        order.id,
-                        order.user_phone?.trim() || "",
-                        order.payment_utr ?? null,
-                        bill?.total_amount ?? null,
-                      )
-                    }
-                    className="rounded-lg border border-green-500/50 text-green-600 dark:text-green-400 text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                  >
-                    {confirmingPaymentId === order.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : null}
-                    {s.payment_confirm_btn}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="dispute-payment-btn"
-                    disabled={confirmingPaymentId === order.id || disputingPaymentId === order.id}
-                    onClick={() => onDisputePayment(order.id, order.user_phone?.trim() || "")}
-                    className="rounded-lg border border-red-500/50 text-red-500 text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50 inline-flex items-center justify-center gap-2"
-                  >
-                    {disputingPaymentId === order.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : null}
-                    {s.payment_dispute_btn}
-                  </button>
+                <div className="space-y-2">
+                  {!showDisputeConfirm ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        data-testid="incoming-confirm-payment-btn"
+                        disabled={confirmingPaymentId === order.id || disputingPaymentId === order.id}
+                        onClick={() =>
+                          onConfirmPayment(
+                            order.id,
+                            order.user_phone?.trim() || "",
+                            order.payment_utr ?? null,
+                            bill?.total_amount ?? null,
+                          )
+                        }
+                        className="min-h-[44px] rounded-lg border border-green-500/50 text-green-600 dark:text-green-400 text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                      >
+                        {confirmingPaymentId === order.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        {s.payment_confirm_btn}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="dispute-payment-btn"
+                        disabled={confirmingPaymentId === order.id || disputingPaymentId === order.id}
+                        onClick={() => setShowDisputeConfirm(true)}
+                        className="min-h-[44px] rounded-lg border border-red-500/50 text-red-500 text-xs font-semibold py-2 active:scale-[0.99] disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                      >
+                        {disputingPaymentId === order.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        {s.payment_dispute_btn}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 space-y-2">
+                      <p className="text-xs text-destructive font-semibold text-center">
+                        {s.payment_dispute_confirm_q}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          data-testid="dispute-payment-confirm-yes"
+                          disabled={disputingPaymentId === order.id}
+                          onClick={() =>
+                            onDisputePayment(order.id, order.user_phone?.trim() || "")
+                          }
+                          className="min-h-[44px] rounded-lg bg-destructive text-white text-xs font-semibold py-2 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                        >
+                          {disputingPaymentId === order.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          {s.payment_dispute_btn}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="dispute-payment-confirm-keep"
+                          onClick={() => setShowDisputeConfirm(false)}
+                          className="min-h-[44px] rounded-lg border border-border text-xs font-semibold py-2"
+                        >
+                          {s.cancel}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </li>

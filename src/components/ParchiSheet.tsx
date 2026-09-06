@@ -51,6 +51,7 @@ import {
 } from "@/lib/executeOrderInsert";
 import { clearOrderPlacementIdempotencyKey } from "@/lib/orderPlacementIdempotency";
 import { PhoneEntrySheet } from "@/components/PhoneEntrySheet";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { toast } from "sonner";
 import { useLanguage } from "@/lib/language";
 import { withNetworkRetry } from "@/lib/withNetworkRetry";
@@ -157,6 +158,16 @@ export function ParchiSheet({
   const [lowTrustConfirmed, setLowTrustConfirmed] = useState(false);
   const [mediumTrustDialogOpen, setMediumTrustDialogOpen] = useState(false);
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
+  const closeLowTrustUi = useCallback(() => {
+    setLowTrustSheetOpen(false);
+    setLowTrustConfirmed(false);
+    setPendingPhone(null);
+  }, []);
+  const requestCloseLowTrust = useOverlayBack(
+    lowTrustSheetOpen,
+    closeLowTrustUi,
+    "aaspaasParchiLowTrust",
+  );
   const [menuItems, setMenuItems] = useState<VendorMenuItem[]>([]);
   const [selectedMenuItems, setSelectedMenuItems] = useState<Record<string, number>>({});
   const selectedMenuItemsRef = useRef(selectedMenuItems);
@@ -217,9 +228,26 @@ export function ParchiSheet({
       scrollContainerRef.current?.scrollTo({ top: 0 });
     }, 50);
   }, [isOpen, resetFormFields]);
-  
+
   const effectiveVendor = vendor ?? lastVendor.current;
   const resolvedVendorId = vendorIdProp ?? effectiveVendor?.id ?? null;
+
+  const finishCloseParchi = useCallback(() => {
+    if (phoneSheetOpenRef.current) return;
+    const vendorIdForIdem = effectiveVendor?.id ?? resolvedVendorId;
+    if (vendorIdForIdem) clearOrderPlacementIdempotencyKey(vendorIdForIdem);
+    resetFormFields();
+    setSaveAddress(false);
+    setTrustBlock(null);
+    setPaymentBlockInfo(null);
+    setLowTrustSheetOpen(false);
+    setLowTrustConfirmed(false);
+    setMediumTrustDialogOpen(false);
+    setMenuItems([]);
+    onClose();
+  }, [onClose, resetFormFields, effectiveVendor?.id, resolvedVendorId]);
+
+  const requestCloseParchi = useOverlayBack(isOpen, finishCloseParchi, "aaspaasParchi");
   
   // Fetch business-specific GPS verification when orderCategoryId is available
   useEffect(() => {
@@ -487,20 +515,10 @@ export function ParchiSheet({
       if (!open) {
         // Radix may dismiss the parchi sheet when the nested phone sheet opens — keep form state.
         if (phoneSheetOpenRef.current) return;
-        const vendorIdForIdem = effectiveVendor?.id ?? resolvedVendorId;
-        if (vendorIdForIdem) clearOrderPlacementIdempotencyKey(vendorIdForIdem);
-        resetFormFields();
-        setSaveAddress(false);
-        setTrustBlock(null);
-        setPaymentBlockInfo(null);
-        setLowTrustSheetOpen(false);
-        setLowTrustConfirmed(false);
-        setMediumTrustDialogOpen(false);
-        setMenuItems([]);
-        onClose();
+        requestCloseParchi();
       }
     },
-    [onClose, resetFormFields, effectiveVendor?.id, resolvedVendorId],
+    [requestCloseParchi],
   );
 
   const applyPaymentBlockRow = useCallback(
@@ -858,7 +876,7 @@ export function ParchiSheet({
           setSending(false);
           if (resolvedServiceMode === "help") {
             toast.error(s.parchi_errHelpUnavailableTrust);
-            onClose();
+            requestCloseParchi();
             return;
           }
           setPendingPhone(phone);
@@ -1700,11 +1718,7 @@ export function ParchiSheet({
       <Sheet
         open={lowTrustSheetOpen}
         onOpenChange={(open) => {
-          setLowTrustSheetOpen(open);
-          if (!open) {
-            setLowTrustConfirmed(false);
-            setPendingPhone(null);
-          }
+          if (!open) requestCloseLowTrust();
         }}
       >
         <SheetContent

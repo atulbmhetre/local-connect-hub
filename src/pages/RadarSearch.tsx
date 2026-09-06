@@ -1738,7 +1738,7 @@ const RadarSearch = () => {
           </div>
         ) : (
           <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4">
-            <p className="text-center font-display text-xl font-semibold text-white">
+            <p className="text-center font-display text-xl font-semibold text-foreground">
               {isPanIndiaBracket
                 ? s.radar_no_helpers_area
                 : s.radar_no_helpers.replace("{radius}", String(searchRadiusKm))}
@@ -1764,7 +1764,7 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
   if (!showEmergencyNumbers) {
     return (
       <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-5">
-        <p className="text-center text-sm text-gray-300 leading-relaxed px-1">
+        <p className="text-center text-sm text-muted-foreground leading-relaxed px-1">
           {s.radar_no_helpers_area}
         </p>
       </div>
@@ -1774,10 +1774,10 @@ const EmptyStateFailsafe = ({ term }: { term: string }) => {
   return (
     <div className="rounded-2xl border border-brand-border bg-surface p-5 mt-4 space-y-4">
       <div className="text-center">
-        <p className="font-display text-xl font-semibold text-white">
+        <p className="font-display text-xl font-semibold text-foreground">
           {s.radar_no_private}
         </p>
-        <p className="text-sm text-gray-400 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           {s.radar_official_services}
         </p>
       </div>

@@ -12,6 +12,7 @@ import { getReferralCode,
   referralCodeFromPhone,
 } from "@/lib/referral";
 import { OTP_ENABLED } from "@/lib/phoneOtpEnabled";
+import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { PhoneOtpVerification } from "@/components/PhoneOtpVerification";
 import {
   supabase,
@@ -280,6 +281,11 @@ export function VendorRegistrationWizard({
 
   const [phone, setPhone] = useState("");
   const [stepAOtpOpen, setStepAOtpOpen] = useState(false);
+  const requestCloseOtp = useOverlayBack(
+    stepAOtpOpen,
+    () => setStepAOtpOpen(false),
+    "aaspaasRegWizardOtp",
+  );
   const [otpVerifiedPhone, setOtpVerifiedPhone] = useState<string | null>(null);
   const [upi, setUpi] = useState("");
   const [upiBlurred, setUpiBlurred] = useState(false);
@@ -2074,11 +2080,18 @@ export function VendorRegistrationWizard({
 
       {stepAOtpOpen && (
         <div className="fixed inset-0 z-50 flex flex-col bg-background px-6 py-10">
+          <button
+            type="button"
+            onClick={requestCloseOtp}
+            className="mb-4 self-start min-h-[44px] min-w-[44px] rounded-xl border border-border px-3 text-sm font-semibold"
+          >
+            {s.settings_cancel}
+          </button>
           <PhoneOtpVerification
             phone={phone.trim()}
             onVerified={() => {
               setOtpVerifiedPhone(phone.trim());
-              setStepAOtpOpen(false);
+              requestCloseOtp();
               setRegPage(2);
             }}
           />

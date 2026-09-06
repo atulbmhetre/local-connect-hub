@@ -198,7 +198,10 @@ const Index = () => {
   }, [categories]);
 
   const unsaveSavedNeighbour = useCallback(
-    async (vendorId: string) => {
+    async (
+      vendorId: string,
+      snapshot: { nickname: string; category: string },
+    ) => {
       if (unsavingNeighbourId) return;
       setUnsavingNeighbourId(vendorId);
       const device_id = getDeviceId();
@@ -223,13 +226,44 @@ const Index = () => {
         } catch {
           /* ignore */
         }
-        toast.success(s.removedFromNeighbourhood);
+        toast.success(s.removedFromNeighbourhood, {
+          action: {
+            label: s.undo,
+            onClick: () => {
+              void (async () => {
+                const { error: saveError } = await supabase.rpc("save_saved_vendor", {
+                  p_vendor_id: vendorId,
+                  p_category: snapshot.category,
+                  p_nickname: snapshot.nickname,
+                  p_device_id: device_id,
+                  p_user_phone: phone ?? null,
+                });
+                if (saveError) {
+                  toast.error(s.couldNotRemove, { description: saveError.message });
+                  return;
+                }
+                try {
+                  sessionStorage.setItem(`aaspaas:saved:${vendorId}`, "1");
+                } catch {
+                  /* ignore */
+                }
+                await loadSavedNeighbours();
+              })();
+            },
+          },
+        });
         await loadSavedNeighbours();
       } finally {
         setUnsavingNeighbourId(null);
       }
     },
-    [unsavingNeighbourId, loadSavedNeighbours, s.couldNotRemove, s.removedFromNeighbourhood],
+    [
+      unsavingNeighbourId,
+      loadSavedNeighbours,
+      s.couldNotRemove,
+      s.removedFromNeighbourhood,
+      s.undo,
+    ],
   );
 
   useEffect(() => {
@@ -870,9 +904,9 @@ const Index = () => {
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    void unsaveSavedNeighbour(vendor.id);
+                    void unsaveSavedNeighbour(vendor.id, { nickname, category });
                   }}
-                  className="absolute -top-2 -right-2 z-10 h-8 w-8 rounded-full border border-surface-border bg-surface text-muted-foreground shadow-sm grid place-items-center active:scale-95 disabled:opacity-50"
+                  className="absolute -top-2 -right-2 z-10 h-11 w-11 min-h-[44px] min-w-[44px] rounded-full border border-surface-border bg-surface text-muted-foreground shadow-sm grid place-items-center active:scale-95 disabled:opacity-50"
                 >
                   <X className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
                 </button>
