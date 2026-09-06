@@ -9,16 +9,18 @@ const {
   mockRpc,
   mockFrom,
   mockChannel,
+  captureErrorMock,
 } = vi.hoisted(() => ({
   mockFetchVendorOwn: vi.fn(),
   mockPatchVendorOwn: vi.fn(),
   mockRpc: vi.fn(),
   mockFrom: vi.fn(),
   mockChannel: vi.fn(),
+  captureErrorMock: vi.fn(),
 }));
 
 vi.mock("@/lib/sentry", () => ({
-  captureError: vi.fn(),
+  captureError: captureErrorMock,
   toCapturedError: (e: unknown) => e,
 }));
 
@@ -244,5 +246,67 @@ describe("VendorMode go-live sync lock", () => {
     await waitFor(() => {
       expect(mockPatchVendorOwn).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("unknown go-live patchVendorOwn failure calls captureError", async () => {
+    const err = { message: "unexpected_golive_rpc_failure" };
+    mockPatchVendorOwn.mockResolvedValue({ error: err });
+
+    render(
+      <MemoryRouter>
+        <VendorMode />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByTestId("vendor-golive-btn"));
+
+    await waitFor(() => {
+      expect(captureErrorMock).toHaveBeenCalledWith(
+        err,
+        expect.objectContaining({
+          scope: "vendorMode.applyActiveState",
+          vendorId: "vendor-1",
+          goingLive: true,
+        }),
+      );
+    });
+  });
+
+  it("vendor_photos_required go-live failure does not call captureError", async () => {
+    mockPatchVendorOwn.mockResolvedValue({
+      error: { message: "vendor_photos_required" },
+    });
+
+    render(
+      <MemoryRouter>
+        <VendorMode />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByTestId("vendor-golive-btn"));
+
+    await waitFor(() => {
+      expect(mockPatchVendorOwn).toHaveBeenCalled();
+    });
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("vendor_banned go-live failure does not call captureError", async () => {
+    mockPatchVendorOwn.mockResolvedValue({
+      error: { message: "vendor_banned" },
+    });
+
+    render(
+      <MemoryRouter>
+        <VendorMode />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByTestId("vendor-golive-btn"));
+
+    await waitFor(() => {
+      expect(mockPatchVendorOwn).toHaveBeenCalled();
+    });
+    expect(captureErrorMock).not.toHaveBeenCalled();
   });
 });

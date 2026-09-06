@@ -385,12 +385,19 @@ export async function invokeSendSupportEmail(payload: {
   vendor_id?: string | null;
   device_id?: string | null;
 }): Promise<SendSupportEmailResult> {
+  const extra = {
+    scope: "invokeSendSupportEmail",
+    kind: payload.kind,
+    vendorId: payload.vendor_id ?? null,
+    ...(payload.user_phone ? { phoneSuffix: phoneSuffix(payload.user_phone) } : {}),
+  };
   try {
     const { data, error } = await supabase.functions.invoke("send-support-email", {
       body: payload,
     });
     if (error) {
       console.error("invokeSendSupportEmail", error);
+      captureError(error, extra);
       return { ok: false, error: error.message };
     }
     const result = data as {
@@ -400,11 +407,15 @@ export async function invokeSendSupportEmail(payload: {
       error?: string;
     } | null;
     if (!result?.ok) {
+      const fail = new Error(result?.error ?? "send_failed");
+      console.error("invokeSendSupportEmail", fail);
+      captureError(fail, extra);
       return { ok: false, error: result?.error ?? "send_failed" };
     }
     return { ok: true, emailed: Boolean(result.emailed), id: result.id ?? null };
   } catch (err) {
     console.error("invokeSendSupportEmail", err);
+    captureError(err, extra);
     return { ok: false, error: err instanceof Error ? err.message : "send_failed" };
   }
 }

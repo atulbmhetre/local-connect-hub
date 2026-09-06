@@ -66,7 +66,7 @@ import {
   SettingsCollapsible,
 } from "@/components/settings/SettingsSection";
 import { AdminSystemHealthCard } from "@/components/settings/AdminSystemHealthCard";
-import { captureError } from "@/lib/sentry";
+import { captureError, phoneSuffix } from "@/lib/sentry";
 import {
   TRUST_TIER_GROUPS,
   computeTrustLevelForBusiness,
@@ -1824,6 +1824,7 @@ export function AdminConsole({
     setAdminConfigSaving(null);
     if (error) {
       console.error("saveAdminConfigKey", error);
+      captureError(error, { scope: "adminConsole.updateConfig", key });
       toast.error(error.message);
       return;
     }
@@ -1880,6 +1881,7 @@ export function AdminConsole({
       });
       if (error) {
         console.error("confirmBanVendor", error);
+        captureError(error, { scope: "adminConsole.banVendor", vendorId: v.id });
         toast.error("Failed to ban vendor");
         return;
       }
@@ -1906,6 +1908,7 @@ export function AdminConsole({
       });
       if (error) {
         console.error("unbanVendor", error);
+        captureError(error, { scope: "adminConsole.unbanVendor", vendorId });
         toast.error("Failed to unban vendor");
         return;
       }
@@ -1981,6 +1984,10 @@ export function AdminConsole({
       });
       if (error) {
         console.error("confirmBanUser", error);
+        captureError(error, {
+          scope: "adminConsole.banUser",
+          phoneSuffix: phoneSuffix(bannedPhone),
+        });
         toast.error("Failed to ban user: " + error.message);
         return;
       }
@@ -2005,6 +2012,10 @@ export function AdminConsole({
     setFlaggedAction(null);
     if (error) {
       console.error("unbanFlaggedUser", error);
+      captureError(error, {
+        scope: "adminConsole.unbanUser",
+        phoneSuffix: phoneSuffix(phone),
+      });
       toast.error("Failed to unban user: " + error.message);
       return;
     }
@@ -2058,6 +2069,7 @@ export function AdminConsole({
     });
     setPendingAction(null);
     if (error) {
+      captureError(error, { scope: "adminConsole.approveCategory", categoryId: cat.id });
       toast.error("Update failed: " + error.message);
       return;
     }
@@ -2073,6 +2085,7 @@ export function AdminConsole({
     });
     setPendingLicenseAction(null);
     if (error) {
+      captureError(error, { scope: "adminConsole.approveLicense", categoryId: row.id });
       toast.error("Update failed: " + error.message);
       return;
     }
@@ -2096,6 +2109,7 @@ export function AdminConsole({
     });
     setPendingLicenseAction(null);
     if (error) {
+      captureError(error, { scope: "adminConsole.rejectLicense", categoryId: row.id });
       toast.error("Update failed: " + error.message);
       return;
     }
@@ -2211,6 +2225,7 @@ export function AdminConsole({
     });
     setPendingAction(null);
     if (updateError) {
+      captureError(updateError, { scope: "adminConsole.rejectCategory", categoryId: cat.id });
       toast.error("Update failed: " + updateError.message);
       return;
     }

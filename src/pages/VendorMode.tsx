@@ -7,7 +7,7 @@ import {
   isReferralEnabled,
   referralCodeFromPhone,
 } from "@/lib/referral";
-import { toCapturedError } from "@/lib/sentry";
+import { captureError, toCapturedError } from "@/lib/sentry";
 import {
   supabase,
   SUPABASE_URL,
@@ -1203,13 +1203,19 @@ const VendorMode = () => {
       dismissNetworkRetryingToast();
       if (error) {
         setVendor({ ...vendor, is_active: !next });
-        if (next && (error.message ?? "").includes("vendor_photos_required")) {
+        const msg = error.message ?? "";
+        if (next && msg.includes("vendor_photos_required")) {
           showPhotosRequiredToast();
-        } else if (next && (error.message ?? "").includes("vendor_banned")) {
+        } else if (next && msg.includes("vendor_banned")) {
           toast.error(s.admin_vendor_banned_title, {
             description: s.admin_vendor_banned_body,
           });
         } else {
+          captureError(error, {
+            scope: "vendorMode.applyActiveState",
+            vendorId: vendor.id,
+            goingLive: next,
+          });
           toast.error(s.vendor_status_failed, { description: error.message });
         }
         return false;
