@@ -83,7 +83,10 @@ import {
 } from "@/lib/customerPaymentGate";
 import { isBillPastPaymentHygieneTier1 } from "@/lib/paymentHygiene";
 import { MyOrderCard } from "@/components/MyOrderCard";
+import { VirtualizedWindowList } from "@/components/VirtualizedWindowList";
+import { shouldSkipBackupPoll, stableSortedKey } from "@/lib/stableSortedKey";
 const MAX_LEN = 200;
+const MY_ORDERS_PAGE_SIZE = 50;
 
 function fulfilledOrderCtaLabel(
   serviceMode: string | null | undefined,
@@ -402,6 +405,8 @@ const MyOrders = () => {
     total_outstanding: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [truncatedRemaining, setTruncatedRemaining] = useState(0);
   const [networkLoadStatus, setNetworkLoadStatus] = useState<"retrying" | "failed" | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
   const rowActionLockRef = useRef(new Set<string>());
@@ -454,6 +459,8 @@ const MyOrders = () => {
   const [paymentSelfDeclareRestricted, setPaymentSelfDeclareRestricted] = useState(false);
   const [paymentBlockRequestId, setPaymentBlockRequestId] = useState<string | null>(null);
   const mounted = useRef(true);
+  const fetchLimitRef = useRef(MY_ORDERS_PAGE_SIZE);
+  const lastRealtimeAtRef = useRef(0);
   const vendorLocationHistoryRef = useRef<Map<string, VendorLocationPoint[]>>(new Map());
   const pendingAutoRatingRef = useRef<RowWithShop | null>(null);
   const openedPaymentOrderIdsRef = useRef<Set<string>>(new Set());
@@ -493,10 +500,16 @@ const MyOrders = () => {
     [rows],
   );
 
-  const acceptedHelpVendorIds = useMemo(
-    () => [...new Set(acceptedHelpOrders.map((r) => r.vendor_id))],
+  const acceptedHelpVendorIdsKey = useMemo(
+    () => stableSortedKey(acceptedHelpOrders.map((r) => r.vendor_id)),
     [acceptedHelpOrders],
   );
+  const acceptedHelpVendorIds = useMemo(
+    () => (acceptedHelpVendorIdsKey ? acceptedHelpVendorIdsKey.split(",") : []),
+    [acceptedHelpVendorIdsKey],
+  );
+  const acceptedHelpOrdersRef = useRef(acceptedHelpOrders);
+  acceptedHelpOrdersRef.current = acceptedHelpOrders;
 
   const filteredRows = useMemo(() => {
     if (!searchQuery.trim()) return rows;
@@ -761,7 +774,9 @@ const MyOrders = () => {
     khataAllowAutoRatingRef.current = true;
   };
 
-  const load = useCallback(async (opts?: { silent?: boolean }) => {
+  const load = useCallback(async (opts?: { silent?: boolean; limit?: number }) => {
+    const limit = opts?.limit ?? fetchLimitRef.current;
+    fetchLimitRef.current = limit;
     if (!opts?.silent) {
       setLoading(true);
       setBillsLoaded(false);
@@ -770,12 +785,13 @@ const MyOrders = () => {
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     try {
-      const [ordersResult, restrictionResult, blockResult] = await withNetworkRetry(async () => {
-        const [ordersRes, restrictionRes, blockRes] = await Promise.all([
+      const [ordersResult, restrictionResult, blockResult, countResult] = await withNetworkRetry(async () => {
+        const [ordersRes, restrictionRes, blockRes, countRes] = await Promise.all([
           supabase
             .rpc("get_my_orders", {
               p_user_phone: userPhone ?? null,
               p_device_id: device_id ?? null,
+              p_limit: limit,
             })
             .retry(false),
           supabase
@@ -790,11 +806,18 @@ const MyOrders = () => {
               p_device_id: device_id ?? null,
             })
             .retry(false),
+          supabase
+            .rpc("get_my_orders_count", {
+              p_user_phone: userPhone ?? null,
+              p_device_id: device_id ?? null,
+            })
+            .retry(false),
         ]);
         throwOnSupabaseNetworkError(ordersRes);
         throwOnSupabaseNetworkError(restrictionRes);
         throwOnSupabaseNetworkError(blockRes);
-        return [ordersRes, restrictionRes, blockRes] as const;
+        throwOnSupabaseNetworkError(countRes);
+        return [ordersRes, restrictionRes, blockRes, countRes] as const;
       }, {
         onRetrying: () => {
           if (!opts?.silent && mounted.current) setNetworkLoadStatus("retrying");
@@ -845,6 +868,9 @@ const MyOrders = () => {
         }),
       );
       setRows([...list]);
+      const totalMatching =
+        typeof countResult.data === "number" ? countResult.data : list.length;
+      setTruncatedRemaining(Math.max(0, totalMatching - list.length));
       setNetworkLoadStatus(null);
       void loadBills(list.map((r) => r.id));
       void loadMyReviews();
@@ -864,10 +890,27 @@ const MyOrders = () => {
     }
   }, []);
 
+  const loadMoreOrders = useCallback(async () => {
+    if (loadingMore || truncatedRemaining <= 0) return;
+    setLoadingMore(true);
+    try {
+      await load({
+        silent: true,
+        limit: fetchLimitRef.current + MY_ORDERS_PAGE_SIZE,
+      });
+    } finally {
+      if (mounted.current) setLoadingMore(false);
+    }
+  }, [load, loadingMore, truncatedRemaining]);
+
   useEffect(() => {
     mounted.current = true;
+    fetchLimitRef.current = MY_ORDERS_PAGE_SIZE;
     void load();
-    const t = window.setInterval(() => void load({ silent: true }), 30_000);
+    const t = window.setInterval(() => {
+      if (shouldSkipBackupPoll(lastRealtimeAtRef.current, Date.now())) return;
+      void load({ silent: true });
+    }, 30_000);
     return () => {
       mounted.current = false;
       window.clearInterval(t);
@@ -1020,7 +1063,7 @@ const MyOrders = () => {
       },
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
     );
-  }, [acceptedHelpVendorIds]);
+  }, [acceptedHelpVendorIdsKey]);
 
   useEffect(() => {
     if (acceptedHelpVendorIds.length === 0) return;
@@ -1031,7 +1074,7 @@ const MyOrders = () => {
       setLocationTick((n) => n + 1);
       setVendorStoppedByOrderId((prevStopped) => {
         const next = { ...prevStopped };
-        for (const order of acceptedHelpOrders) {
+        for (const order of acceptedHelpOrdersRef.current) {
           const history = vendorLocationHistoryRef.current.get(order.vendor_id) ?? [];
           next[order.id] = isVendorStoppedIncludingStale(
             history,
@@ -1046,7 +1089,7 @@ const MyOrders = () => {
     const t = window.setInterval(onTick, 60_000);
     return () => window.clearInterval(t);
   }, [
-    acceptedHelpVendorIds,
+    acceptedHelpVendorIdsKey,
     acceptedHelpOrders,
     config.vendorStoppedDistanceMeters,
     config.vendorStoppedMinutes,
@@ -1091,7 +1134,7 @@ const MyOrders = () => {
         );
         setVendorStoppedByOrderId((prevStopped) => {
           const next = { ...prevStopped };
-          for (const order of acceptedHelpOrders) {
+          for (const order of acceptedHelpOrdersRef.current) {
             if (order.vendor_id === vendorId) {
               next[order.id] = stopped;
             }
@@ -1112,7 +1155,7 @@ const MyOrders = () => {
       );
       setVendorStoppedByOrderId((prevStopped) => {
         const next = { ...prevStopped };
-        for (const order of acceptedHelpOrders) {
+        for (const order of acceptedHelpOrdersRef.current) {
           if (order.vendor_id === vendorId) {
             next[order.id] = stopped;
           }
@@ -1120,7 +1163,7 @@ const MyOrders = () => {
         return next;
       });
     },
-    [acceptedHelpOrders, config.vendorStoppedDistanceMeters, config.vendorStoppedMinutes],
+    [config.vendorStoppedDistanceMeters, config.vendorStoppedMinutes],
   );
 
   useEffect(() => {
@@ -1181,7 +1224,7 @@ const MyOrders = () => {
       cancelled = true;
       void supabase.removeChannel(channel);
     };
-  }, [acceptedHelpVendorIds, applyVendorLocationUpdate]);
+  }, [acceptedHelpVendorIdsKey, applyVendorLocationUpdate]);
 
   const closeAiSheet = useCallback((open: boolean) => {
     setAiSheetOpen(open);
@@ -1257,6 +1300,29 @@ const MyOrders = () => {
       .on(
         "postgres_changes",
         {
+          event: "INSERT",
+          schema: "public",
+          table: "requests",
+          filter: userPhone
+            ? `user_phone=eq.${userPhone}`
+            : `device_id=eq.${device_id}`,
+        },
+        (payload) => {
+          if (!mounted.current) return;
+          lastRealtimeAtRef.current = Date.now();
+          const incoming = payload.new as RowWithShop;
+          if (!incoming?.id || incoming.status === "done") return;
+          setRows((prev) => {
+            if (prev.some((r) => r.id === incoming.id)) return prev;
+            const vendors =
+              prev.find((r) => r.vendor_id === incoming.vendor_id)?.vendors ?? null;
+            return [{ ...incoming, vendors }, ...prev];
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
           event: "UPDATE",
           schema: "public",
           table: "requests",
@@ -1266,6 +1332,7 @@ const MyOrders = () => {
         },
         (payload) => {
           if (!mounted.current) return;
+          lastRealtimeAtRef.current = Date.now();
           const updated = payload.new as { id: string; status?: string };
           if (updated.status === "done") {
             setRows((prev) => prev.filter((r) => r.id !== updated.id));
@@ -1946,53 +2013,73 @@ const MyOrders = () => {
       ) : (
         <>
         <SettingsSectionLabel>{s.myOrders_heading}</SettingsSectionLabel>
-        <ul className="space-y-3 pb-4">
-          {filteredRows.map((r) => (
-            <MyOrderCard
-              key={r.id}
-              order={r}
-              flash={flashOrderId === r.id}
-              isMarking={markingId === r.id}
-              bill={billsByRequestId[r.id]}
-              billEdited={
-                !!billsByRequestId[r.id] &&
-                editedBillIds.has(billsByRequestId[r.id].id)
-              }
-              review={myReviews[r.id]}
-              vendorLive={vendorLiveById[r.vendor_id]}
-              vendorStopped={!!vendorStoppedByOrderId[r.id]}
-              hasCalledVendor={!!calledVendor[r.id]}
-              showCancelConfirm={!!showCancelConfirm[r.id]}
-              showOrderCancelConfirm={!!showOrderCancelConfirm[r.id]}
-              paymentSheetLoading={paymentSheetLoadingId === r.id}
-              isPaymentBlockRequest={r.id === paymentBlockRequestId}
-              paymentSelfDeclareRestricted={paymentSelfDeclareRestricted}
-              paymentBlockRequestId={paymentBlockRequestId}
-              userCoords={userCoords}
-              locationTick={locationTick}
-              helpAcceptTimeoutHours={config.helpAcceptTimeoutHours}
-              slotLabels={slotLabels}
-              onOpenEdit={openEditSheet}
-              onRemoveOrder={(ord) => void handleRemoveOrder(ord)}
-              onMarkDone={(ord) => void markDone(ord)}
-              onOpenBillHistory={setHistoryBillId}
-              onHelpVendorCall={(ord) => void openHelpVendorCall(ord)}
-              onOpenPayment={(ord, b) => void openPaymentSheet(ord, b)}
-              onEditReview={setEditingReview}
-              onCancelAppointment={(ord) => void cancelAppointment(ord)}
-              onSetShowCancelConfirm={(open) =>
-                setShowCancelConfirm((p) => ({ ...p, [r.id]: open }))
-              }
-              onMarkCalledVendorSoon={() =>
-                setTimeout(() => setCalledVendor((p) => ({ ...p, [r.id]: true })), 3000)
-              }
-              onFulfilledDismiss={handleFulfilledDismiss}
-              onSetShowOrderCancelConfirm={(open) =>
-                setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: open }))
-              }
-            />
-          ))}
-        </ul>
+        <div className="pb-4" data-testid="my-orders-virtual-list">
+          <VirtualizedWindowList
+            data={filteredRows}
+            itemContent={(_index, r) => (
+              <div className="pb-3">
+                <MyOrderCard
+                  key={r.id}
+                  order={r}
+                  flash={flashOrderId === r.id}
+                  isMarking={markingId === r.id}
+                  bill={billsByRequestId[r.id]}
+                  billEdited={
+                    !!billsByRequestId[r.id] &&
+                    editedBillIds.has(billsByRequestId[r.id].id)
+                  }
+                  review={myReviews[r.id]}
+                  vendorLive={vendorLiveById[r.vendor_id]}
+                  vendorStopped={!!vendorStoppedByOrderId[r.id]}
+                  hasCalledVendor={!!calledVendor[r.id]}
+                  showCancelConfirm={!!showCancelConfirm[r.id]}
+                  showOrderCancelConfirm={!!showOrderCancelConfirm[r.id]}
+                  paymentSheetLoading={paymentSheetLoadingId === r.id}
+                  isPaymentBlockRequest={r.id === paymentBlockRequestId}
+                  paymentSelfDeclareRestricted={paymentSelfDeclareRestricted}
+                  paymentBlockRequestId={paymentBlockRequestId}
+                  userCoords={userCoords}
+                  locationTick={locationTick}
+                  helpAcceptTimeoutHours={config.helpAcceptTimeoutHours}
+                  slotLabels={slotLabels}
+                  onOpenEdit={openEditSheet}
+                  onRemoveOrder={(ord) => void handleRemoveOrder(ord)}
+                  onMarkDone={(ord) => void markDone(ord)}
+                  onOpenBillHistory={setHistoryBillId}
+                  onHelpVendorCall={(ord) => void openHelpVendorCall(ord)}
+                  onOpenPayment={(ord, b) => void openPaymentSheet(ord, b)}
+                  onEditReview={setEditingReview}
+                  onCancelAppointment={(ord) => void cancelAppointment(ord)}
+                  onSetShowCancelConfirm={(open) =>
+                    setShowCancelConfirm((p) => ({ ...p, [r.id]: open }))
+                  }
+                  onMarkCalledVendorSoon={() =>
+                    setTimeout(() => setCalledVendor((p) => ({ ...p, [r.id]: true })), 3000)
+                  }
+                  onFulfilledDismiss={handleFulfilledDismiss}
+                  onSetShowOrderCancelConfirm={(open) =>
+                    setShowOrderCancelConfirm((p) => ({ ...p, [r.id]: open }))
+                  }
+                />
+              </div>
+            )}
+          />
+        </div>
+        {truncatedRemaining > 0 && !searchQuery.trim() && (
+          <div className="pt-1" data-testid="my-orders-truncated">
+            <button
+              type="button"
+              data-testid="my-orders-load-more"
+              disabled={loadingMore}
+              onClick={() => void loadMoreOrders()}
+              className="w-full min-h-[44px] rounded-xl border border-border bg-muted/40 h-11 text-sm font-semibold text-foreground disabled:opacity-50"
+            >
+              {loadingMore
+                ? s.myOrders_loadingMore
+                : s.myOrders_loadMore.replace("{count}", String(truncatedRemaining))}
+            </button>
+          </div>
+        )}
         </>
       )}
 
