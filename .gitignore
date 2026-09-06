@@ -44,7 +44,6 @@ playwright_*.txt
 .tmp-*/
 .tmp-*
 scripts/.tmp-*
-{console.error*
 .commit-tmp/
 .commit-patches/
 prod_*.txt
