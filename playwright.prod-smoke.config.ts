@@ -12,7 +12,7 @@ process.env.VITE_APP_URL = previewUrl;
 
 /**
  * PROD wizard smoke — production Vite build + PROD Supabase.
- * Auto-starts: build:prod + vite preview on :4173.
+ * Auto-starts: production Vite build (non-release preview) + vite preview on :4173.
  * Run: npx playwright test --config=playwright.prod-smoke.config.ts
  */
 export default defineConfig({
@@ -28,7 +28,7 @@ export default defineConfig({
   },
   reporter: [['list']],
   webServer: {
-    command: 'npx dotenv -e .env.build-test -o -- npm run build:prod && npx vite preview --port 4173 --host 127.0.0.1',
+    command: 'npx dotenv -e .env.build-test -o -- vite build --mode production && npx vite preview --port 4173 --host 127.0.0.1',
     url: previewUrl,
     reuseExistingServer: process.env.PW_REUSE_PROD_PREVIEW === 'true',
     timeout: 300000,

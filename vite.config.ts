@@ -4,6 +4,8 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
+const isProductionBuild = (mode: string) => mode === "production";
+
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
@@ -13,6 +15,17 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  build: isProductionBuild(mode)
+    ? {
+        minify: "terser",
+        terserOptions: {
+          compress: {
+            drop_debugger: true,
+            pure_funcs: ["console.log", "console.info", "console.debug", "console.warn"],
+          },
+        },
+      }
+    : undefined,
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

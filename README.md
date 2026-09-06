@@ -6,4 +6,4 @@ TODO: Document your project here
 
 To change whether OTP is on, change it in Vercel’s dashboard only — everything else follows automatically.
 
-Local prod builds: copy `.env.vercel.local.example` → `.env.vercel.local`, then `npm run build:prod`. See `docs/DEPLOY_OTP_CHECK.md`.
+Local prod builds: copy `.env.production.example` → `.env.production` and `.env.vercel.local.example` → `.env.vercel.local`, then `npm run build:prod`. See `docs/DEPLOY_OTP_CHECK.md`.

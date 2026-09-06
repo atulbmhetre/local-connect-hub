@@ -121,9 +121,9 @@ export function FirstOpenFlow({ onComplete, onVendorRegister }: Props) {
   const restoreDebugT0Ref = useRef(0);
 
   const pushRestoreDebug = useCallback((msg: string) => {
+    if (!RESTORE_DEBUG) return;
     const line = { t: restoreDebugStamp(), msg };
     console.log(`[restore-debug ${line.t}] ${msg}`);
-    if (!RESTORE_DEBUG) return;
     setRestoreDebugLines((prev) => [...prev.slice(-40), line]);
   }, []);
 

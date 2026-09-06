@@ -7,6 +7,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  assertProdBuildEnv,
+  ENVIRONMENT_KEY,
+  loadEffectiveProductionEnv,
+  PROD_SUPABASE_PROJECT_REF,
+  SUPABASE_URL_KEY,
+} from "./lib/prodBuildEnv.mjs";
+import {
   OTP_KEY,
   banner,
   fetchVercelProductionOtpEnabled,
@@ -30,6 +37,18 @@ if (fs.existsSync(envProductionPath)) {
 
 const { value } = await fetchVercelProductionOtpEnabled();
 console.log(`[build:prod] ${OTP_KEY}=${JSON.stringify(value)} (from Vercel Production)`);
+
+const effective = loadEffectiveProductionEnv(process.env, envProductionPath);
+effective[OTP_KEY] = value;
+assertProdBuildEnv(effective);
+
+const supabaseUrl = String(effective[SUPABASE_URL_KEY] ?? "").trim().replace(/\/$/, "");
+console.log(
+  `[build:prod] ${SUPABASE_URL_KEY}=${JSON.stringify(supabaseUrl)} (PROD ${PROD_SUPABASE_PROJECT_REF})`,
+);
+console.log(
+  `[build:prod] ${ENVIRONMENT_KEY}=${JSON.stringify(effective[ENVIRONMENT_KEY])}`,
+);
 
 const env = { ...process.env, [OTP_KEY]: value };
 // Ensure Vite does not inherit a stale shell override that disagrees — we just set it.
