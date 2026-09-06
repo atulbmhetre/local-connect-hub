@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { strings } from "@/lib/strings";
+import { strings, loadStringBundle } from "@/lib/strings";
+
+beforeAll(async () => {
+  await loadStringBundle("hi");
+  await loadStringBundle("mr");
+});
 
 /**
  * Mirrors Settings admin delete-review AlertDialog copy so HI/MR

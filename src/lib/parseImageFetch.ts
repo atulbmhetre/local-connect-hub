@@ -5,7 +5,7 @@ import {
   dismissNetworkRetryingToast,
   showNetworkRetryingToast,
 } from "@/lib/networkToast";
-import { strings, type Language } from "@/lib/strings";
+import { getCachedStringBundle, type Language } from "@/lib/strings";
 
 type ParseImageEndpoint = "parse-image-order" | "parse-image-bill";
 
@@ -23,7 +23,7 @@ export async function fetchParseImageJson(
   endpoint: ParseImageEndpoint,
   body: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const s = strings[readLang()];
+  const s = getCachedStringBundle(readLang());
   try {
     const data = await withTimedRetry(
       async (signal) => {

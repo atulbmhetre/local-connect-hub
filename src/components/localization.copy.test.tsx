@@ -1,7 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { strings, type Language, t } from "@/lib/strings";
+import { strings, type Language, t, loadStringBundle } from "@/lib/strings";
 import { NotificationBell } from "@/components/NotificationBell";
 import { GovEmergencyServices } from "@/pages/RadarSearch";
 import { ParchiSheet } from "@/components/ParchiSheet";
@@ -15,8 +15,13 @@ function setTestLang(lang: Language) {
 
 function mockLanguage() {
   const lang = (globalThis as { __testLang?: Language }).__testLang ?? "en";
-  return { s: strings[lang], lang, setLang: () => {} };
+  return { s: strings[lang], lang, setLang: () => {}, stringsReady: true };
 }
+
+beforeAll(async () => {
+  await loadStringBundle("hi");
+  await loadStringBundle("mr");
+});
 
 vi.mock("@/lib/language", () => ({
   useLanguage: () => mockLanguage(),
@@ -45,10 +50,14 @@ vi.mock("@/lib/deviceId", () => ({
   getDeviceId: () => "device-test",
 }));
 
-vi.mock("react-router-dom", () => ({
-  useNavigate: () => vi.fn(),
-  useLocation: () => ({ pathname: "/vendor", search: "", hash: "", state: null, key: "test" }),
-}));
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
+  return {
+    ...actual,
+    useNavigate: () => vi.fn(),
+    useLocation: () => ({ pathname: "/vendor", search: "", hash: "", state: null, key: "test" }),
+  };
+});
 
 vi.mock("@/lib/notificationNavigation", () => ({
   navigateFromNotification: vi.fn(),

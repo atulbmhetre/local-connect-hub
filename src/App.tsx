@@ -7,13 +7,12 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LanguageProvider } from "@/lib/language";
 import { ThemeProvider } from "@/lib/theme";
-import { strings, type Language } from "@/lib/strings";
+import { getCachedStringBundle, type Language } from "@/lib/strings";
+import { en } from "@/lib/strings/en";
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import Landing from "./pages/Landing.tsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.tsx";
-import LocalFeed from "./pages/LocalFeed.tsx";
-import LiveTracking from "./pages/LiveTracking.tsx";
 import { ReferralRedirect } from "@/components/ReferralRedirect";
 import { PushNavigationBridge } from "@/components/PushNavigationBridge";
 import { tryHandleFirstOpenBack } from "@/lib/firstOpenBackBridge";
@@ -25,6 +24,8 @@ const LedgerView = lazy(() => import("./pages/LedgerView.tsx"));
 const RadarSearch = lazy(() => import("./pages/RadarSearch.tsx"));
 const MyOrders = lazy(() => import("./pages/MyOrders.tsx"));
 const VendorMode = lazy(() => import("./pages/VendorMode.tsx"));
+const LocalFeed = lazy(() => import("./pages/LocalFeed.tsx"));
+const LiveTracking = lazy(() => import("./pages/LiveTracking.tsx"));
 
 const RELOAD_LABEL: Record<Language, string> = {
   en: "Reload",
@@ -43,7 +44,7 @@ function readStoredLanguage(): Language {
 
 function SentryErrorFallback() {
   const lang = readStoredLanguage();
-  const copy = strings[lang];
+  const copy = lang === "en" ? en : getCachedStringBundle(lang);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center bg-background">
@@ -121,10 +122,38 @@ const App = () => (
                   </RouteSuspense>
                 }
               />
-              <Route path="/feed" element={<LocalFeed />} />
-              <Route path="/track/:vendorId" element={<LiveTracking />} />
-              <Route path="/tracking" element={<LiveTracking />} />
-              <Route path="/tracking/:vendorId" element={<LiveTracking />} />
+              <Route
+                path="/feed"
+                element={
+                  <RouteSuspense>
+                    <LocalFeed />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/track/:vendorId"
+                element={
+                  <RouteSuspense>
+                    <LiveTracking />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/tracking"
+                element={
+                  <RouteSuspense>
+                    <LiveTracking />
+                  </RouteSuspense>
+                }
+              />
+              <Route
+                path="/tracking/:vendorId"
+                element={
+                  <RouteSuspense>
+                    <LiveTracking />
+                  </RouteSuspense>
+                }
+              />
               <Route
                 path="/vendor"
                 element={

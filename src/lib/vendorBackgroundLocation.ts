@@ -3,7 +3,7 @@ import { Geolocation } from "@capacitor/geolocation";
 import { BackgroundGeolocation } from "@capgo/background-geolocation";
 import { patchVendorOwn } from "@/lib/vendorPatch";
 import { supabase } from "@/lib/supabase";
-import { strings, type Language } from "@/lib/strings";
+import { getCachedStringBundle, type Language } from "@/lib/strings";
 import { ensureHelpTrackingPermissions } from "@/lib/nativePermissions";
 import {
   VENDOR_LOCATION_DISTANCE_FILTER_M,
@@ -40,7 +40,7 @@ function readLang(): Language {
 }
 
 function trackingNotificationCopy(): { title: string; message: string } {
-  const s = strings[readLang()];
+  const s = getCachedStringBundle(readLang());
   return {
     title: s.vendor_tracking_notification_title,
     message: s.vendor_tracking_notification_body,

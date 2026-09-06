@@ -1,24 +1,28 @@
-import { createContext, useContext, useEffect, useState } from 'react';
-import { useAppConfig } from '@/hooks/useAppConfig';
-import { type Language, strings } from './strings';
+import { createContext, useContext, useEffect, useState } from "react";
+import { useAppConfig } from "@/hooks/useAppConfig";
+import { en } from "./strings/en";
+import { loadStringBundle } from "./strings/bundles";
+import type { Language, StringBundle } from "./strings/types";
 
-const STORAGE_KEY = 'aaspaas:language';
+const STORAGE_KEY = "aaspaas:language";
 
 interface LanguageContextType {
   lang: Language;
   setLang: (l: Language) => void;
-  s: typeof strings.en;
+  s: StringBundle;
+  stringsReady: boolean;
 }
 
 const LanguageContext = createContext<LanguageContextType>({
-  lang: 'en',
+  lang: "en",
   setLang: () => {},
-  s: strings.en,
+  s: en,
+  stringsReady: true,
 });
 
 function readStoredLanguage(): Language {
   const stored = localStorage.getItem(STORAGE_KEY);
-  return stored === 'hi' || stored === 'mr' ? stored : 'en';
+  return stored === "hi" || stored === "mr" ? stored : "en";
 }
 
 function resolveLanguage(
@@ -27,16 +31,18 @@ function resolveLanguage(
   hindiEnabled: boolean,
   marathiEnabled: boolean,
 ): Language {
-  if (!localizationEnabled) return 'en';
-  if (candidate === 'hi' && !hindiEnabled) return 'en';
-  if (candidate === 'mr' && !marathiEnabled) return 'en';
+  if (!localizationEnabled) return "en";
+  if (candidate === "hi" && !hindiEnabled) return "en";
+  if (candidate === "mr" && !marathiEnabled) return "en";
   return candidate;
 }
 
 export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
   const { config, loading } = useAppConfig();
-  const [lang, setLangState] = useState<Language>('en');
+  const [lang, setLangState] = useState<Language>("en");
+  const [bundle, setBundle] = useState<StringBundle>(en);
   const [ready, setReady] = useState(false);
+  const [stringsReady, setStringsReady] = useState(true);
 
   useEffect(() => {
     if (loading) return;
@@ -57,12 +63,7 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
       }
     }
     setReady(true);
-  }, [
-    loading,
-    config.localizationEnabled,
-    config.langHindiEnabled,
-    config.langMarathiEnabled,
-  ]);
+  }, [loading, config.localizationEnabled, config.langHindiEnabled, config.langMarathiEnabled]);
 
   useEffect(() => {
     if (!ready || loading) return;
@@ -91,19 +92,38 @@ export const LanguageProvider = ({ children }: { children: React.ReactNode }) =>
     config.langMarathiEnabled,
   ]);
 
+  useEffect(() => {
+    if (!ready) return;
+    if (lang === "en") {
+      setBundle(en);
+      setStringsReady(true);
+      return;
+    }
+    let cancelled = false;
+    setStringsReady(false);
+    void loadStringBundle(lang).then((loaded) => {
+      if (cancelled) return;
+      setBundle(loaded);
+      setStringsReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, lang]);
+
   const setLang = (l: Language) => {
     if (!config.localizationEnabled) return;
-    if (l === 'hi' && !config.langHindiEnabled) return;
-    if (l === 'mr' && !config.langMarathiEnabled) return;
+    if (l === "hi" && !config.langHindiEnabled) return;
+    if (l === "mr" && !config.langMarathiEnabled) return;
     localStorage.setItem(STORAGE_KEY, l);
     setLangState(l);
   };
 
-  const effectiveLang = ready ? lang : 'en';
+  const effectiveLang = ready ? lang : "en";
 
   return (
     <LanguageContext.Provider
-      value={{ lang: effectiveLang, setLang, s: strings[effectiveLang] as typeof strings.en }}
+      value={{ lang: effectiveLang, setLang, s: bundle, stringsReady }}
     >
       {children}
     </LanguageContext.Provider>

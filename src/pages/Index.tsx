@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense, lazy, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { SOSButton } from "@/components/SOSButton";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { SearchSuggestSheet, SUGGEST_TIER1_COUNT } from "@/components/SearchSuggestSheet";
-import { ParchiSheet } from "@/components/ParchiSheet";
-import { AiBridgeSheet } from "@/components/AiBridgeSheet";
 import { NeighbourSheet, type SavedVendorInfo } from "@/components/NeighbourSheet";
 import { Loader2, Mic, Search, X } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
@@ -31,7 +29,6 @@ import { useLanguage } from "@/lib/language";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { SettingsPageHeader, SettingsSectionLabel } from "@/components/settings/SettingsSection";
 import { NotificationBell } from "@/components/NotificationBell";
-import { FirstOpenFlow } from "@/components/FirstOpenFlow";
 import { isWebDesktopShell } from "@/lib/desktopShell";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -44,6 +41,20 @@ import {
   logUnresolvedSearchTermReturningId,
   triggerCorrectiveAliasProposal,
 } from "@/lib/correctiveSearchAliases";
+
+const ParchiSheet = lazy(() =>
+  import("@/components/ParchiSheet").then((m) => ({ default: m.ParchiSheet })),
+);
+const AiBridgeSheet = lazy(() =>
+  import("@/components/AiBridgeSheet").then((m) => ({ default: m.AiBridgeSheet })),
+);
+const FirstOpenFlow = lazy(() =>
+  import("@/components/FirstOpenFlow").then((m) => ({ default: m.FirstOpenFlow })),
+);
+
+function SheetSuspense({ children }: { children: ReactNode }) {
+  return <Suspense fallback={null}>{children}</Suspense>;
+}
 
 type SavedNeighbourTile = {
   savedId: string;
@@ -1025,38 +1036,44 @@ const Index = () => {
         onNavigateOrders={() => navigate("/my-orders")}
       />
 
-      {aiBridgeVendor && (
-        <AiBridgeSheet
-          open={aiSheetOpen}
-          onClose={() => {
-            setAiSheetOpen(false);
-            setAiBridgeVendor(null);
-          }}
-          vendor={aiBridgeVendor}
-          callerPhone={getUserPhone() ?? ""}
-          userNeed={aiBridgeVendor.category}
-          distanceKm={null}
-          onCallSuccess={(vendorId) => {
-            try {
-              sessionStorage.setItem(`aaspaas:called:${vendorId}`, "1");
-            } catch {
-              /* ignore */
-            }
-          }}
-        />
+      {aiBridgeVendor && aiSheetOpen && (
+        <SheetSuspense>
+          <AiBridgeSheet
+            open={aiSheetOpen}
+            onClose={() => {
+              setAiSheetOpen(false);
+              setAiBridgeVendor(null);
+            }}
+            vendor={aiBridgeVendor}
+            callerPhone={getUserPhone() ?? ""}
+            userNeed={aiBridgeVendor.category}
+            distanceKm={null}
+            onCallSuccess={(vendorId) => {
+              try {
+                sessionStorage.setItem(`aaspaas:called:${vendorId}`, "1");
+              } catch {
+                /* ignore */
+              }
+            }}
+          />
+        </SheetSuspense>
       )}
 
-      <ParchiSheet
-        vendor={parchiVendor}
-        vendorId={parchiVendor?.id}
-        serviceMode={parchiVendor?.service_mode}
-        isOpen={parchiOpen}
-        onClose={() => {
-          setParchiOpen(false);
-          void loadActiveOrderCount();
-          void loadSavedNeighbours();
-        }}
-      />
+      {parchiOpen && parchiVendor && (
+        <SheetSuspense>
+          <ParchiSheet
+            vendor={parchiVendor}
+            vendorId={parchiVendor?.id}
+            serviceMode={parchiVendor?.service_mode}
+            isOpen={parchiOpen}
+            onClose={() => {
+              setParchiOpen(false);
+              void loadActiveOrderCount();
+              void loadSavedNeighbours();
+            }}
+          />
+        </SheetSuspense>
+      )}
 
       <section id="category-grid" className="animate-fade-up">
         {categoriesLoading ? (
@@ -1122,14 +1139,16 @@ const Index = () => {
       />
       </div>
       {!welcomed && (
-        <FirstOpenFlow
-          onComplete={completeFirstOpen}
-          onVendorRegister={() => {
-            markWelcomed();
-            setWelcomed(true);
-            navigate("/vendor");
-          }}
-        />
+        <SheetSuspense>
+          <FirstOpenFlow
+            onComplete={completeFirstOpen}
+            onVendorRegister={() => {
+              markWelcomed();
+              setWelcomed(true);
+              navigate("/vendor");
+            }}
+          />
+        </SheetSuspense>
       )}
     </AppShell>
   );

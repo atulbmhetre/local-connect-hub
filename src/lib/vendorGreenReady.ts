@@ -1,7 +1,7 @@
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { getUserPhone } from "@/lib/userIdentity";
-import { strings, type Language } from "@/lib/strings";
+import { getCachedStringBundle, type Language } from "@/lib/strings";
 
 function readLang(): Language {
   try {
@@ -42,14 +42,14 @@ export async function checkAndNotifyAdminGreenReady(
       p_vendor_phone: phone,
     });
     if (error) {
-      const s = strings[readLang()];
+      const s = getCachedStringBundle(readLang());
       toast.error(s.vendor_green_promote_failed, { description: error.message });
       return false;
     }
     return data === true;
   } catch (err) {
     console.error("checkAndNotifyAdminGreenReady", err);
-    const s = strings[readLang()];
+    const s = getCachedStringBundle(readLang());
     toast.error(s.vendor_green_promote_failed);
     return false;
   }
@@ -74,14 +74,14 @@ export async function checkAndNotifyAdminCategoryGreenReady(
       p_category_id: categoryId,
     });
     if (error) {
-      const s = strings[readLang()];
+      const s = getCachedStringBundle(readLang());
       toast.error(s.vendor_green_promote_failed, { description: error.message });
       return false;
     }
     return data === true;
   } catch (err) {
     console.error("checkAndNotifyAdminCategoryGreenReady", err);
-    const s = strings[readLang()];
+    const s = getCachedStringBundle(readLang());
     toast.error(s.vendor_green_promote_failed);
     return false;
   }

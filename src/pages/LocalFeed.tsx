@@ -28,7 +28,7 @@ import { FeedReachChips } from "@/components/FeedReachChips";
 import { SettingsSectionLabel, SettingsCard } from "@/components/settings/SettingsSection";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useLanguage } from "@/lib/language";
-import { strings, type Language } from "@/lib/strings";
+import type { Language, StringBundle } from "@/lib/strings";
 import { useOverlayBack } from "@/lib/overlayBackBridge";
 import { buildRecommendedVendorRadarUrl, resolveRecommendedVendorRadarLink } from "@/lib/feedVendorLink";
 import { maskPhoneNumbers } from "@/lib/textUtils";
@@ -44,7 +44,7 @@ import {
   normalizeFeedReachKm,
 } from "@/lib/feedReach";
 import { filterPostsByAudienceAndCategory } from "@/lib/feedAudienceFilter";
-type FeedStrings = typeof strings.en;
+type FeedStrings = StringBundle;
 const MAX_CONTENT = 200;
 const FLAG_HIDE_THRESHOLD = 5;
 const FEED_CACHE_KEY = "aaspaas:feed_cache";

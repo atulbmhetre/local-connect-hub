@@ -1,4 +1,4 @@
-import { strings } from "@/lib/strings";
+import type { StringBundle } from "@/lib/strings";
 import { isSamePhone, normalizePhoneDigits } from "@/lib/indianPhone";
 
 export { isSamePhone, normalizePhoneDigits } from "@/lib/indianPhone";
@@ -20,7 +20,7 @@ export function feedAuthorLabel(phone: string, viewerPhone: string | null): stri
   return maskPhone(phone);
 }
 
-export function khataPaymentModeLabel(mode: string, s: typeof strings.en): string {
+export function khataPaymentModeLabel(mode: string, s: StringBundle): string {
   if (mode === "cash") return s.bill_cash;
   if (mode === "upi") return s.bill_upi;
   if (mode === "khata") return s.khata_modeUnpaid;
@@ -75,7 +75,7 @@ export function isKhataLedgerUnsettled(totalOutstanding: number): boolean {
 
 export function formatKhataBalanceDisplay(
   outstanding: number,
-  s: typeof strings.en,
+  s: StringBundle,
   amberLimit = 0,
   redLimit = 0,
 ): { text: string; colorClass: string } {
@@ -92,7 +92,7 @@ export function formatKhataBalanceDisplay(
   };
 }
 
-export function mapKhataRefundError(message: string, s: typeof strings.en): string {
+export function mapKhataRefundError(message: string, s: StringBundle): string {
   if (message.includes("no_customer_credit")) return s.khata_errNoCustomerCredit;
   if (message.includes("amount_exceeds_credit")) return s.khata_errAmountExceedsCredit;
   if (message.includes("invalid_amount")) return s.khata_errInvalidAmount;
