@@ -29,6 +29,13 @@ import { getUserPhone, saveUserPhone } from "@/lib/userIdentity";
 import { getDeviceId } from "@/lib/deviceId";
 import { logAdminAction } from "@/lib/adminAudit";
 import { deleteAdminLowRating, loadAdminLowRatings } from "@/lib/adminLowRatings";
+import {
+  loadAdminSupportMessages,
+  lookupAdminCustomer,
+  resolveAdminSupportMessage,
+  type AdminCustomerLookup,
+  type AdminSupportMessage,
+} from "@/lib/adminSupportOps";
 import { warnFlaggedUser as runWarnFlaggedUser } from "@/lib/warnFlaggedUser";
 import { applyVendorWaiveoff as runApplyVendorWaiveoff } from "@/lib/applyVendorWaiveoff";
 import {
@@ -831,6 +838,18 @@ export function AdminConsole({
       last_warned_at: string | null;
     }[]
   >([]);
+  const [supportTicketsOpen, setSupportTicketsOpen] = useState(false);
+  const [supportMessages, setSupportMessages] = useState<AdminSupportMessage[]>([]);
+  const [supportShowResolved, setSupportShowResolved] = useState(false);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportResolveId, setSupportResolveId] = useState<string | null>(null);
+  const [customerLookupOpen, setCustomerLookupOpen] = useState(false);
+  const [customerLookupPhone, setCustomerLookupPhone] = useState("");
+  const [customerLookupLoading, setCustomerLookupLoading] = useState(false);
+  const [customerLookupResult, setCustomerLookupResult] = useState<AdminCustomerLookup | null>(
+    null,
+  );
+  const [customerLookupSearched, setCustomerLookupSearched] = useState(false);
   const [flaggedAction, setFlaggedAction] = useState<string | null>(null);
   const adminUserActionLockRef = useRef(new Set<string>());
   const [banDialog, setBanDialog] = useState<{ open: boolean; phone: string | null }>({
@@ -1643,10 +1662,57 @@ export function AdminConsole({
     setFlaggedUsers(data ?? []);
   };
 
+  const loadSupportMessages = async (includeResolved = supportShowResolved) => {
+    setSupportLoading(true);
+    const result = await loadAdminSupportMessages(includeResolved);
+    setSupportLoading(false);
+    setSupportMessages(result.rows);
+    if (!result.ok) {
+      toast.error(s.admin_support_load_error);
+    }
+  };
+
+  const markSupportResolved = async (id: string) => {
+    if (supportResolveId) return;
+    setSupportResolveId(id);
+    const result = await resolveAdminSupportMessage(id);
+    setSupportResolveId(null);
+    if (result.ok === false) {
+      toast.error(s.admin_support_resolve_error);
+      return;
+    }
+    toast.success(s.admin_support_resolve_success);
+    await loadSupportMessages();
+  };
+
+  const runCustomerLookup = async () => {
+    if (customerLookupLoading) return;
+    setCustomerLookupLoading(true);
+    setCustomerLookupSearched(true);
+    const result = await lookupAdminCustomer(customerLookupPhone);
+    setCustomerLookupLoading(false);
+    if (result.ok === false) {
+      setCustomerLookupResult(null);
+      toast.error(
+        result.error === "invalid_phone_format"
+          ? s.admin_customer_lookup_invalid
+          : s.admin_customer_lookup_error,
+      );
+      return;
+    }
+    setCustomerLookupResult(result.data);
+  };
+
   useEffect(() => {
     if (!isAdmin) return;
     void loadFlaggedUsers();
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadSupportMessages(supportShowResolved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, supportShowResolved]);
 
   const trustScoreClass = (score: number) => {
     if (score >= 75) return "text-green-500";
@@ -2785,6 +2851,259 @@ export function AdminConsole({
           </SettingsCard>
 
           <AdminSystemHealthCard />
+
+          <SettingsCollapsible
+            label={s.admin_support_tickets}
+            open={supportTicketsOpen}
+            onToggle={() => setSupportTicketsOpen((o) => !o)}
+            testId="admin-support-tickets"
+            badge={
+              supportMessages.filter((m) => !m.resolved_at).length > 0 ? (
+                <span className="bg-destructive/20 text-destructive text-xs font-bold px-2 py-1 rounded-full">
+                  {supportMessages.filter((m) => !m.resolved_at).length}
+                </span>
+              ) : undefined
+            }
+          >
+            <div className="px-4 pt-3">
+              <button
+                type="button"
+                data-testid="admin-support-show-resolved"
+                onClick={() => setSupportShowResolved((v) => !v)}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                  supportShowResolved
+                    ? "bg-primary/10 text-primary border-primary/30"
+                    : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                {supportShowResolved
+                  ? s.admin_support_hide_resolved
+                  : s.admin_support_show_resolved}
+              </button>
+            </div>
+            {supportLoading ? (
+              <p className="text-sm text-muted-foreground px-4 py-3">{s.settings_btnLoading}</p>
+            ) : supportMessages.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-4 py-3">{s.admin_support_empty}</p>
+            ) : (
+              <div className="px-4 py-3 space-y-3">
+                {supportMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    data-testid={`admin-support-row-${msg.id}`}
+                    className="rounded-2xl border border-border p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-secondary/20 text-xs font-semibold px-2 py-1">
+                        {msg.kind === "feedback"
+                          ? s.admin_support_kind_feedback
+                          : s.admin_support_kind_contact}
+                      </span>
+                      {msg.category ? (
+                        <span className="text-xs text-muted-foreground">{msg.category}</span>
+                      ) : null}
+                      {msg.rating != null ? (
+                        <span className="text-xs text-muted-foreground">{msg.rating}★</span>
+                      ) : null}
+                      {msg.resolved_at ? (
+                        <span className="rounded-full bg-green-500/10 text-green-700 border border-green-500/30 text-xs font-semibold px-2 py-1">
+                          {s.admin_support_resolved}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-sm text-foreground whitespace-pre-wrap break-words">
+                      {msg.message}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {msg.user_phone ?? "—"}
+                      {msg.vendor_shop_name ? ` · ${msg.vendor_shop_name}` : ""}
+                      {msg.device_id ? ` · ${msg.device_id.slice(0, 8)}` : ""}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {msg.email_sent ? s.admin_support_email_sent : s.admin_support_email_failed}
+                      {msg.created_at ? ` · ${daysAgo(msg.created_at)}` : ""}
+                    </p>
+                    {!msg.resolved_at ? (
+                      <button
+                        type="button"
+                        data-testid="admin-support-resolve"
+                        disabled={supportResolveId === msg.id}
+                        onClick={() => void markSupportResolved(msg.id)}
+                        className="rounded-xl bg-green-500/10 text-green-700 border border-green-500/30 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                      >
+                        {s.admin_support_resolve}
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </SettingsCollapsible>
+
+          <SettingsCollapsible
+            label={s.admin_customer_lookup}
+            open={customerLookupOpen}
+            onToggle={() => setCustomerLookupOpen((o) => !o)}
+            testId="admin-customer-lookup"
+          >
+            <div className="px-4 py-3">
+              <form
+                className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 mb-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void runCustomerLookup();
+                }}
+              >
+                <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                <Input
+                  type="tel"
+                  inputMode="numeric"
+                  data-testid="admin-customer-lookup-input"
+                  placeholder={s.admin_customer_lookup_placeholder}
+                  value={customerLookupPhone}
+                  onChange={(e) => setCustomerLookupPhone(e.target.value)}
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                />
+                <button
+                  type="submit"
+                  data-testid="admin-customer-lookup-search"
+                  disabled={customerLookupLoading}
+                  className="rounded-xl bg-brand text-page-bg px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                >
+                  {s.admin_customer_lookup_search}
+                </button>
+              </form>
+
+              {customerLookupLoading ? (
+                <p className="text-sm text-muted-foreground">{s.settings_btnLoading}</p>
+              ) : customerLookupSearched && customerLookupResult && !customerLookupResult.found ? (
+                <p className="text-sm text-muted-foreground">{s.admin_customer_lookup_not_found}</p>
+              ) : customerLookupResult?.found ? (
+                <div className="space-y-3" data-testid="admin-customer-lookup-result">
+                  <div className="rounded-2xl border border-border p-3 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">{customerLookupResult.phone}</p>
+                      {customerLookupResult.user?.is_banned ? (
+                        <span className="rounded-full bg-destructive/10 text-destructive text-xs font-bold px-2 py-1 border border-destructive/30">
+                          {s.admin_customer_banned}
+                        </span>
+                      ) : null}
+                      {customerLookupResult.user?.deletion_requested_at ? (
+                        <span className="rounded-full bg-amber-500/10 text-amber-700 text-xs font-semibold px-2 py-1 border border-amber-500/30">
+                          {s.admin_customer_deletion_scheduled}
+                        </span>
+                      ) : null}
+                    </div>
+                    {customerLookupResult.user ? (
+                      <p className="text-xs text-muted-foreground">
+                        {s.admin_customer_trust}:{" "}
+                        <span
+                          className={`font-semibold ${trustScoreClass(customerLookupResult.user.trust_score ?? 0)}`}
+                        >
+                          {customerLookupResult.user.trust_score ?? "—"}
+                        </span>
+                        {` · ${customerLookupResult.user.noshow_count} no-shows, ${customerLookupResult.user.fake_count} fakes`}
+                      </p>
+                    ) : null}
+                    {customerLookupResult.user?.ban_reason ? (
+                      <p className="text-xs text-destructive/80">{customerLookupResult.user.ban_reason}</p>
+                    ) : null}
+                    {customerLookupResult.vendor ? (
+                      <p className="text-xs text-muted-foreground">
+                        {s.admin_customer_also_vendor}:{" "}
+                        {customerLookupResult.vendor.shop_name ?? customerLookupResult.vendor.id}
+                        {customerLookupResult.vendor.is_banned
+                          ? ` · ${s.admin_customer_banned}`
+                          : ""}
+                        {customerLookupResult.vendor.deletion_requested_at
+                          ? ` · ${s.admin_customer_deletion_scheduled}`
+                          : ""}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                      {s.admin_customer_orders}
+                    </p>
+                    {customerLookupResult.orders.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{s.admin_customer_no_orders}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {customerLookupResult.orders.map((order) => (
+                          <div
+                            key={order.id}
+                            className="rounded-xl border border-border px-3 py-2 text-xs"
+                          >
+                            <p className="font-semibold text-foreground">
+                              {order.vendor_shop_name ?? "Vendor"} · {order.status ?? "—"}
+                            </p>
+                            <p className="text-muted-foreground">
+                              {order.payment_status ?? "unpaid"}
+                              {order.service_mode ? ` · ${order.service_mode}` : ""}
+                              {order.created_at ? ` · ${daysAgo(order.created_at)}` : ""}
+                              {` · ${order.id.slice(0, 8)}`}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                      {s.admin_customer_disputes}
+                    </p>
+                    {customerLookupResult.disputes.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{s.admin_customer_no_disputes}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {customerLookupResult.disputes.map((dispute) => (
+                          <div
+                            key={dispute.id}
+                            className="rounded-xl border border-border px-3 py-2 text-xs"
+                          >
+                            <p className="font-semibold text-foreground">
+                              {dispute.vendor_shop_name ?? "Vendor"}
+                            </p>
+                            <p className="text-muted-foreground">
+                              {dispute.request_id.slice(0, 8)}
+                              {dispute.disputed_at ? ` · ${daysAgo(dispute.disputed_at)}` : ""}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                      {s.admin_customer_khata}
+                    </p>
+                    {customerLookupResult.khata.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{s.admin_customer_no_khata}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {customerLookupResult.khata.map((row) => (
+                          <div
+                            key={row.vendor_id}
+                            className="rounded-xl border border-border px-3 py-2 text-xs"
+                          >
+                            <p className="font-semibold text-foreground">
+                              {row.vendor_shop_name ?? row.vendor_id.slice(0, 8)}
+                            </p>
+                            <p className="text-muted-foreground">
+                              {s.admin_customer_outstanding}: {row.total_outstanding}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </SettingsCollapsible>
 
           <SettingsCollapsible
             label={s.admin_vendor_moderation}
