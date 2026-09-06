@@ -2041,7 +2041,9 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         open={addBusinessOpen}
         onOpenChange={setAddBusinessOpen}
         vendor={vendor}
-        existingCategoryIds={selectedCategoryIds}
+        existingCategoryIds={selectedCategoryIds.filter(
+          (id) => (categorySettingsById[id]?.review_status ?? "approved") !== "rejected",
+        )}
         existingSettings={categorySettingsById}
         approvedCount={
           selectedCategoryIds.filter(

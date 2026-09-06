@@ -33,6 +33,11 @@ describe("VendorMyBusiness Phase 5 identity vs per-business split", () => {
     expect(src).not.toContain("upi_id: upiId.trim()");
   });
 
+  it("#3a rejected categories stay visible but do not block Add Business picker", () => {
+    expect(src).toContain('review_status ?? "approved") !== "rejected"');
+    expect(src).toContain("existingCategoryIds={selectedCategoryIds.filter(");
+  });
+
   it("#3 empty pre-Phase-2 UPI/base_type render without vendors.* backfill", () => {
     expect(src).toContain('upi_id: String(row.upi_id ?? "").trim()');
     expect(src).toContain("base_type: rowBaseType(row.base_type)");

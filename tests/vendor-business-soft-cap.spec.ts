@@ -11,6 +11,7 @@ import {
   seedVendorCategory,
   deleteVendorRegistrationArtifacts,
 } from "./helpers/setup";
+import { assertNotificationCreated } from "./helpers/db-assert";
 
 const T = Date.now();
 const createdVendorIds: string[] = [];
@@ -196,8 +197,8 @@ test("VBC-01 — 6th business pending, not discoverable; admin approve goes live
   ).toBe(true);
 });
 
-test("VBC-02 — admin reject keeps 6th off Radar and records the reason", async () => {
-  const { vendorId, cats, sixthVcId } = await seedVendorThroughSixth("2");
+test("VBC-02 — admin reject keeps 6th off Radar, records reason, notifies vendor", async () => {
+  const { vendorId, vendorPhone, cats, sixthVcId } = await seedVendorThroughSixth("2");
   const reason = "Looks like duplicate / abuse check";
 
   await ensureTestAdminUser();
@@ -208,6 +209,12 @@ test("VBC-02 — admin reject keeps 6th off Radar and records the reason", async
     p_reason: reason,
   });
   expect(rejected.error, rejected.error?.message).toBeNull();
+
+  const notification = await assertNotificationCreated(
+    vendorPhone,
+    "vendor_business_rejected",
+  );
+  expect(notification.body).toContain(reason);
 
   const { data: after } = await supabaseAdmin
     .from("vendor_categories")
@@ -228,4 +235,51 @@ test("VBC-02 — admin reject keeps 6th off Radar and records the reason", async
       (r) => r.vendor_id === vendorId && r.category_id === cats[5].id,
     ),
   ).toBe(false);
+});
+
+test("VBC-03 — vendor can re-add same category after admin reject (fresh pending_review)", async () => {
+  const { vendorId, vendorPhone, cats, sixthVcId } = await seedVendorThroughSixth("3");
+  const reason = "Please re-apply with clearer shop photo";
+
+  await ensureTestAdminUser();
+  const admin = await getAdminSessionClient();
+  const rejected = await admin.rpc("admin_reject_vendor_business", {
+    p_admin_phone: "admin",
+    p_vendor_category_id: sixthVcId,
+    p_reason: reason,
+  });
+  expect(rejected.error, rejected.error?.message).toBeNull();
+
+  const ids = cats.slice(0, 6).map((c) => c.id);
+  const modesById = Object.fromEntries(
+    cats.slice(0, 6).map((c) => [c.id, [String(c.service_mode ?? "help").toLowerCase()]]),
+  );
+  const { error: readdErr } = await supabaseAdmin.rpc("vendor_update_categories", {
+    p_vendor_id: vendorId,
+    p_vendor_phone: vendorPhone,
+    p_category_ids: ids,
+    p_category_service_modes: cats
+      .slice(0, 6)
+      .map((c) => String(c.service_mode ?? "help").toLowerCase()),
+    p_category_modes: modesById,
+    p_brand_names: ids.map(() => `!VBC-3-${T}`),
+    p_serves_at_vendor_place: ids.map(() => true),
+    p_serves_at_customer_place: ids.map(() => true),
+    p_service_radius_km: ids.map(() => 15),
+    p_upi_id: "readd@upi",
+    p_base_type: "shop",
+  });
+  expect(readdErr, readdErr?.message).toBeNull();
+
+  const { data: row } = await supabaseAdmin
+    .from("vendor_categories")
+    .select("status, review_reason, verification_status, is_manual_verified, shop_photo_url")
+    .eq("vendor_id", vendorId)
+    .eq("category_id", cats[5].id)
+    .single();
+  expect(row?.status).toBe("pending_review");
+  expect(row?.review_reason).toBeNull();
+  expect(row?.verification_status).toBe("identity_linked");
+  expect(row?.is_manual_verified).toBe(false);
+  expect(row?.shop_photo_url).toBeNull();
 });

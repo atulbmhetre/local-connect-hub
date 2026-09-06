@@ -134,7 +134,11 @@ export function buildVendorFcmData(
     ) {
       route = "vendor";
       routeParams = { vendor_id: vendorId };
-    } else if (type === "category_approved" || type === "category_rejected") {
+    } else if (
+      type === "category_approved" ||
+      type === "category_rejected" ||
+      type === "vendor_business_rejected"
+    ) {
       route = "settings";
       routeParams = {
         vendor_id: vendorId,
