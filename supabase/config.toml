@@ -445,3 +445,6 @@ verify_jwt = true
 
 [functions.aadhaar-digilocker-complete]
 verify_jwt = true
+
+[functions.upi-vpa-verify]
+verify_jwt = true

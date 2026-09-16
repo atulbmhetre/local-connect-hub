@@ -47,6 +47,7 @@ import { formatTimeAgo } from "@/lib/orders";
 import { ledgerCycleStartInputValue } from "@/lib/khataDisplay";
 import { referralCodeFromPhone } from "@/lib/referral";
 import { requestAadhaarDigilockerConsent } from "@/lib/aadhaarDigilocker";
+import { requestUpiPennydrop } from "@/lib/upiPennydrop";
 import { getUserPhone } from "@/lib/userIdentity";
 import { normalizeServiceRadiusKm } from "@/lib/serviceRadius";
 import { withOptionalFeedImageUpload } from "@/lib/imageUpload";
@@ -396,6 +397,32 @@ export function VendorSettings({
     window.location.assign(result.authorizationUrl);
   }, [appConfig.aadhaarVerificationEnabled, vendorPhone, s]);
 
+  const handleUpiVerify = useCallback(async () => {
+    const enabled = appConfig.upiVerificationEnabled === true;
+    if (!enabled) {
+      toast.info(s.upi_verify_coming_soon);
+      return;
+    }
+    const phone = vendorPhone?.trim();
+    if (!phone) {
+      toast.error(s.incoming_errCouldNotUpdate);
+      return;
+    }
+    const result = await requestUpiPennydrop({
+      enabled: true,
+      vendorPhone: phone,
+    });
+    if (result.ok === false) {
+      toast.info(s.upi_verify_coming_soon);
+      return;
+    }
+    if (result.status === "passed") {
+      toast.success(s.upi_verify_cta);
+    } else {
+      toast.error(s.incoming_errCouldNotUpdate);
+    }
+  }, [appConfig.upiVerificationEnabled, vendorPhone, s]);
+
   const handleCancelSubscription = () => {
     const adminPhone =
       (appConfig as unknown as { admin_phone?: string } | null)?.admin_phone ??
@@ -738,6 +765,21 @@ export function VendorSettings({
             className="mt-1 w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:scale-[0.99]"
           >
             {s.aadhaar_verify_cta}
+          </button>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard className="mx-0 mb-2 border-surface-border">
+        <div className="px-4 py-3 space-y-2">
+          <p className="text-sm font-semibold text-foreground">{s.upi_verify_title}</p>
+          <p className="text-xs text-muted-foreground">{s.upi_verify_body}</p>
+          <button
+            type="button"
+            data-testid="upi-vpa-verify-btn"
+            onClick={() => void handleUpiVerify()}
+            className="mt-1 w-full rounded-xl border border-border h-10 text-sm font-semibold text-foreground active:scale-[0.99]"
+          >
+            {s.upi_verify_cta}
           </button>
         </div>
       </SettingsCard>

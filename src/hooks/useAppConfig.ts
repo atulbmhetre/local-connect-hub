@@ -27,6 +27,8 @@ export interface AppConfig extends VendorSubscriptionAppConfig {
   exotelSecureCallingEnabled: boolean;
   /** When true (after DigiLocker go-live), vendor can start the consent URL. */
   aadhaarVerificationEnabled: boolean;
+  /** When true (after Decentro VerifyPay go-live), vendor can run UPI VPA check. */
+  upiVerificationEnabled: boolean;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -56,6 +58,7 @@ const DEFAULT_CONFIG: AppConfig = {
   aiCategoryConfidenceThreshold: 0.85,
   exotelSecureCallingEnabled: false,
   aadhaarVerificationEnabled: false,
+  upiVerificationEnabled: false,
 };
 
 const BOOLEAN_KEYS = new Set<keyof AppConfig>([
@@ -65,6 +68,7 @@ const BOOLEAN_KEYS = new Set<keyof AppConfig>([
   "langMarathiEnabled",
   "exotelSecureCallingEnabled",
   "aadhaarVerificationEnabled",
+  "upiVerificationEnabled",
 ]);
 
 const STRING_KEYS = new Set<keyof AppConfig>([
@@ -100,6 +104,7 @@ const DB_KEY_TO_CONFIG: Record<string, keyof AppConfig> = {
   razorpay_key_id: "razorpay_key_id",
   exotel_secure_calling_enabled: "exotelSecureCallingEnabled",
   aadhaar_verification_enabled: "aadhaarVerificationEnabled",
+  upi_verification_enabled: "upiVerificationEnabled",
 };
 
 for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {

@@ -95,6 +95,16 @@ describe("statusForBusinessCheck", () => {
     ).toBe("passed");
   });
 
+  it("shows coming_soon for dormant upi_pennydrop, not a live flow", () => {
+    const rows: VendorVerificationRow[] = [
+      ...accountBronze,
+      { vendor_id: vendorId, check_type: "upi_pennydrop", status: "dormant", is_latest: true },
+    ];
+    expect(
+      statusForBusinessCheck("upi_pennydrop", vendorId, cobblerId, rows, [cobbler]),
+    ).toBe("coming_soon");
+  });
+
   it("shows coming_soon for dormant aadhaar_digilocker, not a live flow", () => {
     const rows: VendorVerificationRow[] = [
       ...accountBronze,
