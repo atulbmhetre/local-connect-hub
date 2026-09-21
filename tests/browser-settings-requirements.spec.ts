@@ -23,8 +23,8 @@ const CUSTOMER_PHONE = `88008${String(T).slice(-5)}`;
 const DEVICE_ID = `device_set_${T}`;
 const VENDOR_DEVICE_ID = `device_set_vendor_${T}`;
 
-/** Whitelist length in Settings.tsx ADMIN_CONFIG_WHITELIST (incl. 7 ops keys). */
-const ADMIN_CONFIG_ROW_COUNT = 38;
+/** Must match AdminConsole ADMIN_CONFIG_WHITELIST length (incl. 3 pause keys). */
+const ADMIN_CONFIG_ROW_COUNT = 41;
 
 const L = {
   myAccount: 'My Account',
@@ -485,7 +485,7 @@ test('SET-REQ-15 — Admin sees Admin tab in Settings', async ({ page }) => {
   await expect(page.getByTestId('admin-panel')).toBeVisible();
 });
 
-test('SET-REQ-16 — Admin App Config shows all 36 whitelisted keys', async ({ page }) => {
+test('SET-REQ-16 — Admin App Config shows all 41 whitelisted keys', async ({ page }) => {
   await loginAsAdmin(page, DEVICE_ID);
 
   await page.getByRole('button', { name: L.appConfig }).click();
