@@ -21,7 +21,7 @@ describe("deletion grace wiring", () => {
   });
 
   it("Settings confirm copy warns about cancel + khata; Parchi maps clear errors", () => {
-    const strings = readFileSync(resolve("src/lib/strings.ts"), "utf8");
+    const strings = readFileSync(resolve("src/lib/strings/en.ts"), "utf8");
     expect(strings).toContain("open orders will be cancelled");
     expect(strings).toContain("parchi_errCustomerDeletionScheduled");
     expect(strings).toContain("parchi_errVendorDeletionScheduled");
