@@ -348,6 +348,7 @@ export async function seedVendorCategory(
     service_radius_km?: number | null;
     /** Child modes for vendor_category_modes. Defaults to [category.service_mode]. */
     modes?: string[];
+    status?: "approved" | "pending" | "pending_review" | "rejected";
     /** Per-business UPI (Phase 2+). When omitted, copies from vendors.* if present. */
     upi_id?: string | null;
     upi_qr_url?: string | null;
@@ -376,7 +377,7 @@ export async function seedVendorCategory(
       vendor_id: vendorId,
       category_id: category.id,
       is_primary: opts.is_primary ?? true,
-      status: 'approved',
+      status: opts.status ?? 'approved',
       needs_review: opts.needs_review ?? false,
       service_mode: category.service_mode,
       // Phase 4 radar filters on vendor_categories.latitude/longitude (no vendors.* fallback).
