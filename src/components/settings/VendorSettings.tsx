@@ -57,6 +57,12 @@ import { DEFAULT_FEED_REACH_KM, normalizeFeedReachKm, VENDOR_FEED_REACH_CHIP_OPT
 import { captureError } from "@/lib/sentry";
 import { sendVendorReviewReply } from "@/lib/vendorReviewReply";
 import {
+  formatRupeesFromPaise,
+  isWaiveoffActive,
+  parseVendorAmountDue,
+  type VendorAmountDue,
+} from "@/lib/vendorAmountDue";
+import {
   type MenuItem,
   type VendorActiveOffer,
 } from "@/components/settings/VendorSettingsShared";
@@ -330,14 +336,48 @@ export function VendorSettings({
     const ms = new Date(billingVendor.grace_ends_at).getTime() - Date.now();
     return Math.max(0, Math.ceil(ms / 86400000));
   }, [billingVendor.grace_ends_at]);
+  const [amountDue, setAmountDue] = useState<VendorAmountDue | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void supabase.rpc("vendor_amount_due", { p_vendor_id: vendor.id }).then(({ data }) => {
+      if (cancelled) return;
+      setAmountDue(parseVendorAmountDue(data));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    vendor.id,
+    billingVendor.waiveoff_percent,
+    billingVendor.waiveoff_months_remaining,
+  ]);
+
+  const waiveoffActive = isWaiveoffActive(amountDue);
+  const dueAmountLabel = amountDue
+    ? formatRupeesFromPaise(amountDue.amount_paise)
+    : null;
   const waiveoffText =
-    billingVendor.waiveoff_percent != null &&
-    billingVendor.waiveoff_months_remaining != null &&
-    billingVendor.waiveoff_months_remaining > 0
+    waiveoffActive && amountDue
       ? s.vendor_sub_waiveoff
-          .replace("{percent}", String(billingVendor.waiveoff_percent))
-          .replace("{months}", String(billingVendor.waiveoff_months_remaining))
+          .replace("{percent}", String(amountDue.waiveoff_percent))
+          .replace("{months}", String(amountDue.months_remaining))
       : null;
+  const billingDueBlock =
+    waiveoffActive && amountDue && dueAmountLabel != null ? (
+      <>
+        <p className="text-xs text-muted-foreground" data-testid="vendor-sub-amount-due">
+          {amountDue.is_free
+            ? s.vendor_sub_price_free
+            : s.vendor_sub_price_month.replace("{amount}", dueAmountLabel)}
+        </p>
+        {waiveoffText ? (
+          <p className="text-xs text-muted-foreground" data-testid="vendor-sub-waiveoff">
+            {waiveoffText}
+          </p>
+        ) : null}
+      </>
+    ) : null;
 
   const handleRazorpayCheckout = useCallback(() => {
     const paymentsEnabled = appConfig?.payments_enabled === "true";
@@ -680,6 +720,7 @@ export function VendorSettings({
                 {trialDaysRemaining} {s.vendor_sub_trial_days}
               </p>
               <p className="text-xs text-muted-foreground">{s.vendor_sub_trial_hint}</p>
+              {billingDueBlock}
             </>
           )}
 
@@ -692,8 +733,11 @@ export function VendorSettings({
                   {formatBillingDate(billingVendor.subscription_current_period_end)}
                 </span>
               </p>
-              <p className="text-xs text-muted-foreground">₹99/month</p>
-              {waiveoffText && <p className="text-xs text-muted-foreground">{waiveoffText}</p>}
+              {billingDueBlock ?? (
+                <p className="text-xs text-muted-foreground">
+                  ₹{appConfig?.vendor_subscription_price ?? "99"}/month
+                </p>
+              )}
               <button
                 type="button"
                 onClick={handleCancelSubscription}
@@ -714,6 +758,7 @@ export function VendorSettings({
                 {s.vendor_sub_grace_ends}:{" "}
                 <span className="text-foreground">{formatBillingDate(billingVendor.grace_ends_at)}</span>
               </p>
+              {billingDueBlock}
               <button
                 type="button"
                 onClick={handleRazorpayCheckout}
@@ -728,6 +773,7 @@ export function VendorSettings({
             <>
               <p className="text-sm font-semibold text-destructive">🔴 {s.vendor_sub_expired}</p>
               <p className="text-xs text-muted-foreground">{s.vendor_sub_expired_body}</p>
+              {billingDueBlock}
               <button
                 type="button"
                 onClick={handleRazorpayCheckout}
@@ -742,6 +788,7 @@ export function VendorSettings({
             <>
               <p className="text-sm font-semibold text-foreground">ℹ️ {s.vendor_sub_cancelled}</p>
               <p className="text-xs text-muted-foreground">{s.vendor_sub_cancelled_body}</p>
+              {billingDueBlock}
               <button
                 type="button"
                 onClick={handleRazorpayCheckout}

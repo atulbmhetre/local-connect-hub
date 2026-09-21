@@ -8,6 +8,7 @@ describe("pause + visit fee wiring (impact scope)", () => {
     expect(src).toContain("vendor_pause_business");
     expect(src).toContain("is_paused");
     expect(src).toContain("inspection_fee");
+    expect(src).toContain("vendor_pause_preflight");
     expect(src).toContain("vendor_update_category_profile");
   });
 

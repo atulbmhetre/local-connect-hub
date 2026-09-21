@@ -355,6 +355,9 @@ export const en = {
     vendor_sub_active: 'Subscription Active',
     vendor_sub_next_billing: 'Next billing',
     vendor_sub_waiveoff: 'Special offer: {percent}% off — {months} months remaining',
+    vendor_sub_price_month: '₹{amount}/month',
+    vendor_sub_price_free: '₹0 this month — nothing is charged',
+    admin_sub_waiveoff_due: 'Due ₹{amount}/month · {percent}% off · {months} months left',
     vendor_sub_cancel: 'Cancel Subscription',
     vendor_sub_grace: 'Action Needed',
     vendor_sub_grace_ends: 'Grace period ends',
@@ -915,6 +918,34 @@ export const en = {
     vendor_pause_saved: 'Business paused',
     vendor_unpause_saved: 'Business visible again',
     vendor_pause_save_failed: 'Could not update pause',
+    vendor_pause_note:
+      'Pausing hides your business from customers. If you pause for {N} days or more, your subscription is extended by the paused days when you resume. Shorter pauses don\'t extend it, and money already paid is not refunded.',
+    vendor_pause_ledger_note:
+      '₹{amount} pending from {count} customers stays on your ledger and you can still record payments while paused',
+    vendor_pause_billing_freeze: 'Billing is paused while this is your last live business.',
+    vendor_pause_open_work_title: 'Finish open work first',
+    vendor_pause_open_work_serve: 'Serve or cancel these first.',
+    vendor_pause_open_work_help: 'Help',
+    vendor_pause_open_work_delivery: 'Delivery',
+    vendor_pause_open_work_appointment: 'Appointment',
+    vendor_pause_blocked_grace:
+      'You can\'t pause during your grace period. Subscribe to keep your shop live, then pause if needed.',
+    vendor_pause_blocked_expired:
+      'You can\'t pause while your subscription is expired.',
+    vendor_pause_blocked_subscription:
+      'You can\'t pause in your current subscription state.',
+    vendor_pause_confirm_title: 'Pause this business?',
+    vendor_pause_confirm_action: 'Pause',
+    vendor_pause_since: 'Paused since {date}',
+    vendor_pause_resume_credited: 'Subscription extended by {X} days',
+    vendor_pause_resume_under_min: 'Paused {Y} days, under {N}, no extension',
+    vendor_pause_resume_too_soon:
+      'Paused {Y} days, but too soon after a credited pause — no extension',
+    vendor_pause_preflight_failed: 'Could not check whether you can pause. Try again.',
+    vendor_pause_got_it: 'OK',
+    vendor_pause_reminder_title: 'Your business is paused',
+    vendor_pause_reminder_body:
+      "Your business is paused — customers can't see you. Resume anytime.",
     vendor_note_edit_placeholder: 'e.g. Delivery every evening 6–8pm',
     vendor_saving: 'Saving…',
     vendor_save_note: 'Save Note',
