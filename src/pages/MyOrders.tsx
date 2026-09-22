@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import {
   supabase,
-  invokeNotifyVendor,
   distanceMeters,
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
@@ -1402,7 +1401,6 @@ const MyOrders = () => {
     rowActionLockRef.current.add(id);
     setMarkingId(id);
 
-    const row = typeof target === "string" ? null : target;
     const rowPhone = typeof target === "string" ? null : target.user_phone;
     const rowDevice = typeof target === "string" ? null : target.device_id;
     const device_id = getDeviceId();
@@ -1430,18 +1428,7 @@ const MyOrders = () => {
         toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
         return;
       }
-      if (row && wasOrderEngaged(row)) {
-        const vendorPhone = row.vendors?.phone?.trim();
-        if (vendorPhone) {
-          void invokeNotifyVendor({
-            vendor_id: row.vendor_id,
-            notification_title: s.myOrders_orderDismissedNotifyTitle,
-            message: s.myOrders_orderDismissedNotifyBody,
-            request_id: row.id,
-            type: "order_update",
-          });
-        }
-      }
+      // Vendor notify is server-triggered (trg_notify_on_request_lifecycle).
       setRows((prev) => prev.filter((r) => r.id !== id));
     } catch (err) {
       dismissNetworkRetryingToast();
@@ -1464,7 +1451,6 @@ const MyOrders = () => {
     rowActionLockRef.current.add(r.id);
     setMarkingId(r.id);
 
-    const vendorPhone = r.vendors?.phone?.trim();
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     try {
@@ -1489,15 +1475,7 @@ const MyOrders = () => {
         toast.error(s.myOrders_errCouldNotUpdate, { description: error.message });
         return;
       }
-      if (vendorPhone && wasOrderEngaged(r)) {
-        void invokeNotifyVendor({
-          vendor_id: r.vendor_id,
-          notification_title: s.myOrders_userCancelledNotifyTitle,
-          message: s.myOrders_userCancelledNotifyBody,
-          request_id: r.id,
-          type: "order_update",
-        });
-      }
+      // Vendor notify is server-triggered (trg_notify_on_request_lifecycle).
       setRows((prev) => prev.filter((row) => row.id !== r.id));
     } catch (err) {
       dismissNetworkRetryingToast();
@@ -1520,7 +1498,6 @@ const MyOrders = () => {
     rowActionLockRef.current.add(r.id);
     setMarkingId(r.id);
 
-    const vendorPhone = r.vendors?.phone?.trim();
     const device_id = getDeviceId();
     const userPhone = getUserPhone();
     try {
@@ -1546,15 +1523,7 @@ const MyOrders = () => {
         toast.error(s.myOrders_errCouldNotCancel, { description: error.message });
         return;
       }
-      if (vendorPhone && wasOrderEngaged(r)) {
-        void invokeNotifyVendor({
-          vendor_id: r.vendor_id,
-          notification_title: s.myOrders_userCancelledNotifyTitle,
-          message: s.myOrders_userCancelledNotifyBody,
-          request_id: r.id,
-          type: "order_update",
-        });
-      }
+      // Vendor notify is server-triggered (trg_notify_on_request_lifecycle).
       toast.success(s.myOrders_bookingCancelled);
       setRows((prev) => prev.filter((row) => row.id !== r.id));
     } catch (err) {
@@ -1723,57 +1692,7 @@ const MyOrders = () => {
         ),
       );
 
-      const hasAppointment =
-        editOrder.appointment_time != null && String(editOrder.appointment_time).trim() !== "";
-      const today = new Date().toDateString();
-      const referenceDate = hasAppointment
-        ? new Date(editOrder.appointment_time!).toDateString()
-        : new Date(editOrder.created_at).toDateString();
-      const isSameDay = referenceDate === today;
-      const customerName = userPhone ?? "Customer";
-
-      const notificationTitle = hasAppointment
-        ? isSameDay
-          ? "⚠️ Customer edited today's booking!"
-          : "✏️ Booking edited"
-        : isSameDay
-          ? "⚠️ Customer edited today's order!"
-          : "✏️ Order edited";
-      const notificationBody = hasAppointment
-        ? isSameDay
-          ? `${customerName} changed their order — check details now`
-          : `${customerName} updated their booking details`
-        : isSameDay
-          ? `${customerName} changed their order — check details now`
-          : `${customerName} updated their order details`;
-
-      // Push dedup: the old direct user_notifications read queried the VENDOR's
-      // rows from the customer's client — wrong owner, always blocked by RLS, so
-      // dedup never fired. The RPC verifies the caller owns this request and
-      // checks the vendor's recent order_update notifications server-side.
-      let skipPush = false;
-      const { data: shouldNotify, error: dedupError } = await supabase.rpc(
-        "should_notify_vendor_order_edit",
-        {
-          p_request_id: editOrder.id,
-          p_user_phone: getUserPhone(),
-          p_device_id: getDeviceId(),
-        },
-      );
-      if (!dedupError && shouldNotify === false) {
-        skipPush = true;
-      }
-
-      if (!skipPush) {
-        void invokeNotifyVendor({
-          vendor_id: editOrder.vendor_id,
-          notification_title: notificationTitle,
-          message: notificationBody,
-          request_id: editOrder.id,
-          type: "order_update",
-        });
-      }
-
+      // Vendor notify is server-triggered (trg_notify_on_request_lifecycle).
       toast.success(s.orderUpdated);
       closeEditSheet();
     } catch (err) {

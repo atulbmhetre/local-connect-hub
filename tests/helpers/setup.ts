@@ -41,7 +41,7 @@ export const TEST_VENDOR_PHONE = '9900099001';
 export const TEST_CUSTOMER_PHONE = '8800088001';
 export const TEST_ADMIN_PHONE = '8888169446';
 
-function generateUniqueVendorPhone(): string {
+export function generateUniqueVendorPhone(): string {
   return `99006${Date.now().toString().slice(-4)}${Math.floor(Math.random() * 10)}`;
 }
 
