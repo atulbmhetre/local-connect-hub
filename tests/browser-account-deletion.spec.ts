@@ -84,7 +84,7 @@ test('DEL-02: Delete Account opens confirmation dialog with correct copy', async
   await expect(page.getByText('Delete your account?')).toBeVisible();
   await expect(
     page.getByText(
-      'This will schedule deletion of your account in 30 days. You can cancel from Settings on any device linked to this phone.',
+      'This schedules deletion in 30 days. New orders will be blocked immediately, and all your open orders will be cancelled now (vendors will be notified). If you have an outstanding Khata balance, those vendors will also be notified. You can cancel deletion from Settings on any device linked to this phone.',
     ),
   ).toBeVisible();
 });

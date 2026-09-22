@@ -288,7 +288,7 @@ test('AFCD-03 — after force-clear, restore status and discoverability return i
     p_service_mode: mode,
   });
   expect(newOrderId).toBeFalsy();
-  expect(bookErr?.message ?? '').toContain('vendor_not_discoverable');
+  expect(bookErr?.message ?? '').toContain('vendor_deletion_scheduled');
 
   const { error: clearErr } = await adminClient.rpc('admin_force_clear_deletion', {
     p_vendor_id: vendorId,

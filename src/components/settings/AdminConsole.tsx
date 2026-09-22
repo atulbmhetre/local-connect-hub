@@ -39,6 +39,13 @@ import {
 import { warnFlaggedUser as runWarnFlaggedUser } from "@/lib/warnFlaggedUser";
 import { applyVendorWaiveoff as runApplyVendorWaiveoff } from "@/lib/applyVendorWaiveoff";
 import {
+  fillAmountTemplate,
+  formatRupeesFromPaise,
+  isWaiveoffActive,
+  parseVendorAmountDue,
+  type VendorAmountDue,
+} from "@/lib/vendorAmountDue";
+import {
   ADMIN_QUERY_MAX_ROWS,
   ADMIN_VENDOR_LIST_PAGE_SIZE,
   fetchAllPages,
@@ -452,6 +459,9 @@ const ADMIN_CONFIG_WHITELIST = [
   "exotel_credits_low_threshold_inr",
   "vendor_grace_period_days",
   "khata_amber_limit",
+  "pause_min_credit_days",
+  "pause_min_live_days",
+  "pause_reminder_interval_days",
 ] as const;
 
 type AdminConfigKey = (typeof ADMIN_CONFIG_WHITELIST)[number];
@@ -498,6 +508,9 @@ const ADMIN_CONFIG_FALLBACK_DEFAULTS: Record<AdminConfigKey, string> = {
   exotel_credits_low_threshold_inr: "200",
   vendor_grace_period_days: "3",
   khata_amber_limit: "0",
+  pause_min_credit_days: "7",
+  pause_min_live_days: "7",
+  pause_reminder_interval_days: "30",
 };
 
 const ADMIN_CONFIG_TYPES: Partial<Record<AdminConfigKey, AdminConfigValueType>> = {
@@ -535,6 +548,9 @@ const ADMIN_CONFIG_TYPES: Partial<Record<AdminConfigKey, AdminConfigValueType>> 
   exotel_credits_low_threshold_inr: "number",
   vendor_grace_period_days: "number",
   khata_amber_limit: "number",
+  pause_min_credit_days: "number",
+  pause_min_live_days: "number",
+  pause_reminder_interval_days: "number",
 };
 
 function getAdminConfigType(key: AdminConfigKey): AdminConfigValueType {
@@ -589,6 +605,9 @@ const ADMIN_CONFIG_LABELS: Record<AdminConfigKey, string> = {
   exotel_credits_low_threshold_inr: "Exotel Credits Low Threshold (₹)",
   vendor_grace_period_days: "Vendor Grace Period (days)",
   khata_amber_limit: "Khata Amber Limit Default (₹)",
+  pause_min_credit_days: "Pause Minimum Credit Days",
+  pause_min_live_days: "Pause Minimum Live Days",
+  pause_reminder_interval_days: "Pause Reminder Interval (days)",
 };
 
 function buildVerifyAutoChecks(
@@ -965,6 +984,7 @@ export function AdminConsole({
       subscription_current_period_end: string | null;
       waiveoff_percent: number | null;
       waiveoff_months_remaining: number | null;
+      amountDue: VendorAmountDue | null;
     }[]
   >([]);
   const [subLoading, setSubLoading] = useState(false);
@@ -1732,18 +1752,32 @@ export function AdminConsole({
   const loadSubVendors = async () => {
     setSubLoading(true);
     setSubNetworkStatus(null);
+    const subSelect =
+      "id, shop_name, phone, subscription_status, trial_ends_at, grace_ends_at, subscription_current_period_end, waiveoff_percent, waiveoff_months_remaining";
     try {
       const { data, error } = await withNetworkRetry(
-        async () =>
-          throwOnSupabaseNetworkError(
+        async () => {
+          const listed = throwOnSupabaseNetworkError(
             await supabase
               .from("vendors")
-              .select(
-                "id, shop_name, phone, subscription_status, trial_ends_at, grace_ends_at, subscription_current_period_end, waiveoff_percent, waiveoff_months_remaining",
-              )
+              .select(subSelect)
               .in("subscription_status", ["grace", "expired", "cancelled"])
               .order("grace_ends_at", { ascending: true, nullsFirst: false }),
-          ),
+          );
+          const waived = throwOnSupabaseNetworkError(
+            await supabase
+              .from("vendors")
+              .select(subSelect)
+              .gt("waiveoff_months_remaining", 0),
+          );
+          if (listed.error) return listed;
+          if (waived.error) return waived;
+          const byId = new Map<string, Record<string, unknown>>();
+          for (const row of [...(listed.data ?? []), ...(waived.data ?? [])]) {
+            byId.set(row.id as string, row as Record<string, unknown>);
+          }
+          return { data: [...byId.values()], error: null };
+        },
         {
           onRetrying: () => setSubNetworkStatus("retrying"),
           shouldRetry: () => getNavigatorOnline(),
@@ -1754,21 +1788,28 @@ export function AdminConsole({
         toast.error(error.message);
         return;
       }
-      setSubVendors(
-        (data ?? []).map((row) => ({
-          id: row.id as string,
-          shop_name: (row.shop_name as string | null)?.trim() || "Vendor",
-          phone: (row.phone as string | null) ?? null,
-          subscription_status: (row.subscription_status as string | null) ?? "trial",
-          trial_ends_at: (row.trial_ends_at as string | null) ?? null,
-          grace_ends_at: (row.grace_ends_at as string | null) ?? null,
-          subscription_current_period_end:
-            (row.subscription_current_period_end as string | null) ?? null,
-          waiveoff_percent: (row.waiveoff_percent as number | null) ?? null,
-          waiveoff_months_remaining:
-            (row.waiveoff_months_remaining as number | null) ?? null,
-        })),
+      const mapped = (data ?? []).map((row) => ({
+        id: row.id as string,
+        shop_name: (row.shop_name as string | null)?.trim() || "Vendor",
+        phone: (row.phone as string | null) ?? null,
+        subscription_status: (row.subscription_status as string | null) ?? "trial",
+        trial_ends_at: (row.trial_ends_at as string | null) ?? null,
+        grace_ends_at: (row.grace_ends_at as string | null) ?? null,
+        subscription_current_period_end:
+          (row.subscription_current_period_end as string | null) ?? null,
+        waiveoff_percent: (row.waiveoff_percent as number | null) ?? null,
+        waiveoff_months_remaining:
+          (row.waiveoff_months_remaining as number | null) ?? null,
+        amountDue: null as VendorAmountDue | null,
+      }));
+      const dues = await Promise.all(
+        mapped.map(async (row) => {
+          if ((row.waiveoff_months_remaining ?? 0) <= 0) return row;
+          const dueRes = await supabase.rpc("vendor_amount_due", { p_vendor_id: row.id });
+          return { ...row, amountDue: parseVendorAmountDue(dueRes.data) };
+        }),
       );
+      setSubVendors(dues);
       setSubNetworkStatus(null);
     } catch (err) {
       if (err instanceof NetworkExhaustedError) {
@@ -4181,6 +4222,18 @@ export function AdminConsole({
                         <span className={badgeClass}>{status}</span>
                       </div>
                       <p className="text-xs text-muted-foreground">{whenLabel}</p>
+                      {isWaiveoffActive(v.amountDue) && v.amountDue ? (
+                        <p
+                          className="text-xs text-foreground"
+                          data-testid="admin-sub-amount-due"
+                        >
+                          {fillAmountTemplate(s.admin_sub_waiveoff_due, {
+                            amount: formatRupeesFromPaise(v.amountDue.amount_paise),
+                            percent: String(v.amountDue.waiveoff_percent),
+                            months: String(v.amountDue.months_remaining),
+                          })}
+                        </p>
+                      ) : null}
                       {refDate && (
                         <p className="text-xs text-muted-foreground">
                           {daysAgo(refDate)}

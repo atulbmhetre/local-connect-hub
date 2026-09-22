@@ -73,6 +73,20 @@ import { getUserPhone } from "@/lib/userIdentity";
 import { DeliveryFulfillmentSettings } from "@/components/vendor/DeliveryFulfillmentSettings";
 import { VendorMyBusinessOperations } from "@/components/settings/VendorMyBusinessOperations";
 import {
+  VendorPauseBlockedSheet,
+  VendorPauseConfirmDialog,
+} from "@/components/settings/VendorPauseDialogs";
+import {
+  dateLocaleForLang,
+  parsePauseErrorDetails,
+  parseResumeOutcome,
+  parseVendorPausePreflight,
+  pauseErrorCode,
+  pausedSinceLabel,
+  resumePauseToast,
+  type VendorPausePreflight,
+} from "@/lib/vendorPauseUi";
+import {
   DEFAULT_DELIVERY_FULFILLMENT,
   DEFAULT_DELIVERY_PAYMENT_TIMING,
   deliveryPaymentTimingForFulfillment,
@@ -97,6 +111,7 @@ type CategoryEditSettings = {
   service_radius_km: number | null;
   vendor_note: string;
   is_paused: boolean;
+  paused_at: string | null;
   inspection_fee: string;
   min_delivery_order_amount: string;
   shop_photo_url: string | null;
@@ -146,6 +161,7 @@ function settingsFromAccount(account: {
     service_radius_km: inherited.service_radius_km,
     vendor_note: "",
     is_paused: false,
+    paused_at: null,
     inspection_fee: "",
     min_delivery_order_amount: "",
     shop_photo_url: null,
@@ -174,6 +190,7 @@ function settingsFromCategoryRow(
     service_radius_km?: number | null;
     vendor_note?: string | null;
     is_paused?: boolean | null;
+    paused_at?: string | null;
     inspection_fee?: number | string | null;
     min_delivery_order_amount?: number | string | null;
     shop_photo_url?: string | null;
@@ -205,6 +222,7 @@ function settingsFromCategoryRow(
         : accountFallback.service_radius_km,
     vendor_note: String(row.vendor_note ?? "").trim(),
     is_paused: row.is_paused === true,
+    paused_at: row.is_paused === true ? (row.paused_at ?? null) : null,
     inspection_fee:
       row.inspection_fee != null && Number(row.inspection_fee) > 0
         ? String(Math.round(Number(row.inspection_fee)))
@@ -339,7 +357,7 @@ function VerifyRow({
 }
 
 export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) {
-  const { s } = useLanguage();
+  const { s, lang } = useLanguage();
   const getLabel = useCategoryLabel();
   const vendorPhone = (vendor.phone ?? userPhone ?? "").trim();
 
@@ -371,6 +389,12 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
   const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
   const [gpsMatchFailCount, setGpsMatchFailCount] = useState(0);
   const [lastFailedShopShot, setLastFailedShopShot] = useState<CapturedShot | null>(null);
+  const [pauseBusyCategoryId, setPauseBusyCategoryId] = useState<string | null>(null);
+  const [pauseConfirmCategoryId, setPauseConfirmCategoryId] = useState<string | null>(null);
+  const [pausePreflight, setPausePreflight] = useState<VendorPausePreflight | null>(null);
+  const [pauseBlockedKind, setPauseBlockedKind] = useState<"open_work" | "subscription" | null>(
+    null,
+  );
 
   const loadSeqRef = useRef(0);
   const selectedCategoryIdsRef = useRef<string[]>([]);
@@ -406,7 +430,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
         supabase
           .from("vendor_categories")
           .select(
-            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, is_paused, inspection_fee, min_delivery_order_amount, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, delivery_fulfillment_method, delivery_payment_timing, upi_id, upi_qr_url, upi_qr_payee_id, base_type, status, review_reason, categories(id, label, emoji, service_mode)",
+            "id, category_id, is_primary, brand_name, serves_at_vendor_place, serves_at_customer_place, service_radius_km, vendor_note, is_paused, paused_at, inspection_fee, min_delivery_order_amount, shop_photo_url, gps_match_distance, verification_status, is_manual_verified, latitude, longitude, location_accuracy, delivery_fulfillment_method, delivery_payment_timing, upi_id, upi_qr_url, upi_qr_payee_id, base_type, status, review_reason, categories(id, label, emoji, service_mode)",
           )
           .eq("vendor_id", vendor.id)
           .in("status", ["approved", "pending_review", "rejected"])
@@ -634,7 +658,7 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     if (!vendorPhone) {
       throw new Error("identity_required");
     }
-    const { error } = await withNetworkRetry(
+    const { data, error } = await withNetworkRetry(
       async () =>
         throwOnSupabaseNetworkError(
           await supabase.rpc("vendor_update_category_profile", {
@@ -653,25 +677,147 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
     );
     dismissNetworkRetryingToast();
     if (error) throw error;
+    return data;
   };
 
-  const savePause = async (categoryId: string, paused: boolean) => {
+  const applyPauseBlock = (
+    kind: "open_work" | "subscription",
+    preflight: VendorPausePreflight | null,
+  ) => {
+    setPausePreflight(preflight);
+    setPauseBlockedKind(kind);
+    setPauseConfirmCategoryId(null);
+  };
+
+  const handlePauseRpcError = (err: unknown, fallbackPreflight: VendorPausePreflight | null) => {
+    const code = pauseErrorCode(err);
+    const details = parsePauseErrorDetails(err);
+    if (code === "pause_blocked_open_work") {
+      applyPauseBlock("open_work", {
+        can_pause: false,
+        block_reason: "open_work",
+        open_work: {
+          help: details.help,
+          delivery: details.delivery,
+          appointment: details.appointment,
+        },
+        khata: fallbackPreflight?.khata ?? { pending_amount: 0, customer_count: 0 },
+        upi_claims_pending: fallbackPreflight?.upi_claims_pending ?? 0,
+        subscription_status:
+          details.subscription_status ?? fallbackPreflight?.subscription_status ?? null,
+        will_freeze_billing: fallbackPreflight?.will_freeze_billing ?? false,
+        pause_min_credit_days: fallbackPreflight?.pause_min_credit_days ?? 7,
+      });
+      return true;
+    }
+    if (code === "pause_blocked_subscription") {
+      applyPauseBlock("subscription", {
+        can_pause: false,
+        block_reason: "subscription_state",
+        open_work: fallbackPreflight?.open_work ?? { help: 0, delivery: 0, appointment: 0 },
+        khata: fallbackPreflight?.khata ?? { pending_amount: 0, customer_count: 0 },
+        upi_claims_pending: fallbackPreflight?.upi_claims_pending ?? 0,
+        subscription_status:
+          details.subscription_status ?? fallbackPreflight?.subscription_status ?? null,
+        will_freeze_billing: fallbackPreflight?.will_freeze_billing ?? false,
+        pause_min_credit_days: fallbackPreflight?.pause_min_credit_days ?? 7,
+      });
+      return true;
+    }
+    return false;
+  };
+
+  const persistPause = async (categoryId: string, paused: boolean, preflight: VendorPausePreflight | null) => {
     const previous = categorySettingsById[categoryId]?.is_paused === true;
-    updateCategorySettings(categoryId, { is_paused: paused });
+    const previousPausedAt = categorySettingsById[categoryId]?.paused_at ?? null;
+    updateCategorySettings(categoryId, {
+      is_paused: paused,
+      paused_at: paused ? new Date().toISOString() : null,
+    });
     try {
-      await patchCategoryProfile(categoryId, { is_paused: paused });
-      toast.success(paused ? s.vendor_pause_saved : s.vendor_unpause_saved);
+      const data = await patchCategoryProfile(categoryId, { is_paused: paused });
+      if (paused) {
+        toast.success(s.vendor_pause_saved);
+      } else {
+        const minDays = preflight?.pause_min_credit_days ?? 7;
+        toast.success(resumePauseToast(parseResumeOutcome(data), minDays, s));
+      }
     } catch (err) {
-      updateCategorySettings(categoryId, { is_paused: previous });
+      updateCategorySettings(categoryId, { is_paused: previous, paused_at: previousPausedAt });
       if (err instanceof NetworkExhaustedError) {
-        showNetworkFailedToast(() => void savePause(categoryId, paused), {
+        showNetworkFailedToast(() => void persistPause(categoryId, paused, preflight), {
           failed: s.network_failed,
           retryBtn: s.network_retry_btn,
         });
         return;
       }
+      if (paused && handlePauseRpcError(err, preflight)) return;
       toast.error(s.vendor_pause_save_failed);
     }
+  };
+
+  const requestPause = async (categoryId: string) => {
+    setPauseBusyCategoryId(categoryId);
+    try {
+      const { data, error } = await withNetworkRetry(
+        async () =>
+          throwOnSupabaseNetworkError(
+            await supabase.rpc("vendor_pause_preflight", {
+              p_vendor_id: vendor.id,
+              p_category_id: categoryId,
+            }),
+          ),
+        {
+          onRetrying: () => {
+            showNetworkRetryingToast({ retrying: s.network_retrying });
+          },
+          shouldRetry: () => getNavigatorOnline(),
+        },
+      );
+      dismissNetworkRetryingToast();
+      if (error) throw error;
+      const preflight = parseVendorPausePreflight(data);
+      if (!preflight) {
+        toast.error(s.vendor_pause_preflight_failed);
+        return;
+      }
+      setPausePreflight(preflight);
+      if (!preflight.can_pause && preflight.block_reason === "open_work") {
+        applyPauseBlock("open_work", preflight);
+        return;
+      }
+      if (!preflight.can_pause && preflight.block_reason === "subscription_state") {
+        applyPauseBlock("subscription", preflight);
+        return;
+      }
+      if (!preflight.can_pause) {
+        applyPauseBlock(
+          preflight.block_reason === "open_work" ? "open_work" : "subscription",
+          preflight,
+        );
+        return;
+      }
+      setPauseConfirmCategoryId(categoryId);
+    } catch (err) {
+      if (err instanceof NetworkExhaustedError) {
+        showNetworkFailedToast(() => void requestPause(categoryId), {
+          failed: s.network_failed,
+          retryBtn: s.network_retry_btn,
+        });
+        return;
+      }
+      toast.error(s.vendor_pause_preflight_failed);
+    } finally {
+      setPauseBusyCategoryId(null);
+    }
+  };
+
+  const savePause = async (categoryId: string, paused: boolean) => {
+    if (paused) {
+      await requestPause(categoryId);
+      return;
+    }
+    await persistPause(categoryId, false, pausePreflight);
   };
 
   const saveInspectionFee = async (categoryId: string) => {
@@ -1549,8 +1695,15 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                       </p>
                     )}
                     {cfg.is_paused && cfg.review_status === "approved" && (
-                      <p className="text-xs text-amber-600 font-medium mt-1">
-                        {s.vendor_pause_business}
+                      <p
+                        className="text-xs text-amber-600 font-medium mt-1"
+                        data-testid={`my-business-paused-since-${cat.id}`}
+                      >
+                        {pausedSinceLabel(
+                          cfg.paused_at,
+                          dateLocaleForLang(lang),
+                          s.vendor_pause_since,
+                        ) ?? s.vendor_pause_business}
                       </p>
                     )}
                   </div>
@@ -1589,11 +1742,25 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
                         <p className="text-xs text-muted-foreground mt-1 leading-snug">
                           {s.vendor_pause_business_hint}
                         </p>
+                        {cfg.is_paused && (
+                          <p
+                            className="text-xs text-amber-600 font-medium mt-1"
+                            data-testid={`my-business-pause-since-row-${cat.id}`}
+                          >
+                            {pausedSinceLabel(
+                              cfg.paused_at,
+                              dateLocaleForLang(lang),
+                              s.vendor_pause_since,
+                            )}
+                          </p>
+                        )}
                       </div>
                       <Switch
                         className="data-[state=checked]:bg-amber-500"
                         checked={cfg.is_paused}
-                        disabled={cfg.review_status !== "approved"}
+                        disabled={
+                          cfg.review_status !== "approved" || pauseBusyCategoryId === cat.id
+                        }
                         onCheckedChange={(checked) => void savePause(cat.id, checked)}
                         data-testid={`my-business-pause-${cat.id}`}
                       />
@@ -2051,6 +2218,31 @@ export function VendorMyBusiness({ vendor, onVendorUpdated, userPhone }: Props) 
           ).length
         }
         onAdded={() => setCategoriesReloadKey((k) => k + 1)}
+      />
+
+      <VendorPauseBlockedSheet
+        open={pauseBlockedKind != null}
+        onOpenChange={(open) => {
+          if (!open) setPauseBlockedKind(null);
+        }}
+        kind={pauseBlockedKind ?? "open_work"}
+        preflight={pausePreflight}
+        s={s}
+      />
+      <VendorPauseConfirmDialog
+        open={pauseConfirmCategoryId != null}
+        onOpenChange={(open) => {
+          if (!open) setPauseConfirmCategoryId(null);
+        }}
+        confirming={pauseBusyCategoryId != null && pauseConfirmCategoryId != null}
+        preflight={pausePreflight}
+        s={s}
+        onConfirm={() => {
+          const categoryId = pauseConfirmCategoryId;
+          if (!categoryId) return;
+          setPauseConfirmCategoryId(null);
+          void persistPause(categoryId, true, pausePreflight);
+        }}
       />
 
       <input

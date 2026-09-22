@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  addUtcDays,
+  shouldSkipGraceToExpired,
+  shouldSkipTrialToGrace,
+  vendorEffectiveTrialEnd,
+} from "../_shared/vendorSubscriptionTransitions.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -46,20 +52,37 @@ serve(async (req) => {
     const now = new Date();
     let processed = 0;
 
+    const { data: openWindows } = await supabase
+      .from("vendor_billing_pauses")
+      .select("vendor_id")
+      .is("ended_at", null);
+    const openBillingVendors = new Set(
+      (openWindows ?? []).map((w: { vendor_id: string }) => w.vendor_id),
+    );
+
     // --- 1. Trial → Grace ---
-    // Vendors in trial whose trial_ends_at has passed
-    const { data: trialExpired } = await supabase
+    // Source of truth: created_at + vendor_trial_days + pause_credit_days (not trial_ends_at).
+    const { data: trialVendors } = await supabase
       .from("vendors")
-      .select("id, phone, created_at, trial_ends_at")
-      .eq("subscription_status", "trial")
-      .lt("trial_ends_at", now.toISOString());
+      .select("id, phone, created_at, pause_credit_days")
+      .eq("subscription_status", "trial");
 
-    for (const vendor of trialExpired ?? []) {
-      // Respect global_billing_start_date
-      if (globalBillingStart && now < globalBillingStart) continue;
+    for (const vendor of trialVendors ?? []) {
+      const hasOpenBillingWindow = openBillingVendors.has(vendor.id);
+      if (
+        shouldSkipTrialToGrace({
+          now,
+          createdAt: vendor.created_at,
+          vendorTrialDays: trialDays,
+          pauseCreditDays: Number(vendor.pause_credit_days ?? 0),
+          globalBillingStart,
+          hasOpenBillingWindow,
+        })
+      ) {
+        continue;
+      }
 
-      const graceEndsAt = new Date(now);
-      graceEndsAt.setDate(graceEndsAt.getDate() + graceDays);
+      const graceEndsAt = addUtcDays(now, graceDays);
 
       await supabase
         .from("vendors")
@@ -99,14 +122,23 @@ serve(async (req) => {
     }
 
     // --- 2. Grace → Expired ---
-    // Vendors in grace whose grace_ends_at has passed
-    const { data: graceExpired } = await supabase
+    const { data: graceVendors } = await supabase
       .from("vendors")
       .select("id, phone, grace_ends_at")
-      .eq("subscription_status", "grace")
-      .lt("grace_ends_at", now.toISOString());
+      .eq("subscription_status", "grace");
 
-    for (const vendor of graceExpired ?? []) {
+    for (const vendor of graceVendors ?? []) {
+      if (
+        !vendor.grace_ends_at ||
+        shouldSkipGraceToExpired({
+          now,
+          graceEndsAt: vendor.grace_ends_at,
+          hasOpenBillingWindow: openBillingVendors.has(vendor.id),
+        })
+      ) {
+        continue;
+      }
+
       await supabase
         .from("vendors")
         .update({
@@ -144,16 +176,21 @@ serve(async (req) => {
     }
 
     // --- 3. Recalculate trial_ends_at if global_billing_start_date set ---
-    // For vendors whose trial_ends_at should be MAX(global_billing_start, created_at + trial_days)
+    // Display column only. Transitions above do not read trial_ends_at.
+    // Include pause_credit_days so the stored timestamp matches vendor_effective_trial_end
+    // (then MAX with global billing start).
     if (globalBillingStart) {
-      const { data: trialVendors } = await supabase
+      const { data: trialForStamp } = await supabase
         .from("vendors")
-        .select("id, created_at, trial_ends_at")
+        .select("id, created_at, trial_ends_at, pause_credit_days")
         .eq("subscription_status", "trial");
 
-      for (const vendor of trialVendors ?? []) {
-        const perVendorTrialEnd = new Date(vendor.created_at);
-        perVendorTrialEnd.setDate(perVendorTrialEnd.getDate() + trialDays);
+      for (const vendor of trialForStamp ?? []) {
+        const perVendorTrialEnd = vendorEffectiveTrialEnd({
+          createdAt: vendor.created_at,
+          vendorTrialDays: trialDays,
+          pauseCreditDays: Number(vendor.pause_credit_days ?? 0),
+        });
         const correctTrialEnd = perVendorTrialEnd > globalBillingStart
           ? perVendorTrialEnd
           : globalBillingStart;

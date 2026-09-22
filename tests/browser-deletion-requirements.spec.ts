@@ -24,7 +24,7 @@ const L = {
   confirmTitle: 'Delete your account?',
   /** Customer confirm body — 30-day grace, same pattern as vendor deletion. */
   confirmBody:
-    'This will schedule deletion of your account in 30 days. You can cancel from Settings on any device linked to this phone.',
+    'This schedules deletion in 30 days. New orders will be blocked immediately, and all your open orders will be cancelled now (vendors will be notified). If you have an outstanding Khata balance, those vendors will also be notified. You can cancel deletion from Settings on any device linked to this phone.',
   yesDelete: 'Yes, Delete',
   cancel: 'Cancel',
   scheduledPrefix: 'Account deletion scheduled',
@@ -32,7 +32,7 @@ const L = {
   vendorActiveBlock:
     'You have an active vendor account. Please delete your vendor account first',
   dualRoleNotice:
-    'Your customer account and vendor shop will both be scheduled for deletion in 30 days. You can cancel from Settings on any device linked to this phone. You will not be able to register a new shop with this same phone number for 30 days.',
+    'Your customer account and vendor shop will both be scheduled for deletion in 30 days. As a customer: new orders stop immediately and open orders are cancelled now (vendors notified; Khata balances also trigger a separate vendor notice). As a vendor: you stay off discovery for new bookings but can still finish existing jobs. You can cancel from Settings. You will not be able to register a new shop with this same phone number for 30 days.',
   dualRoleSuccess: 'Deletion scheduled',
   deletionSuccessCustomer: 'Account deleted',
   deletionScheduled: 'Deletion scheduled',
