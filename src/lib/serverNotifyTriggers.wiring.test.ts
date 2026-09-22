@@ -28,4 +28,10 @@ describe("server notify triggers wiring", () => {
     const referral = readFileSync(resolve("src/lib/referral.ts"), "utf8");
     expect(referral).not.toContain("invokeNotifyVendor");
   });
+
+  it("MyOrders.tsx no longer client-invokes notify-vendor (DB trigger owns it)", () => {
+    const myOrders = readFileSync(resolve("src/pages/MyOrders.tsx"), "utf8");
+    expect(myOrders).not.toContain("invokeNotifyVendor");
+    expect(myOrders).toContain("trg_notify_on_request_lifecycle");
+  });
 });

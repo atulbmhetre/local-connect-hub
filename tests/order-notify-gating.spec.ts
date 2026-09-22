@@ -8,9 +8,8 @@ import {
 } from './helpers/setup';
 
 /**
- * Client notify gating (`wasOrderEngaged` + vendor phone) lives in MyOrders.tsx only.
- * RPCs `dismiss_order` / `cancel_customer_order` never call notify-vendor.
- * These tests must drive the real My Orders UI and assert inbox side effects.
+ * Vendor notify is server-triggered (`trg_notify_on_request_lifecycle`).
+ * These tests drive the real My Orders UI and assert a single inbox row.
  */
 
 const T = Date.now();
@@ -126,27 +125,34 @@ async function loginAndOpenOrder(
   return { card: orderCard(page, message), requestId: request.id };
 }
 
+async function fetchVendorOrderNotifications(
+  vendorPhone: string,
+  requestId: string,
+  title?: string,
+) {
+  const { data, error } = await supabaseAdmin
+    .from('user_notifications')
+    .select('id, user_phone, title, body, type, route, route_params, read_at, related_id')
+    .eq('user_phone', vendorPhone)
+    .eq('type', 'order_update')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).filter((row) => {
+    const params = row.route_params as { order_id?: string } | null;
+    const matchesOrder = params?.order_id === requestId || row.related_id === requestId;
+    if (!matchesOrder) return false;
+    if (title) return row.title === title;
+    return true;
+  });
+}
+
 async function fetchVendorOrderNotification(
   vendorPhone: string,
   requestId: string,
   title: string,
 ) {
-  const { data, error } = await supabaseAdmin
-    .from('user_notifications')
-    .select('id, user_phone, title, body, type, route, route_params, read_at')
-    .eq('user_phone', vendorPhone)
-    .eq('title', title)
-    .eq('type', 'order_update')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (
-    data?.find(
-      (row) =>
-        row.route_params &&
-        typeof row.route_params === 'object' &&
-        (row.route_params as { order_id?: string }).order_id === requestId,
-    ) ?? null
-  );
+  const rows = await fetchVendorOrderNotifications(vendorPhone, requestId, title);
+  return rows[0] ?? null;
 }
 
 async function waitForVendorOrderNotification(
@@ -232,6 +238,7 @@ test('ONG-01 — markDone notifies vendor when order was engaged (accepted + ove
     expect(row?.body).toBe(NOTIFY.dismissedBody);
     expect(row?.route).toBe('vendor');
     expect(row?.read_at).toBeNull();
+    expect(await fetchVendorOrderNotifications(vendor.phone, requestId)).toHaveLength(1);
   } finally {
     await cleanupVendorNotifications(vendor.phone, requestId);
   }
@@ -260,6 +267,7 @@ test('ONG-02 — markDone notifies vendor when appointment was confirmed (overdu
     );
     expect(row?.body).toBe(NOTIFY.dismissedBody);
     expect((row?.route_params as { order_id?: string })?.order_id).toBe(requestId);
+    expect(await fetchVendorOrderNotifications(vendor.phone, requestId)).toHaveLength(1);
   } finally {
     await cleanupVendorNotifications(vendor.phone, requestId);
   }
@@ -329,6 +337,7 @@ test('ONG-05 — cancelAppointment notifies vendor when booking was engaged (con
     expect(row?.body).toBe(NOTIFY.cancelledBody);
     expect(row?.route).toBe('vendor');
     expect((row?.route_params as { order_id?: string })?.order_id).toBe(requestId);
+    expect(await fetchVendorOrderNotifications(vendor.phone, requestId)).toHaveLength(1);
   } finally {
     await cleanupVendorNotifications(vendor.phone, requestId);
   }
