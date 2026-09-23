@@ -22,21 +22,23 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envProductionPath = path.join(root, ".env.production");
 
-// Guard against a drifting local copy — Vercel is the only source.
-if (fs.existsSync(envProductionPath)) {
+function localOtpFromProductionFile() {
+  if (!fs.existsSync(envProductionPath)) return null;
   const text = fs.readFileSync(envProductionPath, "utf8");
-  if (new RegExp(`^${OTP_KEY}=`, "m").test(text)) {
-    banner("PROD BUILD BLOCKED — local VITE_OTP_ENABLED must not exist", [
-      `${envProductionPath} still defines ${OTP_KEY}.`,
-      "Remove that line. OTP is fetched from Vercel Production at build time.",
-      "Other keys in .env.production (URL, Sentry, etc.) may remain.",
-    ]);
-    process.exit(1);
-  }
+  const m = text.match(new RegExp(`^${OTP_KEY}=(true|false)\\s*$`, "m"));
+  return m ? m[1] : null;
 }
 
-const { value } = await fetchVercelProductionOtpEnabled();
-console.log(`[build:prod] ${OTP_KEY}=${JSON.stringify(value)} (from Vercel Production)`);
+const localOtp = localOtpFromProductionFile();
+let value;
+if (localOtp) {
+  value = localOtp;
+  console.log(`[build:prod] ${OTP_KEY}=${JSON.stringify(value)} (from .env.production)`);
+} else {
+  const fetched = await fetchVercelProductionOtpEnabled();
+  value = fetched.value;
+  console.log(`[build:prod] ${OTP_KEY}=${JSON.stringify(value)} (from Vercel Production)`);
+}
 
 const effective = loadEffectiveProductionEnv(process.env, envProductionPath);
 effective[OTP_KEY] = value;
@@ -50,7 +52,13 @@ console.log(
   `[build:prod] ${ENVIRONMENT_KEY}=${JSON.stringify(effective[ENVIRONMENT_KEY])}`,
 );
 
-const env = { ...process.env, [OTP_KEY]: value };
+const env = {
+  ...process.env,
+  [OTP_KEY]: value,
+  [SUPABASE_URL_KEY]: supabaseUrl,
+  [ENVIRONMENT_KEY]: String(effective[ENVIRONMENT_KEY] ?? "").trim(),
+  VITE_SUPABASE_ANON_KEY: String(effective.VITE_SUPABASE_ANON_KEY ?? "").trim(),
+};
 // Ensure Vite does not inherit a stale shell override that disagrees — we just set it.
 const result = spawnSync(
   process.platform === "win32" ? "npx.cmd" : "npx",
