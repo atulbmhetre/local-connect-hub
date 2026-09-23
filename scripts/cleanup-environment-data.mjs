@@ -4,8 +4,8 @@
  * Modes:
  *   (default)  Fixture/orphan cleanup (auth age filters, orphans, storage orphans;
  *              TEST also deletes probe-like vendors).
- *   --full-wipe  TEST ONLY: delete ALL user/business data; keep catalog + admin_users.
- *                Refuses --env=prod. Removes age/email filters for auth.users.
+ *   --full-wipe  Delete ALL user/business data; keep catalog + admin_users.
+ *                TEST confirm: WIPE TEST. PROD confirm: WIPE PROD (required).
  *
  * Usage:
  *   node scripts/cleanup-environment-data.mjs --env=test --dry-run
@@ -44,7 +44,7 @@ const ENVS = {
     ref: 'rpxsyeqskvhjmbkxnpmd',
     envFile: '.env.test.prod',
     prodConfirmPhrases: ['DELETE PROD', 'rpxsyeqskvhjmbkxnpmd'],
-    fullWipeConfirm: null,
+    fullWipeConfirm: 'WIPE PROD',
   },
 };
 
@@ -69,6 +69,9 @@ const FULL_WIPE_KEEP = [
 /**
  * Leaf → parent DELETE order for full wipe (explicit; do not rely on CASCADE).
  * upi_change_alerts before vendors (ON DELETE NO ACTION).
+ * Pause/pennydrop tables: TEST FKs are vendor_id → vendors ON DELETE CASCADE
+ * (pause_events also category_id → categories CASCADE). No FK between the
+ * two pause tables; none reference vendor_categories or requests.
  * admin_users intentionally omitted (kept).
  */
 const FULL_WIPE_DELETE_ORDER = [
@@ -104,6 +107,9 @@ const FULL_WIPE_DELETE_ORDER = [
   'vendor_call_outcomes',
   'vendor_menu_items',
   'vendor_reviews',
+  'vendor_upi_pennydrop_txns',
+  'vendor_pause_events',
+  'vendor_billing_pauses',
   'vendor_category_modes',
   'vendor_categories',
   'vendor_category_cancel_reasons',
@@ -133,10 +139,10 @@ const CLI_PARSE_ONLY_SEND_SMS_HOOK_SECRET =
 
 function usage(exitCode = 1) {
   console.error(`Usage:
-  node scripts/cleanup-environment-data.mjs --env=test|prod [--dry-run|--execute] [--full-wipe] [--confirm=WIPE TEST]
+  node scripts/cleanup-environment-data.mjs --env=test|prod [--dry-run|--execute] [--full-wipe] [--confirm=WIPE TEST|WIPE PROD]
 
-  --full-wipe           TEST only: wipe all user/business data; keep catalog + admin_users
-  --confirm="WIPE TEST" Non-interactive confirm (skips readline prompts; for scripting)
+  --full-wipe           wipe all user/business data; keep catalog + admin_users
+  --confirm             TEST: "WIPE TEST". PROD execute: required "WIPE PROD"
 `);
   process.exit(exitCode);
 }
@@ -168,8 +174,19 @@ function parseArgs(argv) {
   if (!envKey) throw new Error('Missing required --env=test|prod (no default).');
   if (!ENVS[envKey]) throw new Error(`Invalid --env=${envKey}. Allowed: test, prod.`);
   if (execute && dryRunExplicit) throw new Error('Pass either --dry-run or --execute, not both.');
-  if (fullWipe && envKey !== 'test') {
-    throw new Error('--full-wipe is TEST-only. Refusing --env=prod.');
+  if (fullWipe && execute) {
+    const expected = ENVS[envKey].fullWipeConfirm;
+    if (!expected || !/^WIPE (TEST|PROD)$/.test(expected)) {
+      throw new Error(`BUG: missing env-specific full-wipe confirm phrase for ${envKey}`);
+    }
+    if (envKey === 'prod' && confirmPhrase !== 'WIPE PROD') {
+      throw new Error('PROD full-wipe --execute requires --confirm="WIPE PROD" (exact). Aborting.');
+    }
+    if (confirmPhrase != null && confirmPhrase !== expected) {
+      throw new Error(
+        `Confirmation mismatch via --confirm= (got ${JSON.stringify(confirmPhrase)}; expected ${JSON.stringify(expected)}). Aborting.`,
+      );
+    }
   }
 
   return {
@@ -268,6 +285,32 @@ function assertRecentProdDump() {
     );
   }
   console.log('PROD dump gate: PASS');
+}
+
+/** Full-wipe PROD execute: require a recent full dump (schema+data), not a stale audit dump. */
+function assertRecentProdFullDump() {
+  const now = Date.now();
+  const pattern = /^prod_full_.*\.sql$/i;
+  let newest = null;
+  for (const dir of PROD_DUMP_DIRS) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!pattern.test(name)) continue;
+      const full = path.join(dir, name);
+      const st = fs.statSync(full);
+      if (!st.isFile() || st.size < 1000) continue;
+      const ageHours = (now - st.mtimeMs) / 3600000;
+      if (!newest || st.mtimeMs > newest.mtimeMs) {
+        newest = { full, size: st.size, ageHours: Number(ageHours.toFixed(2)) };
+      }
+    }
+  }
+  console.log('\n--- PROD full-wipe dump gate ---');
+  console.log(JSON.stringify(newest));
+  if (!newest || newest.ageHours > 24) {
+    throw new Error('PROD full-wipe refused: need prod_full_*.sql with mtime < 24h.');
+  }
+  console.log('PROD full-wipe dump gate: PASS');
 }
 
 /**
@@ -582,7 +625,7 @@ SELECT json_build_object(
 }
 
 function printFullWipeReport(env, report, storageCounts) {
-  console.log('\n========== FULL WIPE REPORT (TEST) ==========');
+  console.log(`\n========== FULL WIPE REPORT (${env.label}) ==========`);
   console.log(`Env: ${env.label} (${env.ref})`);
   console.log('');
   console.log('KEEP (must remain — not deleted):');
@@ -617,7 +660,7 @@ function printFullWipeReport(env, report, storageCounts) {
 
 async function runFullWipe({ env, dryRun, db, confirmPhrase = null }) {
   console.log(dryRun ? '=== FULL WIPE — DRY-RUN ===' : '=== FULL WIPE — EXECUTE ===');
-  console.log(`Target: ${env.label} (${env.ref}) — TEST ONLY`);
+  console.log(`Target: ${env.label} (${env.ref})`);
   console.log(`KEEP:   ${FULL_WIPE_KEEP.join(', ')}`);
   console.log('Auth:   delete ALL auth.users except rows linked from admin_users');
 
@@ -648,6 +691,15 @@ async function runFullWipe({ env, dryRun, db, confirmPhrase = null }) {
   }
   console.log('\nKEEP list correctly excluded from DELETE order: YES');
 
+  if (dryRun) {
+    console.log('\nDRY-RUN complete — nothing was deleted.');
+    return;
+  }
+
+  if (env.label === 'PROD' && confirmPhrase !== 'WIPE PROD') {
+    throw new Error('PROD full-wipe --execute requires --confirm="WIPE PROD" (exact). Aborting.');
+  }
+
   console.log('\n========== FULL WIPE CONFIRMATION ==========');
   if (confirmPhrase != null) {
     if (confirmPhrase !== env.fullWipeConfirm) {
@@ -658,13 +710,6 @@ async function runFullWipe({ env, dryRun, db, confirmPhrase = null }) {
     console.log(`Non-interactive confirm: --confirm=${env.fullWipeConfirm} (accepted)`);
   } else {
     await confirmFullWipeInteractive(env.fullWipeConfirm);
-  }
-
-  if (dryRun) {
-    console.log('\nConfirmation: OK');
-    console.log('DRY-RUN complete — nothing was deleted.');
-    console.log('Re-run with --env=test --full-wipe --execute after explicit go-ahead.');
-    return;
   }
 
   console.log('\n--- 1/2 Public + auth SQL wipe (single transaction) ---');
@@ -712,6 +757,10 @@ async function main() {
       'This entrypoint now requires --full-wipe for the TEST full data wipe.\n' +
         'Example: node scripts/cleanup-environment-data.mjs --env=test --full-wipe --dry-run',
     );
+  }
+
+  if (!dryRun && env.label === 'PROD') {
+    assertRecentProdFullDump();
   }
 
   const { url, key } = loadEnvForProject(env);
