@@ -8,6 +8,24 @@ import { useCallback, useEffect, useRef } from "react";
 
 export type OverlayBackHandler = () => boolean;
 
+export type OverlayCloseOptions = {
+  /**
+   * Close the overlay UI without history.back() on the dummy pushState entry.
+   * Use when the caller will replace that entry (e.g. navigate(..., { replace: true })).
+   */
+  skipHistoryPop?: boolean;
+};
+
+function wantsSkipHistoryPop(arg: unknown): boolean {
+  return (
+    !!arg &&
+    typeof arg === "object" &&
+    "skipHistoryPop" in arg &&
+    (arg as OverlayCloseOptions).skipHistoryPop === true &&
+    !("nativeEvent" in arg)
+  );
+}
+
 const stack: OverlayBackHandler[] = [];
 
 /** Push a handler; returns unregister. Top of stack receives hardware back first. */
@@ -41,27 +59,42 @@ export function useOverlayBack(
   open: boolean,
   closeUi: () => void,
   historyKey: string,
-): () => void {
+): (arg?: unknown) => void {
   const historyPushedRef = useRef(false);
   const closingFromPopRef = useRef(false);
+  const skipHistoryPopRef = useRef(false);
   const closeUiRef = useRef(closeUi);
   closeUiRef.current = closeUi;
 
-  const requestClose = useCallback(() => {
-    const shouldPop = historyPushedRef.current;
-    historyPushedRef.current = false;
-    closeUiRef.current();
-    if (
-      shouldPop &&
-      !closingFromPopRef.current &&
-      (window.history.state as Record<string, unknown> | null)?.[historyKey]
-    ) {
-      window.history.back();
-    }
-  }, [historyKey]);
+  const requestClose = useCallback(
+    (arg?: unknown) => {
+      if (wantsSkipHistoryPop(arg)) {
+        skipHistoryPopRef.current = true;
+        historyPushedRef.current = false;
+        closeUiRef.current();
+        return;
+      }
+      const shouldPop = historyPushedRef.current;
+      historyPushedRef.current = false;
+      closeUiRef.current();
+      if (
+        shouldPop &&
+        !closingFromPopRef.current &&
+        (window.history.state as Record<string, unknown> | null)?.[historyKey]
+      ) {
+        window.history.back();
+      }
+    },
+    [historyKey],
+  );
 
   useEffect(() => {
     if (!open) {
+      if (skipHistoryPopRef.current) {
+        skipHistoryPopRef.current = false;
+        historyPushedRef.current = false;
+        return;
+      }
       if (
         historyPushedRef.current &&
         !closingFromPopRef.current &&
@@ -74,6 +107,8 @@ export function useOverlayBack(
       }
       return;
     }
+
+    skipHistoryPopRef.current = false;
 
     const onPopState = () => {
       closingFromPopRef.current = true;

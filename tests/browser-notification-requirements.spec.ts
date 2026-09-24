@@ -398,6 +398,53 @@ test('NT-DL-03 — Feed notification routes to feed', async ({ page }) => {
   await expect(page.getByTestId('feed-screen')).toBeVisible();
 });
 
+test('NT-DL-HIST-01 — from home, my-orders tap lands on /my-orders (real history, replace overlay)', async ({
+  page,
+}) => {
+  const title = `NT-DL-HIST-01-${T}`;
+  await seedNotification(CUSTOMER_PHONE, {
+    type: 'order_accepted',
+    title,
+    body: 'Your order was accepted',
+    route: 'my-orders',
+    route_params: null,
+  });
+  await page.goto(`${APP_URL}/`);
+  await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 15000 });
+  await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+  await openBellSheet(page);
+  await page.getByRole('button', { name: title }).click();
+  await expect(page).toHaveURL(/\/my-orders/, { timeout: 15000 });
+  await expect(page.getByTestId('my-orders-screen')).toBeVisible();
+  await expect(page.getByTestId('home-screen')).not.toBeVisible();
+  await page.goBack();
+  await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 15000 });
+  await expect(page).not.toHaveURL(/\/my-orders/);
+});
+
+test('NT-DL-HIST-02 — from home, feed tap lands on /feed (real history, replace overlay)', async ({
+  page,
+}) => {
+  const title = `NT-DL-HIST-02-${T}`;
+  await seedNotification(CUSTOMER_PHONE, {
+    type: 'feed_reply',
+    title,
+    body: 'Someone replied to your post',
+    route: 'feed',
+    route_params: null,
+  });
+  await page.goto(`${APP_URL}/`);
+  await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 15000 });
+  await openBellSheet(page);
+  await page.getByRole('button', { name: title }).click();
+  await expect(page).toHaveURL(/\/feed/, { timeout: 15000 });
+  await expect(page.getByTestId('feed-screen')).toBeVisible();
+  await expect(page.getByTestId('home-screen')).not.toBeVisible();
+  await page.goBack();
+  await expect(page.getByTestId('home-screen')).toBeVisible({ timeout: 15000 });
+  await expect(page).not.toHaveURL(/\/feed/);
+});
+
 test('NT-DL-04 — Expired order notification routes to My Orders', async ({ page }) => {
   const title = `NT-DL-04-${T}`;
   await seedNotification(CUSTOMER_PHONE, {

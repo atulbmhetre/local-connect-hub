@@ -316,8 +316,8 @@ export function NotificationBell({
         void refreshUnreadCount(phone);
       }
     }
-    requestClose();
-    navigateFromNotification(navigate, n.route, n.route_params);
+    requestClose({ skipHistoryPop: true });
+    navigateFromNotification(navigate, n.route, n.route_params, { replace: true });
   };
 
   const pendingOrderCount = Math.max(0, extraCount);
@@ -589,8 +589,8 @@ export function NotificationBell({
             <button
               type="button"
               onClick={() => {
-                requestClose();
-                navigate("/vendor");
+                requestClose({ skipHistoryPop: true });
+                navigate("/vendor", { replace: true });
               }}
               className="shrink-0 mx-4 mb-4 mt-1 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-left text-xs text-foreground leading-relaxed active:opacity-90"
             >

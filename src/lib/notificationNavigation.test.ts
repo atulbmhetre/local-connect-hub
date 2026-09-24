@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   handlePushNotificationData,
+  navigateFromNotification,
   resolveRoutePath,
 } from "@/lib/notificationNavigation";
 
@@ -94,6 +95,15 @@ describe("notificationNavigation", () => {
     expect(navigate).not.toHaveBeenCalled();
     expect(captureError).toHaveBeenCalled();
     expect(captureError.mock.calls[0][1]?.reason).toBe("missing_route");
+  });
+
+  it("replaces the current history entry when replace is requested", () => {
+    const navigate = vi.fn();
+    navigateFromNotification(navigate, "my-orders", null, { replace: true });
+    expect(navigate).toHaveBeenCalledWith("/my-orders", { replace: true });
+    navigate.mockClear();
+    navigateFromNotification(navigate, "feed", null, { replace: true });
+    expect(navigate).toHaveBeenCalledWith("/feed", { replace: true });
   });
 
   it("captures and no-ops when route key is unresolvable", () => {

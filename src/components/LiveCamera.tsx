@@ -49,6 +49,17 @@ function isE2eCameraMock(): boolean {
   );
 }
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const comma = dataUrl.indexOf(",");
+  const header = comma >= 0 ? dataUrl.slice(0, comma) : "";
+  const payload = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const mime = /data:([^;]+)/.exec(header)?.[1] ?? "image/jpeg";
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
 /**
  * Live-only shop/selfie photo capture.
  * Native: Capacitor Camera plugin. Web verification: getUserMedia live preview
@@ -68,7 +79,20 @@ export const LiveCamera = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cancelledRef = useRef(false);
-  const requestClose = useOverlayBack(open, onClose, "aaspaasLiveCamera");
+  const onCaptureRef = useRef(onCapture);
+  onCaptureRef.current = onCapture;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const facingRef = useRef(facing);
+  facingRef.current = facing;
+  const requireLocationRef = useRef(requireLocation);
+  requireLocationRef.current = requireLocation;
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  const sRef = useRef(s);
+  sRef.current = s;
+
+  const requestClose = useOverlayBack(open, () => onCloseRef.current(), "aaspaasLiveCamera");
 
   const useWebLiveCapture =
     open && !isE2eCameraMock() && !Capacitor.isNativePlatform() && source === CameraSource.Camera;
@@ -79,7 +103,7 @@ export const LiveCamera = ({
   };
 
   const resolveCoords = async (): Promise<CapturedShot["coords"]> => {
-    if (!requireLocation) {
+    if (!requireLocationRef.current) {
       return { lat: 0, lng: 0, accuracy: null };
     }
     const e2eGeo =
@@ -117,30 +141,63 @@ export const LiveCamera = ({
     };
   };
 
-  const finishWithDataUrl = async (dataUrl: string) => {
+  const finishWithDataUrlRef = useRef<(dataUrl: string) => Promise<void>>(async () => {});
+  finishWithDataUrlRef.current = async (dataUrl: string) => {
     if (cancelledRef.current) return;
     const coords = await resolveCoords();
     if (cancelledRef.current) return;
-    const rawBlob = await fetch(dataUrl).then((r) => r.blob());
-    const blob = await prepareImageBlob(
-      rawBlob,
-      IMAGE_UPLOAD_MAX_EDGE_PX,
-      IMAGE_UPLOAD_MAX_BYTES,
-    );
-    const preparedDataUrl = await blobToDataUrl(blob);
-    onCapture({
+    let blob: Blob;
+    let preparedDataUrl: string;
+    if (isE2eCameraMock()) {
+      const hold = (
+        window as unknown as { __E2E_CAPTURE_HOLD__?: () => Promise<void> }
+      ).__E2E_CAPTURE_HOLD__;
+      if (hold) await hold();
+      if (cancelledRef.current) return;
+      blob = dataUrlToBlob(dataUrl);
+      preparedDataUrl = dataUrl;
+      const canUseCanvas =
+        typeof navigator !== "undefined" && !/jsdom/i.test(navigator.userAgent);
+      if (canUseCanvas) {
+        const canvas = document.createElement("canvas");
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.fillStyle = "#c0c0c0";
+          ctx.fillRect(0, 0, 64, 64);
+          const canvasBlob = await new Promise<Blob | null>((resolve) => {
+            canvas.toBlob((b) => resolve(b), "image/jpeg", 0.85);
+          });
+          if (canvasBlob && canvasBlob.size > 0) {
+            blob = canvasBlob;
+            preparedDataUrl = await blobToDataUrl(canvasBlob);
+          }
+        }
+      }
+    } else {
+      const rawBlob = await fetch(dataUrl).then((r) => r.blob());
+      blob = await prepareImageBlob(
+        rawBlob,
+        IMAGE_UPLOAD_MAX_EDGE_PX,
+        IMAGE_UPLOAD_MAX_BYTES,
+      );
+      preparedDataUrl = await blobToDataUrl(blob);
+    }
+    if (cancelledRef.current) return;
+    onCaptureRef.current({
       blob,
       dataUrl: preparedDataUrl,
       coords,
       takenAt: new Date().toISOString(),
     });
-    onClose();
+    requestClose({ skipHistoryPop: true });
   };
 
   const captureWebFrame = async () => {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0) {
-      setError(s.camera_capture_failed);
+      setError(sRef.current.camera_capture_failed);
       return;
     }
     stopWebStream();
@@ -149,17 +206,17 @@ export const LiveCamera = ({
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      setError(s.camera_capture_failed);
+      setError(sRef.current.camera_capture_failed);
       return;
     }
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
     try {
-      await finishWithDataUrl(dataUrl);
+      await finishWithDataUrlRef.current(dataUrl);
     } catch (e: unknown) {
       if (cancelledRef.current) return;
       const message = e instanceof Error ? e.message : String(e ?? "");
-      setError(message || s.camera_capture_failed);
+      setError(message || sRef.current.camera_capture_failed);
     }
   };
 
@@ -168,6 +225,7 @@ export const LiveCamera = ({
       setError(null);
       setWebReady(false);
       stopWebStream();
+      cancelledRef.current = true;
       return;
     }
     cancelledRef.current = false;
@@ -184,7 +242,7 @@ export const LiveCamera = ({
           if (Capacitor.isNativePlatform()) {
             const cam = await ensureNativePermission("camera", "explicit");
             if (!isPermissionGranted(cam)) {
-              setError(s.camera_access_failed);
+              setError(sRef.current.camera_access_failed);
               return;
             }
           }
@@ -192,18 +250,18 @@ export const LiveCamera = ({
             quality: 85,
             allowEditing: false,
             resultType: CameraResultType.DataUrl,
-            source,
-            direction: facing === "front" ? CameraDirection.Front : CameraDirection.Rear,
+            source: sourceRef.current,
+            direction: facingRef.current === "front" ? CameraDirection.Front : CameraDirection.Rear,
           });
           dataUrl = photo.dataUrl;
         }
 
         if (cancelled || cancelledRef.current) return;
         if (!dataUrl) {
-          setError(s.camera_capture_failed);
+          setError(sRef.current.camera_capture_failed);
           return;
         }
-        await finishWithDataUrl(dataUrl);
+        await finishWithDataUrlRef.current(dataUrl);
       } catch (e: unknown) {
         if (cancelled || cancelledRef.current) return;
         const message = e instanceof Error ? e.message : String(e ?? "");
@@ -212,7 +270,7 @@ export const LiveCamera = ({
           requestClose();
           return;
         }
-        setError(message || s.camera_access_failed);
+        setError(message || sRef.current.camera_access_failed);
       }
     };
 
@@ -221,7 +279,7 @@ export const LiveCamera = ({
       setWebReady(false);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facing === "front" ? "user" : "environment" },
+          video: { facingMode: facingRef.current === "front" ? "user" : "environment" },
           audio: false,
         });
         if (cancelled || cancelledRef.current) {
@@ -246,11 +304,11 @@ export const LiveCamera = ({
       } catch (e: unknown) {
         if (cancelled || cancelledRef.current) return;
         const message = e instanceof Error ? e.message : String(e ?? "");
-        setError(message || s.camera_access_failed);
+        setError(message || sRef.current.camera_access_failed);
       }
     };
 
-    if (isE2eCameraMock() || Capacitor.isNativePlatform() || source !== CameraSource.Camera) {
+    if (isE2eCameraMock() || Capacitor.isNativePlatform() || sourceRef.current !== CameraSource.Camera) {
       void launchPluginCamera();
     } else {
       void startWebLive();
@@ -261,9 +319,9 @@ export const LiveCamera = ({
       cancelledRef.current = true;
       stopWebStream();
     };
-    // finishWithDataUrl / s are stable enough for this open-gated effect.
+    // Session is open-gated. Callback/string identity must not abort an in-flight capture.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- relaunch only when the capture session opens
-  }, [open, onCapture, onClose, facing, requireLocation, source, s]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -284,7 +342,7 @@ export const LiveCamera = ({
             )}
             <button
               type="button"
-              onClick={requestClose}
+              onClick={() => requestClose()}
               className="w-full rounded-xl border border-white/20 px-4 h-10 text-sm font-semibold"
             >
               {s.camera_cancel}

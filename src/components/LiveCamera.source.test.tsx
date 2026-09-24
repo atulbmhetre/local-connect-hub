@@ -1,4 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { useState } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CameraSource } from "@capacitor/camera";
 
@@ -49,17 +50,26 @@ vi.mock("@/lib/prepareImageBlob", () => ({
   IMAGE_UPLOAD_MAX_BYTES: 5_242_880,
 }));
 
-import { LiveCamera } from "@/components/LiveCamera";
+import { prepareImageBlob } from "@/lib/prepareImageBlob";
+import { LiveCamera, type CapturedShot } from "@/components/LiveCamera";
 
 describe("LiveCamera source", () => {
   beforeEach(() => {
     getPhotoMock.mockClear();
     isNativeMock.mockReturnValue(true);
     getUserMediaMock.mockReset();
+    delete (window as unknown as { __E2E_MOCK_CAMERA__?: boolean }).__E2E_MOCK_CAMERA__;
+    vi.mocked(prepareImageBlob).mockImplementation(async (blob: Blob) => blob);
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
       value: { getUserMedia: getUserMediaMock },
     });
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { __E2E_MOCK_CAMERA__?: boolean }).__E2E_MOCK_CAMERA__;
+    delete (window as unknown as { __E2E_CAPTURE_HOLD__?: () => Promise<void> }).__E2E_CAPTURE_HOLD__;
+    vi.unstubAllGlobals();
   });
 
   it("keeps verification captures camera-only by default", async () => {
@@ -103,5 +113,93 @@ describe("LiveCamera source", () => {
     expect(screen.getByTestId("live-camera-web-shutter")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /gallery|upload|choose file/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "cancel" }));
+  });
+
+  it("still delivers the mock capture after an unrelated parent re-render mid-flight", async () => {
+    isNativeMock.mockReturnValue(false);
+    (window as unknown as { __E2E_MOCK_CAMERA__?: boolean }).__E2E_MOCK_CAMERA__ = true;
+
+    let releasePrep!: () => void;
+    const prepGate = new Promise<void>((resolve) => {
+      releasePrep = resolve;
+    });
+    let holdEntered = false;
+    (window as unknown as { __E2E_CAPTURE_HOLD__?: () => Promise<void> }).__E2E_CAPTURE_HOLD__ =
+      async () => {
+        holdEntered = true;
+        await prepGate;
+      };
+
+    function Parent() {
+      const [tick, setTick] = useState(0);
+      const [shot, setShot] = useState<CapturedShot | null>(null);
+      const [open, setOpen] = useState(true);
+      return (
+        <div>
+          <button type="button" onClick={() => setTick((n) => n + 1)}>
+            bump-{tick}
+          </button>
+          <LiveCamera
+            open={open}
+            onClose={() => setOpen(false)}
+            onCapture={(next) => setShot(next)}
+            requireLocation={false}
+          />
+          {shot ? <span data-testid="captured-blob-size">{String(shot.blob.size)}</span> : null}
+        </div>
+      );
+    }
+
+    render(<Parent />);
+    await vi.waitFor(() => expect(holdEntered).toBe(true));
+    fireEvent.click(screen.getByText("bump-0"));
+    expect(screen.getByText("bump-1")).toBeInTheDocument();
+    releasePrep();
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("captured-blob-size")).toBeInTheDocument();
+    });
+  });
+
+  it("aborts an in-flight capture when the user closes the camera before it finishes", async () => {
+    isNativeMock.mockReturnValue(false);
+    (window as unknown as { __E2E_MOCK_CAMERA__?: boolean }).__E2E_MOCK_CAMERA__ = true;
+
+    let releasePrep!: () => void;
+    const prepGate = new Promise<void>((resolve) => {
+      releasePrep = resolve;
+    });
+    let holdEntered = false;
+    (window as unknown as { __E2E_CAPTURE_HOLD__?: () => Promise<void> }).__E2E_CAPTURE_HOLD__ =
+      async () => {
+        holdEntered = true;
+        await prepGate;
+      };
+
+    const onCapture = vi.fn();
+    function Parent() {
+      const [open, setOpen] = useState(true);
+      return (
+        <div>
+          <button type="button" onClick={() => setOpen(false)}>
+            user-cancel
+          </button>
+          <LiveCamera
+            open={open}
+            onClose={() => setOpen(false)}
+            onCapture={onCapture}
+            requireLocation={false}
+          />
+        </div>
+      );
+    }
+
+    render(<Parent />);
+    await vi.waitFor(() => expect(holdEntered).toBe(true));
+    expect(onCapture).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("user-cancel"));
+    releasePrep();
+    await prepGate;
+    await Promise.resolve();
+    expect(onCapture).not.toHaveBeenCalled();
   });
 });

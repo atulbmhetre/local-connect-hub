@@ -24,63 +24,76 @@ export function isKnownNotificationRoute(route: string | null | undefined): bool
 
 export type NotificationRouteParams = Record<string, string> | null | undefined;
 
+export type NotificationNavigateOptions = {
+  /** Replace the current history entry (overlay dummy pushState) instead of stacking. */
+  replace?: boolean;
+};
+
 export function navigateFromNotification(
   navigate: NavigateFunction,
   route: string | null | undefined,
   routeParams?: NotificationRouteParams,
+  options?: NotificationNavigateOptions,
 ): void {
   const path = resolveRoutePath(route);
   const key = route?.trim().replace(/^\//, "") ?? "";
   const params = routeParams ?? {};
+  const replace = options?.replace === true;
+
+  const go = (to: string, state?: object) => {
+    if (replace) {
+      navigate(to, state !== undefined ? { replace: true, state } : { replace: true });
+      return;
+    }
+    if (state !== undefined) {
+      navigate(to, { state });
+      return;
+    }
+    navigate(to);
+  };
 
   if (key === "my-orders" && params.order_id) {
-    navigate(path, { state: { highlightOrderId: params.order_id } });
+    go(path, { highlightOrderId: params.order_id });
     return;
   }
   if ((key === "my-orders" || key === "orders") && params.request_id) {
-    navigate(path, { state: { highlightOrderId: params.request_id } });
+    go(path, { highlightOrderId: params.request_id });
     return;
   }
   if (key === "vendor" && params.order_id) {
-    navigate(path, { state: { highlightOrderId: params.order_id } });
+    go(path, { highlightOrderId: params.order_id });
     return;
   }
   if (key === "vendor" && params.vendor_id) {
-    navigate(path, { state: { highlightVendorId: params.vendor_id } });
+    go(path, { highlightVendorId: params.vendor_id });
     return;
   }
   if (key === "settings" && params.vendor_id) {
-    navigate(path, {
-      state: {
-        highlightVendorId: params.vendor_id,
-        ...(params.open_reviews === "1" || params.open_reviews === "true"
-          ? { vendorSettingsTab: "preferences", openVendorReviews: true }
-          : {}),
-      },
+    go(path, {
+      highlightVendorId: params.vendor_id,
+      ...(params.open_reviews === "1" || params.open_reviews === "true"
+        ? { vendorSettingsTab: "preferences", openVendorReviews: true }
+        : {}),
     });
     return;
   }
   if (key === "settings" && (params.open_reviews === "1" || params.open_reviews === "true")) {
-    navigate(path, {
-      state: { vendorSettingsTab: "preferences", openVendorReviews: true },
-    });
+    go(path, { vendorSettingsTab: "preferences", openVendorReviews: true });
     return;
   }
   if (key === "feed") {
-    navigate(path, {
-      state: params.post_id ? { highlightPostId: params.post_id } : undefined,
-    });
+    go(path, params.post_id ? { highlightPostId: params.post_id } : undefined);
     return;
   }
   if (key === "radar" && params.vendor_id) {
-    navigate(path, { state: { highlightVendorId: params.vendor_id } });
+    go(path, { highlightVendorId: params.vendor_id });
     return;
   }
   if (key === "vendor") {
-    navigate(path);
+    go(path);
     return;
   }
-  navigate(path);
+  go(path);
 }
 
 export function parsePushRouteParams(

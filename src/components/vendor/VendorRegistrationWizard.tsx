@@ -733,12 +733,17 @@ export function VendorRegistrationWizard({
     setUpiQrUploading(false);
   };
 
-  const handleSelfieCapture = (shot: CapturedShot) => {
-    setSelfieCameraOpen(false);
-    setSelfieBlob(shot.blob);
-    setSelfieDataUrl(shot.dataUrl);
-    toast.success(s.vendor_selfie_captured);
-  };
+  const closeSelfieCamera = useCallback(() => setSelfieCameraOpen(false), []);
+
+  const handleSelfieCapture = useCallback(
+    (shot: CapturedShot) => {
+      setSelfieCameraOpen(false);
+      setSelfieBlob(shot.blob);
+      setSelfieDataUrl(shot.dataUrl);
+      toast.success(s.vendor_selfie_captured);
+    },
+    [s.vendor_selfie_captured],
+  );
 
   const acceptShopPhoto = (
     shot: CapturedShot,
@@ -2141,7 +2146,7 @@ export function VendorRegistrationWizard({
 
       <LiveCamera
         open={selfieCameraOpen}
-        onClose={() => setSelfieCameraOpen(false)}
+        onClose={closeSelfieCamera}
         onCapture={handleSelfieCapture}
         facing="front"
         requireLocation={false}
